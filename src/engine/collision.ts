@@ -89,3 +89,23 @@ export function floorAt(boxes: WalkBox[], x: number, z: number, currentY: number
   }
   return best;
 }
+
+/**
+ * Highest walkbox floor at (x,z) ignoring the step/drop window — used to
+ * recover a player whose y has drifted away from any acceptable floor.
+ */
+export function floorAtAny(boxes: WalkBox[], x: number, z: number): number | null {
+  let best: number | null = null;
+  for (const b of boxes) {
+    if (x < b.minX || x > b.maxX || z < b.minZ || z > b.maxZ) continue;
+    let y = b.y;
+    if (b.ramp) {
+      const t = b.ramp.axis === 'x'
+        ? (x - b.minX) / (b.maxX - b.minX)
+        : (z - b.minZ) / (b.maxZ - b.minZ);
+      y = b.ramp.y0 + (b.ramp.y1 - b.ramp.y0) * Math.max(0, Math.min(1, t));
+    }
+    if (best === null || y > best) best = y;
+  }
+  return best;
+}

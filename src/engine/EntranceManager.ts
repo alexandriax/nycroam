@@ -107,9 +107,9 @@ export class EntranceManager {
   private placed = new Map<number, PlacedEntrance>();
   private placeRadius = 420;
   private timer = 0;
-  private eject: ((x: number, z: number) => [number, number]) | null;
+  private eject: ((x: number, z: number) => [number, number] | null) | null;
 
-  constructor(scene: THREE.Scene, eject: ((x: number, z: number) => [number, number]) | null = null) {
+  constructor(scene: THREE.Scene, eject: ((x: number, z: number) => [number, number] | null) | null = null) {
     this.scene = scene;
     this.eject = eject;
   }
@@ -181,11 +181,28 @@ export class EntranceManager {
         // out of any footprint so it lands visibly on the sidewalk
         let pos: [number, number] = [e.pos[0], e.pos[1]];
         if (this.eject) {
-          for (let k = 0; k < 3; k++) pos = this.eject(pos[0], pos[1]);
+          let deferred = false;
+          for (let k = 0; k < 4; k++) {
+            const adj = this.eject(pos[0], pos[1]);
+            if (adj === null) { deferred = true; break; } // tile not resident yet — retry next cycle
+            pos = adj;
+          }
+          if (deferred) continue;
         }
         const group = mergeByMaterial(buildEntranceKit(station.routes, kind, station.name));
-        group.position.set(pos[0], heightAt(pos[0], pos[1]) + 0.02, pos[1]);
-        group.rotation.y = Math.floor(hash01(i * 31 + 7) * 4) * (Math.PI / 2);
+        // sink slightly so the flat base tucks into sloping sidewalks
+        group.position.set(pos[0], heightAt(pos[0], pos[1]) - 0.12, pos[1]);
+        // if the kit was ejected out of a building, run the stairs PARALLEL
+        // to that building line (perpendicular to the ejection direction) so
+        // no part of the kit swings back into the facade; otherwise vary
+        // orientation by hash
+        const ejx = pos[0] - e.pos[0], ejz = pos[1] - e.pos[1];
+        if (Math.hypot(ejx, ejz) > 0.05) {
+          const toward = Math.atan2(ejx, ejz); // rotation.y aligning local +z with ejection dir
+          group.rotation.y = toward + (hash01(i * 31 + 7) < 0.5 ? Math.PI / 2 : -Math.PI / 2);
+        } else {
+          group.rotation.y = Math.floor(hash01(i * 31 + 7) * 4) * (Math.PI / 2);
+        }
         const beacon = makeBeacon();
         beacon.position.set(0, 3.1, 0);
         group.add(beacon);

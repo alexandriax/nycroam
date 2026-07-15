@@ -477,10 +477,11 @@ export class StationWorld {
       stair.rotation.y = Math.PI / 2;
       stair.position.set(s.x + stairRun, 0, s.z);
       root.add(stair);
-      // ramp extends past the floor-hole padding so the top meets the mezz floor
+      // ramp walkbox covers the ENTIRE floor opening (padding included) so
+      // there is no dead strip where no floor accepts the player
       this.walkBoxes.push({
-        minX: s.x - 0.45, maxX: s.x + stairRun,
-        minZ: s.z - stairW / 2, maxZ: s.z + stairW / 2,
+        minX: s.x - 0.45, maxX: s.x + stairRun + 0.4,
+        minZ: s.z - stairW / 2 - 0.3, maxZ: s.z + stairW / 2 + 0.3,
         y: 0,
         ramp: { axis: 'x', y0: MEZZ_Y, y1: 0 },
       });
@@ -517,8 +518,8 @@ export class StationWorld {
       stair.position.set(exX, MEZZ_Y, ez);
       root.add(stair);
       this.walkBoxes.push({
-        minX: exTop, maxX: exX + 0.45,
-        minZ: ez - stairW / 2, maxZ: ez + stairW / 2,
+        minX: exTop - 0.45, maxX: exX + 0.45,
+        minZ: ez - stairW / 2 - 0.3, maxZ: ez + stairW / 2 + 0.3,
         y: MEZZ_Y,
         ramp: { axis: 'x', y0: MEZZ_Y + 3.2, y1: MEZZ_Y },
       });
@@ -539,8 +540,21 @@ export class StationWorld {
       root.add(sign);
     }
 
-    // spawn: on mezzanine just inside fare control
-    this.spawn.set(fcX + 4, MEZZ_Y, 0);
+    // spawn: on mezzanine just inside fare control. The candidate spot may
+    // land inside a stairwell floor hole (it did at Grand Central — the
+    // player spawned hovering over the platform stairs, unable to move), so
+    // scan z offsets until the spot is solid mezzanine floor.
+    {
+      const sx = fcX + 4;
+      let sz = 0;
+      for (const cand of [0, 2.6, -2.6, 3.6, -3.6, 5, -5]) {
+        const onMezz = this.walkBoxes.some((b) =>
+          !b.ramp && b.y === MEZZ_Y &&
+          sx >= b.minX && sx <= b.maxX && cand >= b.minZ && cand <= b.maxZ);
+        if (onMezz) { sz = cand; break; }
+      }
+      this.spawn.set(sx, MEZZ_Y, sz);
+    }
 
     // ---- track info for the train scheduler ----
     const isSidePass = spec.layout.type === 'side' && spec.layout.passTracks > 0 && cs.tracks.length > 2;

@@ -91,6 +91,24 @@ export class TileManager {
     return { loaded, pending: this.queue.length + this.inFlight.size, total: this.known.size };
   }
 
+  /**
+   * True once every tile around (x,z) that CAN hold data (per the manifest)
+   * has integrated — i.e. collisionNear() coverage is complete here. Tiles
+   * absent from the manifest never load and count as ready.
+   */
+  readyAround(x: number, z: number): boolean {
+    const tx = Math.floor(x / TILE_SIZE), tz = Math.floor(z / TILE_SIZE);
+    for (let dx = -1; dx <= 1; dx++) {
+      for (let dz = -1; dz <= 1; dz++) {
+        const key = tileKey(tx + dx, tz + dz);
+        if (!this.known.has(key)) continue;
+        const r = this.records.get(key);
+        if (!r || (r.state !== 'ready' && r.state !== 'empty')) return false;
+      }
+    }
+    return true;
+  }
+
   /** Collision rings for tiles near a point (the tile containing it + 8 neighbors). */
   collisionNear(x: number, z: number): CollisionData[] {
     const tx = Math.floor(x / TILE_SIZE), tz = Math.floor(z / TILE_SIZE);

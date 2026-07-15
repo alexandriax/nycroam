@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import { TileManager } from './TileManager';
 import { PlayerControls } from './controls';
-import { resolveBuildingCollision, floorAt } from './collision';
+import { resolveBuildingCollision, floorAt, floorAtAny } from './collision';
 import { setupSky, setupLights, followSun, SKY } from './sky';
 import { quality } from './quality';
 import { makeSkylineMaterial, makeFlatMaterial, makeWaterMaterial } from './materials';
@@ -115,13 +115,14 @@ export class World {
     this.tiles = new TileManager(this.streetScene, this.isMobile ? 2 : 3);
     this.tiles.loadRadius = loadRadius;
     this.tiles.unloadRadius = this.tiles.loadRadius + 300;
-    this.entrances = new EntranceManager(this.streetScene, (x, z) =>
-      resolveBuildingCollision(x, z, 3.2, this.tiles.collisionNear(x, z)));
+    this.entrances = new EntranceManager(this.streetScene, (x, z) => {
+      if (!this.tiles.readyAround(x, z)) return null; // wait for building collision before placing
+      return resolveBuildingCollision(x, z, 4.2, this.tiles.collisionNear(x, z));
+    });
 
     this.controls = new PlayerControls(canvas);
     this.controls.onToggleFly = () => {
-      this.controls.fly = !this.controls.fly;
-      if (this.mode === 'station') this.controls.fly = false;
+      this.controls.fly = !this.controls.fly; // allowed everywhere (rescue hatch in stations)
     };
     this.controls.onAction = () => this.tryAction();
 
@@ -502,8 +503,36 @@ export class World {
         this.atEndSince = 0;
       }
     } else if (this.station) {
-      // station movement: only onto walkable floors
       const st = this.station;
+      if (this.controls.fly) {
+        // free flight inside the station: escape hatch if footing is ever lost
+        this.flyTarget.set(
+          (fwd.x * input.forward + right.x * input.strafe) * 7,
+          input.up * 5,
+          (fwd.z * input.forward + right.z * input.strafe) * 7,
+        );
+        this.flyVel.lerp(this.flyTarget, 1 - Math.exp(-dt * 3.5));
+        this.pos.x += this.flyVel.x * dt;
+        this.pos.z += this.flyVel.z * dt;
+        this.pos.y = Math.max(-1.4, Math.min(14, this.pos.y + this.flyVel.y * dt));
+      } else {
+      // footing recovery: if no walkbox accepts the current spot (hovering
+      // over a stairwell, y drifted out of the step window, geometry gap),
+      // settle onto whatever floor actually exists here; if none, drift back
+      // toward the spawn until solid floor returns
+      if (floorAt(st.walkBoxes, this.pos.x, this.pos.z, this.pos.y) === null) {
+        const anyFloor = floorAtAny(st.walkBoxes, this.pos.x, this.pos.z);
+        if (anyFloor !== null) {
+          this.pos.y += (anyFloor - this.pos.y) * Math.min(1, dt * 6);
+        } else {
+          const rdx = st.spawn.x - this.pos.x, rdz = st.spawn.z - this.pos.z;
+          const rd = Math.hypot(rdx, rdz) || 1;
+          this.pos.x += (rdx / rd) * dt * 3;
+          this.pos.z += (rdz / rd) * dt * 3;
+          this.pos.y += (st.spawn.y - this.pos.y) * Math.min(1, dt * 3);
+        }
+      }
+      // station movement: only onto walkable floors
       const tryMove = (mx: number, mz: number): boolean => {
         const f = floorAt(st.walkBoxes, this.pos.x + mx, this.pos.z + mz, this.pos.y);
         if (f !== null) {
@@ -515,6 +544,7 @@ export class World {
         return false;
       };
       if (!tryMove(dx, dz)) { if (!tryMove(dx, 0)) tryMove(0, dz); }
+      }
       st.update(dt);
       this.scheduler?.update(dt);
 

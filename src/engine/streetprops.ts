@@ -298,14 +298,19 @@ export function buildEntranceKit(routes: string[], kind: string, name: string): 
   group.add(postRight);
 
   const signTexture = makeEntranceSignTexture(routes);
+  // two front-facing panels back-to-back: the text reads correctly (not
+  // mirrored) from either approach direction
   const signMaterial = new THREE.MeshLambertMaterial({
     map: signTexture,
     color: '#ffffff',
-    side: THREE.DoubleSide,
   });
   const signPanel = new THREE.Mesh(new THREE.PlaneGeometry(2.0, 0.42), signMaterial);
-  signPanel.position.set(0, signCenterY, signZ);
+  signPanel.position.set(0, signCenterY, signZ + 0.012);
   group.add(signPanel);
+  const signBack = new THREE.Mesh(new THREE.PlaneGeometry(2.0, 0.42), signMaterial);
+  signBack.position.set(0, signCenterY, signZ - 0.012);
+  signBack.rotation.y = Math.PI;
+  group.add(signBack);
 
   return group;
 }
