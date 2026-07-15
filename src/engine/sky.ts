@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { quality } from './quality';
+import { makeCloudTexture } from './textures';
 
 export const SKY = {
   zenith: new THREE.Color('#6ea3d8'),
@@ -49,6 +50,27 @@ export function setupSky(scene: THREE.Scene, loadRadius: number, farPlane: numbe
   dome.frustumCulled = false;
   dome.renderOrder = -10;
   scene.add(dome);
+
+  // cloud billboards ride with the dome (which follows the camera)
+  const rng = (n: number) => {
+    const s = Math.sin(n * 127.1 + 311.7) * 43758.5453;
+    return s - Math.floor(s);
+  };
+  const cloudCount = quality().clouds;
+  for (let i = 0; i < cloudCount; i++) {
+    const tex = makeCloudTexture(i % 5);
+    const w = 700 + rng(i * 3 + 1) * 900;
+    const cmat = new THREE.MeshBasicMaterial({
+      map: tex, transparent: true, depthWrite: false, fog: false, opacity: 0.85,
+    });
+    const cloud = new THREE.Mesh(new THREE.PlaneGeometry(w, w * 0.42), cmat);
+    const ang = rng(i * 7 + 2) * Math.PI * 2;
+    const dist = farPlane * (0.35 + rng(i * 11 + 3) * 0.45);
+    cloud.position.set(Math.cos(ang) * dist, 550 + rng(i * 13 + 4) * 650, Math.sin(ang) * dist);
+    cloud.lookAt(0, cloud.position.y * 0.35, 0);
+    cloud.renderOrder = -9;
+    dome.add(cloud);
+  }
   return dome;
 }
 

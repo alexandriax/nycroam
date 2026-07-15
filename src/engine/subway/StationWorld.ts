@@ -1,9 +1,11 @@
 import * as THREE from 'three';
 import type { StationSpec, TrackInfo } from './types';
 import {
-  makeWallTexture, makeNameMosaicTexture, makeHangingSignTexture,
+  makeNameMosaicTexture, makeHangingSignTexture,
   makeColumnSignTexture, makeExitSignTexture,
 } from './signage';
+import { makeSubwayWallTexture, makeTerrazzoTexture } from '../textures';
+import { makeWorldDetailMaterial } from '../materials';
 import {
   buildTurnstileRow, buildBooth, buildBench, buildTrashCan, buildRotogate,
   buildStairs, buildPillar, buildMetroCardMachine, buildRailing,
@@ -148,13 +150,26 @@ export class StationWorld {
     this.scene.add(root);
 
     // ---- materials ----
-    const wallTex = this.track(makeWallTexture(spec.layout.bandColor));
+    // glossy tiled walls: procedural tile+grime texture, low roughness so the
+    // scene env-map gives the classic subway sheen
+    const wallKit = makeSubwayWallTexture(spec.layout.bandColor);
+    const wallTex = wallKit.map.clone();
+    this.track(wallTex);
     wallTex.repeat.set(Math.ceil(L / 7), 1);
-    const wallMat = this.track(new THREE.MeshLambertMaterial({ map: wallTex }));
-    const wallEndTex = this.track(makeWallTexture(spec.layout.bandColor));
+    const wallNrm = wallKit.normal.clone();
+    this.track(wallNrm);
+    wallNrm.repeat.set(Math.ceil(L / 7), 1);
+    const wallMat = this.track(new THREE.MeshStandardMaterial({
+      map: wallTex, normalMap: wallNrm, roughness: 0.36, metalness: 0.03,
+    }));
+    const wallEndTex = wallKit.map.clone();
+    this.track(wallEndTex);
     wallEndTex.repeat.set(Math.ceil(W / 7), 1);
-    const wallEndMat = this.track(new THREE.MeshLambertMaterial({ map: wallEndTex }));
-    const platMat = this.track(new THREE.MeshLambertMaterial({ color: 0x8f8f8c }));
+    const wallEndMat = this.track(new THREE.MeshStandardMaterial({
+      map: wallEndTex, roughness: 0.36, metalness: 0.03,
+    }));
+    const terrazzo = makeTerrazzoTexture();
+    const platMat = this.track(makeWorldDetailMaterial(0xa8a49a, terrazzo.map, 2, 0.85));
     const platSideMat = this.track(new THREE.MeshLambertMaterial({ color: 0x5c5c58 }));
     const ceilMat = this.track(new THREE.MeshLambertMaterial({ color: 0xb8b6ae }));
     const beamMat = this.track(new THREE.MeshLambertMaterial({ color: 0x4a5548 }));
@@ -164,7 +179,7 @@ export class StationWorld {
     const yellowMat = this.track(new THREE.MeshLambertMaterial({ color: 0xf2c53d }));
     const darkMat = this.track(new THREE.MeshBasicMaterial({ color: 0x020304 }));
     const lightMat = this.track(new THREE.MeshBasicMaterial({ color: 0xfff6e0 }));
-    const mezzFloorMat = this.track(new THREE.MeshLambertMaterial({ color: 0x9b9891 }));
+    const mezzFloorMat = this.track(makeWorldDetailMaterial(0xaaa69b, terrazzo.map, 2, 0.85));
 
     // ---- track troughs + rails ----
     for (const tz of cs.tracks) {
@@ -402,9 +417,12 @@ export class StationWorld {
       if (w < 0.05 || d < 0.05) continue;
       this.box(w, 0.15, d, ceilMat, (r.minX + r.maxX) / 2, MEZZ_CEIL + 0.07, (r.minZ + r.maxZ) / 2, root);
     }
-    const mezzWallTex = this.track(makeWallTexture(spec.layout.bandColor));
+    const mezzWallTex = wallKit.map.clone();
+    this.track(mezzWallTex);
     mezzWallTex.repeat.set(Math.ceil(mezzLen / 7), 1);
-    const mezzWallMat = this.track(new THREE.MeshLambertMaterial({ map: mezzWallTex }));
+    const mezzWallMat = this.track(new THREE.MeshStandardMaterial({
+      map: mezzWallTex, roughness: 0.36, metalness: 0.03,
+    }));
     for (const side of [-1, 1]) {
       const wall = new THREE.Mesh(this.track(new THREE.PlaneGeometry(mezzLen, MEZZ_CEIL - MEZZ_Y)), mezzWallMat);
       wall.position.set(0, (MEZZ_Y + MEZZ_CEIL) / 2, side * (mezzW / 2));

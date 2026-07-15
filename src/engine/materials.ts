@@ -1,4 +1,8 @@
 import * as THREE from 'three';
+import {
+  makeAsphaltTexture, makeSidewalkTexture, makeBrickTexture, makeRoofTexture,
+  makeGrassDetailTexture, makeBarkTexture,
+} from './textures';
 
 /**
  * Facade material: Lambert + injected procedural window grid on vertical faces.
@@ -7,7 +11,11 @@ import * as THREE from 'three';
  */
 export function makeFacadeMaterial(): THREE.MeshLambertMaterial {
   const mat = new THREE.MeshLambertMaterial({ vertexColors: true });
+  const brick = makeBrickTexture('red');
+  const roof = makeRoofTexture();
   mat.onBeforeCompile = (shader) => {
+    shader.uniforms.uBrick = { value: brick.map };
+    shader.uniforms.uRoof = { value: roof.map };
     shader.vertexShader = shader.vertexShader
       .replace(
         '#include <common>',
@@ -31,6 +39,8 @@ export function makeFacadeMaterial(): THREE.MeshLambertMaterial {
         varying vec3 vWPos;
         varying vec3 vWNormal;
         varying float vStyle;
+        uniform sampler2D uBrick;
+        uniform sampler2D uRoof;
         float bhash(vec2 p) {
           return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453);
         }`
@@ -70,6 +80,11 @@ export function makeFacadeMaterial(): THREE.MeshLambertMaterial {
                 inY = step(0.05, f.y) * (1.0 - step(0.75, f.y));
               }
               float win = inX * inY;
+              // masonry surface detail between the windows (brightness only,
+              // so each building keeps its palette color)
+              vec3 bt = texture2D(uBrick, vec2(u, v) / 2.4).rgb;
+              float bl = dot(bt, vec3(0.333)) * 1.75;
+              diffuseColor.rgb *= mix(1.0, bl, 0.34 * (1.0 - win));
               vec3 glass = mix(vec3(0.13, 0.16, 0.2), vec3(0.38, 0.44, 0.52), rnd * rnd);
               if (storefront) glass = mix(vec3(0.1, 0.11, 0.13), vec3(0.3, 0.28, 0.24), rnd);
               // window inset: lintel shadow at the top of the opening, darker jambs
@@ -83,6 +98,10 @@ export function makeFacadeMaterial(): THREE.MeshLambertMaterial {
             }
             // grounding gradient: subtle darkening near street
             diffuseColor.rgb *= 0.86 + 0.14 * clamp(v / 7.0, 0.0, 1.0);
+          } else if (wn.y > 0.55) {
+            // roofs: ballast gravel, worldspace projected
+            vec3 rt = texture2D(uRoof, vWPos.xz / 4.0).rgb;
+            diffuseColor.rgb *= mix(vec3(1.0), rt * 1.9, 0.55);
           }
         }`
       );
@@ -90,20 +109,94 @@ export function makeFacadeMaterial(): THREE.MeshLambertMaterial {
   return mat;
 }
 
-/** Flat layer (areas/ground): plain vertex-colored lambert. */
+/** Flat layer (areas/ground): vertex colors modulated by worldspace mottle. */
 export function makeFlatMaterial(): THREE.MeshLambertMaterial {
-  return new THREE.MeshLambertMaterial({ vertexColors: true });
+  const mat = new THREE.MeshLambertMaterial({ vertexColors: true });
+  const detail = makeGrassDetailTexture();
+  mat.onBeforeCompile = (shader) => {
+    shader.uniforms.uDetail = { value: detail };
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', '#include <common>\nvarying vec2 vGXZ;')
+      .replace(
+        '#include <worldpos_vertex>',
+        `#include <worldpos_vertex>
+        vGXZ = (modelMatrix * vec4(transformed, 1.0)).xz;`
+      );
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <common>', '#include <common>\nvarying vec2 vGXZ;\nuniform sampler2D uDetail;')
+      .replace(
+        '#include <color_fragment>',
+        `#include <color_fragment>
+        {
+          vec3 d1 = texture2D(uDetail, vGXZ / 6.0).rgb;
+          vec3 d2 = texture2D(uDetail, vGXZ / 41.0).rgb; // second octave breaks tiling
+          diffuseColor.rgb *= mix(vec3(1.0), d1 * d2 * 1.85, 0.6);
+        }`
+      );
+  };
+  return mat;
 }
 
-/** Asphalt roadbed. Texture maps plug in via setRoadTextures once generated. */
+/** Asphalt roadbed with aggregate normal detail (UVs from the worker). */
 export function makeRoadMaterial(): THREE.MeshLambertMaterial {
-  return new THREE.MeshLambertMaterial({ vertexColors: true, color: 0x2e3033 });
+  const t = makeAsphaltTexture();
+  const mat = new THREE.MeshLambertMaterial({
+    vertexColors: true,
+    color: 0x8a8d92, // texture carries most of the tone; vertex colors tint per class
+    map: t.map,
+    normalMap: t.normal,
+  });
+  mat.normalScale = new THREE.Vector2(0.7, 0.7);
+  return mat;
 }
 
-/** Poured-concrete walks/paths. */
+/** Poured-concrete walks with score joints. */
 export function makeWalkMaterial(): THREE.MeshLambertMaterial {
-  return new THREE.MeshLambertMaterial({ vertexColors: true, color: 0x9fa09b });
+  const t = makeSidewalkTexture();
+  const mat = new THREE.MeshLambertMaterial({
+    vertexColors: true,
+    color: 0xb8b6af,
+    map: t.map,
+    normalMap: t.normal,
+  });
+  mat.normalScale = new THREE.Vector2(0.8, 0.8);
+  return mat;
 }
+
+/**
+ * Lambert with a worldspace-projected detail map (for floors/slabs that share
+ * one material across many differently-sized boxes, where per-face UVs stretch).
+ */
+export function makeWorldDetailMaterial(
+  color: THREE.ColorRepresentation,
+  detail: THREE.Texture,
+  metersPerRepeat: number,
+  amount = 0.75,
+): THREE.MeshLambertMaterial {
+  const mat = new THREE.MeshLambertMaterial({ color });
+  mat.onBeforeCompile = (shader) => {
+    shader.uniforms.uDetail = { value: detail };
+    shader.uniforms.uScale = { value: 1 / metersPerRepeat };
+    shader.uniforms.uAmt = { value: amount };
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', '#include <common>\nvarying vec2 vDXZ;')
+      .replace(
+        '#include <worldpos_vertex>',
+        `#include <worldpos_vertex>
+        vDXZ = (modelMatrix * vec4(transformed, 1.0)).xz;`
+      );
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <common>', '#include <common>\nvarying vec2 vDXZ;\nuniform sampler2D uDetail;\nuniform float uScale;\nuniform float uAmt;')
+      .replace(
+        '#include <color_fragment>',
+        `#include <color_fragment>
+        diffuseColor.rgb *= mix(vec3(1.0), texture2D(uDetail, vDXZ * uScale).rgb * 1.28, uAmt);`
+      );
+  };
+  return mat;
+}
+
+export const barkTexture = makeBarkTexture;
 
 /** Painted lane lines / crosswalk bars: slightly emissive so they pop in shade. */
 export function makeMarkingsMaterial(): THREE.MeshLambertMaterial {
@@ -145,7 +238,12 @@ export function makeSkylineMaterial(skyColor: THREE.Color): THREE.MeshLambertMat
   return mat;
 }
 
-export const treeTrunkMaterial = () => new THREE.MeshLambertMaterial({ color: 0x5d4630 });
+export const treeTrunkMaterial = () => {
+  const t = makeBarkTexture();
+  const mat = new THREE.MeshLambertMaterial({ color: 0xcbb59a, map: t.map, normalMap: t.normal });
+  mat.normalScale = new THREE.Vector2(0.9, 0.9);
+  return mat;
+};
 export const treeCanopyMaterial = () => new THREE.MeshLambertMaterial({ color: 0x4d7a45 });
 
 /**
