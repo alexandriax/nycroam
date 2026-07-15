@@ -123,6 +123,12 @@ export class TrainScheduler {
     } else {
       train.setTravel(-portal - bb.max.x, -(bb.min.x + bb.max.x) / 2, portal - bb.min.x);
     }
+    train.group.traverse((o) => {
+      if (o instanceof THREE.Mesh || o instanceof THREE.InstancedMesh) {
+        o.castShadow = true;
+        o.receiveShadow = true;
+      }
+    });
     this.scene.add(train.group);
     s.train = train;
     s.trainAge = 0;

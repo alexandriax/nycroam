@@ -5,6 +5,7 @@ import type { ExitZone } from './StationWorld';
 import { makeHangingSignTexture, makeColumnSignTexture, makeExitSignTexture } from './signage';
 import { buildBench, buildTrashCan, buildRailing, buildStairs, buildTurnstileRow, buildBooth } from './props';
 import type { WalkBox } from '../collision';
+import { quality } from '../quality';
 
 const RAIL_Y = 8.2;
 const PLAT_Y = 9.3;
@@ -30,11 +31,30 @@ export class ElevatedStationWorld {
     this.scene = new THREE.Scene();
     this.scene.background = new THREE.Color('#a9c6e2');
     if (env) { this.scene.environment = env; this.scene.environmentIntensity = 0.5; }
-    const hemi = new THREE.HemisphereLight(0xdfe9f5, 0x8a8478, 1.2);
-    const sun = new THREE.DirectionalLight(0xfff2dd, 1.8);
-    sun.position.set(-300, 500, -200);
-    this.scene.add(hemi, sun);
+    const q = quality();
+    const hemi = new THREE.HemisphereLight(0xdfe9f5, 0x8a8478, q.shadows ? 0.9 : 1.2);
+    const sun = new THREE.DirectionalLight(0xfff2dd, q.shadows ? 2.4 : 1.8);
+    sun.position.set(-140, 220, -95);
+    this.scene.add(hemi, sun, sun.target);
     this.build(spec);
+    if (q.shadows) {
+      // outdoor scene: real sun shadows on everything (viaduct onto street,
+      // canopy onto platform, trains onto the deck)
+      sun.castShadow = true;
+      sun.shadow.mapSize.set(q.stationShadowMapSize, q.stationShadowMapSize);
+      const r = spec.layout.platformLength / 2 + 60;
+      sun.shadow.camera.left = -r;
+      sun.shadow.camera.right = r;
+      sun.shadow.camera.top = r;
+      sun.shadow.camera.bottom = -r;
+      sun.shadow.camera.near = 20;
+      sun.shadow.camera.far = 700;
+      sun.shadow.bias = -0.0004;
+      sun.shadow.normalBias = 0.7;
+      this.scene.traverse((o) => {
+        if (o instanceof THREE.Mesh) { o.castShadow = true; o.receiveShadow = true; }
+      });
+    }
   }
 
   private track<T extends THREE.BufferGeometry | THREE.Material | THREE.Texture>(t: T): T {

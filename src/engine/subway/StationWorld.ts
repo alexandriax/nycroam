@@ -104,9 +104,22 @@ export class StationWorld {
       this.scene.environment = env;
       this.scene.environmentIntensity = 0.55;
     }
-    setupStationLights(this.scene);
+    setupStationLights(this.scene, spec.layout.platformLength / 2 + 25);
     this.build(spec);
+    // selective shadows: small furniture + columns cast; floors/walls receive.
+    // Ceilings must not cast (the light sits above them) — they're excluded
+    // by only enabling casting on the prop groups below.
+    this.scene.traverse((o) => {
+      if (o instanceof THREE.Mesh) o.receiveShadow = true;
+    });
+    for (const g of this.shadowCasters) {
+      g.traverse((o) => {
+        if (o instanceof THREE.Mesh) o.castShadow = true;
+      });
+    }
   }
+
+  private shadowCasters: THREE.Object3D[] = [];
 
   private track<T extends THREE.BufferGeometry | THREE.Material | THREE.Texture>(t: T): T {
     this.disposables.push(t);
@@ -301,6 +314,7 @@ export class StationWorld {
           const pillar = buildPillar(CEIL, colColor);
           pillar.position.set(x, 0, cz);
           root.add(pillar);
+          this.shadowCasters.push(pillar);
           if (colIdx % 3 === 0) {
             const sw = 0.62, sh = sw / colSign.aspect;
             for (const face of [-1, 1]) {
@@ -351,9 +365,11 @@ export class StationWorld {
         const bench = buildBench();
         bench.position.set(bx, 0, cz + 1.2);
         root.add(bench);
+        this.shadowCasters.push(bench);
         const trash = buildTrashCan();
         trash.position.set(bx + 3, 0, cz - 1.2);
         root.add(trash);
+        this.shadowCasters.push(trash);
       }
     }
 
@@ -458,10 +474,12 @@ export class StationWorld {
     turnstiles.rotation.y = Math.PI / 2;
     turnstiles.position.set(fcX, MEZZ_Y, 0);
     root.add(turnstiles);
+    this.shadowCasters.push(turnstiles);
     const booth = buildBooth();
     booth.rotation.y = Math.PI / 2;
     booth.position.set(fcX - 1.8, MEZZ_Y, -mezzW / 2 + 1.6);
     root.add(booth);
+    this.shadowCasters.push(booth);
     const roto = buildRotogate();
     roto.position.set(fcX, MEZZ_Y, mezzW / 2 - 1.6);
     root.add(roto);

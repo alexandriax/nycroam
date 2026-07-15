@@ -3,7 +3,8 @@ import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment
 import { TileManager } from './TileManager';
 import { PlayerControls } from './controls';
 import { resolveBuildingCollision, floorAt } from './collision';
-import { setupSky, setupLights, SKY } from './sky';
+import { setupSky, setupLights, followSun, SKY } from './sky';
+import { quality } from './quality';
 import { makeSkylineMaterial, makeFlatMaterial } from './materials';
 import { EntranceManager } from './EntranceManager';
 import { StationWorld } from './subway/StationWorld';
@@ -75,6 +76,7 @@ export class World {
   private baseLoadRadius = 1150;
   private currentStationSpec: StationSpec | null = null;
   private atEndSince = 0;
+  private sun: THREE.DirectionalLight | null = null;
   hud: HudState = {
     mode: 'street', fly: false, prompt: null, promptRoutes: [], stationName: null,
     stationRoutes: [], ride: null, tilesLoaded: 0, tilesPending: 0, fps: 0, loading: true, error: null,
@@ -84,10 +86,15 @@ export class World {
 
   constructor(canvas: HTMLCanvasElement) {
     this.isMobile = /Android|iPhone|iPad|Mobile/i.test(navigator.userAgent) || navigator.maxTouchPoints > 1;
+    const q = quality();
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, this.isMobile ? 1.5 : 2));
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, q.pixelRatioCap));
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 1.05;
+    this.renderer.toneMappingExposure = 1.08;
+    if (q.shadows) {
+      this.renderer.shadowMap.enabled = true;
+      this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    }
 
     // env map so metallic materials (trains, rails, turnstiles) read as steel
     const pmrem = new THREE.PMREMGenerator(this.renderer);
@@ -99,7 +106,7 @@ export class World {
     this.baseLoadRadius = loadRadius;
     this.camera = new THREE.PerspectiveCamera(70, 1, 0.1, far);
     this.skyDome = setupSky(this.streetScene, loadRadius, far);
-    setupLights(this.streetScene);
+    this.sun = setupLights(this.streetScene).sun;
 
     this.tiles = new TileManager(this.streetScene, this.isMobile ? 2 : 3);
     this.tiles.loadRadius = loadRadius;
@@ -446,6 +453,7 @@ export class World {
         fog.far = (this.baseLoadRadius + altBoost) * 1.18;
       }
 
+      if (this.sun) followSun(this.sun, this.pos.x, this.pos.z);
       this.tiles.update(this.pos.x, this.pos.z);
       this.entrances.update(this.pos.x, this.pos.z, dt);
 

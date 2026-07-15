@@ -157,7 +157,7 @@ export class TileManager {
     if (!rec || rec.state === 'ready') return;
     const group = new THREE.Group();
 
-    const addMesh = (payload: MeshPayload | null, mat: THREE.Material) => {
+    const addMesh = (payload: MeshPayload | null, mat: THREE.Material, opts?: { cast?: boolean; receive?: boolean }) => {
       if (!payload) return;
       const geo = new THREE.BufferGeometry();
       geo.setAttribute('position', new THREE.BufferAttribute(payload.position, 3));
@@ -167,12 +167,14 @@ export class TileManager {
       geo.computeBoundingSphere();
       const mesh = new THREE.Mesh(geo, mat);
       mesh.matrixAutoUpdate = false;
+      mesh.castShadow = opts?.cast ?? false;
+      mesh.receiveShadow = opts?.receive ?? false;
       group.add(mesh);
       rec.geometries.push(geo);
     };
 
-    addMesh(res.buildings, this.facadeMat);
-    addMesh(res.flat, this.flatMat);
+    addMesh(res.buildings, this.facadeMat, { cast: true, receive: true });
+    addMesh(res.flat, this.flatMat, { receive: true });
 
     if (res.trees && res.trees.length >= 5) {
       const count = res.trees.length / 5;
@@ -192,6 +194,8 @@ export class TileManager {
       trunks.instanceMatrix.needsUpdate = true;
       canopies.instanceMatrix.needsUpdate = true;
       if (canopies.instanceColor) canopies.instanceColor.needsUpdate = true;
+      canopies.castShadow = true;
+      trunks.castShadow = true;
       group.add(trunks, canopies);
     }
 
