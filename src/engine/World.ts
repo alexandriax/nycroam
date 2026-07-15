@@ -209,11 +209,11 @@ export class World {
       if (cross < 0) idx.push(a, c, b); else idx.push(a, b, c);
     }
     geo.setIndex(idx);
-    const nrm = new Float32Array(pos.length);
-    for (let i = 0; i < nrm.length; i += 3) nrm[i + 1] = 1;
-    geo.setAttribute('normal', new THREE.BufferAttribute(nrm, 3));
+    // real normals so hills shade (v1 flat data still yields up-normals)
+    geo.computeVertexNormals();
     const mesh = new THREE.Mesh(geo, makeFlatMaterial());
     mesh.renderOrder = -3;
+    mesh.receiveShadow = true;
     this.streetScene.add(mesh);
   }
 
