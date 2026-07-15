@@ -1,6 +1,8 @@
 import * as THREE from 'three';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import type { BuildResponse, MeshPayload, CollisionData } from './tileTypes';
 import { TILE_SIZE, tileKey } from './geo';
+import { hash01 } from './palette';
 import {
   makeFacadeMaterial, makeFlatMaterial, makeRoadMaterial, makeWalkMaterial,
   makeMarkingsMaterial, treeTrunkMaterial, treeCanopyMaterial,
@@ -45,9 +47,25 @@ export class TileManager {
 
   constructor(scene: THREE.Scene, workerCount = 2) {
     this.scene = scene;
-    this.canopyGeo = new THREE.IcosahedronGeometry(1.5, 1);
-    this.canopyGeo.scale(1, 1.25, 1);
-    this.canopyGeo.translate(0, 3.1, 0);
+    // organic canopy: main crown + offset lobe, vertices displaced by hash noise
+    const crown = new THREE.IcosahedronGeometry(1.5, 1);
+    crown.scale(1, 1.2, 1);
+    const lobe = new THREE.IcosahedronGeometry(0.95, 1);
+    lobe.translate(0.85, -0.45, 0.35);
+    const merged = mergeGeometries([crown, lobe], false)!;
+    crown.dispose();
+    lobe.dispose();
+    const pos = merged.getAttribute('position') as THREE.BufferAttribute;
+    const v = new THREE.Vector3();
+    for (let i = 0; i < pos.count; i++) {
+      v.fromBufferAttribute(pos, i);
+      const n = hash01(Math.round(v.x * 37.1) + Math.round(v.y * 17.7) * 131 + Math.round(v.z * 23.3) * 977);
+      const s = 1 + (n - 0.5) * 0.42;
+      pos.setXYZ(i, v.x * s, v.y * s, v.z * s);
+    }
+    merged.computeVertexNormals();
+    merged.translate(0, 3.15, 0);
+    this.canopyGeo = merged;
     this.trunkGeo.translate(0, 1.2, 0);
     for (let i = 0; i < workerCount; i++) {
       const w = new Worker(new URL('./tileWorker.ts', import.meta.url));

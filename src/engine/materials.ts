@@ -124,3 +124,59 @@ export function makeSkylineMaterial(skyColor: THREE.Color): THREE.MeshLambertMat
 
 export const treeTrunkMaterial = () => new THREE.MeshLambertMaterial({ color: 0x5d4630 });
 export const treeCanopyMaterial = () => new THREE.MeshLambertMaterial({ color: 0x4d7a45 });
+
+/**
+ * Animated river water: worldspace wave normals, fresnel toward the sky at
+ * grazing angles, and a tight sun glint. Call the returned update(dt) per frame.
+ */
+export function makeWaterMaterial(skyColor: THREE.Color): { mat: THREE.MeshLambertMaterial; update: (dt: number) => void } {
+  const mat = new THREE.MeshLambertMaterial({ color: 0x1d3542 });
+  const uTime = { value: 0 };
+  mat.onBeforeCompile = (shader) => {
+    shader.uniforms.uTime = uTime;
+    shader.uniforms.uSky = { value: skyColor };
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', '#include <common>\nvarying vec3 vWaterPos;')
+      .replace(
+        '#include <worldpos_vertex>',
+        `#include <worldpos_vertex>
+        vWaterPos = (modelMatrix * vec4(transformed, 1.0)).xyz;`
+      );
+    shader.fragmentShader = shader.fragmentShader
+      .replace(
+        '#include <common>',
+        `#include <common>
+        varying vec3 vWaterPos;
+        uniform float uTime;
+        uniform vec3 uSky;
+        vec3 waveNormal(vec2 p, float t) {
+          float nx = sin(p.x * 0.35 + t * 1.1) * 0.10
+                   + sin((p.x + p.y) * 0.09 + t * 0.45) * 0.14
+                   + sin(p.x * 0.045 - t * 0.22) * 0.20;
+          float nz = cos(p.y * 0.31 + t * 0.9) * 0.10
+                   + cos((p.y - p.x) * 0.075 + t * 0.35) * 0.14
+                   + cos(p.y * 0.05 + t * 0.18) * 0.20;
+          return normalize(vec3(nx, 1.0, nz));
+        }`
+      )
+      .replace(
+        '#include <normal_fragment_begin>',
+        `#include <normal_fragment_begin>
+        normal = waveNormal(vWaterPos.xz, uTime);`
+      )
+      .replace(
+        '#include <dithering_fragment>',
+        `#include <dithering_fragment>
+        {
+          vec3 V = normalize(cameraPosition - vWaterPos);
+          vec3 N = waveNormal(vWaterPos.xz, uTime);
+          float fres = pow(1.0 - max(dot(V, N), 0.0), 3.0);
+          gl_FragColor.rgb = mix(gl_FragColor.rgb, uSky, clamp(fres * 0.7, 0.0, 0.7));
+          vec3 sunDir = normalize(vec3(-0.5, 0.62, -0.42));
+          float glint = pow(max(dot(reflect(-sunDir, N), V), 0.0), 120.0);
+          gl_FragColor.rgb += vec3(1.0, 0.95, 0.82) * glint * 0.55;
+        }`
+      );
+  };
+  return { mat, update: (dt: number) => { uTime.value += dt; } };
+}

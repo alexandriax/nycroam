@@ -5,7 +5,7 @@ import { PlayerControls } from './controls';
 import { resolveBuildingCollision, floorAt } from './collision';
 import { setupSky, setupLights, followSun, SKY } from './sky';
 import { quality } from './quality';
-import { makeSkylineMaterial, makeFlatMaterial } from './materials';
+import { makeSkylineMaterial, makeFlatMaterial, makeWaterMaterial } from './materials';
 import { EntranceManager } from './EntranceManager';
 import { StationWorld } from './subway/StationWorld';
 import { ElevatedStationWorld } from './subway/ElevatedStationWorld';
@@ -77,6 +77,7 @@ export class World {
   private currentStationSpec: StationSpec | null = null;
   private atEndSince = 0;
   private sun: THREE.DirectionalLight | null = null;
+  private waterUpdate: ((dt: number) => void) | null = null;
   hud: HudState = {
     mode: 'street', fly: false, prompt: null, promptRoutes: [], stationName: null,
     stationRoutes: [], ride: null, tilesLoaded: 0, tilesPending: 0, fps: 0, loading: true, error: null,
@@ -120,11 +121,10 @@ export class World {
     };
     this.controls.onAction = () => this.tryAction();
 
-    // water + big fallback slab far below everything
-    const water = new THREE.Mesh(
-      new THREE.PlaneGeometry(60000, 60000),
-      new THREE.MeshLambertMaterial({ color: SKY.water }),
-    );
+    // water plane: animated waves + fresnel (subdivided so lighting varies)
+    const waterKit = makeWaterMaterial(SKY.fog.clone());
+    this.waterUpdate = waterKit.update;
+    const water = new THREE.Mesh(new THREE.PlaneGeometry(60000, 60000, 1, 1), waterKit.mat);
     water.rotation.x = -Math.PI / 2;
     water.position.y = -0.7;
     this.streetScene.add(water);
@@ -454,6 +454,7 @@ export class World {
       }
 
       if (this.sun) followSun(this.sun, this.pos.x, this.pos.z);
+      this.waterUpdate?.(dt);
       this.tiles.update(this.pos.x, this.pos.z);
       this.entrances.update(this.pos.x, this.pos.z, dt);
 
