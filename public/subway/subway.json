@@ -1,0 +1,10177 @@
+{
+  "stations": [
+    {
+      "id": "M20",
+      "complexId": "623",
+      "name": "Canal St",
+      "routes": [
+        "J",
+        "Z"
+      ],
+      "structure": "Subway",
+      "division": "BMT",
+      "pos": [
+        -1213.6,
+        4435.1
+      ],
+      "layout": {
+        "type": "island",
+        "tracks": 2,
+        "passTracks": 0,
+        "platformLength": 183,
+        "depth": 14,
+        "bandColor": "#996633"
+      }
+    },
+    {
+      "id": "127",
+      "complexId": "611",
+      "name": "Times Sq-42 St",
+      "routes": [
+        "1",
+        "2",
+        "3"
+      ],
+      "structure": "Subway",
+      "division": "IRT",
+      "pos": [
+        -168.2,
+        301.2
+      ],
+      "layout": {
+        "type": "dual-island",
+        "tracks": 4,
+        "passTracks": 0,
+        "platformLength": 156,
+        "depth": 14,
+        "bandColor": "#EE352E"
+      }
+    },
+    {
+      "id": "726",
+      "complexId": "471",
+      "name": "34 St-Hudson Yards",
+      "routes": [
+        "7"
+      ],
+      "structure": "Subway",
+      "division": "IRT",
+      "pos": [
+        -1383.8,
+        235.4
+      ],
+      "layout": {
+        "type": "island",
+        "tracks": 2,
+        "passTracks": 0,
+        "platformLength": 156,
+        "depth": 24,
+        "bandColor": "#B933AD"
+      }
+    },
+    {
+      "id": "F16",
+      "complexId": "234",
+      "name": "East Broadway",
+      "routes": [
+        "F"
+      ],
+      "structure": "Subway",
+      "division": "IND",
+      "pos": [
+        -394.1,
+        4921.5
+      ],
+      "layout": {
+        "type": "side",
+        "tracks": 4,
+        "passTracks": 2,
+        "platformLength": 183,
+        "depth": 14,
+        "bandColor": "#FF6319"
+      }
+    },
+    {
+      "id": "A36",
+      "complexId": "624",
+      "name": "Chambers St",
+      "routes": [
+        "A",
+        "C"
+      ],
+      "structure": "Subway",
+      "division": "IND",
+      "pos": [
+        -1946.7,
+        4877.5
+      ],
+      "layout": {
+        "type": "island",
+        "tracks": 2,
+        "passTracks": 0,
+        "platformLength": 183,
+        "depth": 14,
+        "bandColor": "#0039A6"
+      }
+    },
+    {
+      "id": "629",
+      "complexId": "613",
+      "name": "59 St",
+      "routes": [
+        "4",
+        "5",
+        "6"
+      ],
+      "structure": "Subway",
+      "division": "IRT",
+      "pos": [
+        1478.5,
+        -503
+      ],
+      "layout": {
+        "type": "dual-island",
+        "tracks": 4,
+        "passTracks": 0,
+        "platformLength": 156,
+        "depth": 14,
+        "bandColor": "#00933C"
+      }
+    },
+    {
+      "id": "R13",
+      "complexId": "8",
+      "name": "5 Av/59 St",
+      "routes": [
+        "N",
+        "R",
+        "W"
+      ],
+      "structure": "Subway",
+      "division": "BMT",
+      "pos": [
+        1024.8,
+        -756.9
+      ],
+      "layout": {
+        "type": "dual-island",
+        "tracks": 4,
+        "passTracks": 0,
+        "platformLength": 183,
+        "depth": 14,
+        "bandColor": "#FCCC0A"
+      }
+    },
+    {
+      "id": "622",
+      "complexId": "393",
+      "name": "116 St",
+      "routes": [
+        "6"
+      ],
+      "structure": "Subway",
+      "division": "IRT",
+      "pos": [
+        3700.5,
+        -4515.2
+      ],
+      "layout": {
+        "type": "side",
+        "tracks": 4,
+        "passTracks": 2,
+        "platformLength": 156,
+        "depth": 14,
+        "bandColor": "#00933C"
+      }
+    },
+    {
+      "id": "R19",
+      "complexId": "14",
+      "name": "23 St",
+      "routes": [
+        "R",
+        "W"
+      ],
+      "structure": "Subway",
+      "division": "BMT",
+      "pos": [
+        -324.2,
+        1855.6
+      ],
+      "layout": {
+        "type": "island",
+        "tracks": 2,
+        "passTracks": 0,
+        "platformLength": 183,
+        "depth": 14,
+        "bandColor": "#FCCC0A"
+      }
+    },
+    {
+      "id": "R18",
+      "complexId": "13",
+      "name": "28 St",
+      "routes": [
+        "R",
+        "W"
+      ],
+      "structure": "Subway",
+      "division": "BMT",
+      "pos": [
+        -269.1,
+        1389.8
+      ],
+      "layout": {
+        "type": "island",
+        "tracks": 2,
+        "passTracks": 0,
+        "platformLength": 183,
+        "depth": 14,
+        "bandColor": "#FCCC0A"
+      }
+    },
+    {
+      "id": "114",
+      "complexId": "304",
+      "name": "145 St",
+      "routes": [
+        "1"
+      ],
+      "structure": "Subway",
+      "division": "IRT",
+      "pos": [
+        2963.3,
+        -7618.2
+      ],
+      "layout": {
+        "type": "side",
+        "tracks": 4,
+        "passTracks": 2,
+        "platformLength": 156,
+        "depth": 14,
+        "bandColor": "#EE352E"
+      }
+    },
+    {
+      "id": "A03",
+      "complexId": "144",
+      "name": "Dyckman St",
+      "routes": [
+        "A"
+      ],
+      "structure": "Subway",
+      "division": "IND",
+      "pos": [
+        4910.3,
+        -11945.7
+      ],
+      "layout": {
+        "type": "side",
+        "tracks": 4,
+        "passTracks": 2,
+        "platformLength": 183,
+        "depth": 14,
+        "bandColor": "#0039A6"
+      }
+    },
+    {
+      "id": "A16",
+      "complexId": "154",
+      "name": "116 St",
+      "routes": [
+        "C",
+        "B"
+      ],
+      "structure": "Subway",
+      "division": "IND",
+      "pos": [
+        2581.9,
+        -5232.7
+      ],
+      "layout": {
+        "type": "island",
+        "tracks": 2,
+        "passTracks": 0,
+        "platformLength": 183,
+        "depth": 14,
+        "bandColor": "#0039A6"
+      }
+    },
+    {
+      "id": "418",
+      "complexId": "628",
+      "name": "Fulton St",
+      "routes": [
+        "4",
+        "5"
+      ],
+      "structure": "Subway",
+      "division": "IRT",
+      "pos": [
+        -2024.6,
+        5293.4
+      ],
+      "layout": {
+        "type": "island",
+        "tracks": 2,
+        "passTracks": 0,
+        "platformLength": 156,
+        "depth": 14,
+        "bandColor": "#00933C"
+      }
+    },
+    {
+      "id": "R23",
+      "complexId": "623",
+      "name": "Canal St",
+      "routes": [
+        "R",
+        "W"
+      ],
+      "structure": "Subway",
+      "division": "BMT",
+      "pos": [
+        -1372.4,
+        4275.6
+      ],
+      "layout": {
+        "type": "island",
+        "tracks": 2,
+        "passTracks": 0,
+        "platformLength": 183,
+        "depth": 14,
+        "bandColor": "#FCCC0A"
+      }
+    },
+    {
+      "id": "110",
+      "complexId": "300",
+      "name": "191 St",
+      "routes": [
+        "1"
+      ],
+      "structure": "Subway",
+      "division": "IRT",
+      "pos": [
+        4729.7,
+        -10804.8
+      ],
+      "layout": {
+        "type": "side",
+        "tracks": 4,
+        "passTracks": 2,
+        "platformLength": 156,
+        "depth": 30,
+        "bandColor": "#EE352E"
+      }
+    },
+    {
+      "id": "725",
+      "complexId": "611",
+      "name": "Times Sq-42 St",
+      "routes": [
+        "7"
+      ],
+      "structure": "Subway",
+      "division": "IRT",
+      "pos": [
+        -184.8,
+        280.4
+      ],
+      "layout": {
+        "type": "island",
+        "tracks": 2,
+        "passTracks": 0,
+        "platformLength": 156,
+        "depth": 18,
+        "bandColor": "#B933AD"
+      }
+    },
+    {
+      "id": "A20",
+      "complexId": "158",
+      "name": "86 St",
+      "routes": [
+        "C",
+        "B"
+      ],
+      "structure": "Subway",
+      "division": "IND",
+      "pos": [
+        1398.5,
+        -3097
+      ],
+      "layout": {
+        "type": "island",
+        "tracks": 2,
+        "passTracks": 0,
+        "platformLength": 183,
+        "depth": 14,
+        "bandColor": "#0039A6"
+      }
+    },
+    {
+      "id": "637",
+      "complexId": "619",
+      "name": "Bleecker St",
+      "routes": [
+        "6"
+      ],
+      "structure": "Subway",
+      "division": "IRT",
+      "pos": [
+        -772.4,
+        3565.7
+      ],
+      "layout": {
+        "type": "side",
+        "tracks": 4,
+        "passTracks": 2,
+        "platformLength": 156,
+        "depth": 14,
+        "bandColor": "#00933C"
+      }
+    },
+    {
+      "id": "A15",
+      "complexId": "153",
+      "name": "125 St",
+      "routes": [
+        "A",
+        "C",
+        "B",
+        "D"
+      ],
+      "structure": "Subway",
+      "division": "IND",
+      "pos": [
+        2796,
+        -5902.1
+      ],
+      "layout": {
+        "type": "dual-island",
+        "tracks": 4,
+        "passTracks": 0,
+        "platformLength": 183,
+        "depth": 14,
+        "bandColor": "#0039A6"
+      }
+    },
+    {
+      "id": "D18",
+      "complexId": "228",
+      "name": "23 St",
+      "routes": [
+        "F",
+        "M"
+      ],
+      "structure": "Subway",
+      "division": "IND",
+      "pos": [
+        -617.4,
+        1680.5
+      ],
+      "layout": {
+        "type": "island",
+        "tracks": 2,
+        "passTracks": 0,
+        "platformLength": 183,
+        "depth": 14,
+        "bandColor": "#FF6319"
+      }
+    },
+    {
+      "id": "419",
+      "complexId": "413",
+      "name": "Wall St",
+      "routes": [
+        "4",
+        "5"
+      ],
+      "structure": "Subway",
+      "division": "IRT",
+      "pos": [
+        -2223,
+        5605.8
+      ],
+      "layout": {
+        "type": "island",
+        "tracks": 2,
+        "passTracks": 0,
+        "platformLength": 156,
+        "depth": 14,
+        "bandColor": "#00933C"
+      }
+    },
+    {
+      "id": "115",
+      "complexId": "305",
+      "name": "137 St-City College",
+      "routes": [
+        "1"
+      ],
+      "structure": "Subway",
+      "division": "IRT",
+      "pos": [
+        2683.6,
+        -7113.3
+      ],
+      "layout": {
+        "type": "side",
+        "tracks": 4,
+        "passTracks": 2,
+        "platformLength": 156,
+        "depth": 14,
+        "bandColor": "#EE352E"
+      }
+    },
+    {
+      "id": "226",
+      "complexId": "440",
+      "name": "116 St",
+      "routes": [
+        "2",
+        "3"
+      ],
+      "structure": "Subway",
+      "division": "IRT",
+      "pos": [
+        3025.2,
+        -4900.7
+      ],
+      "layout": {
+        "type": "island",
+        "tracks": 2,
+        "passTracks": 0,
+        "platformLength": 156,
+        "depth": 14,
+        "bandColor": "#EE352E"
+      }
+    },
+    {
+      "id": "136",
+      "complexId": "326",
+      "name": "Franklin St",
+      "routes": [
+        "1"
+      ],
+      "structure": "Subway",
+      "division": "IRT",
+      "pos": [
+        -1803.4,
+        4298.8
+      ],
+      "layout": {
+        "type": "side",
+        "tracks": 4,
+        "passTracks": 2,
+        "platformLength": 156,
+        "depth": 14,
+        "bandColor": "#EE352E"
+      }
+    },
+    {
+      "id": "D14",
+      "complexId": "277",
+      "name": "7 Av",
+      "routes": [
+        "E",
+        "B",
+        "D"
+      ],
+      "structure": "Subway",
+      "division": "IND",
+      "pos": [
+        325.8,
+        -540.3
+      ],
+      "layout": {
+        "type": "dual-island",
+        "tracks": 4,
+        "passTracks": 0,
+        "platformLength": 183,
+        "depth": 14,
+        "bandColor": "#0039A6"
+      }
+    },
+    {
+      "id": "A30",
+      "complexId": "165",
+      "name": "23 St",
+      "routes": [
+        "C",
+        "E"
+      ],
+      "structure": "Subway",
+      "division": "IND",
+      "pos": [
+        -1057.5,
+        1344
+      ],
+      "layout": {
+        "type": "island",
+        "tracks": 2,
+        "passTracks": 0,
+        "platformLength": 183,
+        "depth": 14,
+        "bandColor": "#0039A6"
+      }
+    },
+    {
+      "id": "Q05",
+      "complexId": "475",
+      "name": "96 St",
+      "routes": [
+        "Q"
+      ],
+      "structure": "Subway",
+      "division": "IND",
+      "pos": [
+        3233.8,
+        -2924.8
+      ],
+      "layout": {
+        "type": "island",
+        "tracks": 2,
+        "passTracks": 0,
+        "platformLength": 183,
+        "depth": 24,
+        "bandColor": "#FCCC0A"
+      }
+    },
+    {
+      "id": "229",
+      "complexId": "628",
+      "name": "Fulton St",
+      "routes": [
+        "2",
+        "3"
+      ],
+      "structure": "Subway",
+      "division": "IRT",
+      "pos": [
+        -1776.9,
+        5399.2
+      ],
+      "layout": {
+        "type": "side",
+        "tracks": 2,
+        "passTracks": 0,
+        "platformLength": 156,
+        "depth": 14,
+        "bandColor": "#EE352E"
+      }
+    },
+    {
+      "id": "A10",
+      "complexId": "149",
+      "name": "163 St-Amsterdam Av",
+      "routes": [
+        "C"
+      ],
+      "structure": "Subway",
+      "division": "IND",
+      "pos": [
+        3846,
+        -8669.7
+      ],
+      "layout": {
+        "type": "side",
+        "tracks": 4,
+        "passTracks": 2,
+        "platformLength": 183,
+        "depth": 14,
+        "bandColor": "#0039A6"
+      }
+    },
+    {
+      "id": "633",
+      "complexId": "404",
+      "name": "28 St",
+      "routes": [
+        "6"
+      ],
+      "structure": "Subway",
+      "division": "IRT",
+      "pos": [
+        104.2,
+        1659.2
+      ],
+      "layout": {
+        "type": "side",
+        "tracks": 4,
+        "passTracks": 2,
+        "platformLength": 156,
+        "depth": 14,
+        "bandColor": "#00933C"
+      }
+    },
+    {
+      "id": "119",
+      "complexId": "309",
+      "name": "103 St",
+      "routes": [
+        "1"
+      ],
+      "structure": "Subway",
+      "division": "IRT",
+      "pos": [
+        1443.8,
+        -4606
+      ],
+      "layout": {
+        "type": "side",
+        "tracks": 4,
+        "passTracks": 2,
+        "platformLength": 156,
+        "depth": 14,
+        "bandColor": "#EE352E"
+      }
+    },
+    {
+      "id": "301",
+      "complexId": "436",
+      "name": "Harlem-148 St",
+      "routes": [
+        "3"
+      ],
+      "structure": "Subway",
+      "division": "IRT",
+      "pos": [
+        4134.6,
+        -7321.4
+      ],
+      "layout": {
+        "type": "side",
+        "tracks": 4,
+        "passTracks": 2,
+        "platformLength": 156,
+        "depth": 14,
+        "bandColor": "#EE352E"
+      }
+    },
+    {
+      "id": "132",
+      "complexId": "601",
+      "name": "14 St",
+      "routes": [
+        "1",
+        "2",
+        "3"
+      ],
+      "structure": "Subway",
+      "division": "IRT",
+      "pos": [
+        -1239.7,
+        2242
+      ],
+      "layout": {
+        "type": "dual-island",
+        "tracks": 4,
+        "passTracks": 0,
+        "platformLength": 156,
+        "depth": 14,
+        "bandColor": "#EE352E"
+      }
+    },
+    {
+      "id": "F15",
+      "complexId": "625",
+      "name": "Delancey St-Essex St",
+      "routes": [
+        "F"
+      ],
+      "structure": "Subway",
+      "division": "IND",
+      "pos": [
+        -220.4,
+        4377.4
+      ],
+      "layout": {
+        "type": "side",
+        "tracks": 4,
+        "passTracks": 2,
+        "platformLength": 183,
+        "depth": 14,
+        "bandColor": "#FF6319"
+      }
+    },
+    {
+      "id": "118",
+      "complexId": "308",
+      "name": "Cathedral Pkwy (110 St)",
+      "routes": [
+        "1"
+      ],
+      "structure": "Subway",
+      "division": "IRT",
+      "pos": [
+        1573,
+        -5108.4
+      ],
+      "layout": {
+        "type": "side",
+        "tracks": 4,
+        "passTracks": 2,
+        "platformLength": 156,
+        "depth": 14,
+        "bandColor": "#EE352E"
+      }
+    },
+    {
+      "id": "R14",
+      "complexId": "9",
+      "name": "57 St-7 Av",
+      "routes": [
+        "N",
+        "Q",
+        "R",
+        "W"
+      ],
+      "structure": "Subway",
+      "division": "BMT",
+      "pos": [
+        408.3,
+        -740.6
+      ],
+      "layout": {
+        "type": "dual-island",
+        "tracks": 4,
+        "passTracks": 0,
+        "platformLength": 183,
+        "depth": 14,
+        "bandColor": "#FCCC0A"
+      }
+    },
+    {
+      "id": "623",
+      "complexId": "394",
+      "name": "110 St",
+      "routes": [
+        "6"
+      ],
+      "structure": "Subway",
+      "division": "IRT",
+      "pos": [
+        3478.5,
+        -4114.1
+      ],
+      "layout": {
+        "type": "side",
+        "tracks": 4,
+        "passTracks": 2,
+        "platformLength": 156,
+        "depth": 14,
+        "bandColor": "#00933C"
+      }
+    },
+    {
+      "id": "230",
+      "complexId": "333",
+      "name": "Wall St",
+      "routes": [
+        "2",
+        "3"
+      ],
+      "structure": "Subway",
+      "division": "IRT",
+      "pos": [
+        -1990.1,
+        5687.6
+      ],
+      "layout": {
+        "type": "side",
+        "tracks": 2,
+        "passTracks": 0,
+        "platformLength": 156,
+        "depth": 14,
+        "bandColor": "#EE352E"
+      }
+    },
+    {
+      "id": "R15",
+      "complexId": "10",
+      "name": "49 St",
+      "routes": [
+        "N",
+        "R",
+        "W"
+      ],
+      "structure": "Subway",
+      "division": "BMT",
+      "pos": [
+        114.8,
+        -211.3
+      ],
+      "layout": {
+        "type": "dual-island",
+        "tracks": 4,
+        "passTracks": 0,
+        "platformLength": 183,
+        "depth": 14,
+        "bandColor": "#FCCC0A"
+      }
+    },
+    {
+      "id": "D12",
+      "complexId": "220",
+      "name": "155 St",
+      "routes": [
+        "B",
+        "D"
+      ],
+      "structure": "Subway",
+      "division": "IND",
+      "pos": [
+        3987.9,
+        -8016.5
+      ],
+      "layout": {
+        "type": "island",
+        "tracks": 2,
+        "passTracks": 0,
+        "platformLength": 183,
+        "depth": 14,
+        "bandColor": "#FF6319"
+      }
+    },
+    {
+      "id": "Q04",
+      "complexId": "476",
+      "name": "86 St",
+      "routes": [
+        "Q"
+      ],
+      "structure": "Subway",
+      "division": "IND",
+      "pos": [
+        2842.9,
+        -2210.5
+      ],
+      "layout": {
+        "type": "island",
+        "tracks": 2,
+        "passTracks": 0,
+        "platformLength": 183,
+        "depth": 24,
+        "bandColor": "#FCCC0A"
+      }
+    },
+    {
+      "id": "F12",
+      "complexId": "276",
+      "name": "5 Av/53 St",
+      "routes": [
+        "E",
+        "F"
+      ],
+      "structure": "Subway",
+      "division": "IND",
+      "pos": [
+        866.5,
+        -240.8
+      ],
+      "layout": {
+        "type": "island",
+        "tracks": 2,
+        "passTracks": 0,
+        "platformLength": 183,
+        "depth": 14,
+        "bandColor": "#0039A6"
+      }
+    },
+    {
+      "id": "A24",
+      "complexId": "614",
+      "name": "59 St-Columbus Circle",
+      "routes": [
+        "A",
+        "C",
+        "B",
+        "D"
+      ],
+      "structure": "Subway",
+      "division": "IND",
+      "pos": [
+        317.4,
+        -1144.2
+      ],
+      "layout": {
+        "type": "dual-island",
+        "tracks": 4,
+        "passTracks": 0,
+        "platformLength": 183,
+        "depth": 14,
+        "bandColor": "#0039A6"
+      }
+    },
+    {
+      "id": "R25",
+      "complexId": "624",
+      "name": "Cortlandt St",
+      "routes": [
+        "R",
+        "W"
+      ],
+      "structure": "Subway",
+      "division": "BMT",
+      "pos": [
+        -2152.8,
+        5260.1
+      ],
+      "layout": {
+        "type": "island",
+        "tracks": 2,
+        "passTracks": 0,
+        "platformLength": 183,
+        "depth": 14,
+        "bandColor": "#FCCC0A"
+      }
+    },
+    {
+      "id": "128",
+      "complexId": "318",
+      "name": "34 St-Penn Station",
+      "routes": [
+        "1",
+        "2",
+        "3"
+      ],
+      "structure": "Subway",
+      "division": "IRT",
+      "pos": [
+        -468.6,
+        847.6
+      ],
+      "layout": {
+        "type": "dual-island",
+        "tracks": 4,
+        "passTracks": 0,
+        "platformLength": 156,
+        "depth": 14,
+        "bandColor": "#EE352E"
+      }
+    },
+    {
+      "id": "628",
+      "complexId": "399",
+      "name": "68 St-Hunter College",
+      "routes": [
+        "6"
+      ],
+      "structure": "Subway",
+      "division": "IRT",
+      "pos": [
+        1824,
+        -1127
+      ],
+      "layout": {
+        "type": "side",
+        "tracks": 4,
+        "passTracks": 2,
+        "platformLength": 156,
+        "depth": 14,
+        "bandColor": "#00933C"
+      }
+    },
+    {
+      "id": "A31",
+      "complexId": "618",
+      "name": "14 St",
+      "routes": [
+        "A",
+        "C",
+        "E"
+      ],
+      "structure": "Subway",
+      "division": "IND",
+      "pos": [
+        -1365.3,
+        1901.1
+      ],
+      "layout": {
+        "type": "dual-island",
+        "tracks": 4,
+        "passTracks": 0,
+        "platformLength": 183,
+        "depth": 14,
+        "bandColor": "#0039A6"
+      }
+    },
+    {
+      "id": "D19",
+      "complexId": "601",
+      "name": "14 St",
+      "routes": [
+        "F",
+        "M"
+      ],
+      "structure": "Subway",
+      "division": "IND",
+      "pos": [
+        -903.1,
+        2197.3
+      ],
+      "layout": {
+        "type": "island",
+        "tracks": 2,
+        "passTracks": 0,
+        "platformLength": 183,
+        "depth": 14,
+        "bandColor": "#FF6319"
+      }
+    },
+    {
+      "id": "123",
+      "complexId": "313",
+      "name": "72 St",
+      "routes": [
+        "1",
+        "2",
+        "3"
+      ],
+      "structure": "Subway",
+      "division": "IRT",
+      "pos": [
+        297.7,
+        -2273
+      ],
+      "layout": {
+        "type": "dual-island",
+        "tracks": 4,
+        "passTracks": 0,
+        "platformLength": 156,
+        "depth": 14,
+        "bandColor": "#EE352E"
+      }
+    },
+    {
+      "id": "638",
+      "complexId": "409",
+      "name": "Spring St",
+      "routes": [
+        "6"
+      ],
+      "structure": "Subway",
+      "division": "IRT",
+      "pos": [
+        -981.7,
+        3967.3
+      ],
+      "layout": {
+        "type": "side",
+        "tracks": 4,
+        "passTracks": 2,
+        "platformLength": 156,
+        "depth": 14,
+        "bandColor": "#00933C"
+      }
+    },
+    {
+      "id": "B10",
+      "complexId": "224",
+      "name": "57 St",
+      "routes": [
+        "M"
+      ],
+      "structure": "Subway",
+      "division": "IND",
+      "pos": [
+        678.8,
+        -663.7
+      ],
+      "layout": {
+        "type": "side",
+        "tracks": 4,
+        "passTracks": 2,
+        "platformLength": 183,
+        "depth": 14,
+        "bandColor": "#FF6319"
+      }
+    },
+    {
+      "id": "227",
+      "complexId": "441",
+      "name": "110 St-Malcolm X Plaza",
+      "routes": [
+        "2",
+        "3"
+      ],
+      "structure": "Subway",
+      "division": "IRT",
+      "pos": [
+        2840,
+        -4564.7
+      ],
+      "layout": {
+        "type": "island",
+        "tracks": 2,
+        "passTracks": 0,
+        "platformLength": 156,
+        "depth": 14,
+        "bandColor": "#EE352E"
+      }
+    },
+    {
+      "id": "A19",
+      "complexId": "157",
+      "name": "96 St",
+      "routes": [
+        "C",
+        "B"
+      ],
+      "structure": "Subway",
+      "division": "IND",
+      "pos": [
+        1754.3,
+        -3738.7
+      ],
+      "layout": {
+        "type": "island",
+        "tracks": 2,
+        "passTracks": 0,
+        "platformLength": 183,
+        "depth": 14,
+        "bandColor": "#0039A6"
+      }
+    },
+    {
+      "id": "R22",
+      "complexId": "17",
+      "name": "Prince St",
+      "routes": [
+        "R",
+        "W"
+      ],
+      "structure": "Subway",
+      "division": "BMT",
+      "pos": [
+        -1029,
+        3741.9
+      ],
+      "layout": {
+        "type": "island",
+        "tracks": 2,
+        "passTracks": 0,
+        "platformLength": 183,
+        "depth": 14,
+        "bandColor": "#FCCC0A"
+      }
+    },
+    {
+      "id": "111",
+      "complexId": "301",
+      "name": "181 St",
+      "routes": [
+        "1"
+      ],
+      "structure": "Subway",
+      "division": "IRT",
+      "pos": [
+        4376.9,
+        -10169.1
+      ],
+      "layout": {
+        "type": "side",
+        "tracks": 4,
+        "passTracks": 2,
+        "platformLength": 156,
+        "depth": 30,
+        "bandColor": "#EE352E"
+      }
+    },
+    {
+      "id": "A34",
+      "complexId": "169",
+      "name": "Canal St",
+      "routes": [
+        "A",
+        "C",
+        "E"
+      ],
+      "structure": "Subway",
+      "division": "IND",
+      "pos": [
+        -1663.7,
+        4131.4
+      ],
+      "layout": {
+        "type": "dual-island",
+        "tracks": 4,
+        "passTracks": 0,
+        "platformLength": 183,
+        "depth": 14,
+        "bandColor": "#0039A6"
+      }
+    },
+    {
+      "id": "A02",
+      "complexId": "143",
+      "name": "Inwood-207 St",
+      "routes": [
+        "A"
+      ],
+      "structure": "Subway",
+      "division": "IND",
+      "pos": [
+        5531.9,
+        -12232.5
+      ],
+      "layout": {
+        "type": "island",
+        "tracks": 2,
+        "passTracks": 0,
+        "platformLength": 183,
+        "depth": 14,
+        "bandColor": "#0039A6"
+      }
+    },
+    {
+      "id": "L03",
+      "complexId": "602",
+      "name": "14 St-Union Sq",
+      "routes": [
+        "L"
+      ],
+      "structure": "Subway",
+      "division": "BMT",
+      "pos": [
+        -441,
+        2579.5
+      ],
+      "layout": {
+        "type": "island",
+        "tracks": 2,
+        "passTracks": 0,
+        "platformLength": 183,
+        "depth": 14,
+        "bandColor": "#A7A9AC"
+      }
+    },
+    {
+      "id": "D15",
+      "complexId": "225",
+      "name": "47-50 Sts-Rockefeller Ctr",
+      "routes": [
+        "B",
+        "D",
+        "F",
+        "M"
+      ],
+      "structure": "Subway",
+      "division": "IND",
+      "pos": [
+        351.7,
+        -73.7
+      ],
+      "layout": {
+        "type": "dual-island",
+        "tracks": 4,
+        "passTracks": 0,
+        "platformLength": 183,
+        "depth": 14,
+        "bandColor": "#FF6319"
+      }
+    },
+    {
+      "id": "135",
+      "complexId": "325",
+      "name": "Canal St",
+      "routes": [
+        "1"
+      ],
+      "structure": "Subway",
+      "division": "IRT",
+      "pos": [
+        -1752.1,
+        3905.8
+      ],
+      "layout": {
+        "type": "side",
+        "tracks": 4,
+        "passTracks": 2,
+        "platformLength": 156,
+        "depth": 14,
+        "bandColor": "#EE352E"
+      }
+    },
+    {
+      "id": "M21",
+      "complexId": "622",
+      "name": "Chambers St",
+      "routes": [
+        "J",
+        "Z"
+      ],
+      "structure": "Subway",
+      "division": "BMT",
+      "pos": [
+        -1509.5,
+        4973.9
+      ],
+      "layout": {
+        "type": "dual-island",
+        "tracks": 4,
+        "passTracks": 0,
+        "platformLength": 183,
+        "depth": 14,
+        "bandColor": "#996633"
+      }
+    },
+    {
+      "id": "L05",
+      "complexId": "118",
+      "name": "3 Av",
+      "routes": [
+        "L"
+      ],
+      "structure": "Subway",
+      "division": "BMT",
+      "pos": [
+        -52.5,
+        2795.1
+      ],
+      "layout": {
+        "type": "side",
+        "tracks": 2,
+        "passTracks": 0,
+        "platformLength": 183,
+        "depth": 14,
+        "bandColor": "#A7A9AC"
+      }
+    },
+    {
+      "id": "R26",
+      "complexId": "22",
+      "name": "Rector St",
+      "routes": [
+        "R",
+        "W"
+      ],
+      "structure": "Subway",
+      "division": "BMT",
+      "pos": [
+        -2347.8,
+        5643.3
+      ],
+      "layout": {
+        "type": "island",
+        "tracks": 2,
+        "passTracks": 0,
+        "platformLength": 183,
+        "depth": 14,
+        "bandColor": "#FCCC0A"
+      }
+    },
+    {
+      "id": "131",
+      "complexId": "321",
+      "name": "18 St",
+      "routes": [
+        "1"
+      ],
+      "structure": "Subway",
+      "division": "IRT",
+      "pos": [
+        -1043.2,
+        1884.8
+      ],
+      "layout": {
+        "type": "side",
+        "tracks": 4,
+        "passTracks": 2,
+        "platformLength": 156,
+        "depth": 14,
+        "bandColor": "#EE352E"
+      }
+    },
+    {
+      "id": "724",
+      "complexId": "609",
+      "name": "5 Av",
+      "routes": [
+        "7"
+      ],
+      "structure": "Subway",
+      "division": "IRT",
+      "pos": [
+        298.3,
+        464.4
+      ],
+      "layout": {
+        "type": "side",
+        "tracks": 2,
+        "passTracks": 0,
+        "platformLength": 156,
+        "depth": 18,
+        "bandColor": "#B933AD"
+      }
+    },
+    {
+      "id": "A32",
+      "complexId": "167",
+      "name": "W 4 St-Wash Sq",
+      "routes": [
+        "A",
+        "C",
+        "E"
+      ],
+      "structure": "Subway",
+      "division": "IND",
+      "pos": [
+        -1264.5,
+        2851.9
+      ],
+      "layout": {
+        "type": "dual-island",
+        "tracks": 4,
+        "passTracks": 0,
+        "platformLength": 183,
+        "depth": 14,
+        "bandColor": "#0039A6"
+      }
+    },
+    {
+      "id": "A11",
+      "complexId": "150",
+      "name": "155 St",
+      "routes": [
+        "C"
+      ],
+      "structure": "Subway",
+      "division": "IND",
+      "pos": [
+        3709.2,
+        -8059.1
+      ],
+      "layout": {
+        "type": "side",
+        "tracks": 4,
+        "passTracks": 2,
+        "platformLength": 183,
+        "depth": 14,
+        "bandColor": "#0039A6"
+      }
+    },
+    {
+      "id": "A25",
+      "complexId": "162",
+      "name": "50 St",
+      "routes": [
+        "C",
+        "E"
+      ],
+      "structure": "Subway",
+      "division": "IND",
+      "pos": [
+        -40.8,
+        -495.2
+      ],
+      "layout": {
+        "type": "island",
+        "tracks": 2,
+        "passTracks": 0,
+        "platformLength": 183,
+        "depth": 14,
+        "bandColor": "#0039A6"
+      }
+    },
+    {
+      "id": "632",
+      "complexId": "403",
+      "name": "33 St",
+      "routes": [
+        "6"
+      ],
+      "structure": "Subway",
+      "division": "IRT",
+      "pos": [
+        288.7,
+        1324.6
+      ],
+      "layout": {
+        "type": "side",
+        "tracks": 4,
+        "passTracks": 2,
+        "platformLength": 156,
+        "depth": 14,
+        "bandColor": "#00933C"
+      }
+    },
+    {
+      "id": "122",
+      "complexId": "312",
+      "name": "79 St",
+      "routes": [
+        "1"
+      ],
+      "structure": "Subway",
+      "division": "IRT",
+      "pos": [
+        470.8,
+        -2882.1
+      ],
+      "layout": {
+        "type": "side",
+        "tracks": 4,
+        "passTracks": 2,
+        "platformLength": 156,
+        "depth": 14,
+        "bandColor": "#EE352E"
+      }
+    },
+    {
+      "id": "A12",
+      "complexId": "151",
+      "name": "145 St",
+      "routes": [
+        "A",
+        "C"
+      ],
+      "structure": "Subway",
+      "division": "IND",
+      "pos": [
+        3481.4,
+        -7421.7
+      ],
+      "layout": {
+        "type": "island",
+        "tracks": 2,
+        "passTracks": 0,
+        "platformLength": 183,
+        "depth": 14,
+        "bandColor": "#0039A6"
+      }
+    },
+    {
+      "id": "639",
+      "complexId": "623",
+      "name": "Canal St",
+      "routes": [
+        "6"
+      ],
+      "structure": "Subway",
+      "division": "IRT",
+      "pos": [
+        -1239,
+        4356
+      ],
+      "layout": {
+        "type": "side",
+        "tracks": 4,
+        "passTracks": 2,
+        "platformLength": 156,
+        "depth": 14,
+        "bandColor": "#00933C"
+      }
+    },
+    {
+      "id": "117",
+      "complexId": "307",
+      "name": "116 St-Columbia University",
+      "routes": [
+        "1"
+      ],
+      "structure": "Subway",
+      "division": "IRT",
+      "pos": [
+        1803.8,
+        -5525.7
+      ],
+      "layout": {
+        "type": "side",
+        "tracks": 4,
+        "passTracks": 2,
+        "platformLength": 156,
+        "depth": 14,
+        "bandColor": "#EE352E"
+      }
+    },
+    {
+      "id": "634",
+      "complexId": "405",
+      "name": "23 St-Baruch College",
+      "routes": [
+        "6"
+      ],
+      "structure": "Subway",
+      "division": "IRT",
+      "pos": [
+        -92.7,
+        2015.5
+      ],
+      "layout": {
+        "type": "side",
+        "tracks": 4,
+        "passTracks": 2,
+        "platformLength": 156,
+        "depth": 14,
+        "bandColor": "#00933C"
+      }
+    },
+    {
+      "id": "F11",
+      "complexId": "612",
+      "name": "Lexington Av/53 St",
+      "routes": [
+        "E",
+        "F"
+      ],
+      "structure": "Subway",
+      "division": "IND",
+      "pos": [
+        1386.8,
+        49.8
+      ],
+      "layout": {
+        "type": "island",
+        "tracks": 2,
+        "passTracks": 0,
+        "platformLength": 183,
+        "depth": 14,
+        "bandColor": "#0039A6"
+      }
+    },
+    {
+      "id": "129",
+      "complexId": "319",
+      "name": "28 St",
+      "routes": [
+        "1"
+      ],
+      "structure": "Subway",
+      "division": "IRT",
+      "pos": [
+        -663.2,
+        1198.6
+      ],
+      "layout": {
+        "type": "side",
+        "tracks": 4,
+        "passTracks": 2,
+        "platformLength": 156,
+        "depth": 14,
+        "bandColor": "#EE352E"
+      }
+    },
+    {
+      "id": "R24",
+      "complexId": "20",
+      "name": "City Hall",
+      "routes": [
+        "R",
+        "W"
+      ],
+      "structure": "Subway",
+      "division": "BMT",
+      "pos": [
+        -1811.2,
+        4969.6
+      ],
+      "layout": {
+        "type": "island",
+        "tracks": 2,
+        "passTracks": 0,
+        "platformLength": 183,
+        "depth": 14,
+        "bandColor": "#FCCC0A"
+      }
+    },
+    {
+      "id": "R16",
+      "complexId": "611",
+      "name": "Times Sq-42 St",
+      "routes": [
+        "N",
+        "Q",
+        "R",
+        "W"
+      ],
+      "structure": "Subway",
+      "division": "BMT",
+      "pos": [
+        -105.7,
+        369.8
+      ],
+      "layout": {
+        "type": "dual-island",
+        "tracks": 4,
+        "passTracks": 0,
+        "platformLength": 183,
+        "depth": 14,
+        "bandColor": "#FCCC0A"
+      }
+    },
+    {
+      "id": "112",
+      "complexId": "605",
+      "name": "168 St-Washington Hts",
+      "routes": [
+        "1"
+      ],
+      "structure": "Subway",
+      "division": "IRT",
+      "pos": [
+        3825.7,
+        -9174.6
+      ],
+      "layout": {
+        "type": "island",
+        "tracks": 2,
+        "passTracks": 0,
+        "platformLength": 156,
+        "depth": 30,
+        "bandColor": "#EE352E"
+      }
+    },
+    {
+      "id": "302",
+      "complexId": "437",
+      "name": "145 St",
+      "routes": [
+        "3"
+      ],
+      "structure": "Subway",
+      "division": "IRT",
+      "pos": [
+        4153.5,
+        -6937
+      ],
+      "layout": {
+        "type": "island",
+        "tracks": 2,
+        "passTracks": 0,
+        "platformLength": 156,
+        "depth": 14,
+        "bandColor": "#EE352E"
+      }
+    },
+    {
+      "id": "A06",
+      "complexId": "146",
+      "name": "181 St",
+      "routes": [
+        "A"
+      ],
+      "structure": "Subway",
+      "division": "IND",
+      "pos": [
+        4008.1,
+        -10412.5
+      ],
+      "layout": {
+        "type": "side",
+        "tracks": 4,
+        "passTracks": 2,
+        "platformLength": 183,
+        "depth": 30,
+        "bandColor": "#0039A6"
+      }
+    },
+    {
+      "id": "107",
+      "complexId": "297",
+      "name": "215 St",
+      "routes": [
+        "1"
+      ],
+      "structure": "Elevated",
+      "division": "IRT",
+      "pos": [
+        5921.5,
+        -12385
+      ],
+      "layout": {
+        "type": "side",
+        "tracks": 4,
+        "passTracks": 2,
+        "platformLength": 156,
+        "depth": 14,
+        "bandColor": "#EE352E"
+      }
+    },
+    {
+      "id": "Q03",
+      "complexId": "477",
+      "name": "72 St",
+      "routes": [
+        "Q"
+      ],
+      "structure": "Subway",
+      "division": "IND",
+      "pos": [
+        2283.2,
+        -1200.1
+      ],
+      "layout": {
+        "type": "island",
+        "tracks": 2,
+        "passTracks": 0,
+        "platformLength": 183,
+        "depth": 24,
+        "bandColor": "#FCCC0A"
+      }
+    },
+    {
+      "id": "A22",
+      "complexId": "160",
+      "name": "72 St",
+      "routes": [
+        "C",
+        "B"
+      ],
+      "structure": "Subway",
+      "division": "IND",
+      "pos": [
+        766.5,
+        -1955.3
+      ],
+      "layout": {
+        "type": "island",
+        "tracks": 2,
+        "passTracks": 0,
+        "platformLength": 183,
+        "depth": 14,
+        "bandColor": "#0039A6"
+      }
+    },
+    {
+      "id": "A38",
+      "complexId": "628",
+      "name": "Fulton St",
+      "routes": [
+        "A",
+        "C"
+      ],
+      "structure": "Subway",
+      "division": "IND",
+      "pos": [
+        -1871.3,
+        5312.4
+      ],
+      "layout": {
+        "type": "island",
+        "tracks": 2,
+        "passTracks": 0,
+        "platformLength": 183,
+        "depth": 14,
+        "bandColor": "#0039A6"
+      }
+    },
+    {
+      "id": "627",
+      "complexId": "398",
+      "name": "77 St",
+      "routes": [
+        "6"
+      ],
+      "structure": "Subway",
+      "division": "IRT",
+      "pos": [
+        2161,
+        -1735.9
+      ],
+      "layout": {
+        "type": "side",
+        "tracks": 4,
+        "passTracks": 2,
+        "platformLength": 156,
+        "depth": 14,
+        "bandColor": "#00933C"
+      }
+    },
+    {
+      "id": "139",
+      "complexId": "329",
+      "name": "Rector St",
+      "routes": [
+        "1"
+      ],
+      "structure": "Subway",
+      "division": "IRT",
+      "pos": [
+        -2385,
+        5610.7
+      ],
+      "layout": {
+        "type": "side",
+        "tracks": 4,
+        "passTracks": 2,
+        "platformLength": 156,
+        "depth": 14,
+        "bandColor": "#EE352E"
+      }
+    },
+    {
+      "id": "D21",
+      "complexId": "619",
+      "name": "Broadway-Lafayette St",
+      "routes": [
+        "B",
+        "D",
+        "F",
+        "M"
+      ],
+      "structure": "Subway",
+      "division": "IND",
+      "pos": [
+        -902.6,
+        3634.3
+      ],
+      "layout": {
+        "type": "dual-island",
+        "tracks": 4,
+        "passTracks": 0,
+        "platformLength": 183,
+        "depth": 14,
+        "bandColor": "#FF6319"
+      }
+    },
+    {
+      "id": "134",
+      "complexId": "324",
+      "name": "Houston St",
+      "routes": [
+        "1"
+      ],
+      "structure": "Subway",
+      "division": "IRT",
+      "pos": [
+        -1675.3,
+        3306.1
+      ],
+      "layout": {
+        "type": "side",
+        "tracks": 4,
+        "passTracks": 2,
+        "platformLength": 156,
+        "depth": 14,
+        "bandColor": "#EE352E"
+      }
+    },
+    {
+      "id": "624",
+      "complexId": "395",
+      "name": "103 St",
+      "routes": [
+        "6"
+      ],
+      "structure": "Subway",
+      "division": "IRT",
+      "pos": [
+        3206.3,
+        -3622.9
+      ],
+      "layout": {
+        "type": "side",
+        "tracks": 4,
+        "passTracks": 2,
+        "platformLength": 156,
+        "depth": 14,
+        "bandColor": "#00933C"
+      }
+    },
+    {
+      "id": "M22",
+      "complexId": "628",
+      "name": "Fulton St",
+      "routes": [
+        "J",
+        "Z"
+      ],
+      "structure": "Subway",
+      "division": "BMT",
+      "pos": [
+        -1862.1,
+        5292.8
+      ],
+      "layout": {
+        "type": "island",
+        "tracks": 2,
+        "passTracks": 0,
+        "platformLength": 183,
+        "depth": 14,
+        "bandColor": "#996633"
+      }
+    },
+    {
+      "id": "R21",
+      "complexId": "16",
+      "name": "8 St-NYU",
+      "routes": [
+        "R",
+        "W"
+      ],
+      "structure": "Subway",
+      "division": "BMT",
+      "pos": [
+        -601.2,
+        3075.2
+      ],
+      "layout": {
+        "type": "island",
+        "tracks": 2,
+        "passTracks": 0,
+        "platformLength": 183,
+        "depth": 14,
+        "bandColor": "#FCCC0A"
+      }
+    },
+    {
+      "id": "902",
+      "complexId": "611",
+      "name": "Times Sq-42 St",
+      "routes": [
+        "S"
+      ],
+      "structure": "Subway",
+      "division": "IRT",
+      "pos": [
+        -61.5,
+        224.2
+      ],
+      "layout": {
+        "type": "island",
+        "tracks": 2,
+        "passTracks": 0,
+        "platformLength": 156,
+        "depth": 14,
+        "bandColor": "#808183"
+      }
+    },
+    {
+      "id": "124",
+      "complexId": "314",
+      "name": "66 St-Lincoln Center",
+      "routes": [
+        "1"
+      ],
+      "structure": "Subway",
+      "division": "IRT",
+      "pos": [
+        277.5,
+        -1715.9
+      ],
+      "layout": {
+        "type": "side",
+        "tracks": 4,
+        "passTracks": 2,
+        "platformLength": 156,
+        "depth": 14,
+        "bandColor": "#EE352E"
+      }
+    },
+    {
+      "id": "A18",
+      "complexId": "156",
+      "name": "103 St",
+      "routes": [
+        "C",
+        "B"
+      ],
+      "structure": "Subway",
+      "division": "IND",
+      "pos": [
+        2027.7,
+        -4233.2
+      ],
+      "layout": {
+        "type": "island",
+        "tracks": 2,
+        "passTracks": 0,
+        "platformLength": 183,
+        "depth": 14,
+        "bandColor": "#0039A6"
+      }
+    },
+    {
+      "id": "631",
+      "complexId": "610",
+      "name": "Grand Central-42 St",
+      "routes": [
+        "4",
+        "5",
+        "6"
+      ],
+      "structure": "Subway",
+      "division": "IRT",
+      "pos": [
+        729.6,
+        691.7
+      ],
+      "layout": {
+        "type": "dual-island",
+        "tracks": 4,
+        "passTracks": 0,
+        "platformLength": 156,
+        "depth": 14,
+        "bandColor": "#00933C"
+      }
+    },
+    {
+      "id": "B08",
+      "complexId": "223",
+      "name": "Lexington Av/63 St",
+      "routes": [
+        "M",
+        "Q"
+      ],
+      "structure": "Subway",
+      "division": "IND",
+      "pos": [
+        1634.8,
+        -736.7
+      ],
+      "layout": {
+        "type": "island",
+        "tracks": 2,
+        "passTracks": 0,
+        "platformLength": 183,
+        "depth": 14,
+        "bandColor": "#FF6319"
+      }
+    },
+    {
+      "id": "R27",
+      "complexId": "635",
+      "name": "Whitehall St-South Ferry",
+      "routes": [
+        "R",
+        "W"
+      ],
+      "structure": "Subway",
+      "division": "BMT",
+      "pos": [
+        -2318.5,
+        6102.6
+      ],
+      "layout": {
+        "type": "island",
+        "tracks": 2,
+        "passTracks": 0,
+        "platformLength": 183,
+        "depth": 14,
+        "bandColor": "#FCCC0A"
+      }
+    },
+    {
+      "id": "D16",
+      "complexId": "609",
+      "name": "42 St-Bryant Pk",
+      "routes": [
+        "B",
+        "D",
+        "F",
+        "M"
+      ],
+      "structure": "Subway",
+      "division": "IND",
+      "pos": [
+        78.5,
+        419.9
+      ],
+      "layout": {
+        "type": "dual-island",
+        "tracks": 4,
+        "passTracks": 0,
+        "platformLength": 183,
+        "depth": 14,
+        "bandColor": "#FF6319"
+      }
+    },
+    {
+      "id": "138",
+      "complexId": "328",
+      "name": "WTC Cortlandt",
+      "routes": [
+        "1"
+      ],
+      "structure": "Subway",
+      "division": "IRT",
+      "pos": [
+        -2250.5,
+        5130.4
+      ],
+      "layout": {
+        "type": "side",
+        "tracks": 4,
+        "passTracks": 2,
+        "platformLength": 156,
+        "depth": 14,
+        "bandColor": "#EE352E"
+      }
+    },
+    {
+      "id": "D20",
+      "complexId": "167",
+      "name": "W 4 St-Wash Sq",
+      "routes": [
+        "B",
+        "D",
+        "F",
+        "M"
+      ],
+      "structure": "Subway",
+      "division": "IND",
+      "pos": [
+        -1264.5,
+        2851.9
+      ],
+      "layout": {
+        "type": "dual-island",
+        "tracks": 4,
+        "passTracks": 0,
+        "platformLength": 183,
+        "depth": 14,
+        "bandColor": "#FF6319"
+      }
+    },
+    {
+      "id": "M18",
+      "complexId": "625",
+      "name": "Delancey St-Essex St",
+      "routes": [
+        "M",
+        "J",
+        "Z"
+      ],
+      "structure": "Subway",
+      "division": "BMT",
+      "pos": [
+        -163.3,
+        4410.3
+      ],
+      "layout": {
+        "type": "dual-island",
+        "tracks": 4,
+        "passTracks": 0,
+        "platformLength": 183,
+        "depth": 14,
+        "bandColor": "#FF6319"
+      }
+    },
+    {
+      "id": "L06",
+      "complexId": "119",
+      "name": "1 Av",
+      "routes": [
+        "L"
+      ],
+      "structure": "Subway",
+      "division": "BMT",
+      "pos": [
+        326.5,
+        3005.8
+      ],
+      "layout": {
+        "type": "side",
+        "tracks": 2,
+        "passTracks": 0,
+        "platformLength": 183,
+        "depth": 14,
+        "bandColor": "#A7A9AC"
+      }
+    },
+    {
+      "id": "A27",
+      "complexId": "611",
+      "name": "42 St-Port Authority Bus Terminal",
+      "routes": [
+        "A",
+        "C",
+        "E"
+      ],
+      "structure": "Subway",
+      "division": "IND",
+      "pos": [
+        -357.1,
+        76.9
+      ],
+      "layout": {
+        "type": "dual-island",
+        "tracks": 4,
+        "passTracks": 0,
+        "platformLength": 183,
+        "depth": 14,
+        "bandColor": "#0039A6"
+      }
+    },
+    {
+      "id": "L02",
+      "complexId": "601",
+      "name": "6 Av",
+      "routes": [
+        "L"
+      ],
+      "structure": "Subway",
+      "division": "BMT",
+      "pos": [
+        -951.7,
+        2296.5
+      ],
+      "layout": {
+        "type": "side",
+        "tracks": 2,
+        "passTracks": 0,
+        "platformLength": 183,
+        "depth": 14,
+        "bandColor": "#A7A9AC"
+      }
+    },
+    {
+      "id": "723",
+      "complexId": "610",
+      "name": "Grand Central-42 St",
+      "routes": [
+        "7"
+      ],
+      "structure": "Subway",
+      "division": "IRT",
+      "pos": [
+        797.6,
+        730
+      ],
+      "layout": {
+        "type": "island",
+        "tracks": 2,
+        "passTracks": 0,
+        "platformLength": 156,
+        "depth": 18,
+        "bandColor": "#B933AD"
+      }
+    },
+    {
+      "id": "A07",
+      "complexId": "147",
+      "name": "175 St",
+      "routes": [
+        "A"
+      ],
+      "structure": "Subway",
+      "division": "IND",
+      "pos": [
+        3861.8,
+        -9934.2
+      ],
+      "layout": {
+        "type": "side",
+        "tracks": 4,
+        "passTracks": 2,
+        "platformLength": 183,
+        "depth": 14,
+        "bandColor": "#0039A6"
+      }
+    },
+    {
+      "id": "106",
+      "complexId": "296",
+      "name": "Marble Hill-225 St",
+      "routes": [
+        "1"
+      ],
+      "structure": "Elevated",
+      "division": "IRT",
+      "pos": [
+        6380.9,
+        -12953.7
+      ],
+      "layout": {
+        "type": "side",
+        "tracks": 4,
+        "passTracks": 2,
+        "platformLength": 156,
+        "depth": 14,
+        "bandColor": "#EE352E"
+      }
+    },
+    {
+      "id": "121",
+      "complexId": "311",
+      "name": "86 St",
+      "routes": [
+        "1"
+      ],
+      "structure": "Subway",
+      "division": "IRT",
+      "pos": [
+        782.7,
+        -3405.5
+      ],
+      "layout": {
+        "type": "side",
+        "tracks": 4,
+        "passTracks": 2,
+        "platformLength": 156,
+        "depth": 14,
+        "bandColor": "#EE352E"
+      }
+    },
+    {
+      "id": "635",
+      "complexId": "602",
+      "name": "14 St-Union Sq",
+      "routes": [
+        "4",
+        "5",
+        "6"
+      ],
+      "structure": "Subway",
+      "division": "IRT",
+      "pos": [
+        -375.3,
+        2592.4
+      ],
+      "layout": {
+        "type": "dual-island",
+        "tracks": 4,
+        "passTracks": 0,
+        "platformLength": 156,
+        "depth": 14,
+        "bandColor": "#00933C"
+      }
+    },
+    {
+      "id": "D13",
+      "complexId": "151",
+      "name": "145 St",
+      "routes": [
+        "B",
+        "D"
+      ],
+      "structure": "Subway",
+      "division": "IND",
+      "pos": [
+        3481.4,
+        -7421.7
+      ],
+      "layout": {
+        "type": "island",
+        "tracks": 2,
+        "passTracks": 0,
+        "platformLength": 183,
+        "depth": 14,
+        "bandColor": "#FF6319"
+      }
+    },
+    {
+      "id": "108",
+      "complexId": "298",
+      "name": "207 St",
+      "routes": [
+        "1"
+      ],
+      "structure": "Elevated",
+      "division": "IRT",
+      "pos": [
+        5622.8,
+        -11849
+      ],
+      "layout": {
+        "type": "side",
+        "tracks": 4,
+        "passTracks": 2,
+        "platformLength": 156,
+        "depth": 14,
+        "bandColor": "#EE352E"
+      }
+    },
+    {
+      "id": "125",
+      "complexId": "614",
+      "name": "59 St-Columbus Circle",
+      "routes": [
+        "1"
+      ],
+      "structure": "Subway",
+      "division": "IRT",
+      "pos": [
+        301.1,
+        -1138.8
+      ],
+      "layout": {
+        "type": "island",
+        "tracks": 2,
+        "passTracks": 0,
+        "platformLength": 156,
+        "depth": 14,
+        "bandColor": "#EE352E"
+      }
+    },
+    {
+      "id": "A17",
+      "complexId": "155",
+      "name": "Cathedral Pkwy (110 St)",
+      "routes": [
+        "C",
+        "B"
+      ],
+      "structure": "Subway",
+      "division": "IND",
+      "pos": [
+        2305.4,
+        -4734.6
+      ],
+      "layout": {
+        "type": "island",
+        "tracks": 2,
+        "passTracks": 0,
+        "platformLength": 183,
+        "depth": 14,
+        "bandColor": "#0039A6"
+      }
+    },
+    {
+      "id": "130",
+      "complexId": "320",
+      "name": "23 St",
+      "routes": [
+        "1"
+      ],
+      "structure": "Subway",
+      "division": "IRT",
+      "pos": [
+        -856.5,
+        1546.8
+      ],
+      "layout": {
+        "type": "side",
+        "tracks": 4,
+        "passTracks": 2,
+        "platformLength": 156,
+        "depth": 14,
+        "bandColor": "#EE352E"
+      }
+    },
+    {
+      "id": "R20",
+      "complexId": "602",
+      "name": "14 St-Union Sq",
+      "routes": [
+        "N",
+        "Q",
+        "R",
+        "W"
+      ],
+      "structure": "Subway",
+      "division": "BMT",
+      "pos": [
+        -427.4,
+        2474.2
+      ],
+      "layout": {
+        "type": "dual-island",
+        "tracks": 4,
+        "passTracks": 0,
+        "platformLength": 183,
+        "depth": 14,
+        "bandColor": "#FCCC0A"
+      }
+    },
+    {
+      "id": "224",
+      "complexId": "438",
+      "name": "135 St",
+      "routes": [
+        "2",
+        "3"
+      ],
+      "structure": "Subway",
+      "division": "IRT",
+      "pos": [
+        3771.9,
+        -6248.8
+      ],
+      "layout": {
+        "type": "island",
+        "tracks": 2,
+        "passTracks": 0,
+        "platformLength": 156,
+        "depth": 14,
+        "bandColor": "#EE352E"
+      }
+    },
+    {
+      "id": "A05",
+      "complexId": "145",
+      "name": "190 St",
+      "routes": [
+        "A"
+      ],
+      "structure": "Subway",
+      "division": "IND",
+      "pos": [
+        4327.7,
+        -11226.8
+      ],
+      "layout": {
+        "type": "side",
+        "tracks": 4,
+        "passTracks": 2,
+        "platformLength": 183,
+        "depth": 14,
+        "bandColor": "#0039A6"
+      }
+    },
+    {
+      "id": "D22",
+      "complexId": "231",
+      "name": "Grand St",
+      "routes": [
+        "B",
+        "D"
+      ],
+      "structure": "Subway",
+      "division": "IND",
+      "pos": [
+        -696,
+        4415.6
+      ],
+      "layout": {
+        "type": "island",
+        "tracks": 2,
+        "passTracks": 0,
+        "platformLength": 183,
+        "depth": 14,
+        "bandColor": "#FF6319"
+      }
+    },
+    {
+      "id": "A21",
+      "complexId": "159",
+      "name": "81 St-Museum of Natural History",
+      "routes": [
+        "C",
+        "B"
+      ],
+      "structure": "Subway",
+      "division": "IND",
+      "pos": [
+        1126.4,
+        -2604.2
+      ],
+      "layout": {
+        "type": "island",
+        "tracks": 2,
+        "passTracks": 0,
+        "platformLength": 183,
+        "depth": 14,
+        "bandColor": "#0039A6"
+      }
+    },
+    {
+      "id": "Q01",
+      "complexId": "623",
+      "name": "Canal St",
+      "routes": [
+        "N",
+        "Q"
+      ],
+      "structure": "Subway",
+      "division": "BMT",
+      "pos": [
+        -1261.5,
+        4402.7
+      ],
+      "layout": {
+        "type": "island",
+        "tracks": 2,
+        "passTracks": 0,
+        "platformLength": 183,
+        "depth": 14,
+        "bandColor": "#FCCC0A"
+      }
+    },
+    {
+      "id": "113",
+      "complexId": "303",
+      "name": "157 St",
+      "routes": [
+        "1"
+      ],
+      "structure": "Subway",
+      "division": "IRT",
+      "pos": [
+        3424.5,
+        -8450.6
+      ],
+      "layout": {
+        "type": "side",
+        "tracks": 4,
+        "passTracks": 2,
+        "platformLength": 156,
+        "depth": 14,
+        "bandColor": "#EE352E"
+      }
+    },
+    {
+      "id": "E01",
+      "complexId": "624",
+      "name": "World Trade Center",
+      "routes": [
+        "E"
+      ],
+      "structure": "Subway",
+      "division": "IND",
+      "pos": [
+        -2047.5,
+        5047.4
+      ],
+      "layout": {
+        "type": "side",
+        "tracks": 4,
+        "passTracks": 2,
+        "platformLength": 183,
+        "depth": 14,
+        "bandColor": "#0039A6"
+      }
+    },
+    {
+      "id": "133",
+      "complexId": "323",
+      "name": "Christopher St-Stonewall",
+      "routes": [
+        "1"
+      ],
+      "structure": "Subway",
+      "division": "IRT",
+      "pos": [
+        -1467.8,
+        2731.4
+      ],
+      "layout": {
+        "type": "side",
+        "tracks": 4,
+        "passTracks": 2,
+        "platformLength": 156,
+        "depth": 14,
+        "bandColor": "#EE352E"
+      }
+    },
+    {
+      "id": "420",
+      "complexId": "414",
+      "name": "Bowling Green",
+      "routes": [
+        "4",
+        "5"
+      ],
+      "structure": "Subway",
+      "division": "IRT",
+      "pos": [
+        -2408.8,
+        5910.3
+      ],
+      "layout": {
+        "type": "island",
+        "tracks": 2,
+        "passTracks": 0,
+        "platformLength": 156,
+        "depth": 14,
+        "bandColor": "#00933C"
+      }
+    },
+    {
+      "id": "116",
+      "complexId": "306",
+      "name": "125 St",
+      "routes": [
+        "1"
+      ],
+      "structure": "Elevated",
+      "division": "IRT",
+      "pos": [
+        2287.6,
+        -6399.1
+      ],
+      "layout": {
+        "type": "side",
+        "tracks": 4,
+        "passTracks": 2,
+        "platformLength": 156,
+        "depth": 14,
+        "bandColor": "#EE352E"
+      }
+    },
+    {
+      "id": "R11",
+      "complexId": "613",
+      "name": "Lexington Av/59 St",
+      "routes": [
+        "N",
+        "R",
+        "W"
+      ],
+      "structure": "Subway",
+      "division": "BMT",
+      "pos": [
+        1538.3,
+        -517.9
+      ],
+      "layout": {
+        "type": "dual-island",
+        "tracks": 4,
+        "passTracks": 0,
+        "platformLength": 183,
+        "depth": 14,
+        "bandColor": "#FCCC0A"
+      }
+    },
+    {
+      "id": "M23",
+      "complexId": "107",
+      "name": "Broad St",
+      "routes": [
+        "J",
+        "Z"
+      ],
+      "structure": "Subway",
+      "division": "BMT",
+      "pos": [
+        -2155.1,
+        5726
+      ],
+      "layout": {
+        "type": "island",
+        "tracks": 2,
+        "passTracks": 0,
+        "platformLength": 183,
+        "depth": 14,
+        "bandColor": "#996633"
+      }
+    },
+    {
+      "id": "625",
+      "complexId": "396",
+      "name": "96 St",
+      "routes": [
+        "6"
+      ],
+      "structure": "Subway",
+      "division": "IRT",
+      "pos": [
+        2903.4,
+        -3075.2
+      ],
+      "layout": {
+        "type": "side",
+        "tracks": 4,
+        "passTracks": 2,
+        "platformLength": 156,
+        "depth": 14,
+        "bandColor": "#00933C"
+      }
+    },
+    {
+      "id": "R17",
+      "complexId": "607",
+      "name": "34 St-Herald Sq",
+      "routes": [
+        "N",
+        "Q",
+        "R",
+        "W"
+      ],
+      "structure": "Subway",
+      "division": "BMT",
+      "pos": [
+        -206.6,
+        937.2
+      ],
+      "layout": {
+        "type": "dual-island",
+        "tracks": 4,
+        "passTracks": 0,
+        "platformLength": 183,
+        "depth": 14,
+        "bandColor": "#FCCC0A"
+      }
+    },
+    {
+      "id": "901",
+      "complexId": "610",
+      "name": "Grand Central-42 St",
+      "routes": [
+        "S"
+      ],
+      "structure": "Subway",
+      "division": "IRT",
+      "pos": [
+        532.2,
+        581.3
+      ],
+      "layout": {
+        "type": "island",
+        "tracks": 2,
+        "passTracks": 0,
+        "platformLength": 156,
+        "depth": 14,
+        "bandColor": "#808183"
+      }
+    },
+    {
+      "id": "142",
+      "complexId": "635",
+      "name": "South Ferry",
+      "routes": [
+        "1"
+      ],
+      "structure": "Subway",
+      "division": "IRT",
+      "pos": [
+        -2375,
+        6215.8
+      ],
+      "layout": {
+        "type": "island",
+        "tracks": 2,
+        "passTracks": 0,
+        "platformLength": 156,
+        "depth": 14,
+        "bandColor": "#EE352E"
+      }
+    },
+    {
+      "id": "640",
+      "complexId": "622",
+      "name": "Brooklyn Bridge-City Hall",
+      "routes": [
+        "4",
+        "5",
+        "6"
+      ],
+      "structure": "Subway",
+      "division": "IRT",
+      "pos": [
+        -1571.1,
+        4993.7
+      ],
+      "layout": {
+        "type": "dual-island",
+        "tracks": 4,
+        "passTracks": 0,
+        "platformLength": 156,
+        "depth": 14,
+        "bandColor": "#00933C"
+      }
+    },
+    {
+      "id": "A14",
+      "complexId": "152",
+      "name": "135 St",
+      "routes": [
+        "C",
+        "B"
+      ],
+      "structure": "Subway",
+      "division": "IND",
+      "pos": [
+        3191.9,
+        -6656.1
+      ],
+      "layout": {
+        "type": "island",
+        "tracks": 2,
+        "passTracks": 0,
+        "platformLength": 183,
+        "depth": 14,
+        "bandColor": "#0039A6"
+      }
+    },
+    {
+      "id": "225",
+      "complexId": "439",
+      "name": "125 St",
+      "routes": [
+        "2",
+        "3"
+      ],
+      "structure": "Subway",
+      "division": "IRT",
+      "pos": [
+        3373.5,
+        -5529.3
+      ],
+      "layout": {
+        "type": "island",
+        "tracks": 2,
+        "passTracks": 0,
+        "platformLength": 156,
+        "depth": 14,
+        "bandColor": "#EE352E"
+      }
+    },
+    {
+      "id": "A33",
+      "complexId": "168",
+      "name": "Spring St",
+      "routes": [
+        "C",
+        "E"
+      ],
+      "structure": "Subway",
+      "division": "IND",
+      "pos": [
+        -1538,
+        3531
+      ],
+      "layout": {
+        "type": "island",
+        "tracks": 2,
+        "passTracks": 0,
+        "platformLength": 183,
+        "depth": 14,
+        "bandColor": "#0039A6"
+      }
+    },
+    {
+      "id": "A09",
+      "complexId": "605",
+      "name": "168 St",
+      "routes": [
+        "A",
+        "C"
+      ],
+      "structure": "Subway",
+      "division": "IND",
+      "pos": [
+        3873.9,
+        -9192.7
+      ],
+      "layout": {
+        "type": "island",
+        "tracks": 2,
+        "passTracks": 0,
+        "platformLength": 183,
+        "depth": 14,
+        "bandColor": "#0039A6"
+      }
+    },
+    {
+      "id": "109",
+      "complexId": "299",
+      "name": "Dyckman St",
+      "routes": [
+        "1"
+      ],
+      "structure": "Elevated",
+      "division": "IRT",
+      "pos": [
+        5056.6,
+        -11394.5
+      ],
+      "layout": {
+        "type": "side",
+        "tracks": 4,
+        "passTracks": 2,
+        "platformLength": 156,
+        "depth": 14,
+        "bandColor": "#EE352E"
+      }
+    },
+    {
+      "id": "626",
+      "complexId": "397",
+      "name": "86 St",
+      "routes": [
+        "4",
+        "5",
+        "6"
+      ],
+      "structure": "Subway",
+      "division": "IRT",
+      "pos": [
+        2522.3,
+        -2388.4
+      ],
+      "layout": {
+        "type": "dual-island",
+        "tracks": 4,
+        "passTracks": 0,
+        "platformLength": 156,
+        "depth": 14,
+        "bandColor": "#00933C"
+      }
+    },
+    {
+      "id": "621",
+      "complexId": "392",
+      "name": "125 St",
+      "routes": [
+        "4",
+        "5",
+        "6"
+      ],
+      "structure": "Subway",
+      "division": "IRT",
+      "pos": [
+        4039.8,
+        -5127.4
+      ],
+      "layout": {
+        "type": "dual-island",
+        "tracks": 4,
+        "passTracks": 0,
+        "platformLength": 156,
+        "depth": 14,
+        "bandColor": "#00933C"
+      }
+    },
+    {
+      "id": "137",
+      "complexId": "327",
+      "name": "Chambers St",
+      "routes": [
+        "1",
+        "2",
+        "3"
+      ],
+      "structure": "Subway",
+      "division": "IRT",
+      "pos": [
+        -2004.1,
+        4725.6
+      ],
+      "layout": {
+        "type": "dual-island",
+        "tracks": 4,
+        "passTracks": 0,
+        "platformLength": 156,
+        "depth": 14,
+        "bandColor": "#EE352E"
+      }
+    },
+    {
+      "id": "M19",
+      "complexId": "103",
+      "name": "Bowery",
+      "routes": [
+        "J",
+        "Z"
+      ],
+      "structure": "Subway",
+      "division": "BMT",
+      "pos": [
+        -709.6,
+        4191.9
+      ],
+      "layout": {
+        "type": "island",
+        "tracks": 2,
+        "passTracks": 0,
+        "platformLength": 183,
+        "depth": 14,
+        "bandColor": "#996633"
+      }
+    },
+    {
+      "id": "636",
+      "complexId": "407",
+      "name": "Astor Pl",
+      "routes": [
+        "6"
+      ],
+      "structure": "Subway",
+      "division": "IRT",
+      "pos": [
+        -469.7,
+        3105.7
+      ],
+      "layout": {
+        "type": "side",
+        "tracks": 4,
+        "passTracks": 2,
+        "platformLength": 156,
+        "depth": 14,
+        "bandColor": "#00933C"
+      }
+    },
+    {
+      "id": "A28",
+      "complexId": "164",
+      "name": "34 St-Penn Station",
+      "routes": [
+        "A",
+        "C",
+        "E"
+      ],
+      "structure": "Subway",
+      "division": "IND",
+      "pos": [
+        -665.4,
+        634.9
+      ],
+      "layout": {
+        "type": "dual-island",
+        "tracks": 4,
+        "passTracks": 0,
+        "platformLength": 183,
+        "depth": 14,
+        "bandColor": "#0039A6"
+      }
+    },
+    {
+      "id": "126",
+      "complexId": "316",
+      "name": "50 St",
+      "routes": [
+        "1"
+      ],
+      "structure": "Subway",
+      "division": "IRT",
+      "pos": [
+        139.2,
+        -414.3
+      ],
+      "layout": {
+        "type": "side",
+        "tracks": 4,
+        "passTracks": 2,
+        "platformLength": 156,
+        "depth": 14,
+        "bandColor": "#EE352E"
+      }
+    },
+    {
+      "id": "120",
+      "complexId": "310",
+      "name": "96 St",
+      "routes": [
+        "1",
+        "2",
+        "3"
+      ],
+      "structure": "Subway",
+      "division": "IRT",
+      "pos": [
+        1111.2,
+        -3991.8
+      ],
+      "layout": {
+        "type": "dual-island",
+        "tracks": 4,
+        "passTracks": 0,
+        "platformLength": 156,
+        "depth": 14,
+        "bandColor": "#EE352E"
+      }
+    },
+    {
+      "id": "630",
+      "complexId": "612",
+      "name": "51 St",
+      "routes": [
+        "6"
+      ],
+      "structure": "Subway",
+      "division": "IRT",
+      "pos": [
+        1145.2,
+        99.2
+      ],
+      "layout": {
+        "type": "side",
+        "tracks": 4,
+        "passTracks": 2,
+        "platformLength": 156,
+        "depth": 14,
+        "bandColor": "#00933C"
+      }
+    },
+    {
+      "id": "D17",
+      "complexId": "607",
+      "name": "34 St-Herald Sq",
+      "routes": [
+        "B",
+        "D",
+        "F",
+        "M"
+      ],
+      "structure": "Subway",
+      "division": "IND",
+      "pos": [
+        -195.9,
+        920.3
+      ],
+      "layout": {
+        "type": "dual-island",
+        "tracks": 4,
+        "passTracks": 0,
+        "platformLength": 183,
+        "depth": 14,
+        "bandColor": "#FF6319"
+      }
+    },
+    {
+      "id": "L01",
+      "complexId": "618",
+      "name": "8 Av",
+      "routes": [
+        "L"
+      ],
+      "structure": "Subway",
+      "division": "BMT",
+      "pos": [
+        -1440.1,
+        2025.2
+      ],
+      "layout": {
+        "type": "side",
+        "tracks": 2,
+        "passTracks": 0,
+        "platformLength": 183,
+        "depth": 14,
+        "bandColor": "#A7A9AC"
+      }
+    },
+    {
+      "id": "228",
+      "complexId": "624",
+      "name": "Park Place",
+      "routes": [
+        "2",
+        "3"
+      ],
+      "structure": "Subway",
+      "division": "IRT",
+      "pos": [
+        -1965.7,
+        4995.3
+      ],
+      "layout": {
+        "type": "island",
+        "tracks": 2,
+        "passTracks": 0,
+        "platformLength": 156,
+        "depth": 14,
+        "bandColor": "#EE352E"
+      }
+    },
+    {
+      "id": "B06",
+      "complexId": "222",
+      "name": "Roosevelt Island",
+      "routes": [
+        "M"
+      ],
+      "structure": "Subway",
+      "division": "IND",
+      "pos": [
+        2718.7,
+        -127.2
+      ],
+      "layout": {
+        "type": "side",
+        "tracks": 4,
+        "passTracks": 2,
+        "platformLength": 183,
+        "depth": 14,
+        "bandColor": "#FF6319"
+      }
+    },
+    {
+      "id": "F14",
+      "complexId": "232",
+      "name": "2 Av",
+      "routes": [
+        "F"
+      ],
+      "structure": "Subway",
+      "division": "IND",
+      "pos": [
+        -374.2,
+        3844.9
+      ],
+      "layout": {
+        "type": "side",
+        "tracks": 4,
+        "passTracks": 2,
+        "platformLength": 183,
+        "depth": 14,
+        "bandColor": "#FF6319"
+      }
+    }
+  ],
+  "entrances": [
+    {
+      "pos": [
+        -2428.2,
+        5718.9
+      ],
+      "stationId": "R26",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -2413.4,
+        5714.6
+      ],
+      "stationId": "R26",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -2196,
+        5802
+      ],
+      "stationId": "M23",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -2145.4,
+        5751.1
+      ],
+      "stationId": "M23",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -2449.1,
+        5996
+      ],
+      "stationId": "420",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -2359.3,
+        5930.5
+      ],
+      "stationId": "420",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -2344.9,
+        6000.7
+      ],
+      "stationId": "R27",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -2318.2,
+        5988.2
+      ],
+      "stationId": "R27",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -2445.2,
+        6135.5
+      ],
+      "stationId": "142",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -2168.5,
+        5783.7
+      ],
+      "stationId": "M23",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -2159,
+        5760.4
+      ],
+      "stationId": "M23",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -2345.4,
+        6225.5
+      ],
+      "stationId": "142",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -2121.3,
+        5678.8
+      ],
+      "stationId": "M23",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -2314.9,
+        5596.8
+      ],
+      "stationId": "R26",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -2342.9,
+        5616.8
+      ],
+      "stationId": "R26",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -2335.7,
+        5602.8
+      ],
+      "stationId": "R26",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -2329.4,
+        5590.3
+      ],
+      "stationId": "R26",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -2346.5,
+        5986.9
+      ],
+      "stationId": "420",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -2287.3,
+        6214.7
+      ],
+      "stationId": "142",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -2284.9,
+        6226.8
+      ],
+      "stationId": "142",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -2395.9,
+        5926
+      ],
+      "stationId": "420",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -2411,
+        5707.4
+      ],
+      "stationId": "R26",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -2390.8,
+        5605.7
+      ],
+      "stationId": "139",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -2314.7,
+        6258.8
+      ],
+      "stationId": "142",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -2191.3,
+        5773.8
+      ],
+      "stationId": "M23",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -2108.9,
+        5676.4
+      ],
+      "stationId": "M23",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -2211.8,
+        5608.1
+      ],
+      "stationId": "419",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -2233.7,
+        5642.7
+      ],
+      "stationId": "419",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -2228.6,
+        5594.5
+      ],
+      "stationId": "419",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -2232.8,
+        5601.7
+      ],
+      "stationId": "419",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -2318.8,
+        6246.3
+      ],
+      "stationId": "142",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -2400.1,
+        5738
+      ],
+      "stationId": "R26",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -2443.6,
+        5910.8
+      ],
+      "stationId": "420",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -2449.4,
+        5909.3
+      ],
+      "stationId": "420",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -2217.2,
+        5616.6
+      ],
+      "stationId": "419",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -2025.7,
+        5722.8
+      ],
+      "stationId": "230",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -2038.3,
+        5737.9
+      ],
+      "stationId": "230",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -2011.9,
+        5733.7
+      ],
+      "stationId": "230",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -1950.2,
+        5611.4
+      ],
+      "stationId": "230",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -1950.9,
+        5704.2
+      ],
+      "stationId": "230",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -2019.5,
+        5752.1
+      ],
+      "stationId": "230",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -2358.8,
+        5547.5
+      ],
+      "stationId": "139",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -2367.9,
+        5536.3
+      ],
+      "stationId": "139",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -2229,
+        5128.5
+      ],
+      "stationId": "138",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -2119.4,
+        5212.7
+      ],
+      "stationId": "R25",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -2315.8,
+        5563.5
+      ],
+      "stationId": "139",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -2294.7,
+        5555.9
+      ],
+      "stationId": "419",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -2302.4,
+        5570.8
+      ],
+      "stationId": "R26",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -2131.9,
+        5237.6
+      ],
+      "stationId": "R25",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -2155.4,
+        5283.7
+      ],
+      "stationId": "R25",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -2142.7,
+        5197.3
+      ],
+      "stationId": "R25",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -2067.4,
+        5372
+      ],
+      "stationId": "418",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -2082.8,
+        5141.9
+      ],
+      "stationId": "E01",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -2080.2,
+        5136
+      ],
+      "stationId": "E01",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -2055.5,
+        5034.8
+      ],
+      "stationId": "E01",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -2276,
+        5220.1
+      ],
+      "stationId": "138",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -2280.3,
+        5235.6
+      ],
+      "stationId": "138",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -2397,
+        5042.2
+      ],
+      "stationId": "138",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -2150.5,
+        5123.1
+      ],
+      "stationId": "138",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -2091.3,
+        5084.7
+      ],
+      "stationId": "E01",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -2133.2,
+        5082.2
+      ],
+      "stationId": "E01",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -2219.4,
+        5343.4
+      ],
+      "stationId": "R25",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -2084.6,
+        5358.9
+      ],
+      "stationId": "418",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -2087.5,
+        5364
+      ],
+      "stationId": "418",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -2156.3,
+        5316.3
+      ],
+      "stationId": "R25",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -2159.3,
+        5321.3
+      ],
+      "stationId": "R25",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -2233,
+        5043
+      ],
+      "stationId": "138",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -2230.3,
+        5031.9
+      ],
+      "stationId": "138",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -2234.8,
+        5051.4
+      ],
+      "stationId": "138",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -2308.8,
+        5550.2
+      ],
+      "stationId": "139",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -2044.9,
+        5548.2
+      ],
+      "stationId": "230",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -2038.6,
+        5291.8
+      ],
+      "stationId": "418",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -1746.7,
+        5370.3
+      ],
+      "stationId": "229",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -1983.8,
+        5252.2
+      ],
+      "stationId": "418",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -2001,
+        5217.2
+      ],
+      "stationId": "418",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -2012.6,
+        5210
+      ],
+      "stationId": "418",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -2014.8,
+        5228.2
+      ],
+      "stationId": "418",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -1794.3,
+        5432.7
+      ],
+      "stationId": "229",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -1777,
+        5388.4
+      ],
+      "stationId": "229",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -1784.9,
+        5380.5
+      ],
+      "stationId": "229",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -1763,
+        5393.7
+      ],
+      "stationId": "229",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -1733.2,
+        5393.8
+      ],
+      "stationId": "229",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -1806.4,
+        5495.2
+      ],
+      "stationId": "229",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -1894.1,
+        5325.7
+      ],
+      "stationId": "A38",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -1893.1,
+        5288.6
+      ],
+      "stationId": "M22",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -1850.1,
+        5316.6
+      ],
+      "stationId": "A38",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -1860.1,
+        5310.9
+      ],
+      "stationId": "A38",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -1865.1,
+        5326.1
+      ],
+      "stationId": "A38",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -1922.6,
+        5388
+      ],
+      "stationId": "A38",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -1922.9,
+        5407.4
+      ],
+      "stationId": "A38",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -1879.6,
+        5031.1
+      ],
+      "stationId": "R24",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -1985.3,
+        4965.5
+      ],
+      "stationId": "228",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -2024.4,
+        4969.2
+      ],
+      "stationId": "228",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -2005.5,
+        4949.7
+      ],
+      "stationId": "228",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -1985,
+        4915.8
+      ],
+      "stationId": "A36",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -1979.7,
+        4894.2
+      ],
+      "stationId": "A36",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -1926.1,
+        4866.7
+      ],
+      "stationId": "A36",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -1988.7,
+        4991.6
+      ],
+      "stationId": "228",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -1576.3,
+        5045.3
+      ],
+      "stationId": "640",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -1636.8,
+        5024.3
+      ],
+      "stationId": "640",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -1650.5,
+        5130.7
+      ],
+      "stationId": "640",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -1546.3,
+        4908.6
+      ],
+      "stationId": "M21",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -1530.4,
+        4902.8
+      ],
+      "stationId": "M21",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -1655.7,
+        5127
+      ],
+      "stationId": "640",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -1991.2,
+        4990.2
+      ],
+      "stationId": "228",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -1946.4,
+        5272.3
+      ],
+      "stationId": "418",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -1978.4,
+        5251.2
+      ],
+      "stationId": "418",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -2004.9,
+        5284.2
+      ],
+      "stationId": "418",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -1777.6,
+        5385.5
+      ],
+      "stationId": "229",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -1594.5,
+        5071.6
+      ],
+      "stationId": "640",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -1576.3,
+        5045.3
+      ],
+      "stationId": "640",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -1818.1,
+        4990.8
+      ],
+      "stationId": "R24",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -1793.5,
+        4952.3
+      ],
+      "stationId": "R24",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -1786.5,
+        4941.6
+      ],
+      "stationId": "R24",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -1643.8,
+        5033.7
+      ],
+      "stationId": "640",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -1628.4,
+        5016.5
+      ],
+      "stationId": "640",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -1934.7,
+        4831.5
+      ],
+      "stationId": "A36",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -1947.2,
+        4853.3
+      ],
+      "stationId": "A36",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -1641.4,
+        4142.8
+      ],
+      "stationId": "A34",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -1889.3,
+        4805.4
+      ],
+      "stationId": "A36",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -1873.1,
+        4776.3
+      ],
+      "stationId": "A36",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -1911.9,
+        4793.6
+      ],
+      "stationId": "A36",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -1895.7,
+        4766.5
+      ],
+      "stationId": "137",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -1646.2,
+        4234.6
+      ],
+      "stationId": "A34",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -2009.2,
+        4687.6
+      ],
+      "stationId": "137",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -1985.6,
+        4712.2
+      ],
+      "stationId": "137",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -2000.7,
+        4738.5
+      ],
+      "stationId": "137",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -2019.4,
+        4720.7
+      ],
+      "stationId": "137",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -2017.9,
+        4725.8
+      ],
+      "stationId": "137",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -1822.9,
+        4335.6
+      ],
+      "stationId": "136",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -1818.5,
+        4306.9
+      ],
+      "stationId": "136",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -1785.6,
+        4331.4
+      ],
+      "stationId": "136",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -1781.5,
+        4233.9
+      ],
+      "stationId": "136",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -1807.9,
+        4229.5
+      ],
+      "stationId": "136",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -1678.4,
+        4135.1
+      ],
+      "stationId": "A34",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -2009.3,
+        4691
+      ],
+      "stationId": "137",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -1735.1,
+        3937.7
+      ],
+      "stationId": "135",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -1773.5,
+        3901.9
+      ],
+      "stationId": "135",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -1649.8,
+        4012.6
+      ],
+      "stationId": "A34",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -1590,
+        3598.5
+      ],
+      "stationId": "A33",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -1562.7,
+        3532.9
+      ],
+      "stationId": "A33",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -1539.6,
+        3606.9
+      ],
+      "stationId": "A33",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -1695.1,
+        4039.6
+      ],
+      "stationId": "A34",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -1729.5,
+        3942.9
+      ],
+      "stationId": "135",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -1779,
+        3896.6
+      ],
+      "stationId": "135",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -1491.9,
+        4873.3
+      ],
+      "stationId": "M21",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -397.1,
+        5030.8
+      ],
+      "stationId": "F16",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -408.6,
+        4864.1
+      ],
+      "stationId": "F16",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -380.5,
+        4902.5
+      ],
+      "stationId": "F16",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -1411,
+        4282.1
+      ],
+      "stationId": "R23",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -1386.8,
+        4266.2
+      ],
+      "stationId": "R23",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -1390.1,
+        4263.1
+      ],
+      "stationId": "R23",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -1370.5,
+        4319.8
+      ],
+      "stationId": "R23",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -1362.1,
+        4283.3
+      ],
+      "stationId": "R23",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -1375.9,
+        4314.7
+      ],
+      "stationId": "R23",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -1401.3,
+        4291.3
+      ],
+      "stationId": "R23",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -1245.2,
+        4464.7
+      ],
+      "stationId": "M20",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -1252.1,
+        4426.6
+      ],
+      "stationId": "Q01",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -1245.5,
+        4403.7
+      ],
+      "stationId": "Q01",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -1291.1,
+        4389.3
+      ],
+      "stationId": "Q01",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -1272.8,
+        4375.3
+      ],
+      "stationId": "Q01",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -1232.2,
+        4413.7
+      ],
+      "stationId": "M20",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -1278.5,
+        4372.1
+      ],
+      "stationId": "Q01",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -1257.6,
+        4421.3
+      ],
+      "stationId": "Q01",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -667,
+        4188.7
+      ],
+      "stationId": "M19",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -678.4,
+        4222.5
+      ],
+      "stationId": "M19",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -706.7,
+        4404.5
+      ],
+      "stationId": "D22",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -682.3,
+        4422.4
+      ],
+      "stationId": "D22",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -671.6,
+        4426.6
+      ],
+      "stationId": "D22",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -1018.9,
+        3754.2
+      ],
+      "stationId": "R22",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -1046.3,
+        3737.4
+      ],
+      "stationId": "R22",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -1024.9,
+        3766.2
+      ],
+      "stationId": "R22",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -1052.1,
+        3748.3
+      ],
+      "stationId": "R22",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -952.5,
+        3975.4
+      ],
+      "stationId": "638",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -953.9,
+        3990.1
+      ],
+      "stationId": "638",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -1005.3,
+        3947.1
+      ],
+      "stationId": "638",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -1010,
+        3955.5
+      ],
+      "stationId": "638",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -487.2,
+        3784.3
+      ],
+      "stationId": "F14",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -519.4,
+        3814.7
+      ],
+      "stationId": "F14",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -853,
+        3627.7
+      ],
+      "stationId": "D21",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -852.7,
+        3668.4
+      ],
+      "stationId": "D21",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -917.9,
+        3607.8
+      ],
+      "stationId": "D21",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -842.3,
+        3631.5
+      ],
+      "stationId": "D21",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -824.8,
+        3677.8
+      ],
+      "stationId": "D21",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -792.2,
+        3646.7
+      ],
+      "stationId": "637",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -785.2,
+        3561.4
+      ],
+      "stationId": "637",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -779.1,
+        3550.4
+      ],
+      "stationId": "637",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -741.7,
+        3572.9
+      ],
+      "stationId": "637",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -745.8,
+        3583
+      ],
+      "stationId": "637",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -766.8,
+        3587.7
+      ],
+      "stationId": "637",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -938.3,
+        3642.8
+      ],
+      "stationId": "D21",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -866.5,
+        3664.3
+      ],
+      "stationId": "D21",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -229.8,
+        4356.4
+      ],
+      "stationId": "F15",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -200.1,
+        4340.8
+      ],
+      "stationId": "F15",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -179.8,
+        4382.4
+      ],
+      "stationId": "M18",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -248,
+        4403.3
+      ],
+      "stationId": "F15",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -141.6,
+        4398.1
+      ],
+      "stationId": "M18",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -234,
+        4431.2
+      ],
+      "stationId": "F15",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -370.6,
+        4845.6
+      ],
+      "stationId": "F16",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -284.5,
+        3866.5
+      ],
+      "stationId": "F14",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -292.1,
+        3913.1
+      ],
+      "stationId": "F14",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -1668.1,
+        3363
+      ],
+      "stationId": "134",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -1663.8,
+        3333.4
+      ],
+      "stationId": "134",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -1703.1,
+        3353.8
+      ],
+      "stationId": "134",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -1701.4,
+        3335.7
+      ],
+      "stationId": "134",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -1693.7,
+        3273.5
+      ],
+      "stationId": "134",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -1691.5,
+        3254.6
+      ],
+      "stationId": "134",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -1652.6,
+        3259.8
+      ],
+      "stationId": "134",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -1657.3,
+        3280.7
+      ],
+      "stationId": "134",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -1456,
+        2732.4
+      ],
+      "stationId": "133",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -1322.6,
+        2987.2
+      ],
+      "stationId": "A32",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -1324.9,
+        2988.5
+      ],
+      "stationId": "A32",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -1356.6,
+        2990.1
+      ],
+      "stationId": "A32",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -1196.4,
+        2760.3
+      ],
+      "stationId": "A32",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -1207.8,
+        2781
+      ],
+      "stationId": "A32",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -1242.4,
+        2767.1
+      ],
+      "stationId": "A32",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -1482.6,
+        2727.7
+      ],
+      "stationId": "133",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -1485.2,
+        2721.7
+      ],
+      "stationId": "133",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -1474.8,
+        2705.5
+      ],
+      "stationId": "133",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -1487.8,
+        2707.7
+      ],
+      "stationId": "133",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -451.8,
+        3104.8
+      ],
+      "stationId": "636",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -501.4,
+        3109.4
+      ],
+      "stationId": "636",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -603.9,
+        3024.2
+      ],
+      "stationId": "R21",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -590,
+        3031.6
+      ],
+      "stationId": "R21",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -611.6,
+        3038.3
+      ],
+      "stationId": "R21",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -597.7,
+        3045.9
+      ],
+      "stationId": "R21",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -574.7,
+        3057.9
+      ],
+      "stationId": "R21",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -566.8,
+        3045.7
+      ],
+      "stationId": "R21",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -635.6,
+        3148.1
+      ],
+      "stationId": "R21",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -653.8,
+        3136.7
+      ],
+      "stationId": "R21",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -1447.2,
+        2004.1
+      ],
+      "stationId": "L01",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -1453.7,
+        2005.7
+      ],
+      "stationId": "L01",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -1459.8,
+        2028.9
+      ],
+      "stationId": "L01",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -1422.9,
+        2049.7
+      ],
+      "stationId": "L01",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -1410.3,
+        2024.8
+      ],
+      "stationId": "L01",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -1171.1,
+        2157.5
+      ],
+      "stationId": "132",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -1196.9,
+        2133.1
+      ],
+      "stationId": "132",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -1121.4,
+        2649.4
+      ],
+      "stationId": "A32",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -986.2,
+        2287.3
+      ],
+      "stationId": "L02",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -975,
+        2293.6
+      ],
+      "stationId": "L02",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -945.9,
+        2309.8
+      ],
+      "stationId": "L02",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -977.2,
+        2270.7
+      ],
+      "stationId": "L02",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -965.9,
+        2276.6
+      ],
+      "stationId": "L02",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -1223.2,
+        2161.5
+      ],
+      "stationId": "132",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -1194.2,
+        2186.6
+      ],
+      "stationId": "132",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -1216.4,
+        2239.7
+      ],
+      "stationId": "132",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -1252.5,
+        2219.8
+      ],
+      "stationId": "132",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -1293.7,
+        2289
+      ],
+      "stationId": "132",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -1254.9,
+        2310.9
+      ],
+      "stationId": "132",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -1370.9,
+        1953.8
+      ],
+      "stationId": "A31",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -957.3,
+        2328.1
+      ],
+      "stationId": "L02",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -1124.3,
+        2649.1
+      ],
+      "stationId": "A32",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -392.5,
+        2614.7
+      ],
+      "stationId": "635",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -406.7,
+        2606.9
+      ],
+      "stationId": "635",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -473.3,
+        2525
+      ],
+      "stationId": "L03",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -400.4,
+        2520.4
+      ],
+      "stationId": "R20",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -418.8,
+        2388.5
+      ],
+      "stationId": "R20",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -429.5,
+        2404.9
+      ],
+      "stationId": "R20",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -490.4,
+        2568.1
+      ],
+      "stationId": "L03",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -932.2,
+        2317.5
+      ],
+      "stationId": "L02",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -864.1,
+        2161
+      ],
+      "stationId": "D19",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -894.2,
+        2144.3
+      ],
+      "stationId": "D19",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -856.3,
+        2147.3
+      ],
+      "stationId": "D19",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -886.1,
+        2130.2
+      ],
+      "stationId": "D19",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -926,
+        2298.8
+      ],
+      "stationId": "L02",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -920.9,
+        2301.7
+      ],
+      "stationId": "L02",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -463,
+        2583.3
+      ],
+      "stationId": "L03",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -95.4,
+        2782.6
+      ],
+      "stationId": "L05",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -86.3,
+        2766
+      ],
+      "stationId": "L05",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -130.1,
+        2763.1
+      ],
+      "stationId": "L05",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -121.1,
+        2746.6
+      ],
+      "stationId": "L05",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        283.2,
+        2945
+      ],
+      "stationId": "L06",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        249.9,
+        2978.2
+      ],
+      "stationId": "L06",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        242,
+        2990.5
+      ],
+      "stationId": "L06",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        286.4,
+        2955.5
+      ],
+      "stationId": "L06",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        407.8,
+        3062.6
+      ],
+      "stationId": "L06",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        416.5,
+        3067.5
+      ],
+      "stationId": "L06",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        421.2,
+        3048.4
+      ],
+      "stationId": "L06",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        389.4,
+        3053.7
+      ],
+      "stationId": "L06",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        401.9,
+        3036.7
+      ],
+      "stationId": "L06",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        397,
+        3034
+      ],
+      "stationId": "L06",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -340.2,
+        2644.7
+      ],
+      "stationId": "635",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -353.3,
+        2638.7
+      ],
+      "stationId": "635",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -335.1,
+        2621.8
+      ],
+      "stationId": "635",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -361.3,
+        2534.7
+      ],
+      "stationId": "635",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -39.3,
+        1985.5
+      ],
+      "stationId": "634",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -93.4,
+        1950.4
+      ],
+      "stationId": "634",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -104.7,
+        1973.1
+      ],
+      "stationId": "634",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -98.5,
+        1997.1
+      ],
+      "stationId": "634",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -58.3,
+        2002.9
+      ],
+      "stationId": "634",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -70.5,
+        2004.3
+      ],
+      "stationId": "634",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -89,
+        2058.5
+      ],
+      "stationId": "634",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -127.2,
+        2037.2
+      ],
+      "stationId": "634",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -108.1,
+        2072.6
+      ],
+      "stationId": "634",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -133.8,
+        2060.3
+      ],
+      "stationId": "634",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -88.9,
+        1957.5
+      ],
+      "stationId": "634",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -51.1,
+        1978.6
+      ],
+      "stationId": "634",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -350,
+        2613.3
+      ],
+      "stationId": "635",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -1087.7,
+        1431.5
+      ],
+      "stationId": "A30",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -1116.9,
+        1414.9
+      ],
+      "stationId": "A30",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -1065.2,
+        1412
+      ],
+      "stationId": "A30",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -1110.5,
+        1386.5
+      ],
+      "stationId": "A30",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -1408.2,
+        1932.4
+      ],
+      "stationId": "A31",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -1368.3,
+        1862.6
+      ],
+      "stationId": "A31",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -1358.9,
+        1859
+      ],
+      "stationId": "A31",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -1337.8,
+        1897.6
+      ],
+      "stationId": "A31",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -1331.2,
+        1883.1
+      ],
+      "stationId": "A31",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -1035.3,
+        1267.5
+      ],
+      "stationId": "A30",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -1004,
+        1284.6
+      ],
+      "stationId": "A30",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -984.2,
+        1820.2
+      ],
+      "stationId": "131",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -1020.5,
+        1800.6
+      ],
+      "stationId": "131",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -1054.7,
+        1866.3
+      ],
+      "stationId": "131",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -1061.3,
+        1881.3
+      ],
+      "stationId": "131",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -1020.8,
+        1885.2
+      ],
+      "stationId": "131",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -1030.7,
+        1898.1
+      ],
+      "stationId": "131",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -1069,
+        1319.2
+      ],
+      "stationId": "A30",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -1040.4,
+        1354.8
+      ],
+      "stationId": "A30",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -989.5,
+        1273.9
+      ],
+      "stationId": "A30",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -997.5,
+        1269.8
+      ],
+      "stationId": "A30",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -1026.6,
+        1250.9
+      ],
+      "stationId": "A30",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -1377,
+        1890
+      ],
+      "stationId": "A31",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -626.8,
+        1660.6
+      ],
+      "stationId": "D18",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -642.1,
+        1651.9
+      ],
+      "stationId": "D18",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -651.8,
+        1668.1
+      ],
+      "stationId": "D18",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -635.8,
+        1676.7
+      ],
+      "stationId": "D18",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -597.1,
+        1677
+      ],
+      "stationId": "D18",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -578.9,
+        1687.2
+      ],
+      "stationId": "D18",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -604.6,
+        1694.4
+      ],
+      "stationId": "D18",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -586.2,
+        1704.3
+      ],
+      "stationId": "D18",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -713.4,
+        1245.5
+      ],
+      "stationId": "129",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -679.9,
+        1266.8
+      ],
+      "stationId": "129",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -829.3,
+        1543.1
+      ],
+      "stationId": "130",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -871.3,
+        1519.9
+      ],
+      "stationId": "130",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -877.6,
+        1555.1
+      ],
+      "stationId": "130",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -853.8,
+        1569.7
+      ],
+      "stationId": "130",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -690.9,
+        618.8
+      ],
+      "stationId": "A28",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -654.7,
+        668.8
+      ],
+      "stationId": "A28",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -704.4,
+        642.1
+      ],
+      "stationId": "A28",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -474.2,
+        772.6
+      ],
+      "stationId": "128",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -450.4,
+        855.7
+      ],
+      "stationId": "128",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -412.8,
+        806.9
+      ],
+      "stationId": "128",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -446.2,
+        754.1
+      ],
+      "stationId": "128",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -408.6,
+        774.9
+      ],
+      "stationId": "128",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -493.4,
+        830.5
+      ],
+      "stationId": "128",
+      "kind": "elevator"
+    },
+    {
+      "pos": [
+        -643.7,
+        554.3
+      ],
+      "stationId": "A28",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -610.4,
+        572.9
+      ],
+      "stationId": "A28",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -751.5,
+        729.5
+      ],
+      "stationId": "A28",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -800.4,
+        817.4
+      ],
+      "stationId": "A28",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -642.3,
+        1198.2
+      ],
+      "stationId": "129",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -650.4,
+        1211.4
+      ],
+      "stationId": "129",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -674.4,
+        1179.7
+      ],
+      "stationId": "129",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -682.2,
+        1193.9
+      ],
+      "stationId": "129",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -679.1,
+        728.6
+      ],
+      "stationId": "A28",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -707.5,
+        742.5
+      ],
+      "stationId": "A28",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -736.2,
+        696.8
+      ],
+      "stationId": "A28",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -740.7,
+        717.1
+      ],
+      "stationId": "A28",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -659.5,
+        666.2
+      ],
+      "stationId": "A28",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -642.1,
+        645.2
+      ],
+      "stationId": "A28",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -661.7,
+        563.2
+      ],
+      "stationId": "A28",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -653.9,
+        548.6
+      ],
+      "stationId": "A28",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -618,
+        587
+      ],
+      "stationId": "A28",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -600.1,
+        578.6
+      ],
+      "stationId": "A28",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -440.1,
+        881.4
+      ],
+      "stationId": "128",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -469.2,
+        934.6
+      ],
+      "stationId": "128",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -525.8,
+        831.2
+      ],
+      "stationId": "128",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -522.7,
+        911.1
+      ],
+      "stationId": "128",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -457.3,
+        779.8
+      ],
+      "stationId": "128",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        96,
+        1631.7
+      ],
+      "stationId": "633",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        130.9,
+        1643.9
+      ],
+      "stationId": "633",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        137.7,
+        1632.3
+      ],
+      "stationId": "633",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        99.2,
+        1608.4
+      ],
+      "stationId": "633",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -258.3,
+        1410.8
+      ],
+      "stationId": "R18",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -287.9,
+        1845.7
+      ],
+      "stationId": "R19",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -294.7,
+        1830.6
+      ],
+      "stationId": "R19",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -301,
+        1876.6
+      ],
+      "stationId": "R19",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -333.2,
+        1791.2
+      ],
+      "stationId": "R19",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -350.5,
+        1866.6
+      ],
+      "stationId": "R19",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -294.5,
+        1872
+      ],
+      "stationId": "R19",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -348.5,
+        1915.2
+      ],
+      "stationId": "R19",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -298.8,
+        1388.6
+      ],
+      "stationId": "R18",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -290.2,
+        1412.1
+      ],
+      "stationId": "R18",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -256.8,
+        1430.1
+      ],
+      "stationId": "R18",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        50.7,
+        1720.8
+      ],
+      "stationId": "633",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        96.8,
+        1633.8
+      ],
+      "stationId": "633",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        148.4,
+        1638.1
+      ],
+      "stationId": "633",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        142.2,
+        1650.1
+      ],
+      "stationId": "633",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -312.3,
+        1924.8
+      ],
+      "stationId": "R19",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        305.7,
+        1260.4
+      ],
+      "stationId": "632",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        250.1,
+        1366.3
+      ],
+      "stationId": "632",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        335.6,
+        1269.1
+      ],
+      "stationId": "632",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        278.7,
+        1278.7
+      ],
+      "stationId": "632",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        245,
+        1351
+      ],
+      "stationId": "632",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        325.9,
+        1305.3
+      ],
+      "stationId": "632",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        275.1,
+        1378.7
+      ],
+      "stationId": "632",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        287.3,
+        1373.6
+      ],
+      "stationId": "632",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        336.7,
+        1311.3
+      ],
+      "stationId": "632",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -219.7,
+        880.5
+      ],
+      "stationId": "D17",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -157.8,
+        820.1
+      ],
+      "stationId": "D17",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -223.8,
+        909.2
+      ],
+      "stationId": "D17",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -217.2,
+        809.5
+      ],
+      "stationId": "D17",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -235.3,
+        1055.2
+      ],
+      "stationId": "R17",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -251,
+        1046.1
+      ],
+      "stationId": "R17",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -170.8,
+        900.6
+      ],
+      "stationId": "D17",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -137.9,
+        854.6
+      ],
+      "stationId": "D17",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -127.9,
+        841.1
+      ],
+      "stationId": "D17",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -215.7,
+        791.9
+      ],
+      "stationId": "D17",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -181.5,
+        933.4
+      ],
+      "stationId": "D17",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -265.4,
+        1012.9
+      ],
+      "stationId": "R17",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -275.2,
+        1030.6
+      ],
+      "stationId": "R17",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -206.4,
+        1081
+      ],
+      "stationId": "R17",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -343.5,
+        1160.2
+      ],
+      "stationId": "R18",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -323.4,
+        1171.1
+      ],
+      "stationId": "R18",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -6.6,
+        544.6
+      ],
+      "stationId": "D16",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        55.8,
+        511.9
+      ],
+      "stationId": "D16",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        68.7,
+        498.7
+      ],
+      "stationId": "D16",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -272.2,
+        1024.8
+      ],
+      "stationId": "R17",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -227.5,
+        930.8
+      ],
+      "stationId": "R17",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        615.3,
+        609.6
+      ],
+      "stationId": "901",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        658.8,
+        553.2
+      ],
+      "stationId": "901",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        667.7,
+        639.2
+      ],
+      "stationId": "631",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        710.2,
+        659.5
+      ],
+      "stationId": "631",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        708,
+        697.2
+      ],
+      "stationId": "631",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        655.9,
+        706.2
+      ],
+      "stationId": "631",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        659.2,
+        700.4
+      ],
+      "stationId": "631",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        616.1,
+        647.5
+      ],
+      "stationId": "901",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        472.5,
+        566.7
+      ],
+      "stationId": "901",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        499.7,
+        546.7
+      ],
+      "stationId": "901",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        574.4,
+        586.6
+      ],
+      "stationId": "901",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        611.2,
+        537.7
+      ],
+      "stationId": "901",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        836.3,
+        633.4
+      ],
+      "stationId": "723",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        828.3,
+        648.2
+      ],
+      "stationId": "723",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        821.6,
+        660.6
+      ],
+      "stationId": "723",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        850.6,
+        744.3
+      ],
+      "stationId": "723",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        806.1,
+        745.3
+      ],
+      "stationId": "723",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        819.4,
+        753
+      ],
+      "stationId": "723",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        801,
+        697.8
+      ],
+      "stationId": "723",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        874.9,
+        790.1
+      ],
+      "stationId": "723",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        803.9,
+        692.5
+      ],
+      "stationId": "723",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -1301,
+        339.5
+      ],
+      "stationId": "726",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -1241.3,
+        249.5
+      ],
+      "stationId": "726",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -1333.1,
+        344.1
+      ],
+      "stationId": "726",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -417.5,
+        227.8
+      ],
+      "stationId": "A27",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -426.2,
+        244.2
+      ],
+      "stationId": "A27",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -456.2,
+        209.9
+      ],
+      "stationId": "A27",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -466.5,
+        224.3
+      ],
+      "stationId": "A27",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -73.1,
+        198.7
+      ],
+      "stationId": "902",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -149,
+        181.8
+      ],
+      "stationId": "902",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -194.3,
+        376.7
+      ],
+      "stationId": "127",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -232.3,
+        355.1
+      ],
+      "stationId": "127",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -158.8,
+        311.6
+      ],
+      "stationId": "127",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -142.3,
+        312
+      ],
+      "stationId": "127",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -182,
+        271.3
+      ],
+      "stationId": "725",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -172,
+        208.7
+      ],
+      "stationId": "725",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -107.4,
+        246
+      ],
+      "stationId": "902",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -69.1,
+        261.9
+      ],
+      "stationId": "902",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -115.7,
+        328.9
+      ],
+      "stationId": "R16",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -133,
+        388.7
+      ],
+      "stationId": "R16",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -135.6,
+        405.7
+      ],
+      "stationId": "R16",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -92.4,
+        411.4
+      ],
+      "stationId": "R16",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -98.7,
+        427
+      ],
+      "stationId": "R16",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        54.7,
+        -163.1
+      ],
+      "stationId": "R15",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        68,
+        -158.6
+      ],
+      "stationId": "R15",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        94.9,
+        -111.5
+      ],
+      "stationId": "R15",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -334.2,
+        118.8
+      ],
+      "stationId": "A27",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -379.8,
+        58.8
+      ],
+      "stationId": "A27",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -333.6,
+        66.6
+      ],
+      "stationId": "A27",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -341.8,
+        6.6
+      ],
+      "stationId": "A27",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -267.3,
+        -41.9
+      ],
+      "stationId": "A27",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -296.4,
+        -76.9
+      ],
+      "stationId": "A27",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -310.3,
+        -64.5
+      ],
+      "stationId": "A27",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        139,
+        380.5
+      ],
+      "stationId": "D16",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        27.2,
+        477.1
+      ],
+      "stationId": "D16",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        122.4,
+        307.3
+      ],
+      "stationId": "D16",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        112,
+        326.1
+      ],
+      "stationId": "D16",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        68.7,
+        341.4
+      ],
+      "stationId": "D16",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        145.5,
+        332.1
+      ],
+      "stationId": "D16",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -119.1,
+        245.6
+      ],
+      "stationId": "902",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -76.1,
+        201
+      ],
+      "stationId": "902",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        374.6,
+        -161.7
+      ],
+      "stationId": "D15",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        334.6,
+        2.5
+      ],
+      "stationId": "D15",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        286.9,
+        -2.9
+      ],
+      "stationId": "D15",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        374.3,
+        -66.9
+      ],
+      "stationId": "D15",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        352.2,
+        -118.4
+      ],
+      "stationId": "D15",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        391.3,
+        -111.6
+      ],
+      "stationId": "D15",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        328.6,
+        13.8
+      ],
+      "stationId": "D15",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        412.9,
+        -151.9
+      ],
+      "stationId": "D15",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        368,
+        -53.2
+      ],
+      "stationId": "D15",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        454.6,
+        -225.8
+      ],
+      "stationId": "D15",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        219,
+        425.3
+      ],
+      "stationId": "724",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        339.4,
+        489.4
+      ],
+      "stationId": "724",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        216,
+        423.6
+      ],
+      "stationId": "724",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        323.6,
+        -73.8
+      ],
+      "stationId": "D15",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        401.2,
+        -214.3
+      ],
+      "stationId": "D15",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        370.4,
+        -161.2
+      ],
+      "stationId": "D15",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        312.1,
+        20.9
+      ],
+      "stationId": "D15",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        684.9,
+        397.2
+      ],
+      "stationId": "901",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        611.6,
+        450.1
+      ],
+      "stationId": "901",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        651.9,
+        449.6
+      ],
+      "stationId": "901",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        114.4,
+        -407.3
+      ],
+      "stationId": "126",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        142.5,
+        -363.8
+      ],
+      "stationId": "126",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        146.8,
+        -374.5
+      ],
+      "stationId": "126",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -36.7,
+        -457.9
+      ],
+      "stationId": "A25",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -112,
+        -430.3
+      ],
+      "stationId": "A25",
+      "kind": "elevator"
+    },
+    {
+      "pos": [
+        -111.8,
+        -410.7
+      ],
+      "stationId": "A25",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -82.5,
+        -483.1
+      ],
+      "stationId": "A25",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -27.8,
+        -473.7
+      ],
+      "stationId": "A25",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -66.1,
+        -495.4
+      ],
+      "stationId": "A25",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        6,
+        -545.7
+      ],
+      "stationId": "A25",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        139.5,
+        -294.8
+      ],
+      "stationId": "R15",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        132.7,
+        -274.5
+      ],
+      "stationId": "R15",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        88.6,
+        -388.5
+      ],
+      "stationId": "126",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        151.1,
+        -353.6
+      ],
+      "stationId": "126",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        155.5,
+        -369.5
+      ],
+      "stationId": "126",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        -123.5,
+        -417.7
+      ],
+      "stationId": "A25",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        634.3,
+        -608
+      ],
+      "stationId": "B10",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        655.3,
+        -597.6
+      ],
+      "stationId": "B10",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        422.8,
+        -238.5
+      ],
+      "stationId": "D15",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        246.9,
+        -594.1
+      ],
+      "stationId": "D14",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        239.4,
+        -579.2
+      ],
+      "stationId": "D14",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        327.9,
+        -549.6
+      ],
+      "stationId": "D14",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        320,
+        -534.8
+      ],
+      "stationId": "D14",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        680.4,
+        -692.3
+      ],
+      "stationId": "B10",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        655.3,
+        -646.6
+      ],
+      "stationId": "B10",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        694.4,
+        -667.6
+      ],
+      "stationId": "B10",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        172.6,
+        -276.1
+      ],
+      "stationId": "R15",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        165.2,
+        -256
+      ],
+      "stationId": "R15",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        438.2,
+        -837
+      ],
+      "stationId": "R14",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        462.3,
+        -866.3
+      ],
+      "stationId": "R14",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        436,
+        -819.2
+      ],
+      "stationId": "R14",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        461.4,
+        -808.8
+      ],
+      "stationId": "R14",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        484.9,
+        -851.6
+      ],
+      "stationId": "R14",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        408.7,
+        -685.2
+      ],
+      "stationId": "R14",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        401.6,
+        -673
+      ],
+      "stationId": "R14",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        357,
+        -696.4
+      ],
+      "stationId": "R14",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        364.4,
+        -710.1
+      ],
+      "stationId": "R14",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        236.2,
+        -943.4
+      ],
+      "stationId": "125",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        188.2,
+        -944
+      ],
+      "stationId": "125",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        686.2,
+        -653.2
+      ],
+      "stationId": "B10",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        706.3,
+        -738.6
+      ],
+      "stationId": "B10",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        216.9,
+        -992.6
+      ],
+      "stationId": "125",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        179.5,
+        -974.2
+      ],
+      "stationId": "125",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        247.7,
+        -970.6
+      ],
+      "stationId": "125",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        361.3,
+        -1185.2
+      ],
+      "stationId": "A24",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        285.5,
+        -1181.6
+      ],
+      "stationId": "125",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        285.2,
+        -1196
+      ],
+      "stationId": "125",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        269,
+        -1251.9
+      ],
+      "stationId": "125",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        323.1,
+        -1187.6
+      ],
+      "stationId": "A24",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        244.8,
+        -1073.7
+      ],
+      "stationId": "125",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        245.9,
+        -1075.7
+      ],
+      "stationId": "125",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        247,
+        -1077.7
+      ],
+      "stationId": "125",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        282.1,
+        -1043.1
+      ],
+      "stationId": "125",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        269,
+        -1261
+      ],
+      "stationId": "125",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        260.1,
+        -1075.5
+      ],
+      "stationId": "125",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        361,
+        -1071.8
+      ],
+      "stationId": "A24",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        346.7,
+        -1076.5
+      ],
+      "stationId": "A24",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        251.1,
+        -1625
+      ],
+      "stationId": "124",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        329.7,
+        -1188.4
+      ],
+      "stationId": "A24",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        704.2,
+        -1882.1
+      ],
+      "stationId": "A22",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        301.3,
+        -2287.3
+      ],
+      "stationId": "123",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        258.7,
+        -1762.5
+      ],
+      "stationId": "124",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        293.9,
+        -1719.8
+      ],
+      "stationId": "124",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        259.5,
+        -1738.3
+      ],
+      "stationId": "124",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        305,
+        -2320
+      ],
+      "stationId": "123",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        310,
+        -2351.7
+      ],
+      "stationId": "123",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        299.3,
+        -2272.1
+      ],
+      "stationId": "123",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        293.8,
+        -1731.6
+      ],
+      "stationId": "124",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        293.5,
+        -1744.3
+      ],
+      "stationId": "124",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        258.9,
+        -1750
+      ],
+      "stationId": "124",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        440.3,
+        -2864.3
+      ],
+      "stationId": "122",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        458.9,
+        -2897.6
+      ],
+      "stationId": "122",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        492.5,
+        -2888.5
+      ],
+      "stationId": "122",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        470.8,
+        -2849.3
+      ],
+      "stationId": "122",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        1153.4,
+        110.6
+      ],
+      "stationId": "630",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        1127.3,
+        77.3
+      ],
+      "stationId": "630",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        1127.8,
+        95.3
+      ],
+      "stationId": "630",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        1226.4,
+        -14.3
+      ],
+      "stationId": "630",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        1251.8,
+        -38.3
+      ],
+      "stationId": "F11",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        1094.3,
+        146.7
+      ],
+      "stationId": "630",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        992.7,
+        -180.5
+      ],
+      "stationId": "F12",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        972,
+        -170.6
+      ],
+      "stationId": "F12",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        1164.9,
+        116.5
+      ],
+      "stationId": "630",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        1179.1,
+        105.9
+      ],
+      "stationId": "630",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        1161.2,
+        95.7
+      ],
+      "stationId": "630",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        1113.6,
+        87.7
+      ],
+      "stationId": "630",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        1142.1,
+        79.5
+      ],
+      "stationId": "630",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        1210.5,
+        25.8
+      ],
+      "stationId": "630",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        1338.3,
+        39.1
+      ],
+      "stationId": "F11",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        1383.2,
+        34.8
+      ],
+      "stationId": "F11",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        1346.7,
+        18.2
+      ],
+      "stationId": "F11",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        1355.9,
+        70.2
+      ],
+      "stationId": "F11",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        1381.7,
+        24
+      ],
+      "stationId": "F11",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        927.3,
+        -792.7
+      ],
+      "stationId": "R13",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        1099.3,
+        -818.6
+      ],
+      "stationId": "R13",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        1121.1,
+        -758.8
+      ],
+      "stationId": "R13",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        1112.4,
+        -744.9
+      ],
+      "stationId": "R13",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        911.6,
+        -765.6
+      ],
+      "stationId": "R13",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        850.3,
+        -258.6
+      ],
+      "stationId": "F12",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        841.9,
+        -245.1
+      ],
+      "stationId": "F12",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        759.7,
+        -288.5
+      ],
+      "stationId": "F12",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        1101.8,
+        -750.7
+      ],
+      "stationId": "R13",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        911.9,
+        -802
+      ],
+      "stationId": "R13",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        728.2,
+        -727.3
+      ],
+      "stationId": "B10",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        1609.6,
+        -763.6
+      ],
+      "stationId": "B08",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        1489,
+        -554.5
+      ],
+      "stationId": "629",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        1471,
+        -453.3
+      ],
+      "stationId": "629",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        1427.6,
+        -476.8
+      ],
+      "stationId": "629",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        1443.8,
+        -492.2
+      ],
+      "stationId": "629",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        1479.8,
+        -537.9
+      ],
+      "stationId": "629",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        1528.4,
+        -512
+      ],
+      "stationId": "R11",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        1512,
+        -540.1
+      ],
+      "stationId": "R11",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        1634.1,
+        -443.1
+      ],
+      "stationId": "R11",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        1614.2,
+        -453.9
+      ],
+      "stationId": "R11",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        1652.6,
+        -476.6
+      ],
+      "stationId": "R11",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        1632.4,
+        -486.9
+      ],
+      "stationId": "R11",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        1769.5,
+        -686.8
+      ],
+      "stationId": "B08",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        1730.8,
+        -674.9
+      ],
+      "stationId": "B08",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        1732.7,
+        -688.6
+      ],
+      "stationId": "B08",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        1770.5,
+        -650.4
+      ],
+      "stationId": "B08",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        1597.8,
+        -748.3
+      ],
+      "stationId": "B08",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        1587.6,
+        -772.7
+      ],
+      "stationId": "B08",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        2699.7,
+        -115.5
+      ],
+      "stationId": "B06",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        1798.7,
+        -1110.9
+      ],
+      "stationId": "628",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        1781.7,
+        -1095.3
+      ],
+      "stationId": "628",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        1817.5,
+        -1078.9
+      ],
+      "stationId": "628",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        780.3,
+        -2022.3
+      ],
+      "stationId": "A22",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        804.3,
+        -2051
+      ],
+      "stationId": "A22",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        1820.9,
+        -1098.6
+      ],
+      "stationId": "628",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        2283.7,
+        -1223.1
+      ],
+      "stationId": "Q03",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        2289.9,
+        -1172.6
+      ],
+      "stationId": "Q03",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        2199,
+        -1023.8
+      ],
+      "stationId": "Q03",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        2183.9,
+        -995.7
+      ],
+      "stationId": "Q03",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        1837.7,
+        -1121.4
+      ],
+      "stationId": "628",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        2170.4,
+        -1725.4
+      ],
+      "stationId": "627",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        2147.6,
+        -1738
+      ],
+      "stationId": "627",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        2154.8,
+        -1751.8
+      ],
+      "stationId": "627",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        2177,
+        -1740
+      ],
+      "stationId": "627",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        2179.9,
+        -1720
+      ],
+      "stationId": "627",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        2187.3,
+        -1734.3
+      ],
+      "stationId": "627",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        2134.1,
+        -1745.4
+      ],
+      "stationId": "627",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        2138.4,
+        -1758.7
+      ],
+      "stationId": "627",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        2526.2,
+        -2371.2
+      ],
+      "stationId": "626",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        2505.2,
+        -2383.7
+      ],
+      "stationId": "626",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        2543.3,
+        -2389.2
+      ],
+      "stationId": "626",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        2504.3,
+        -2417.1
+      ],
+      "stationId": "626",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        2871,
+        -2207.6
+      ],
+      "stationId": "Q04",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        2755.2,
+        -2006.1
+      ],
+      "stationId": "Q04",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        2861.4,
+        -2190
+      ],
+      "stationId": "Q04",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        2547.6,
+        -2410.5
+      ],
+      "stationId": "626",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        2522.4,
+        -2413.5
+      ],
+      "stationId": "626",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        2536.5,
+        -2365.6
+      ],
+      "stationId": "626",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        2496,
+        -2388.8
+      ],
+      "stationId": "626",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        2926.7,
+        -2176.9
+      ],
+      "stationId": "Q04",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        1139.9,
+        -2663.4
+      ],
+      "stationId": "A21",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        1160.5,
+        -2695.6
+      ],
+      "stationId": "A21",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        1042.1,
+        -2490.2
+      ],
+      "stationId": "A21",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        1068,
+        -2542.1
+      ],
+      "stationId": "A21",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        1389.8,
+        -3126.1
+      ],
+      "stationId": "A20",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        1353.3,
+        -3055.2
+      ],
+      "stationId": "A20",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        1341.8,
+        -3023.3
+      ],
+      "stationId": "A20",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        1334.9,
+        -3032.9
+      ],
+      "stationId": "A20",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        776.5,
+        -3347.5
+      ],
+      "stationId": "121",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        727.2,
+        -3375.3
+      ],
+      "stationId": "121",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        773.4,
+        -3447.7
+      ],
+      "stationId": "121",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        740.4,
+        -3391.5
+      ],
+      "stationId": "121",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        791.4,
+        -3365.7
+      ],
+      "stationId": "121",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        1438.3,
+        -3198
+      ],
+      "stationId": "A20",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        1786.5,
+        -3846.8
+      ],
+      "stationId": "A19",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        1777.7,
+        -3810.8
+      ],
+      "stationId": "A19",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        1730.5,
+        -3738.6
+      ],
+      "stationId": "A19",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        2904.4,
+        -3118.9
+      ],
+      "stationId": "625",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        2887,
+        -3097.6
+      ],
+      "stationId": "625",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        2915.5,
+        -3072.8
+      ],
+      "stationId": "625",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        1039.5,
+        -3898
+      ],
+      "stationId": "120",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        1048,
+        -3913
+      ],
+      "stationId": "120",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        1074.4,
+        -3892.2
+      ],
+      "stationId": "120",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        1077,
+        -3896.8
+      ],
+      "stationId": "120",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        1119.8,
+        -4008.6
+      ],
+      "stationId": "120",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        1134.3,
+        -4034.7
+      ],
+      "stationId": "120",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        1068.9,
+        -3882.4
+      ],
+      "stationId": "120",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        1448.2,
+        -4571.2
+      ],
+      "stationId": "119",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        1453,
+        -4583.7
+      ],
+      "stationId": "119",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        1418.6,
+        -4588.6
+      ],
+      "stationId": "119",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        1424,
+        -4603.2
+      ],
+      "stationId": "119",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        1578.5,
+        -5156.6
+      ],
+      "stationId": "118",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        1591.2,
+        -5107.9
+      ],
+      "stationId": "118",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        1609.3,
+        -5140.9
+      ],
+      "stationId": "118",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        1469.5,
+        -4626.1
+      ],
+      "stationId": "119",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        2010.7,
+        -4255.4
+      ],
+      "stationId": "A18",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        2819.9,
+        -4560.4
+      ],
+      "stationId": "227",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        2768.5,
+        -4501.5
+      ],
+      "stationId": "227",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        2283.2,
+        -4764.1
+      ],
+      "stationId": "A17",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        2245.7,
+        -4668.1
+      ],
+      "stationId": "A17",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        2285.3,
+        -4665.3
+      ],
+      "stationId": "A17",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        2525.2,
+        -5184.1
+      ],
+      "stationId": "A16",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        2518.1,
+        -5147.5
+      ],
+      "stationId": "A16",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        2568.2,
+        -5160.4
+      ],
+      "stationId": "A16",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        2561.2,
+        -5132.7
+      ],
+      "stationId": "A16",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        2935.8,
+        -3101.6
+      ],
+      "stationId": "625",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        3211.6,
+        -2908
+      ],
+      "stationId": "Q05",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        3196.2,
+        -2880.2
+      ],
+      "stationId": "Q05",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        3131.6,
+        -2754.5
+      ],
+      "stationId": "Q05",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        3184.4,
+        -2786.1
+      ],
+      "stationId": "Q05",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        3174.3,
+        -3586.7
+      ],
+      "stationId": "624",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        3191.3,
+        -3577.6
+      ],
+      "stationId": "624",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        3448.1,
+        -4091.5
+      ],
+      "stationId": "623",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        3473.4,
+        -4077.4
+      ],
+      "stationId": "623",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        3457.2,
+        -4104.8
+      ],
+      "stationId": "623",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        3480,
+        -4091.6
+      ],
+      "stationId": "623",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        3701.8,
+        -4539
+      ],
+      "stationId": "622",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        3678.6,
+        -4497.9
+      ],
+      "stationId": "622",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        3697.7,
+        -4488.6
+      ],
+      "stationId": "622",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        3719.5,
+        -4529.2
+      ],
+      "stationId": "622",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        3041.5,
+        -4902.6
+      ],
+      "stationId": "226",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        3016.3,
+        -4916.6
+      ],
+      "stationId": "226",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        3024,
+        -4871.1
+      ],
+      "stationId": "226",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        2998.6,
+        -4884.5
+      ],
+      "stationId": "226",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        4056.7,
+        -5179.1
+      ],
+      "stationId": "621",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        4074.3,
+        -5168.7
+      ],
+      "stationId": "621",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        4052.6,
+        -5131.7
+      ],
+      "stationId": "621",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        4035.6,
+        -5142.2
+      ],
+      "stationId": "621",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        4070.8,
+        -5158
+      ],
+      "stationId": "621",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        1816.7,
+        -5585.7
+      ],
+      "stationId": "117",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        1812.6,
+        -5507.2
+      ],
+      "stationId": "117",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        1825.6,
+        -5602.2
+      ],
+      "stationId": "117",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        1845.8,
+        -5567.1
+      ],
+      "stationId": "117",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        1855.8,
+        -5585.2
+      ],
+      "stationId": "117",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        2775.9,
+        -5837.3
+      ],
+      "stationId": "A15",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        2798.3,
+        -5878.5
+      ],
+      "stationId": "A15",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        2773.6,
+        -5891
+      ],
+      "stationId": "A15",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        2751,
+        -5850.5
+      ],
+      "stationId": "A15",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        2847.6,
+        -6000.7
+      ],
+      "stationId": "A15",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        2880.8,
+        -5985.8
+      ],
+      "stationId": "A15",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        2754.8,
+        -5863.7
+      ],
+      "stationId": "A15",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        2281.8,
+        -6351.8
+      ],
+      "stationId": "116",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        2249.9,
+        -6371.5
+      ],
+      "stationId": "116",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        2274.2,
+        -6414.4
+      ],
+      "stationId": "116",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        2287,
+        -6361.3
+      ],
+      "stationId": "116",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        2664.2,
+        -7045.1
+      ],
+      "stationId": "115",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        2667.9,
+        -7052.2
+      ],
+      "stationId": "115",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        2637.3,
+        -7066.3
+      ],
+      "stationId": "115",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        2621.5,
+        -7041.1
+      ],
+      "stationId": "115",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        3376.3,
+        -5507.8
+      ],
+      "stationId": "225",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        3352.5,
+        -5522.1
+      ],
+      "stationId": "225",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        3396,
+        -5543.9
+      ],
+      "stationId": "225",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        3371.2,
+        -5556.3
+      ],
+      "stationId": "225",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        3229.5,
+        -6710.4
+      ],
+      "stationId": "A14",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        3197.1,
+        -6724.1
+      ],
+      "stationId": "A14",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        3142.7,
+        -6573
+      ],
+      "stationId": "A14",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        3188.5,
+        -6578.7
+      ],
+      "stationId": "A14",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        3166.3,
+        -6543.5
+      ],
+      "stationId": "A14",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        3177.5,
+        -6546.2
+      ],
+      "stationId": "A14",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        3789.7,
+        -6252.3
+      ],
+      "stationId": "224",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        3760.8,
+        -6259.2
+      ],
+      "stationId": "224",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        3766.7,
+        -6212.7
+      ],
+      "stationId": "224",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        3742.7,
+        -6226.9
+      ],
+      "stationId": "224",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        3739.7,
+        -6223.7
+      ],
+      "stationId": "224",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        3784,
+        -6242.7
+      ],
+      "stationId": "224",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        3438.1,
+        -7312.6
+      ],
+      "stationId": "A12",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        3413.4,
+        -7326.3
+      ],
+      "stationId": "A12",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        3464.6,
+        -7338.9
+      ],
+      "stationId": "A12",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        3421.3,
+        -7362.9
+      ],
+      "stationId": "A12",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        3516.4,
+        -7516.5
+      ],
+      "stationId": "A12",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        3546.1,
+        -7511.6
+      ],
+      "stationId": "A12",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        2949.7,
+        -7631.2
+      ],
+      "stationId": "114",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        2980.3,
+        -7615.5
+      ],
+      "stationId": "114",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        2960.4,
+        -7580.4
+      ],
+      "stationId": "114",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        3743.1,
+        -8105
+      ],
+      "stationId": "A11",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        3740.7,
+        -8116.7
+      ],
+      "stationId": "A11",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        3703.1,
+        -8087.5
+      ],
+      "stationId": "A11",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        3698.5,
+        -8098
+      ],
+      "stationId": "A11",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        3704.7,
+        -8126.7
+      ],
+      "stationId": "A11",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        3714.1,
+        -8129.3
+      ],
+      "stationId": "A11",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        4177.7,
+        -6954
+      ],
+      "stationId": "302",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        4149.3,
+        -6961.1
+      ],
+      "stationId": "302",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        4154.8,
+        -6912.7
+      ],
+      "stationId": "302",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        4133.8,
+        -6933.3
+      ],
+      "stationId": "302",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        4091,
+        -7341.9
+      ],
+      "stationId": "301",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        4116.4,
+        -8037.5
+      ],
+      "stationId": "D12",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        3409.3,
+        -8471.9
+      ],
+      "stationId": "113",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        3400.6,
+        -8476.4
+      ],
+      "stationId": "113",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        3436.7,
+        -8429.8
+      ],
+      "stationId": "113",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        3449.2,
+        -8431.5
+      ],
+      "stationId": "113",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        3825.1,
+        -8579.7
+      ],
+      "stationId": "A10",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        3868.3,
+        -8589.4
+      ],
+      "stationId": "A10",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        3828.7,
+        -8648.5
+      ],
+      "stationId": "A10",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        3828.8,
+        -9227.1
+      ],
+      "stationId": "112",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        3915.5,
+        -9309.1
+      ],
+      "stationId": "A09",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        3883.1,
+        -9327.3
+      ],
+      "stationId": "A09",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        3900.5,
+        -9196.1
+      ],
+      "stationId": "A09",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        3884.6,
+        -9192.5
+      ],
+      "stationId": "A09",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        3819.2,
+        -9208.4
+      ],
+      "stationId": "112",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        3872,
+        -9321.5
+      ],
+      "stationId": "A09",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        3860.2,
+        -9193.1
+      ],
+      "stationId": "A09",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        3985.2,
+        -10301.7
+      ],
+      "stationId": "A06",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        3966.5,
+        -10311.7
+      ],
+      "stationId": "A06",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        3873.7,
+        -10002.1
+      ],
+      "stationId": "A07",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        3863.7,
+        -9996.5
+      ],
+      "stationId": "A07",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        3853.4,
+        -9981.5
+      ],
+      "stationId": "A07",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        3896.6,
+        -9987.6
+      ],
+      "stationId": "A07",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        3813.4,
+        -9824.3
+      ],
+      "stationId": "A07",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        3848.5,
+        -9825.9
+      ],
+      "stationId": "A07",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        3889.5,
+        -9997.5
+      ],
+      "stationId": "A07",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        3996.8,
+        -10308.3
+      ],
+      "stationId": "A06",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        3961.4,
+        -10321.2
+      ],
+      "stationId": "A06",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        4364.6,
+        -10125.4
+      ],
+      "stationId": "111",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        4398.5,
+        -10176.2
+      ],
+      "stationId": "111",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        4054.3,
+        -10548.2
+      ],
+      "stationId": "A06",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        4120.1,
+        -10530
+      ],
+      "stationId": "A06",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        4720.6,
+        -10820
+      ],
+      "stationId": "110",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        4343.9,
+        -11213.3
+      ],
+      "stationId": "A05",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        4452.2,
+        -11213.6
+      ],
+      "stationId": "A05",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        5090,
+        -11460.5
+      ],
+      "stationId": "109",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        4843.6,
+        -11932.3
+      ],
+      "stationId": "A03",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        4904.4,
+        -11979.2
+      ],
+      "stationId": "A03",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        4926.4,
+        -11974.5
+      ],
+      "stationId": "A03",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        4930.3,
+        -11941.5
+      ],
+      "stationId": "A03",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        4935.7,
+        -11930
+      ],
+      "stationId": "A03",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        4892.9,
+        -11921.1
+      ],
+      "stationId": "A03",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        4912.7,
+        -11913.5
+      ],
+      "stationId": "A03",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        5618.1,
+        -11863.6
+      ],
+      "stationId": "108",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        5634.1,
+        -11848.2
+      ],
+      "stationId": "108",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        5588.7,
+        -11811.1
+      ],
+      "stationId": "108",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        5612.8,
+        -11809.3
+      ],
+      "stationId": "108",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        5419.3,
+        -12213.3
+      ],
+      "stationId": "A02",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        5556,
+        -12256.2
+      ],
+      "stationId": "A02",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        5401.1,
+        -12207.1
+      ],
+      "stationId": "A02",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        5409.3,
+        -12171.3
+      ],
+      "stationId": "A02",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        5443.4,
+        -12187.8
+      ],
+      "stationId": "A02",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        5583.2,
+        -12229.2
+      ],
+      "stationId": "A02",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        5947.6,
+        -12414.3
+      ],
+      "stationId": "107",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        5930.5,
+        -12424
+      ],
+      "stationId": "107",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        5908.4,
+        -12385
+      ],
+      "stationId": "107",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        5926.4,
+        -12374.7
+      ],
+      "stationId": "107",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        6319.6,
+        -12942.7
+      ],
+      "stationId": "106",
+      "kind": "stair"
+    },
+    {
+      "pos": [
+        6383.9,
+        -12925.2
+      ],
+      "stationId": "106",
+      "kind": "stair"
+    }
+  ]
+}

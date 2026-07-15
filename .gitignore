@@ -4,8 +4,8 @@ data/cache/
 *.log
 .DS_Store
 
-# generated world data (rebuild with: npm run data:all)
-public/tiles/
-public/geo/
-public/subway/
+# raw Overpass/terrain responses (300MB, regenerate with npm run data:all)
+# The BUILT world data under public/ is committed on purpose: it is the app's
+# content, and Vercel deploys from this repo — an ignored public/ means an
+# empty Manhattan (and no public/ dir at all, since git skips empty dirs).
 tsconfig.tsbuildinfo
