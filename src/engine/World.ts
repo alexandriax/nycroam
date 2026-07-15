@@ -115,7 +115,8 @@ export class World {
     this.tiles = new TileManager(this.streetScene, this.isMobile ? 2 : 3);
     this.tiles.loadRadius = loadRadius;
     this.tiles.unloadRadius = this.tiles.loadRadius + 300;
-    this.entrances = new EntranceManager(this.streetScene);
+    this.entrances = new EntranceManager(this.streetScene, (x, z) =>
+      resolveBuildingCollision(x, z, 3.2, this.tiles.collisionNear(x, z)));
 
     this.controls = new PlayerControls(canvas);
     this.controls.onToggleFly = () => {
@@ -279,7 +280,7 @@ export class World {
     if (this.transitioning) return;
     if (this.mode === 'street') {
       const near = this.entrances.nearest(this.pos.x, this.pos.z, 4.5);
-      if (near) this.enterStation(near.station, near.spec.pos);
+      if (near) this.enterStation(near.station, near.pos);
     } else if (this.mode === 'ride') {
       if (this.ride?.canExit) this.exitRide();
     } else if (this.station) {
@@ -476,9 +477,9 @@ export class World {
       if (near && !this.controls.fly) {
         this.hud.prompt = `${near.station.name}`;
         this.hud.promptRoutes = near.station.routes;
-        const d = Math.hypot(near.spec.pos[0] - this.pos.x, near.spec.pos[1] - this.pos.z);
+        const d = Math.hypot(near.pos[0] - this.pos.x, near.pos[1] - this.pos.z);
         if (d < 1.9 && performance.now() - this.lastEnterGuard > 2500 && !this.transitioning) {
-          this.enterStation(near.station, near.spec.pos);
+          this.enterStation(near.station, near.pos);
         }
       } else {
         this.hud.prompt = null;

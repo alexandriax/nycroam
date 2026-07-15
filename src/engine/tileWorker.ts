@@ -102,7 +102,20 @@ function extrude(acc: MeshAcc, rings: number[][], y0: number, y1: number, color:
     if (i > 0) holeIdx.push(flat.length / 2);
     for (let k = 0; k < oriented[i].length; k++) flat.push(oriented[i][k]);
   }
-  const tris = earcut(flat, holeIdx.length ? holeIdx : undefined, 2);
+  let tris = earcut(flat, holeIdx.length ? holeIdx : undefined, 2);
+  // messy footprints (self-intersections, touching holes) can make earcut give
+  // up -> roofless open shells. Retry without holes, then fall back to a fan.
+  if (tris.length === 0 && oriented[0].length >= 6) {
+    const outerOnly = oriented[0];
+    flat.length = 0;
+    for (let k = 0; k < outerOnly.length; k++) flat.push(outerOnly[k]);
+    holeIdx.length = 0;
+    tris = earcut(flat, undefined, 2);
+    if (tris.length === 0) {
+      tris = [];
+      for (let i = 1; i < flat.length / 2 - 1; i++) tris.push(0, i, i + 1);
+    }
+  }
   const base = acc.vcount;
   const roofShade = 0.92;
   for (let i = 0; i < flat.length; i += 2) {

@@ -52,6 +52,48 @@ interface PlacedEntrance {
   spec: EntranceSpec;
   station: StationSpec;
   group: THREE.Group;
+  pos: [number, number]; // building-ejected position (kits at building lines get pushed to the sidewalk)
+}
+
+// soft additive light column so entrances read from down the block
+let beaconGeo: THREE.BufferGeometry | null = null;
+let beaconMat: THREE.MeshBasicMaterial | null = null;
+function makeBeacon(): THREE.Mesh {
+  if (!beaconGeo) {
+    const a = new THREE.PlaneGeometry(1.0, 5.4);
+    const b = a.clone().rotateY(Math.PI / 2);
+    const pos = new Float32Array([...a.getAttribute('position').array, ...b.getAttribute('position').array]);
+    const uv = new Float32Array([...a.getAttribute('uv').array, ...b.getAttribute('uv').array]);
+    const idx: number[] = [];
+    const ia = a.getIndex()!, ib = b.getIndex()!;
+    for (let i = 0; i < ia.count; i++) idx.push(ia.getX(i));
+    for (let i = 0; i < ib.count; i++) idx.push(ib.getX(i) + a.getAttribute('position').count);
+    beaconGeo = new THREE.BufferGeometry();
+    beaconGeo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    beaconGeo.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
+    beaconGeo.setIndex(idx);
+    a.dispose(); b.dispose();
+
+    const cv = document.createElement('canvas');
+    cv.width = 32; cv.height = 128;
+    const ctx = cv.getContext('2d')!;
+    const g = ctx.createLinearGradient(0, 0, 0, 128);
+    g.addColorStop(0, 'rgba(72,255,143,0)');
+    g.addColorStop(0.75, 'rgba(72,255,143,0.28)');
+    g.addColorStop(1, 'rgba(72,255,143,0.55)');
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, 32, 128);
+    const tex = new THREE.CanvasTexture(cv);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    beaconMat = new THREE.MeshBasicMaterial({
+      map: tex, transparent: true, blending: THREE.AdditiveBlending,
+      depthWrite: false, side: THREE.DoubleSide,
+    });
+  }
+  const m = new THREE.Mesh(beaconGeo, beaconMat!);
+  m.userData.shared = true; // disposeGroup must not free the shared geometry
+  m.renderOrder = 5;
+  return m;
 }
 
 /**
@@ -65,9 +107,11 @@ export class EntranceManager {
   private placed = new Map<number, PlacedEntrance>();
   private placeRadius = 420;
   private timer = 0;
+  private eject: ((x: number, z: number) => [number, number]) | null;
 
-  constructor(scene: THREE.Scene) {
+  constructor(scene: THREE.Scene, eject: ((x: number, z: number) => [number, number]) | null = null) {
     this.scene = scene;
+    this.eject = eject;
   }
 
   async init(): Promise<boolean> {
@@ -133,11 +177,20 @@ export class EntranceManager {
         if (!station) continue;
         // elevated stations get the kiosk marker (their stairs go up, not down)
         const kind = /elev|viaduct/i.test(station.structure) ? 'elevator' : e.kind;
+        // OSM maps many entrances at/inside building frontages — push the kit
+        // out of any footprint so it lands visibly on the sidewalk
+        let pos: [number, number] = [e.pos[0], e.pos[1]];
+        if (this.eject) {
+          for (let k = 0; k < 3; k++) pos = this.eject(pos[0], pos[1]);
+        }
         const group = mergeByMaterial(buildEntranceKit(station.routes, kind, station.name));
-        group.position.set(e.pos[0], heightAt(e.pos[0], e.pos[1]) + 0.02, e.pos[1]);
+        group.position.set(pos[0], heightAt(pos[0], pos[1]) + 0.02, pos[1]);
         group.rotation.y = Math.floor(hash01(i * 31 + 7) * 4) * (Math.PI / 2);
+        const beacon = makeBeacon();
+        beacon.position.set(0, 3.1, 0);
+        group.add(beacon);
         this.scene.add(group);
-        this.placed.set(i, { spec: e, station, group });
+        this.placed.set(i, { spec: e, station, group, pos });
       } else if (!inRange && existing) {
         this.scene.remove(existing.group);
         disposeGroup(existing.group);
@@ -151,7 +204,7 @@ export class EntranceManager {
     let best: PlacedEntrance | null = null;
     let bestD = dist * dist;
     for (const p of this.placed.values()) {
-      const dx = p.spec.pos[0] - x, dz = p.spec.pos[1] - z;
+      const dx = p.pos[0] - x, dz = p.pos[1] - z;
       const d2 = dx * dx + dz * dz;
       if (d2 < bestD) { bestD = d2; best = p; }
     }
@@ -170,8 +223,10 @@ export class EntranceManager {
 function disposeGroup(g: THREE.Group) {
   g.traverse((o) => {
     if (o instanceof THREE.Mesh) {
+      if (o.userData.shared) return;
       o.geometry.dispose();
       // materials are module-shared in streetprops except canvas sign textures
+      if (o.userData.shared) return; // beacon shares module-level geo/material
       const mats = Array.isArray(o.material) ? o.material : [o.material];
       for (const m of mats) {
         const std = m as THREE.MeshLambertMaterial;

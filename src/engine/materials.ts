@@ -10,7 +10,9 @@ import {
  * one material, one draw call per tile.
  */
 export function makeFacadeMaterial(): THREE.MeshLambertMaterial {
-  const mat = new THREE.MeshLambertMaterial({ vertexColors: true });
+  // DoubleSide + front-facing test: if imperfect OSM data leaves any opening,
+  // the inside of the far wall renders as a dark interior instead of void.
+  const mat = new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.DoubleSide });
   const brick = makeBrickTexture('red');
   const roof = makeRoofTexture();
   mat.onBeforeCompile = (shader) => {
@@ -49,7 +51,10 @@ export function makeFacadeMaterial(): THREE.MeshLambertMaterial {
         '#include <color_fragment>',
         `#include <color_fragment>
         {
-          vec3 wn = normalize(vWNormal);
+          // Double-sided: reversed-winding footprints (self-intersecting OSM
+          // rings) render as normal facades either way, and any true opening
+          // shows the far wall as a wall instead of a see-through void.
+          vec3 wn = normalize(vWNormal) * (gl_FrontFacing ? 1.0 : -1.0);
           float vertical = 1.0 - abs(wn.y);
           if (vertical > 0.55 && vWPos.y > 0.5) {
             float u = vWPos.x * wn.z - vWPos.z * wn.x;

@@ -474,7 +474,7 @@ async function main() {
         if (pointInPolygon(part.centroid, b.outer)) coveredArea += part.area;
       }
     }
-    if (b.area > 0 && coveredArea / b.area > 0.4) { suppressedCount++; continue; }
+    if (b.area > 0 && coveredArea / b.area > 0.85) { suppressedCount++; continue; }
     keptBuildings.push(b);
   }
 
