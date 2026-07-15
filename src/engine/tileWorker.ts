@@ -63,7 +63,7 @@ function reverseRing(pts: number[]): number[] {
 }
 
 /** Extrude a polygon (rings in world meters, flat [x,z]) from y0 to y1 into acc. */
-function extrude(acc: MeshAcc, rings: number[][], y0: number, y1: number, color: [number, number, number]) {
+function extrude(acc: MeshAcc, rings: number[][], y0: number, y1: number, color: [number, number, number], bottomCap = false) {
   // orient: outer ring negative shoelace (see design note), holes positive -> normal (-dz,0,dx) faces outward
   const oriented = rings.map((r, i) => {
     const a = ringArea(r);
@@ -108,6 +108,7 @@ function extrude(acc: MeshAcc, rings: number[][], y0: number, y1: number, color:
   for (let i = 0; i < flat.length; i += 2) {
     acc.vertex(flat[i], y1, flat[i + 1], 0, 1, 0, cr * roofShade, cg * roofShade, cb * roofShade);
   }
+  const fixedTris: number[] = [];
   for (let t = 0; t < tris.length; t += 3) {
     let a = tris[t], b = tris[t + 1], c = tris[t + 2];
     // ensure upward-facing winding: for y-up viewing, cross must give +y
@@ -117,6 +118,19 @@ function extrude(acc: MeshAcc, rings: number[][], y0: number, y1: number, color:
     const crossY = (bz - az) * (cx - ax) - (bx - ax) * (cz - az);
     if (crossY < 0) { const tmp = b; b = c; c = tmp; }
     acc.tri(base + a, base + b, base + c);
+    fixedTris.push(a, b, c);
+  }
+
+  // underside cap: floating parts (min_height) would otherwise read as hollow
+  // shells when seen from below (their far walls are backface-culled)
+  if (bottomCap) {
+    const base2 = acc.vcount;
+    for (let i = 0; i < flat.length; i += 2) {
+      acc.vertex(flat[i], y0, flat[i + 1], 0, -1, 0, cr * 0.42, cg * 0.42, cb * 0.42);
+    }
+    for (let t = 0; t < fixedTris.length; t += 3) {
+      acc.tri(base2 + fixedTris[t], base2 + fixedTris[t + 2], base2 + fixedTris[t + 1]);
+    }
   }
 }
 
@@ -324,8 +338,9 @@ function buildTile(tile: TileJson): BuildResponse {
       const base = b.b ?? 0;
       const bc = buildingColor(seed, h);
       bAcc.styleCursor = bc.glass ? 1 : 0;
-      // sink foundations 2.5m so sloped ground never shows a gap under walls
-      extrude(bAcc, rings, base + minH - (minH > 0 ? 0 : 2.5), base + h, bc.col);
+      // sink foundations 2.5m so sloped ground never shows a gap under walls;
+      // elevated parts get a sealed underside
+      extrude(bAcc, rings, base + minH - (minH > 0 ? 0 : 2.5), base + h, bc.col, minH > 0);
 
       // collision only for ground-level buildings
       if (minH < 1 && rings[0].length >= 6) {

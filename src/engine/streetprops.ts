@@ -51,10 +51,11 @@ const STEP_MATERIALS = [
   new THREE.MeshLambertMaterial({ color: '#55585a' }),
   new THREE.MeshLambertMaterial({ color: '#1c1d1e' }),
 ];
+// The iconic 24-hour-entrance green globe: bright enough to spot down a block.
 const GLOBE_MATERIAL = new THREE.MeshLambertMaterial({
-  color: '#fff3d6',
-  emissive: '#fff3d6',
-  emissiveIntensity: 0.9,
+  color: '#2fae5c',
+  emissive: '#37e874',
+  emissiveIntensity: 1.5,
 });
 const KIOSK_GLASS = new THREE.MeshLambertMaterial({
   color: '#9fb4bd',
@@ -281,8 +282,8 @@ export function buildEntranceKit(routes: string[], kind: string, name: string): 
   const finial = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.08, 0.1, 8), HUNTER_GREEN);
   finial.position.set(poleX, 3.45, poleZ);
   group.add(finial);
-  const globe = new THREE.Mesh(new THREE.SphereGeometry(0.17, 8, 6), GLOBE_MATERIAL);
-  globe.position.set(poleX, 3.65, poleZ);
+  const globe = new THREE.Mesh(new THREE.SphereGeometry(0.27, 10, 8), GLOBE_MATERIAL);
+  globe.position.set(poleX, 3.72, poleZ);
   group.add(globe);
 
   // Black route sign mounted across two short posts above the entrance front.

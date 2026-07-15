@@ -733,7 +733,26 @@ async function main() {
           const side = Math.abs(Math.sin(x * 12.9898 + z * 78.233)) < 0.5 ? 1 : -1;
           const off = (HYD_W[piece.cls] || 10) / 2 + 1.3;
           const hx = x + nx * off * side, hz = z + nz * off * side;
-          if (!hydGrid.has(gk(hx, hz))) {
+          // reject candidates inside ANY vehicular roadbed (cross streets at corners)
+          let inRoad = false;
+          for (const other of pieces) {
+            if (other === piece) continue;
+            const ow = (CLASS_W[other.cls] || (HYD_W[other.cls] ?? 0)) || 0;
+            if (!ow) continue;
+            const clr = ow / 2 + 0.6;
+            const op = other.pts;
+            for (let k = 1; k < op.length && !inRoad; k++) {
+              const [x1, z1] = op[k - 1], [x2, z2] = op[k];
+              const ddx = x2 - x1, ddz = z2 - z1;
+              const l2 = ddx * ddx + ddz * ddz;
+              let tt = l2 > 0 ? ((hx - x1) * ddx + (hz - z1) * ddz) / l2 : 0;
+              tt = Math.max(0, Math.min(1, tt));
+              const qx = x1 + tt * ddx, qz = z1 + tt * ddz;
+              if ((hx - qx) * (hx - qx) + (hz - qz) * (hz - qz) < clr * clr) inRoad = true;
+            }
+            if (inRoad) break;
+          }
+          if (!inRoad && !hydGrid.has(gk(hx, hz))) {
             for (let gx = -1; gx <= 1; gx++) for (let gz = -1; gz <= 1; gz++) {
               hydGrid.add(`${Math.round(hx / 40) + gx}:${Math.round(hz / 40) + gz}`);
             }
@@ -1172,6 +1191,7 @@ async function main() {
   let manhattanFeatures = [];
   if (borough) manhattanFeatures = borough.features.filter(isManhattanFeature);
 
+  const outlineRings = [];
   if (borough && manhattanFeatures.length) {
     for (const feature of manhattanFeatures) {
       const polygons = geometryToPolygons(feature.geometry);
@@ -1179,12 +1199,16 @@ async function main() {
         if (!polygon.length) continue;
         const outer = geoRingToLocal(polygon[0]);
         if (outer.length < 3) continue;
+        // simplified silhouette rings for the minimap
+        const simp = simplifyRing(outer, 25);
+        if (simp.length >= 3) outlineRings.push(simp.flatMap((pt) => [Math.round(pt[0]), Math.round(pt[1])]));
         const holes = polygon.slice(1).map(geoRingToLocal).filter((r) => r.length >= 3);
         const tris = triangulatePolygon(outer, holes);
         groundTrisRaw.push(...tris);
       }
     }
-    console.log(`  ground: ${manhattanFeatures.length} Manhattan feature(s) from borough.json -> ${groundTrisRaw.length} source triangles`);
+    fs.writeFileSync(path.join(GEO_DIR, 'outline.json'), JSON.stringify({ v: 1, rings: outlineRings }));
+    console.log(`  ground: ${manhattanFeatures.length} Manhattan feature(s) from borough.json -> ${groundTrisRaw.length} source triangles; outline rings: ${outlineRings.length}`);
   } else {
     groundSource = 'fallback-rectangle';
     const corners = [
@@ -1203,6 +1227,28 @@ async function main() {
   // sample terrain per vertex. Cap total triangle count by falling back to a coarser
   // threshold if 70m produces too many.
   function edgeLen(a, b) { return Math.hypot(a[0] - b[0], a[1] - b[1]); }
+  function simplifyRing(pts, eps) {
+    // iterative Douglas-Peucker on an open copy of the ring
+    const keep = new Array(pts.length).fill(false);
+    keep[0] = keep[pts.length - 1] = true;
+    const stack = [[0, pts.length - 1]];
+    while (stack.length) {
+      const [i0, i1] = stack.pop();
+      const [ax, az] = pts[i0], [bx, bz] = pts[i1];
+      let maxD = -1, maxI = -1;
+      const dx = bx - ax, dz = bz - az;
+      const len = Math.hypot(dx, dz) || 1;
+      for (let i = i0 + 1; i < i1; i++) {
+        const d = Math.abs((pts[i][0] - ax) * dz - (pts[i][1] - az) * dx) / len;
+        if (d > maxD) { maxD = d; maxI = i; }
+      }
+      if (maxD > eps && maxI > 0) {
+        keep[maxI] = true;
+        stack.push([i0, maxI], [maxI, i1]);
+      }
+    }
+    return pts.filter((_, i) => keep[i]);
+  }
   function subdivideAll(triangles, maxEdge) {
     const out = [];
     const stack = triangles.slice();

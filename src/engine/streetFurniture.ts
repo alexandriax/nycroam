@@ -169,7 +169,10 @@ export function buildSignsMesh(signs: WorldSign[]): { mesh: THREE.Mesh; texture:
   geo.setIndex(idx);
   geo.computeBoundingSphere();
 
-  const mat = new THREE.MeshLambertMaterial({ map: texture, transparent: true, alphaTest: 0.15 });
+  // DoubleSide: the pole/blade quads must read from every approach direction
+  const mat = new THREE.MeshLambertMaterial({
+    map: texture, transparent: true, alphaTest: 0.15, side: THREE.DoubleSide,
+  });
   const mesh = new THREE.Mesh(geo, mat);
   mesh.castShadow = true;
   mesh.matrixAutoUpdate = false;
