@@ -67,9 +67,32 @@ export function makeFacadeMaterial(): THREE.MeshLambertMaterial {
   return mat;
 }
 
-/** Flat layer (roads/areas/ground): plain vertex-colored lambert. */
+/** Flat layer (areas/ground): plain vertex-colored lambert. */
 export function makeFlatMaterial(): THREE.MeshLambertMaterial {
   return new THREE.MeshLambertMaterial({ vertexColors: true });
+}
+
+/** Asphalt roadbed. Texture maps plug in via setRoadTextures once generated. */
+export function makeRoadMaterial(): THREE.MeshLambertMaterial {
+  return new THREE.MeshLambertMaterial({ vertexColors: true, color: 0x2e3033 });
+}
+
+/** Poured-concrete walks/paths. */
+export function makeWalkMaterial(): THREE.MeshLambertMaterial {
+  return new THREE.MeshLambertMaterial({ vertexColors: true, color: 0x9fa09b });
+}
+
+/** Painted lane lines / crosswalk bars: slightly emissive so they pop in shade. */
+export function makeMarkingsMaterial(): THREE.MeshLambertMaterial {
+  const mat = new THREE.MeshLambertMaterial({
+    vertexColors: true,
+    emissive: 0xffffff,
+    emissiveIntensity: 0.08,
+    polygonOffset: true,
+    polygonOffsetFactor: -2,
+    polygonOffsetUnits: -2,
+  });
+  return mat;
 }
 
 /** Distant skyline: unlit-ish, exempt from fog, hazes toward sky color with distance. */

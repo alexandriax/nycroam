@@ -1,7 +1,10 @@
 import * as THREE from 'three';
 import type { BuildResponse, MeshPayload, CollisionData } from './tileTypes';
 import { TILE_SIZE, tileKey } from './geo';
-import { makeFacadeMaterial, makeFlatMaterial, treeTrunkMaterial, treeCanopyMaterial } from './materials';
+import {
+  makeFacadeMaterial, makeFlatMaterial, makeRoadMaterial, makeWalkMaterial,
+  makeMarkingsMaterial, treeTrunkMaterial, treeCanopyMaterial,
+} from './materials';
 
 interface TileRecord {
   key: string;
@@ -28,6 +31,9 @@ export class TileManager {
   private queue: string[] = [];
   private facadeMat = makeFacadeMaterial();
   private flatMat = makeFlatMaterial();
+  private roadMat = makeRoadMaterial();
+  private walkMat = makeWalkMaterial();
+  private markingsMat = makeMarkingsMaterial();
   private trunkMat = treeTrunkMaterial();
   private canopyMat = treeCanopyMaterial();
   private trunkGeo = new THREE.CylinderGeometry(0.11, 0.16, 2.4, 5);
@@ -157,24 +163,29 @@ export class TileManager {
     if (!rec || rec.state === 'ready') return;
     const group = new THREE.Group();
 
-    const addMesh = (payload: MeshPayload | null, mat: THREE.Material, opts?: { cast?: boolean; receive?: boolean }) => {
+    const addMesh = (payload: MeshPayload | null, mat: THREE.Material, opts?: { cast?: boolean; receive?: boolean; order?: number }) => {
       if (!payload) return;
       const geo = new THREE.BufferGeometry();
       geo.setAttribute('position', new THREE.BufferAttribute(payload.position, 3));
       geo.setAttribute('normal', new THREE.BufferAttribute(payload.normal, 3));
       geo.setAttribute('color', new THREE.BufferAttribute(payload.color, 3));
+      if (payload.uv) geo.setAttribute('uv', new THREE.BufferAttribute(payload.uv, 2));
       geo.setIndex(new THREE.BufferAttribute(payload.index, 1));
       geo.computeBoundingSphere();
       const mesh = new THREE.Mesh(geo, mat);
       mesh.matrixAutoUpdate = false;
       mesh.castShadow = opts?.cast ?? false;
       mesh.receiveShadow = opts?.receive ?? false;
+      if (opts?.order !== undefined) mesh.renderOrder = opts.order;
       group.add(mesh);
       rec.geometries.push(geo);
     };
 
     addMesh(res.buildings, this.facadeMat, { cast: true, receive: true });
-    addMesh(res.flat, this.flatMat, { receive: true });
+    addMesh(res.areas, this.flatMat, { receive: true });
+    addMesh(res.roads, this.roadMat, { receive: true });
+    addMesh(res.walks, this.walkMat, { receive: true });
+    addMesh(res.markings, this.markingsMat, { receive: true, order: 1 });
 
     if (res.trees && res.trees.length >= 5) {
       const count = res.trees.length / 5;

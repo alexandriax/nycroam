@@ -1,7 +1,7 @@
 // Web worker: fetch tile JSON -> build merged geometry buffers (transferable).
 import earcut from 'earcut';
 import type { BuildRequest, BuildResponse, MeshPayload, TileJson, CollisionData } from './tileTypes';
-import { ROAD_STYLE, AREA_STYLE } from './tileTypes';
+import { ROAD_STYLE, AREA_STYLE, CONCRETE_CLASSES } from './tileTypes';
 import { buildingColor, hash01 } from './palette';
 import { TILE_SIZE } from './geo';
 
@@ -10,12 +10,19 @@ class MeshAcc {
   nrm: number[] = [];
   col: number[] = [];
   idx: number[] = [];
+  uvs: number[] | null = null;
+
+  constructor(withUv = false) {
+    if (withUv) this.uvs = [];
+  }
+
   get vcount() { return this.pos.length / 3; }
 
-  vertex(x: number, y: number, z: number, nx: number, ny: number, nz: number, r: number, g: number, b: number) {
+  vertex(x: number, y: number, z: number, nx: number, ny: number, nz: number, r: number, g: number, b: number, u = 0, v = 0) {
     this.pos.push(x, y, z);
     this.nrm.push(nx, ny, nz);
     this.col.push(r, g, b);
+    if (this.uvs) this.uvs.push(u, v);
   }
 
   tri(a: number, b: number, c: number) { this.idx.push(a, b, c); }
@@ -27,6 +34,7 @@ class MeshAcc {
       normal: new Float32Array(this.nrm),
       color: new Float32Array(this.col),
       index: new Uint32Array(this.idx),
+      ...(this.uvs ? { uv: new Float32Array(this.uvs) } : {}),
     };
   }
 }
@@ -143,20 +151,36 @@ function waterTower(acc: MeshAcc, cx: number, cz: number, yBase: number, seed: n
   extrude(acc, [[cx - pr, cz - pr, cx + pr, cz - pr, cx + pr, cz + pr, cx - pr, cz + pr]], yBase, yLeg + 0.05, [0.25, 0.22, 0.2]);
 }
 
-function buildRibbon(acc: MeshAcc, pts: number[], width: number, ys: number[], col: [number, number, number]) {
+/**
+ * Ribbon along a polyline. `lateralOffset` shifts the whole ribbon sideways
+ * (lane lines); `uvScale` maps meters to texture repeats (0 = no UVs written).
+ * `dashes` = [on, off] meters emits interrupted segments (dashed lines).
+ */
+function buildRibbon(
+  acc: MeshAcc,
+  pts: number[],
+  width: number,
+  ys: number[],
+  col: [number, number, number],
+  lateralOffset = 0,
+  uvScale = 0,
+  dashes: [number, number] | null = null,
+) {
   const n = pts.length / 2;
   if (n < 2) return;
   const hw = width / 2;
-  // per-point lateral dir (miter, clamped)
-  const base = acc.vcount;
+  const laterals: number[] = new Array(n * 2);
+  const dists: number[] = new Array(n);
+  let dist = 0;
   for (let i = 0; i < n; i++) {
     const x = pts[i * 2], z = pts[i * 2 + 1];
+    if (i > 0) dist += Math.hypot(x - pts[(i - 1) * 2], z - pts[(i - 1) * 2 + 1]);
+    dists[i] = dist;
     let dx = 0, dz = 0;
     if (i > 0) { dx += x - pts[(i - 1) * 2]; dz += z - pts[(i - 1) * 2 + 1]; }
     if (i < n - 1) { dx += pts[(i + 1) * 2] - x; dz += pts[(i + 1) * 2 + 1] - z; }
     const len = Math.hypot(dx, dz) || 1;
     let lx = -dz / len, lz = dx / len;
-    // miter scale
     if (i > 0 && i < n - 1) {
       const ax = x - pts[(i - 1) * 2], az = z - pts[(i - 1) * 2 + 1];
       const alen = Math.hypot(ax, az) || 1;
@@ -164,16 +188,96 @@ function buildRibbon(acc: MeshAcc, pts: number[], width: number, ys: number[], c
       const scale = Math.min(2, 1 / Math.max(0.5, Math.abs(cosHalf)));
       lx *= scale; lz *= scale;
     }
-    const y = ys[i];
-    acc.vertex(x + lx * hw, y, z + lz * hw, 0, 1, 0, col[0], col[1], col[2]);
-    acc.vertex(x - lx * hw, y, z - lz * hw, 0, 1, 0, col[0], col[1], col[2]);
+    laterals[i * 2] = lx;
+    laterals[i * 2 + 1] = lz;
   }
-  for (let i = 0; i < n - 1; i++) {
-    const a = base + i * 2;
-    // two tris per segment; fix winding for +y
-    pushUpTri(acc, a, a + 2, a + 1);
-    pushUpTri(acc, a + 1, a + 2, a + 3);
+
+  const emit = (i0: number, i1: number) => {
+    const base = acc.vcount;
+    for (let i = i0; i <= i1; i++) {
+      const x = pts[i * 2] + laterals[i * 2] * lateralOffset;
+      const z = pts[i * 2 + 1] + laterals[i * 2 + 1] * lateralOffset;
+      const lx = laterals[i * 2], lz = laterals[i * 2 + 1];
+      const y = ys[i];
+      const u = uvScale ? dists[i] * uvScale : 0;
+      acc.vertex(x + lx * hw, y, z + lz * hw, 0, 1, 0, col[0], col[1], col[2], u, (hw * uvScale));
+      acc.vertex(x - lx * hw, y, z - lz * hw, 0, 1, 0, col[0], col[1], col[2], u, -(hw * uvScale));
+    }
+    for (let i = 0; i < i1 - i0; i++) {
+      const a = base + i * 2;
+      pushUpTri(acc, a, a + 2, a + 1);
+      pushUpTri(acc, a + 1, a + 2, a + 3);
+    }
+  };
+
+  if (!dashes) {
+    emit(0, n - 1);
+    return;
   }
+
+  // dashed: walk the polyline, emitting sub-ribbons during the "on" phase
+  const [on, off] = dashes;
+  const period = on + off;
+  let segStartIdx: number | null = null;
+  const cut: number[] = [];
+  const cutYs: number[] = [];
+  const emitCut = () => {
+    if (cut.length >= 4) {
+      const saved = acc.uvs; // dashes carry no meaningful uv; keep zeros
+      buildRibbon(acc, cut, width, cutYs, col, 0, 0, null);
+      void saved;
+    }
+    cut.length = 0;
+    cutYs.length = 0;
+  };
+  const step = 0.4;
+  for (let d = 0; d < dists[n - 1]; d += step) {
+    const phase = d % period;
+    const onPhase = phase < on;
+    // interpolate point at distance d (+ lateral offset)
+    let i = 0;
+    while (i < n - 2 && dists[i + 1] < d) i++;
+    const segLen = dists[i + 1] - dists[i] || 1;
+    const t = (d - dists[i]) / segLen;
+    const x = pts[i * 2] + (pts[(i + 1) * 2] - pts[i * 2]) * t + (laterals[i * 2]) * lateralOffset;
+    const z = pts[i * 2 + 1] + (pts[(i + 1) * 2 + 1] - pts[i * 2 + 1]) * t + (laterals[i * 2 + 1]) * lateralOffset;
+    const y = ys[i] + (ys[i + 1] - ys[i]) * t;
+    if (onPhase) {
+      cut.push(x, z);
+      cutYs.push(y);
+      segStartIdx = segStartIdx ?? i;
+    } else if (cut.length) {
+      emitCut();
+      segStartIdx = null;
+    }
+  }
+  emitCut();
+}
+
+function polyLength(pts: number[]): number {
+  let d = 0;
+  for (let i = 1; i < pts.length / 2; i++) {
+    d += Math.hypot(pts[i * 2] - pts[(i - 1) * 2], pts[i * 2 + 1] - pts[(i - 1) * 2 + 1]);
+  }
+  return d;
+}
+
+/** Point + unit tangent + interpolated y at arc distance d along a polyline. */
+function pointAt(pts: number[], ys: number[], d: number): [number, number, number, number, number] {
+  let acc = 0;
+  for (let i = 1; i < pts.length / 2; i++) {
+    const sx = pts[(i - 1) * 2], sz = pts[(i - 1) * 2 + 1];
+    const ex = pts[i * 2], ez = pts[i * 2 + 1];
+    const seg = Math.hypot(ex - sx, ez - sz);
+    if (acc + seg >= d || i === pts.length / 2 - 1) {
+      const t = seg > 0 ? Math.min(1, (d - acc) / seg) : 0;
+      const tx = seg > 0 ? (ex - sx) / seg : 1;
+      const tz = seg > 0 ? (ez - sz) / seg : 0;
+      return [sx + (ex - sx) * t, sz + (ez - sz) * t, tx, tz, ys[i - 1] + (ys[i] - ys[i - 1]) * t];
+    }
+    acc += seg;
+  }
+  return [pts[0], pts[1], 1, 0, ys[0]];
 }
 
 function pushUpTri(acc: MeshAcc, a: number, b: number, c: number) {
@@ -241,23 +345,30 @@ function buildTile(tile: TileJson): BuildResponse {
     }
   }
 
-  // ---- flat layer: areas below, roads above ----
-  const fAcc = new MeshAcc();
+  // ---- flat layers: areas, asphalt roads (uv'd), concrete walks (uv'd), markings ----
+  const aAcc = new MeshAcc();
+  const rAcc = new MeshAcc(true);
+  const wAcc = new MeshAcc(true);
+  const mAcc = new MeshAcc();
+  const WHITE: [number, number, number] = [0.8, 0.81, 0.82];
+  const YELLOW: [number, number, number] = [0.82, 0.65, 0.1];
+
   if (tile.areas) {
     const stride = v2 ? 3 : 2;
     for (const kind of Object.keys(tile.areas)) {
       const style = AREA_STYLE[kind] ?? AREA_STYLE.grass;
       const tris = tile.areas[kind];
-      const base = fAcc.vcount;
+      const base = aAcc.vcount;
       for (let i = 0; i < tris.length; i += stride) {
         const ey = v2 ? tris[i + 2] / 10 : 0;
-        fAcc.vertex(toWorld(tris[i], ox), ey + style.y, toWorld(tris[i + 1], oz), 0, 1, 0, style.col[0], style.col[1], style.col[2]);
+        aAcc.vertex(toWorld(tris[i], ox), ey + style.y, toWorld(tris[i + 1], oz), 0, 1, 0, style.col[0], style.col[1], style.col[2]);
       }
       for (let v = 0; v < tris.length / stride; v += 3) {
-        pushUpTri(fAcc, base + v, base + v + 1, base + v + 2);
+        pushUpTri(aAcc, base + v, base + v + 1, base + v + 2);
       }
     }
   }
+
   if (tile.roads) {
     for (const r of tile.roads) {
       const style = ROAD_STYLE[r.c] ?? ROAD_STYLE.residential;
@@ -269,7 +380,44 @@ function buildTile(tile: TileJson): BuildResponse {
         pts[i * 2 + 1] = toWorld(r.p[i * 2 + 1], oz);
         ys[i] = (r.e ? r.e[i] : r.b ? 7 : 0) + style.y;
       }
-      buildRibbon(fAcc, pts, style.w, ys, r.b ? [0.24, 0.25, 0.27] : style.col);
+      const concrete = CONCRETE_CLASSES.has(r.c);
+      const acc = concrete ? wAcc : rAcc;
+      // near-white base tint so the texture map carries the color
+      const tint: [number, number, number] = r.b
+        ? [0.95, 0.97, 1.02]
+        : concrete
+          ? [style.col[0] * 1.55, style.col[1] * 1.55, style.col[2] * 1.55]
+          : [style.col[0] * 4.2, style.col[1] * 4.2, style.col[2] * 4.2];
+      buildRibbon(acc, pts, style.w, ys, [
+        Math.min(1.15, tint[0]), Math.min(1.15, tint[1]), Math.min(1.15, tint[2]),
+      ], 0, 0.25);
+
+      // ---- markings ----
+      const mys = ys.map((y) => y + 0.02);
+      if (r.c === 'crossing') {
+        // continental crosswalk: thick bars perpendicular to the walking line
+        const total = polyLength(pts);
+        for (let d = 0.5; d < total - 0.3; d += 0.95) {
+          const [cx, cz, tx, tz, cy] = pointAt(pts, mys, d);
+          const bx = -tz, bz = tx; // bar axis = perpendicular to crossing line
+          const bw = style.w * 0.42; // bar length across the crossing ribbon
+          const hw = 0.24; // half of bar thickness along the walk
+          const base = mAcc.vcount;
+          mAcc.vertex(cx - tx * hw + bx * bw, cy, cz - tz * hw + bz * bw, 0, 1, 0, WHITE[0], WHITE[1], WHITE[2]);
+          mAcc.vertex(cx + tx * hw + bx * bw, cy, cz + tz * hw + bz * bw, 0, 1, 0, WHITE[0], WHITE[1], WHITE[2]);
+          mAcc.vertex(cx + tx * hw - bx * bw, cy, cz + tz * hw - bz * bw, 0, 1, 0, WHITE[0], WHITE[1], WHITE[2]);
+          mAcc.vertex(cx - tx * hw - bx * bw, cy, cz - tz * hw - bz * bw, 0, 1, 0, WHITE[0], WHITE[1], WHITE[2]);
+          pushUpTri(mAcc, base, base + 1, base + 2);
+          pushUpTri(mAcc, base, base + 2, base + 3);
+        }
+      } else if (['motorway', 'trunk', 'primary', 'secondary'].includes(r.c)) {
+        buildRibbon(mAcc, pts, 0.12, mys, YELLOW, 0.17);
+        buildRibbon(mAcc, pts, 0.12, mys, YELLOW, -0.17);
+        buildRibbon(mAcc, pts, 0.12, mys, WHITE, style.w / 2 - 0.45);
+        buildRibbon(mAcc, pts, 0.12, mys, WHITE, -(style.w / 2 - 0.45));
+      } else if (['tertiary', 'unclassified'].includes(r.c)) {
+        buildRibbon(mAcc, pts, 0.12, mys, WHITE, 0, 0, [2.6, 4.2]);
+      }
     }
   }
 
@@ -310,7 +458,10 @@ function buildTile(tile: TileJson): BuildResponse {
     type: 'built',
     key: `${tile.x}_${tile.z}`,
     buildings: bAcc.payload(),
-    flat: fAcc.payload(),
+    roads: rAcc.payload(),
+    walks: wAcc.payload(),
+    areas: aAcc.payload(),
+    markings: mAcc.payload(),
     trees,
     collision,
   };
@@ -325,15 +476,19 @@ self.onmessage = async (ev: MessageEvent<BuildRequest>) => {
     const tile = (await res.json()) as TileJson;
     const out = buildTile(tile);
     const transfer: Transferable[] = [];
-    for (const m of [out.buildings, out.flat]) {
-      if (m) transfer.push(m.position.buffer, m.normal.buffer, m.color.buffer, m.index.buffer);
+    for (const m of [out.buildings, out.roads, out.walks, out.areas, out.markings]) {
+      if (m) {
+        transfer.push(m.position.buffer, m.normal.buffer, m.color.buffer, m.index.buffer);
+        if (m.uv) transfer.push(m.uv.buffer);
+      }
     }
     if (out.trees) transfer.push(out.trees.buffer);
     if (out.collision) transfer.push(out.collision.ringStart.buffer, out.collision.points.buffer, out.collision.aabb.buffer);
     (self as unknown as Worker).postMessage(out, transfer);
   } catch (e) {
     (self as unknown as Worker).postMessage({
-      type: 'built', key: req.key, buildings: null, flat: null, trees: null, collision: null,
+      type: 'built', key: req.key, buildings: null, roads: null, walks: null,
+      areas: null, markings: null, trees: null, collision: null,
       error: String(e),
     } satisfies BuildResponse);
   }

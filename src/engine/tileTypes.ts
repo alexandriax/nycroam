@@ -41,17 +41,24 @@ export interface MeshPayload {
   normal: Float32Array;
   color: Float32Array;
   index: Uint32Array;
+  uv?: Float32Array;
 }
 
 export interface BuildResponse {
   type: 'built';
   key: string;
   buildings: MeshPayload | null;
-  flat: MeshPayload | null; // roads + areas merged (all normals up)
+  roads: MeshPayload | null; // asphalt family, uv'd for texturing
+  walks: MeshPayload | null; // concrete family (sidewalks/paths), uv'd
+  areas: MeshPayload | null; // parks/water/plazas
+  markings: MeshPayload | null; // lane lines + crosswalk bars
   trees: Float32Array | null; // [x,y,z, scale, hueJitter] * n  (world coords)
   collision: CollisionData | null;
   error?: string;
 }
+
+/** Road classes rendered as poured concrete rather than asphalt. */
+export const CONCRETE_CLASSES = new Set(['pedestrian', 'footway', 'path', 'steps']);
 
 export interface CollisionData {
   // Building outer rings for player push-out. World-space meters.
