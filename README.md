@@ -67,6 +67,16 @@ resumable. Generated world data lands in `public/tiles/`, `public/geo/`, `public
 - Station interiors are stylized approximations informed by public documentation of
   NYC station layouts (see e.g. Project Subway NYC for the real things).
 
+## Appearance
+
+Everything is generated at runtime — no downloaded assets. Procedural canvas
+textures (brick, sidewalk flags, asphalt, roof ballast, terrazzo, glossy subway
+tile with grime, bark, clouds) ship with Sobel-derived normal maps; buildings
+split into curtain-wall vs punched-masonry styles; streets carry lane lines and
+continental crosswalks; the sun casts real-time shadows (desktop tier) with a
+camera-following texel-snapped frustum; rivers animate with fresnel and glints.
+Mobile keeps a lean shadowless tier automatically.
+
 ## Data sources (additions)
 
 - USGS/AWS Terrain Tiles (Terrarium) — elevation
