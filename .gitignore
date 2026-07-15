@@ -8,3 +8,4 @@ data/cache/
 public/tiles/
 public/geo/
 public/subway/
+tsconfig.tsbuildinfo
