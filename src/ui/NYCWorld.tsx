@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { World, LANDMARKS, type HudState } from '../engine/World';
 import { routeColor, bulletTextColor } from '../engine/subway/types';
+import MiniMap from './MiniMap';
 
 function Bullets({ routes, size = 22 }: { routes: string[]; size?: number }) {
   return (
@@ -159,9 +160,23 @@ export default function NYCWorld() {
           {LANDMARKS.map((l) => <option key={l.name} value={l.name}>{l.name}</option>)}
         </select>
         <div className="hud-panel" style={{ padding: '6px 10px', fontSize: 11, opacity: 0.8 }}>
-          {hud ? `${hud.fps} fps · ${hud.tilesLoaded} tiles${hud.tilesPending ? ` (+${hud.tilesPending})` : ''}${hud.fly ? ' · FLY' : ''}` : '—'}
+          {hud ? `${hud.fps} fps · ${hud.tilesLoaded} tiles${hud.tilesPending ? ` (+${hud.tilesPending})` : ''}${hud.fly ? ' · HELI' : ''}` : '—'}
         </div>
       </div>
+
+      {/* minimap + helicopter toggle */}
+      {worldRef.current && hud && !hud.loading && !hud.error && hud.mode === 'street' && (
+        <div style={{ position: 'absolute', right: 12, bottom: isTouch ? 170 : 12, display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 8 }}>
+          <MiniMap world={worldRef.current} />
+          {!isTouch && (
+            <button
+              onClick={() => { const c = worldRef.current?.controlsRef; if (c) c.fly = !c.fly; }}
+              className="hud-panel"
+              style={{ padding: '8px 14px', border: '1px solid rgba(255,255,255,0.15)', borderRadius: 8, background: hud.fly ? '#0d5c33' : 'rgba(12,14,18,0.72)', cursor: 'pointer', fontSize: 13 }}
+            >{hud.fly ? '🚁 Land (F)' : '🚁 Helicopter (F)'}</button>
+          )}
+        </div>
+      )}
 
       {/* riding panel */}
       {hud?.mode === 'ride' && hud.ride && (
@@ -209,11 +224,27 @@ export default function NYCWorld() {
                 style={{ width: 64, height: 64, borderRadius: '50%', border: 'none', background: '#00933C', color: '#fff', fontWeight: 700, fontSize: 16 }}
               >GO</button>
             )}
+            {hud?.mode === 'street' && hud?.fly && (
+              <>
+                <button
+                  onPointerDown={() => worldRef.current?.controlsRef.setTouchVertical(1)}
+                  onPointerUp={() => worldRef.current?.controlsRef.setTouchVertical(0)}
+                  onPointerLeave={() => worldRef.current?.controlsRef.setTouchVertical(0)}
+                  style={{ width: 64, height: 64, borderRadius: '50%', border: '1px solid rgba(255,255,255,0.3)', background: 'rgba(12,14,18,0.7)', color: '#fff', fontSize: 22 }}
+                >▲</button>
+                <button
+                  onPointerDown={() => worldRef.current?.controlsRef.setTouchVertical(-1)}
+                  onPointerUp={() => worldRef.current?.controlsRef.setTouchVertical(0)}
+                  onPointerLeave={() => worldRef.current?.controlsRef.setTouchVertical(0)}
+                  style={{ width: 64, height: 64, borderRadius: '50%', border: '1px solid rgba(255,255,255,0.3)', background: 'rgba(12,14,18,0.7)', color: '#fff', fontSize: 22 }}
+                >▼</button>
+              </>
+            )}
             {hud?.mode === 'street' && (
               <button
                 onClick={() => { const c = worldRef.current?.controlsRef; if (c) c.fly = !c.fly; }}
-                style={{ width: 64, height: 64, borderRadius: '50%', border: '1px solid rgba(255,255,255,0.3)', background: 'rgba(12,14,18,0.7)', color: '#fff', fontSize: 13 }}
-              >{hud?.fly ? 'WALK' : 'FLY'}</button>
+                style={{ width: 64, height: 64, borderRadius: '50%', border: '1px solid rgba(255,255,255,0.3)', background: hud?.fly ? '#0d5c33' : 'rgba(12,14,18,0.7)', color: '#fff', fontSize: 22 }}
+              >🚁</button>
             )}
           </div>
         </>
@@ -223,7 +254,7 @@ export default function NYCWorld() {
       {!isTouch && showHelp && !loading && !error && (
         <div className="hud-panel" style={{ position: 'absolute', bottom: 12, left: 12, padding: '10px 14px', fontSize: 12, lineHeight: 1.7, opacity: 0.9 }}
           onClick={() => setShowHelp(false)}>
-          <b>Click</b> to look · <b>WASD</b> move · <b>Shift</b> run · <b>F</b> fly (+<b>Space/C</b> up/down)<br />
+          <b>Click</b> to look · <b>WASD</b> move · <b>Shift</b> run · <b>F</b> helicopter (+<b>Space/C</b> up/down)<br />
           Walk into a green-globe stairway to ride the subway · <b>E</b> to enter/exit · <i>(click to hide)</i>
         </div>
       )}

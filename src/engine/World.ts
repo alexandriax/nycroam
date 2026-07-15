@@ -12,6 +12,7 @@ import { ElevatedStationWorld } from './subway/ElevatedStationWorld';
 import { TrainScheduler } from './subway/scheduler';
 import { RideWorld, type RideHud } from './subway/RideWorld';
 import type { StationSpec, NetworkData } from './subway/types';
+import { routeColor } from './subway/types';
 import { lonLatToXZ } from './geo';
 import { loadTerrain, heightAt } from './terrain';
 
@@ -78,6 +79,8 @@ export class World {
   private atEndSince = 0;
   private sun: THREE.DirectionalLight | null = null;
   private waterUpdate: ((dt: number) => void) | null = null;
+  private flyVel = new THREE.Vector3();
+  private flyTarget = new THREE.Vector3();
   hud: HudState = {
     mode: 'street', fly: false, prompt: null, promptRoutes: [], stationName: null,
     stationRoutes: [], ride: null, tilesLoaded: 0, tilesPending: 0, fps: 0, loading: true, error: null,
@@ -431,17 +434,27 @@ export class World {
     let dz = (fwd.z * input.forward + right.z * input.strafe) * speed * dt;
 
     if (this.mode === 'street') {
-      let nx = this.pos.x + dx, nz = this.pos.z + dz;
-      if (!this.controls.fly) {
+      if (this.controls.fly) {
+        // helicopter: momentum-smoothed velocity incl. vertical
+        this.flyTarget.set(
+          (fwd.x * input.forward + right.x * input.strafe) * speed,
+          input.up * speed * 0.55,
+          (fwd.z * input.forward + right.z * input.strafe) * speed,
+        );
+        this.flyVel.lerp(this.flyTarget, 1 - Math.exp(-dt * 2.4));
+        this.pos.x += this.flyVel.x * dt;
+        this.pos.z += this.flyVel.z * dt;
+        this.pos.y = Math.max(1.2, Math.min(1200, this.pos.y + this.flyVel.y * dt));
+      } else {
+        this.flyVel.set(0, 0, 0);
+        let nx = this.pos.x + dx, nz = this.pos.z + dz;
         [nx, nz] = resolveBuildingCollision(nx, nz, 0.42, this.tiles.collisionNear(nx, nz));
         const g = heightAt(nx, nz);
         // follow terrain smoothly (streets are graded, not stepped)
         this.pos.y += (g - this.pos.y) * Math.min(1, dt * 10);
         if (Math.abs(g - this.pos.y) < 0.02) this.pos.y = g;
-      } else {
-        this.pos.y = Math.max(1, Math.min(1200, this.pos.y + input.up * speed * 0.6 * dt));
+        this.pos.x = nx; this.pos.z = nz;
       }
-      this.pos.x = nx; this.pos.z = nz;
 
       // widen fog + streaming with altitude so flying shows more of the island
       const altBoost = Math.min(500, Math.max(0, this.pos.y - 60)) * 1.6;
@@ -580,6 +593,14 @@ export class World {
     if (pitch !== undefined) this.controls.pitch = pitch;
   }
   getPos() { return { x: this.pos.x, y: this.pos.y, z: this.pos.z, mode: this.mode }; }
+
+  /** Static overlay data for the minimap. */
+  mapData(): { stations: { x: number; z: number; color: string; name: string }[]; entrances: [number, number][] } {
+    const stations = [...this.entrances.stationsMap.values()].map((s) => ({
+      x: s.pos[0], z: s.pos[1], color: routeColor(s.routes[0]), name: s.name,
+    }));
+    return { stations, entrances: this.entrances.entrancePositions() };
+  }
   getTrains() { return this.scheduler?.trainStates ?? []; }
   getRide() { return this.ride?.hudInfo ?? null; }
   /** Debug: advance the station/ride sim by `s` seconds in fixed steps. */

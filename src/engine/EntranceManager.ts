@@ -98,6 +98,10 @@ export class EntranceManager {
     return this.stations;
   }
 
+  entrancePositions(): [number, number][] {
+    return (this.data?.entrances ?? []).map((e) => e.pos);
+  }
+
   /** A street entrance position for the given station (nearest to the station point). */
   entranceFor(spec: StationSpec): [number, number] {
     let best: [number, number] = spec.pos;

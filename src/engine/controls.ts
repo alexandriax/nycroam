@@ -80,6 +80,8 @@ export class PlayerControls {
   };
 
   setTouchMove(x: number, y: number) { this.touchMove.x = x; this.touchMove.y = y; }
+  setTouchVertical(v: number) { this.touchVertical = v; }
+  private touchVertical = 0;
   addTouchLook(dx: number, dy: number) { this.touchLook.dx += dx; this.touchLook.dy += dy; }
 
   consumeInput(): MoveInput {
@@ -90,7 +92,7 @@ export class PlayerControls {
     const k = this.keys;
     let forward = (k.has('w') || k.has('arrowup') ? 1 : 0) + (k.has('s') || k.has('arrowdown') ? -1 : 0);
     let strafe = (k.has('d') || k.has('arrowright') ? 1 : 0) + (k.has('a') || k.has('arrowleft') ? -1 : 0);
-    const up = (k.has(' ') ? 1 : 0) + (k.has('c') || k.has('control') ? -1 : 0);
+    const up = (k.has(' ') ? 1 : 0) + (k.has('c') || k.has('control') ? -1 : 0) + this.touchVertical;
     forward += -this.touchMove.y;
     strafe += this.touchMove.x;
     const len = Math.hypot(forward, strafe);
