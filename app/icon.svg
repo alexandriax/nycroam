@@ -1,0 +1,41 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#081026"/>
+      <stop offset="0.6" stop-color="#0f1f43"/>
+      <stop offset="1" stop-color="#1e365e"/>
+    </linearGradient>
+    <linearGradient id="stone" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#fff8e3"/>
+      <stop offset="0.5" stop-color="#f6e3b4"/>
+      <stop offset="1" stop-color="#d8bd85"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#ffe9a8" stop-opacity="0.5"/>
+      <stop offset="1" stop-color="#ffe9a8" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+
+  <rect width="64" height="64" rx="13" fill="url(#sky)"/>
+  <ellipse cx="32" cy="14" rx="13" ry="11" fill="url(#glow)"/>
+
+  <!-- Empire State silhouette: broad stepped base, heavy shaft, crown, mast.
+       Sized so the shaft is ~5px and the base ~10px at a 16px favicon. -->
+  <path fill="url(#stone)" d="
+    M 12 58 V 49 H 17 V 43 H 22 V 18 H 25 V 13 H 28 V 9 H 30 V 5.5 H 31.2 V 1.8
+    H 32.8 V 5.5 H 34 V 9 H 36 V 13 H 39 V 18 H 42 V 43 H 47 V 49 H 52 V 58 Z"/>
+
+  <!-- limestone piers: legible at 32px+, dissolve cleanly at 16px -->
+  <g fill="#bfa268" opacity="0.42">
+    <rect x="25.4" y="18" width="0.9" height="25"/>
+    <rect x="31.55" y="18" width="0.9" height="25"/>
+    <rect x="37.7" y="18" width="0.9" height="25"/>
+  </g>
+  <!-- setback shadows -->
+  <g fill="#ab8f5f" opacity="0.5">
+    <rect x="22" y="42.3" width="20" height="0.7"/>
+    <rect x="17" y="48.3" width="30" height="0.7"/>
+  </g>
+  <!-- lit mast beacon -->
+  <circle cx="32" cy="4.6" r="1.7" fill="#fff6cf"/>
+</svg>

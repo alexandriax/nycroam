@@ -1,9 +1,40 @@
 import type { Metadata, Viewport } from 'next';
 import './globals.css';
 
+// Absolute base for og:image and friends. This page is statically prerendered,
+// so these are read at BUILD time — on Vercel the production alias is set then;
+// locally it falls back to the dev origin.
+const siteUrl =
+  process.env.NEXT_PUBLIC_SITE_URL ||
+  (process.env.VERCEL_PROJECT_PRODUCTION_URL && `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}`) ||
+  (process.env.VERCEL_URL && `https://${process.env.VERCEL_URL}`) ||
+  'http://localhost:3000';
+
+const title = 'NYC World — Manhattan at 1:1';
+const description =
+  'Walk a full-scale 3D Manhattan in your browser. Every street and building from OpenStreetMap, ' +
+  'real terrain and trees, and subway entrances you can walk down into — then board a train and ride the line.';
+
 export const metadata: Metadata = {
-  title: 'NYC World — Manhattan',
-  description: 'A 1:1 explorable 3D Manhattan built from OpenStreetMap, with walkable subway stations.',
+  metadataBase: new URL(siteUrl),
+  title,
+  description,
+  applicationName: 'NYC World',
+  keywords: [
+    'Manhattan', 'New York City', '3D city', 'OpenStreetMap', 'Three.js',
+    'WebGL', 'subway', 'MTA', 'first person', 'browser',
+  ],
+  openGraph: {
+    type: 'website',
+    siteName: 'NYC World',
+    title,
+    description,
+    url: siteUrl,
+    locale: 'en_US',
+  },
+  // no twitter-image file: Twitter/X falls back to the opengraph-image
+  twitter: { card: 'summary_large_image', title, description },
+  robots: { index: true, follow: true },
 };
 
 export const viewport: Viewport = {

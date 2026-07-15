@@ -1286,7 +1286,53 @@ async function main() {
       groundTris[o++] = round1(terrainAt(p[0], p[1]));
     }
   }
-  fs.writeFileSync(path.join(GEO_DIR, 'ground.json'), JSON.stringify({ v: 2, tris: groundTris }));
+  // Ground is ~1M vertices. As JSON that is ~19MB and costs a multi-hundred-ms
+  // JSON.parse on the main thread before anything can render. Every coordinate
+  // is round1'd above, so integer decimeters are EXACTLY lossless. Only ~16% of
+  // the vertices are unique, so weld them into an index buffer, delta-code the
+  // indices (they climb monotonically through spatially-sorted triangles, so
+  // the deltas are tiny and gzip flattens them), and ship binary: ~5.7MB raw,
+  // ~1.9MB gzipped, zero parse. The loader re-expands to the identical
+  // non-indexed vertex order, so the mesh and its flat shading are unchanged.
+  function encodeGroundBin(tris) {
+    const n = tris.length / 3; // vertex count
+    const map = new Map();
+    const vx = [], vz = [], vy = [];
+    const idx = new Int32Array(n);
+    for (let i = 0; i < n; i++) {
+      const x = Math.round(tris[i * 3] * 10);
+      const z = Math.round(tris[i * 3 + 1] * 10);
+      const y = Math.round(tris[i * 3 + 2] * 10);
+      const key = `${x},${z},${y}`;
+      let j = map.get(key);
+      if (j === undefined) { j = vx.length; map.set(key, j); vx.push(x); vz.push(z); vy.push(y); }
+      idx[i] = j;
+    }
+    const V = vx.length;
+    const HEADER = 16;
+    const idxOff = (HEADER + V * 10 + 3) & ~3; // 4-byte align the index stream
+    const buf = Buffer.alloc(idxOff + n * 4);
+    buf.writeUInt32LE(0x4743594e, 0); // 'NYCG'
+    buf.writeUInt32LE(3, 4);          // format version
+    buf.writeUInt32LE(V, 8);          // unique vertices
+    buf.writeUInt32LE(n, 12);         // emitted vertices (= index count)
+    let o = HEADER;
+    for (let i = 0; i < V; i++) { buf.writeInt32LE(vx[i], o); o += 4; }
+    for (let i = 0; i < V; i++) { buf.writeInt32LE(vz[i], o); o += 4; }
+    for (let i = 0; i < V; i++) { buf.writeInt16LE(vy[i], o); o += 2; }
+    o = idxOff;
+    let prev = 0;
+    for (let i = 0; i < n; i++) { buf.writeInt32LE(idx[i] - prev, o); prev = idx[i]; o += 4; }
+    return { buf, unique: V, emitted: n };
+  }
+  const groundBin = encodeGroundBin(groundTris);
+  fs.writeFileSync(path.join(GEO_DIR, 'ground.bin'), groundBin.buf);
+  // drop the superseded JSON so a stale 19MB copy can't be served
+  try { fs.unlinkSync(path.join(GEO_DIR, 'ground.json')); } catch { /* already absent */ }
+  console.log(
+    `  ground.bin: ${groundBin.emitted.toLocaleString()} verts -> ${groundBin.unique.toLocaleString()} unique ` +
+      `(${(groundBin.buf.length / 1e6).toFixed(2)}MB binary)`
+  );
 
   // ---- VALIDATION --------------------------------------------------------------------------
   console.log('\n=== VALIDATION ===');

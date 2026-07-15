@@ -1,0 +1,1 @@
+A 1:1 3D model of Manhattan rendered in a browser, looking south over Midtown with the Empire State Building at center and the Lower Manhattan skyline on the horizon.

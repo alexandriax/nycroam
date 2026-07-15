@@ -186,25 +186,34 @@ export class World {
   }
 
   private async loadGround() {
-    const res = await fetch('/geo/ground.json');
+    // ground.bin (v3): welded vertices in integer decimeters + delta-coded
+    // indices. See encodeGroundBin in scripts/build-tiles.mjs. Decoding is a
+    // typed-array view plus one expand loop — no JSON.parse of ~1M vertices.
+    const res = await fetch('/geo/ground.bin');
     if (!res.ok) throw new Error('no ground');
-    const data = await res.json();
-    const tris: number[] = data.tris;
-    const v2 = (data.v ?? 1) >= 2; // triples [x,z,y] instead of pairs
-    const stride = v2 ? 3 : 2;
-    const vcount = tris.length / stride;
+    const buf = await res.arrayBuffer();
+    const head = new DataView(buf);
+    if (head.getUint32(0, true) !== 0x4743594e) throw new Error('ground.bin: bad magic');
+    if (head.getUint32(4, true) !== 3) throw new Error('ground.bin: unsupported version');
+    const unique = head.getUint32(8, true);
+    const vcount = head.getUint32(12, true);
+    let o = 16;
+    const vx = new Int32Array(buf, o, unique); o += unique * 4;
+    const vz = new Int32Array(buf, o, unique); o += unique * 4;
+    const vy = new Int16Array(buf, o, unique); o += unique * 2;
+    o = (o + 3) & ~3;
+    const deltas = new Int32Array(buf, o, vcount);
     const geo = new THREE.BufferGeometry();
     const pos = new Float32Array(vcount * 3);
-    const col = new Float32Array(vcount * 3);
-    const g = SKY.ground;
-    for (let i = 0; i < vcount; i++) {
-      pos[i * 3] = tris[i * stride];
-      pos[i * 3 + 1] = v2 ? tris[i * stride + 2] : 0;
-      pos[i * 3 + 2] = tris[i * stride + 1];
-      col[i * 3] = g.r; col[i * 3 + 1] = g.g; col[i * 3 + 2] = g.b;
+    // re-expand to the same non-indexed vertex order the mesh had as JSON, so
+    // computeVertexNormals below still yields per-face (flat) terrain shading
+    for (let i = 0, cur = 0; i < vcount; i++) {
+      cur += deltas[i];
+      pos[i * 3] = vx[cur] / 10;
+      pos[i * 3 + 1] = vy[cur] / 10;
+      pos[i * 3 + 2] = vz[cur] / 10;
     }
     geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-    geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
     // fix winding per-triangle for +y and set normals up
     const idx: number[] = [];
     for (let t = 0; t < vcount / 3; t++) {
@@ -214,9 +223,15 @@ export class World {
       if (cross < 0) idx.push(a, c, b); else idx.push(a, b, c);
     }
     geo.setIndex(idx);
-    // real normals so hills shade (v1 flat data still yields up-normals)
+    // real normals so hills shade
     geo.computeVertexNormals();
-    const mesh = new THREE.Mesh(geo, makeFlatMaterial());
+    // every ground vertex carried the same colour, so a vertex-colour buffer
+    // here was ~12MB of identical floats — the flat material's grass detail is
+    // worldspace and unaffected. (TileManager's areas DO vary per vertex.)
+    const mat = makeFlatMaterial();
+    mat.vertexColors = false;
+    mat.color.copy(SKY.ground);
+    const mesh = new THREE.Mesh(geo, mat);
     mesh.renderOrder = -3;
     mesh.receiveShadow = true;
     this.streetScene.add(mesh);
