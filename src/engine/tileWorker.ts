@@ -1,0 +1,342 @@
+// Web worker: fetch tile JSON -> build merged geometry buffers (transferable).
+import earcut from 'earcut';
+import type { BuildRequest, BuildResponse, MeshPayload, TileJson, CollisionData } from './tileTypes';
+import { ROAD_STYLE, AREA_STYLE } from './tileTypes';
+import { buildingColor, hash01 } from './palette';
+import { TILE_SIZE } from './geo';
+
+class MeshAcc {
+  pos: number[] = [];
+  nrm: number[] = [];
+  col: number[] = [];
+  idx: number[] = [];
+  get vcount() { return this.pos.length / 3; }
+
+  vertex(x: number, y: number, z: number, nx: number, ny: number, nz: number, r: number, g: number, b: number) {
+    this.pos.push(x, y, z);
+    this.nrm.push(nx, ny, nz);
+    this.col.push(r, g, b);
+  }
+
+  tri(a: number, b: number, c: number) { this.idx.push(a, b, c); }
+
+  payload(): MeshPayload | null {
+    if (this.idx.length === 0) return null;
+    return {
+      position: new Float32Array(this.pos),
+      normal: new Float32Array(this.nrm),
+      color: new Float32Array(this.col),
+      index: new Uint32Array(this.idx),
+    };
+  }
+}
+
+function ringArea(pts: number[]): number {
+  // shoelace on flat [x,z,...]
+  let a = 0;
+  const n = pts.length / 2;
+  for (let i = 0; i < n; i++) {
+    const j = (i + 1) % n;
+    a += pts[i * 2] * pts[j * 2 + 1] - pts[j * 2] * pts[i * 2 + 1];
+  }
+  return a / 2;
+}
+
+function reverseRing(pts: number[]): number[] {
+  const out: number[] = [];
+  for (let i = pts.length - 2; i >= 0; i -= 2) out.push(pts[i], pts[i + 1]);
+  return out;
+}
+
+/** Extrude a polygon (rings in world meters, flat [x,z]) from y0 to y1 into acc. */
+function extrude(acc: MeshAcc, rings: number[][], y0: number, y1: number, color: [number, number, number]) {
+  // orient: outer ring negative shoelace (see design note), holes positive -> normal (-dz,0,dx) faces outward
+  const oriented = rings.map((r, i) => {
+    const a = ringArea(r);
+    if (i === 0 ? a > 0 : a < 0) return reverseRing(r);
+    return r;
+  });
+
+  const [cr, cg, cb] = color;
+  const wallShade = 1.0; // shading handled by lights/shader
+
+  // walls
+  for (const ring of oriented) {
+    const n = ring.length / 2;
+    for (let i = 0; i < n; i++) {
+      const j = (i + 1) % n;
+      const x1 = ring[i * 2], z1 = ring[i * 2 + 1];
+      const x2 = ring[j * 2], z2 = ring[j * 2 + 1];
+      const dx = x2 - x1, dz = z2 - z1;
+      const len = Math.hypot(dx, dz);
+      if (len < 0.01) continue;
+      const nx = -dz / len, nz = dx / len;
+      const base = acc.vcount;
+      acc.vertex(x1, y0, z1, nx, 0, nz, cr * wallShade, cg * wallShade, cb * wallShade);
+      acc.vertex(x2, y0, z2, nx, 0, nz, cr * wallShade, cg * wallShade, cb * wallShade);
+      acc.vertex(x2, y1, z2, nx, 0, nz, cr * wallShade, cg * wallShade, cb * wallShade);
+      acc.vertex(x1, y1, z1, nx, 0, nz, cr * wallShade, cg * wallShade, cb * wallShade);
+      acc.tri(base, base + 2, base + 1);
+      acc.tri(base, base + 3, base + 2);
+    }
+  }
+
+  // roof cap at y1
+  const flat: number[] = [];
+  const holeIdx: number[] = [];
+  for (let i = 0; i < oriented.length; i++) {
+    if (i > 0) holeIdx.push(flat.length / 2);
+    for (let k = 0; k < oriented[i].length; k++) flat.push(oriented[i][k]);
+  }
+  const tris = earcut(flat, holeIdx.length ? holeIdx : undefined, 2);
+  const base = acc.vcount;
+  const roofShade = 0.92;
+  for (let i = 0; i < flat.length; i += 2) {
+    acc.vertex(flat[i], y1, flat[i + 1], 0, 1, 0, cr * roofShade, cg * roofShade, cb * roofShade);
+  }
+  for (let t = 0; t < tris.length; t += 3) {
+    let a = tris[t], b = tris[t + 1], c = tris[t + 2];
+    // ensure upward-facing winding: for y-up viewing, cross must give +y
+    const ax = flat[a * 2], az = flat[a * 2 + 1];
+    const bx = flat[b * 2], bz = flat[b * 2 + 1];
+    const cx = flat[c * 2], cz = flat[c * 2 + 1];
+    const crossY = (bz - az) * (cx - ax) - (bx - ax) * (cz - az);
+    if (crossY < 0) { const tmp = b; b = c; c = tmp; }
+    acc.tri(base + a, base + b, base + c);
+  }
+}
+
+/** Cylinder+cone (water tower) into acc. */
+function waterTower(acc: MeshAcc, cx: number, cz: number, yBase: number, seed: number) {
+  const r = 1.7 + hash01(seed) * 0.5;
+  const hCyl = 3.0 + hash01(seed + 1) * 1.2;
+  const hCone = 1.6;
+  const seg = 9;
+  const wood: [number, number, number] = [0.32, 0.24, 0.18];
+  const roof: [number, number, number] = [0.22, 0.17, 0.13];
+  const yLeg = yBase + 1.1; // legs implied by shadow gap; start tank above roof
+  // cylinder sides
+  const base = acc.vcount;
+  for (let i = 0; i <= seg; i++) {
+    const a = (i / seg) * Math.PI * 2;
+    const nx = Math.cos(a), nz = Math.sin(a);
+    acc.vertex(cx + nx * r, yLeg, cz + nz * r, nx, 0, nz, wood[0], wood[1], wood[2]);
+    acc.vertex(cx + nx * r, yLeg + hCyl, cz + nz * r, nx, 0, nz, wood[0], wood[1], wood[2]);
+  }
+  for (let i = 0; i < seg; i++) {
+    const a = base + i * 2;
+    acc.tri(a, a + 2, a + 1);
+    acc.tri(a + 1, a + 2, a + 3);
+  }
+  // cone
+  const apexIdx = acc.vcount;
+  acc.vertex(cx, yLeg + hCyl + hCone, cz, 0, 1, 0, roof[0], roof[1], roof[2]);
+  const rim = acc.vcount;
+  for (let i = 0; i <= seg; i++) {
+    const a = (i / seg) * Math.PI * 2;
+    const nx = Math.cos(a), nz = Math.sin(a);
+    acc.vertex(cx + nx * (r + 0.15), yLeg + hCyl, cz + nz * (r + 0.15), nx * 0.6, 0.8, nz * 0.6, roof[0], roof[1], roof[2]);
+  }
+  for (let i = 0; i < seg; i++) acc.tri(apexIdx, rim + i, rim + i + 1);
+  // simple pedestal box
+  const pr = r * 0.55;
+  extrude(acc, [[cx - pr, cz - pr, cx + pr, cz - pr, cx + pr, cz + pr, cx - pr, cz + pr]], yBase, yLeg + 0.05, [0.25, 0.22, 0.2]);
+}
+
+function buildRibbon(acc: MeshAcc, pts: number[], width: number, ys: number[], col: [number, number, number]) {
+  const n = pts.length / 2;
+  if (n < 2) return;
+  const hw = width / 2;
+  // per-point lateral dir (miter, clamped)
+  const base = acc.vcount;
+  for (let i = 0; i < n; i++) {
+    const x = pts[i * 2], z = pts[i * 2 + 1];
+    let dx = 0, dz = 0;
+    if (i > 0) { dx += x - pts[(i - 1) * 2]; dz += z - pts[(i - 1) * 2 + 1]; }
+    if (i < n - 1) { dx += pts[(i + 1) * 2] - x; dz += pts[(i + 1) * 2 + 1] - z; }
+    const len = Math.hypot(dx, dz) || 1;
+    let lx = -dz / len, lz = dx / len;
+    // miter scale
+    if (i > 0 && i < n - 1) {
+      const ax = x - pts[(i - 1) * 2], az = z - pts[(i - 1) * 2 + 1];
+      const alen = Math.hypot(ax, az) || 1;
+      const cosHalf = (ax / alen) * (dx / len) + (az / alen) * (dz / len);
+      const scale = Math.min(2, 1 / Math.max(0.5, Math.abs(cosHalf)));
+      lx *= scale; lz *= scale;
+    }
+    const y = ys[i];
+    acc.vertex(x + lx * hw, y, z + lz * hw, 0, 1, 0, col[0], col[1], col[2]);
+    acc.vertex(x - lx * hw, y, z - lz * hw, 0, 1, 0, col[0], col[1], col[2]);
+  }
+  for (let i = 0; i < n - 1; i++) {
+    const a = base + i * 2;
+    // two tris per segment; fix winding for +y
+    pushUpTri(acc, a, a + 2, a + 1);
+    pushUpTri(acc, a + 1, a + 2, a + 3);
+  }
+}
+
+function pushUpTri(acc: MeshAcc, a: number, b: number, c: number) {
+  const p = acc.pos;
+  const ax = p[a * 3], az = p[a * 3 + 2];
+  const bx = p[b * 3], bz = p[b * 3 + 2];
+  const cx = p[c * 3], cz = p[c * 3 + 2];
+  const crossY = (bz - az) * (cx - ax) - (bx - ax) * (cz - az);
+  if (crossY < 0) acc.tri(a, c, b); else acc.tri(a, b, c);
+}
+
+function buildTile(tile: TileJson): BuildResponse {
+  const ox = tile.x * TILE_SIZE;
+  const oz = tile.z * TILE_SIZE;
+  const toWorld = (d: number, origin: number) => origin + d / 10;
+  const v2 = (tile.v ?? 1) >= 2; // elevations baked; areas/trees are [x,z,e] triples
+
+  // ---- buildings ----
+  const bAcc = new MeshAcc();
+  const colRings: number[][] = [];
+  const colAabb: number[] = [];
+  let seedBase = (tile.x * 73856093) ^ (tile.z * 19349663);
+
+  if (tile.buildings) {
+    for (let bi = 0; bi < tile.buildings.length; bi++) {
+      const b = tile.buildings[bi];
+      const seed = seedBase + bi * 17;
+      const rings = b.p.map((ring) => {
+        const out: number[] = new Array(ring.length);
+        for (let i = 0; i < ring.length; i += 2) {
+          out[i] = toWorld(ring[i], ox);
+          out[i + 1] = toWorld(ring[i + 1], oz);
+        }
+        return out;
+      });
+      const h = Math.max(3, b.h);
+      const minH = b.m ?? 0;
+      const base = b.b ?? 0;
+      const color = buildingColor(seed, h);
+      // sink foundations 2.5m so sloped ground never shows a gap under walls
+      extrude(bAcc, rings, base + minH - (minH > 0 ? 0 : 2.5), base + h, color);
+
+      // collision only for ground-level buildings
+      if (minH < 1 && rings[0].length >= 6) {
+        colRings.push(rings[0]);
+        let minX = 1e9, minZ = 1e9, maxX = -1e9, maxZ = -1e9;
+        for (let i = 0; i < rings[0].length; i += 2) {
+          minX = Math.min(minX, rings[0][i]); maxX = Math.max(maxX, rings[0][i]);
+          minZ = Math.min(minZ, rings[0][i + 1]); maxZ = Math.max(maxZ, rings[0][i + 1]);
+        }
+        colAabb.push(minX, minZ, maxX, maxZ);
+      }
+
+      // water towers on mid-rise flat roofs
+      if (minH === 0 && h > 22 && h < 95 && hash01(seed + 3) < 0.22) {
+        const ring = rings[0];
+        // centroid
+        let cx = 0, cz = 0; const n = ring.length / 2;
+        for (let i = 0; i < ring.length; i += 2) { cx += ring[i]; cz += ring[i + 1]; }
+        cx /= n; cz /= n;
+        // rough area check
+        const area = Math.abs(ringArea(ring));
+        if (area > 220) waterTower(bAcc, cx, cz, base + h, seed + 5);
+      }
+    }
+  }
+
+  // ---- flat layer: areas below, roads above ----
+  const fAcc = new MeshAcc();
+  if (tile.areas) {
+    const stride = v2 ? 3 : 2;
+    for (const kind of Object.keys(tile.areas)) {
+      const style = AREA_STYLE[kind] ?? AREA_STYLE.grass;
+      const tris = tile.areas[kind];
+      const base = fAcc.vcount;
+      for (let i = 0; i < tris.length; i += stride) {
+        const ey = v2 ? tris[i + 2] / 10 : 0;
+        fAcc.vertex(toWorld(tris[i], ox), ey + style.y, toWorld(tris[i + 1], oz), 0, 1, 0, style.col[0], style.col[1], style.col[2]);
+      }
+      for (let v = 0; v < tris.length / stride; v += 3) {
+        pushUpTri(fAcc, base + v, base + v + 1, base + v + 2);
+      }
+    }
+  }
+  if (tile.roads) {
+    for (const r of tile.roads) {
+      const style = ROAD_STYLE[r.c] ?? ROAD_STYLE.residential;
+      const n = r.p.length / 2;
+      const pts: number[] = new Array(r.p.length);
+      const ys: number[] = new Array(n);
+      for (let i = 0; i < n; i++) {
+        pts[i * 2] = toWorld(r.p[i * 2], ox);
+        pts[i * 2 + 1] = toWorld(r.p[i * 2 + 1], oz);
+        ys[i] = (r.e ? r.e[i] : r.b ? 7 : 0) + style.y;
+      }
+      buildRibbon(fAcc, pts, style.w, ys, r.b ? [0.24, 0.25, 0.27] : style.col);
+    }
+  }
+
+  // ---- trees ----
+  let trees: Float32Array | null = null;
+  if (tile.trees && tile.trees.length >= 2) {
+    const stride = v2 ? 3 : 2;
+    const total = Math.floor(tile.trees.length / stride);
+    const count = Math.min(1400, total);
+    const step = total / count;
+    trees = new Float32Array(count * 5);
+    for (let i = 0; i < count; i++) {
+      const si = Math.floor(i * step) * stride;
+      const x = toWorld(tile.trees[si], ox);
+      const z = toWorld(tile.trees[si + 1], oz);
+      const ey = v2 ? tile.trees[si + 2] / 10 : 0;
+      const s = 0.75 + hash01(seedBase + i) * 0.7;
+      trees[i * 5] = x; trees[i * 5 + 1] = ey; trees[i * 5 + 2] = z;
+      trees[i * 5 + 3] = s;
+      trees[i * 5 + 4] = hash01(seedBase + i + 99);
+    }
+  }
+
+  // ---- collision pack ----
+  let collision: CollisionData | null = null;
+  if (colRings.length) {
+    const starts = new Uint32Array(colRings.length + 1);
+    let total = 0;
+    for (let i = 0; i < colRings.length; i++) { starts[i] = total; total += colRings[i].length / 2; }
+    starts[colRings.length] = total;
+    const pts = new Float32Array(total * 2);
+    let o = 0;
+    for (const ring of colRings) { pts.set(ring, o); o += ring.length; }
+    collision = { ringStart: starts, points: pts, aabb: new Float32Array(colAabb) };
+  }
+
+  return {
+    type: 'built',
+    key: `${tile.x}_${tile.z}`,
+    buildings: bAcc.payload(),
+    flat: fAcc.payload(),
+    trees,
+    collision,
+  };
+}
+
+self.onmessage = async (ev: MessageEvent<BuildRequest>) => {
+  const req = ev.data;
+  if (req.type !== 'build') return;
+  try {
+    const res = await fetch(req.url);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const tile = (await res.json()) as TileJson;
+    const out = buildTile(tile);
+    const transfer: Transferable[] = [];
+    for (const m of [out.buildings, out.flat]) {
+      if (m) transfer.push(m.position.buffer, m.normal.buffer, m.color.buffer, m.index.buffer);
+    }
+    if (out.trees) transfer.push(out.trees.buffer);
+    if (out.collision) transfer.push(out.collision.ringStart.buffer, out.collision.points.buffer, out.collision.aabb.buffer);
+    (self as unknown as Worker).postMessage(out, transfer);
+  } catch (e) {
+    (self as unknown as Worker).postMessage({
+      type: 'built', key: req.key, buildings: null, flat: null, trees: null, collision: null,
+      error: String(e),
+    } satisfies BuildResponse);
+  }
+};
+
+export {};

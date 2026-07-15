@@ -1,0 +1,32 @@
+{
+  "name": "nycworld",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "data:osm": "node scripts/fetch-osm.mjs",
+    "data:terrain": "node scripts/fetch-terrain.mjs",
+    "data:tiles": "node scripts/build-tiles.mjs",
+    "data:subway": "node scripts/fetch-subway.mjs",
+    "data:network": "node scripts/fetch-network.mjs",
+    "data:all": "node scripts/fetch-osm.mjs && node scripts/fetch-terrain.mjs && node scripts/build-tiles.mjs && node scripts/fetch-subway.mjs && node scripts/fetch-network.mjs"
+  },
+  "dependencies": {
+    "earcut": "^2.2.4",
+    "next": "^15.3.0",
+    "pngjs": "^7.0.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "three": "^0.180.0"
+  },
+  "devDependencies": {
+    "@types/earcut": "^2.1.4",
+    "@types/node": "^22.0.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@types/three": "^0.180.0",
+    "typescript": "^5.6.0"
+  }
+}

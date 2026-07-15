@@ -1,0 +1,10 @@
+node_modules/
+.next/
+data/cache/
+*.log
+.DS_Store
+
+# generated world data (rebuild with: npm run data:all)
+public/tiles/
+public/geo/
+public/subway/
