@@ -22,7 +22,7 @@ const CACHE_DIR = path.join(ROOT, 'data', 'cache');
 const BBOX = { south: 40.698, west: -74.026, north: 40.882, east: -73.906 };
 const ROWS = 8; // lat divisions
 const COLS = 4; // lon divisions
-const LAYERS = ['buildings', 'roads', 'areas', 'trees'];
+const LAYERS = ['buildings', 'roads', 'areas', 'trees', 'hydrants'];
 const TOTAL_TASKS = ROWS * COLS * LAYERS.length; // 128
 
 const latStep = (BBOX.north - BBOX.south) / ROWS;
@@ -100,6 +100,10 @@ out geom qt;`;
     case 'trees':
       return `[out:json][timeout:180];
 node["natural"="tree"](${S},${W},${N},${E});
+out qt;`;
+    case 'hydrants':
+      return `[out:json][timeout:180];
+node["emergency"="fire_hydrant"](${S},${W},${N},${E});
 out qt;`;
     default:
       throw new Error(`unknown layer ${layer}`);

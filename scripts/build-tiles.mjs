@@ -618,6 +618,141 @@ async function main() {
       roadPieceCount++;
     }
   }
+
+  // ---- STREET SIGNS: real intersections of named streets --------------------
+  console.log('Extracting street-sign intersections...');
+  const SIGN_CLASSES = new Set(['motorway', 'trunk', 'primary', 'secondary', 'tertiary', 'unclassified', 'residential']);
+  const CLASS_W = { motorway: 22, trunk: 20, primary: 17, secondary: 14, tertiary: 12, unclassified: 10, residential: 10 };
+  const nodeEntries = new Map(); // node id -> { pt, entries: Map(name -> {dir, cls}) }
+  for (const el of roadsMap.values()) {
+    if (el.type !== 'way') continue;
+    const tags = el.tags || {};
+    if (!tags.highway || !SIGN_CLASSES.has(tags.highway) || !tags.name) continue;
+    if (tags.tunnel === 'yes' || tags.area === 'yes') continue;
+    if (!el.nodes || !el.geometry || el.nodes.length !== el.geometry.length) continue;
+    const pts = el.geometry.map((g) => lonLatToXZ(g.lon, g.lat));
+    for (let i = 0; i < el.nodes.length; i++) {
+      const id = el.nodes[i];
+      let rec = nodeEntries.get(id);
+      if (!rec) { rec = { pt: pts[i], entries: new Map() }; nodeEntries.set(id, rec); }
+      let dx = 0, dz = 0;
+      if (i > 0) { dx += pts[i][0] - pts[i - 1][0]; dz += pts[i][1] - pts[i - 1][1]; }
+      if (i < pts.length - 1) { dx += pts[i + 1][0] - pts[i][0]; dz += pts[i + 1][1] - pts[i][1]; }
+      const len = Math.hypot(dx, dz) || 1;
+      if (!rec.entries.has(tags.name)) rec.entries.set(tags.name, { dir: [dx / len, dz / len], cls: tags.highway });
+    }
+  }
+  const tileSigns = new Map();
+  const signDedupe = new Set();
+  let signCount = 0;
+  for (const rec of nodeEntries.values()) {
+    if (rec.entries.size < 2) continue;
+    const names = [...rec.entries.keys()].slice(0, 2);
+    const ea = rec.entries.get(names[0]), eb = rec.entries.get(names[1]);
+    // dual carriageways / split ways produce clusters of nodes for the same
+    // street pair — keep one sign assembly per pair per ~45m cell
+    const cell = `${Math.round(rec.pt[0] / 45)}:${Math.round(rec.pt[1] / 45)}`;
+    const dkey = names.slice().sort().join('|') + '@' + cell;
+    if (signDedupe.has(dkey)) continue;
+    signDedupe.add(dkey);
+    // push the pole out of the roadway onto a corner (quadrant by hash)
+    let cx = ea.dir[0] + eb.dir[0], cz = ea.dir[1] + eb.dir[1];
+    let cl = Math.hypot(cx, cz);
+    if (cl < 0.3) { cx = -ea.dir[1] + eb.dir[0]; cz = ea.dir[0] + eb.dir[1]; cl = Math.hypot(cx, cz) || 1; }
+    const hsh = Math.abs(Math.sin(rec.pt[0] * 12.9898 + rec.pt[1] * 78.233));
+    const s1 = hsh < 0.5 ? 1 : -1;
+    const dist = ((CLASS_W[ea.cls] || 10) + (CLASS_W[eb.cls] || 10)) / 4 + 2.2;
+    const px = rec.pt[0] + (cx / cl) * dist * s1;
+    const pz = rec.pt[1] + (cz / cl) * dist * s1;
+    const [stx, stz] = tileOf([px, pz]);
+    const skey = tileKeyOf(stx, stz);
+    if (!tileSigns.has(skey)) tileSigns.set(skey, []);
+    const slist = tileSigns.get(skey);
+    if (slist.length >= 12) continue;
+    slist.push({
+      p: [Math.round((px - stx * TILE_SIZE) * 10), Math.round((pz - stz * TILE_SIZE) * 10)],
+      e: Math.round(terrainAt(px, pz) * 10),
+      n: names,
+      a: [
+        Math.round((Math.atan2(ea.dir[1], ea.dir[0]) * 180) / Math.PI),
+        Math.round((Math.atan2(eb.dir[1], eb.dir[0]) * 180) / Math.PI),
+      ],
+    });
+    signCount++;
+  }
+  console.log(`  signs: ${signCount} intersection assemblies (${nodeEntries.size} named-road nodes)`);
+
+  // ---- HYDRANTS (OSM emergency=fire_hydrant nodes) ---------------------------
+  const hydrantsMap = loadLayer('hydrants');
+  const tileHyd = new Map();
+  let hydCount = 0;
+  for (const el of hydrantsMap.values()) {
+    if (el.type !== 'node' || typeof el.lat !== 'number') continue;
+    const [hx, hz] = lonLatToXZ(el.lon, el.lat);
+    const [htx, htz] = tileOf([hx, hz]);
+    const hkey = tileKeyOf(htx, htz);
+    if (!tileHyd.has(hkey)) tileHyd.set(hkey, []);
+    const harr = tileHyd.get(hkey);
+    if (harr.length >= 200 * 3) continue;
+    harr.push(Math.round((hx - htx * TILE_SIZE) * 10), Math.round((hz - htz * TILE_SIZE) * 10), Math.round(terrainAt(hx, hz) * 10));
+    hydCount++;
+  }
+  // Augment: OSM only maps ~2.5k of Manhattan's hydrants. Fill gaps along
+  // streets at ~80m spacing (NYC standard), deferring to real hydrants within 40m.
+  const hydGrid = new Set();
+  const gk = (x, z) => `${Math.round(x / 40)}:${Math.round(z / 40)}`;
+  for (const arr of tileHyd.values()) {
+    for (let i = 0; i < arr.length; i += 3) {
+      // reconstruct world pos is tile-local; grid key built during binning below instead
+    }
+  }
+  // rebuild grid from OSM nodes directly
+  for (const el of hydrantsMap.values()) {
+    if (el.type !== 'node' || typeof el.lat !== 'number') continue;
+    const [x, z] = lonLatToXZ(el.lon, el.lat);
+    for (let gx = -1; gx <= 1; gx++) for (let gz = -1; gz <= 1; gz++) {
+      hydGrid.add(`${Math.round(x / 40) + gx}:${Math.round(z / 40) + gz}`);
+    }
+  }
+  const HYD_CLASSES = new Set(['residential', 'tertiary', 'secondary', 'unclassified']);
+  const HYD_W = { secondary: 14, tertiary: 12, unclassified: 10, residential: 10 };
+  let hydProc = 0;
+  for (const [key, pieces] of tileRoadPiecesWorld) {
+    for (const piece of pieces) {
+      if (!HYD_CLASSES.has(piece.cls)) continue;
+      const pts = piece.pts;
+      let acc = 0;
+      for (let i = 1; i < pts.length; i++) {
+        const [ax, az] = pts[i - 1], [bx, bz] = pts[i];
+        const seg = Math.hypot(bx - ax, bz - az);
+        let d = 80 - acc;
+        while (d < seg) {
+          const t = d / seg;
+          const x = ax + (bx - ax) * t, z = az + (bz - az) * t;
+          const nx = -(bz - az) / seg, nz = (bx - ax) / seg;
+          const side = Math.abs(Math.sin(x * 12.9898 + z * 78.233)) < 0.5 ? 1 : -1;
+          const off = (HYD_W[piece.cls] || 10) / 2 + 1.3;
+          const hx = x + nx * off * side, hz = z + nz * off * side;
+          if (!hydGrid.has(gk(hx, hz))) {
+            for (let gx = -1; gx <= 1; gx++) for (let gz = -1; gz <= 1; gz++) {
+              hydGrid.add(`${Math.round(hx / 40) + gx}:${Math.round(hz / 40) + gz}`);
+            }
+            const [htx, htz] = tileOf([hx, hz]);
+            const hkey = tileKeyOf(htx, htz);
+            if (!tileHyd.has(hkey)) tileHyd.set(hkey, []);
+            const harr = tileHyd.get(hkey);
+            if (harr.length < 200 * 3) {
+              harr.push(Math.round((hx - htx * TILE_SIZE) * 10), Math.round((hz - htz * TILE_SIZE) * 10), Math.round(terrainAt(hx, hz) * 10));
+              hydProc++;
+            }
+          }
+          d += 80;
+        }
+        acc = (acc + seg) % 80;
+      }
+    }
+  }
+  console.log(`  hydrants: ${hydCount} OSM + ${hydProc} procedural across ${tileHyd.size} tiles`);
   console.log(`  roads: ${roadWayCount} ways -> ${roadPieceCount} tile pieces`);
 
   // ---- AREAS ------------------------------------------------------------------------------
@@ -885,7 +1020,7 @@ async function main() {
   for (const f of fs.readdirSync(TILES_DIR)) {
     if (tileFileRe.test(f)) fs.unlinkSync(path.join(TILES_DIR, f));
   }
-  const allKeys = new Set([...tileBuildings.keys(), ...tileRoads.keys(), ...tileAreas.keys(), ...tileTrees.keys()]);
+  const allKeys = new Set([...tileBuildings.keys(), ...tileRoads.keys(), ...tileAreas.keys(), ...tileTrees.keys(), ...tileSigns.keys(), ...tileHyd.keys()]);
   const sortedKeys = [...allKeys].sort((a, b) => {
     const [atx, atz] = a.split('_').map(Number);
     const [btx, btz] = b.split('_').map(Number);
@@ -909,8 +1044,12 @@ async function main() {
     }
     const t = tileTrees.get(key);
     if (t && t.length) tile.trees = t;
+    const sg = tileSigns.get(key);
+    if (sg && sg.length) tile.signs = sg;
+    const hy = tileHyd.get(key);
+    if (hy && hy.length) tile.hyd = hy;
 
-    if (!tile.buildings && !tile.roads && !tile.areas && !tile.trees) continue; // skip empty
+    if (!tile.buildings && !tile.roads && !tile.areas && !tile.trees && !tile.signs && !tile.hyd) continue; // skip empty
 
     const file = path.join(TILES_DIR, `${key}.json`);
     fs.writeFileSync(file, JSON.stringify(tile));
