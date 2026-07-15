@@ -7,6 +7,7 @@ import {
   makeFacadeMaterial, makeFlatMaterial, makeRoadMaterial, makeWalkMaterial,
   makeMarkingsMaterial, treeTrunkMaterial, treeCanopyMaterial,
 } from './materials';
+import { buildSignsMesh, buildHydrants, hydrantMaterial } from './streetFurniture';
 
 interface TileRecord {
   key: string;
@@ -16,6 +17,7 @@ interface TileRecord {
   group: THREE.Group | null;
   collision: CollisionData | null;
   geometries: THREE.BufferGeometry[];
+  textures: THREE.Texture[];
 }
 
 export interface TileStats {
@@ -36,6 +38,7 @@ export class TileManager {
   private roadMat = makeRoadMaterial();
   private walkMat = makeWalkMaterial();
   private markingsMat = makeMarkingsMaterial();
+  private hydrantMat = hydrantMaterial();
   private trunkMat = treeTrunkMaterial();
   private canopyMat = treeCanopyMaterial();
   private trunkGeo = new THREE.CylinderGeometry(0.11, 0.16, 2.4, 5);
@@ -115,7 +118,7 @@ export class TileManager {
         const cx = (tx + 0.5) * TILE_SIZE, cz = (tz + 0.5) * TILE_SIZE;
         const d = Math.hypot(cx - camX, cz - camZ);
         if (d > this.loadRadius) continue;
-        this.records.set(key, { key, tx, tz, state: 'queued', group: null, collision: null, geometries: [] });
+        this.records.set(key, { key, tx, tz, state: 'queued', group: null, collision: null, geometries: [], textures: [] });
         this.queue.push(key);
       }
     }
@@ -206,6 +209,16 @@ export class TileManager {
     addMesh(res.walks, this.walkMat, { receive: true });
     addMesh(res.markings, this.markingsMat, { receive: true, order: 1 });
 
+    if (res.signs && res.signs.length) {
+      const { mesh, texture } = buildSignsMesh(res.signs);
+      group.add(mesh);
+      rec.geometries.push(mesh.geometry);
+      rec.textures.push(texture);
+    }
+    if (res.hydrants && res.hydrants.length >= 4) {
+      group.add(buildHydrants(res.hydrants, this.hydrantMat));
+    }
+
     if (res.trees && res.trees.length >= 5) {
       const count = res.trees.length / 5;
       const trunks = new THREE.InstancedMesh(this.trunkGeo, this.trunkMat, count);
@@ -239,8 +252,12 @@ export class TileManager {
     if (rec.group) {
       this.scene.remove(rec.group);
       for (const g of rec.geometries) g.dispose();
+      for (const t of rec.textures) t.dispose();
       rec.group.traverse((o) => {
         if (o instanceof THREE.InstancedMesh) o.dispose();
+        if (o instanceof THREE.Mesh && (o.material as THREE.MeshLambertMaterial).map instanceof THREE.CanvasTexture) {
+          (o.material as THREE.Material).dispose(); // per-tile sign material
+        }
       });
     }
   }

@@ -461,6 +461,28 @@ function buildTile(tile: TileJson): BuildResponse {
     collision = { ringStart: starts, points: pts, aabb: new Float32Array(colAabb) };
   }
 
+  // ---- hydrants: world transforms for instancing ----
+  let hydrants: Float32Array | null = null;
+  if (tile.hyd && tile.hyd.length >= 3) {
+    const n = Math.floor(tile.hyd.length / 3);
+    hydrants = new Float32Array(n * 4);
+    for (let i = 0; i < n; i++) {
+      hydrants[i * 4] = toWorld(tile.hyd[i * 3], ox);
+      hydrants[i * 4 + 1] = tile.hyd[i * 3 + 2] / 10;
+      hydrants[i * 4 + 2] = toWorld(tile.hyd[i * 3 + 1], oz);
+      hydrants[i * 4 + 3] = hash01(seedBase + i * 61) * Math.PI * 2;
+    }
+  }
+
+  // ---- signs: to world coords (geometry built on the main thread, atlas needs DOM) ----
+  const signs = (tile.signs ?? []).map((s) => ({
+    x: toWorld(s.p[0], ox),
+    y: s.e / 10,
+    z: toWorld(s.p[1], oz),
+    names: s.n,
+    angles: s.a,
+  }));
+
   return {
     type: 'built',
     key: `${tile.x}_${tile.z}`,
@@ -470,6 +492,8 @@ function buildTile(tile: TileJson): BuildResponse {
     areas: aAcc.payload(),
     markings: mAcc.payload(),
     trees,
+    hydrants,
+    signs: signs.length ? signs : null,
     collision,
   };
 }
@@ -491,12 +515,13 @@ self.onmessage = async (ev: MessageEvent<BuildRequest>) => {
       }
     }
     if (out.trees) transfer.push(out.trees.buffer);
+    if (out.hydrants) transfer.push(out.hydrants.buffer);
     if (out.collision) transfer.push(out.collision.ringStart.buffer, out.collision.points.buffer, out.collision.aabb.buffer);
     (self as unknown as Worker).postMessage(out, transfer);
   } catch (e) {
     (self as unknown as Worker).postMessage({
       type: 'built', key: req.key, buildings: null, roads: null, walks: null,
-      areas: null, markings: null, trees: null, collision: null,
+      areas: null, markings: null, trees: null, hydrants: null, signs: null, collision: null,
       error: String(e),
     } satisfies BuildResponse);
   }

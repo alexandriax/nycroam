@@ -16,6 +16,13 @@ export interface TileRoad {
   e?: number[]; // v2: per-point elevation m
 }
 
+export interface TileSign {
+  p: [number, number]; // decimeters rel. tile origin (already corner-offset)
+  e: number; // ground elevation, decimeters
+  n: string[]; // full street names (client abbreviates)
+  a: number[]; // blade bearings, degrees
+}
+
 export interface TileJson {
   v: number; // 1 = flat; 2 = elevations baked (area/tree entries become [x,z,e_dm] triples)
   x: number;
@@ -24,6 +31,8 @@ export interface TileJson {
   roads?: TileRoad[];
   areas?: Record<string, number[]>; // kind -> triangle verts, stride 2 (v1) or 3 (v2)
   trees?: number[]; // stride 2 (v1) or 3 (v2)
+  signs?: TileSign[];
+  hyd?: number[]; // [dx,dz,e_dm] triples
 }
 
 // ---- Worker protocol ----
@@ -54,6 +63,8 @@ export interface BuildResponse {
   areas: MeshPayload | null; // parks/water/plazas
   markings: MeshPayload | null; // lane lines + crosswalk bars
   trees: Float32Array | null; // [x,y,z, scale, hueJitter] * n  (world coords)
+  hydrants: Float32Array | null; // [x,y,z,rotY] * n (world coords)
+  signs: { x: number; y: number; z: number; names: string[]; angles: number[] }[] | null;
   collision: CollisionData | null;
   error?: string;
 }
