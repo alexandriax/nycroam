@@ -42,6 +42,7 @@ export interface MeshPayload {
   color: Float32Array;
   index: Uint32Array;
   uv?: Float32Array;
+  style?: Float32Array; // buildings: 0 = masonry, 1 = glass (per vertex)
 }
 
 export interface BuildResponse {

@@ -12,14 +12,17 @@ export function makeFacadeMaterial(): THREE.MeshLambertMaterial {
       .replace(
         '#include <common>',
         `#include <common>
+        attribute float aStyle;
         varying vec3 vWPos;
-        varying vec3 vWNormal;`
+        varying vec3 vWNormal;
+        varying float vStyle;`
       )
       .replace(
         '#include <worldpos_vertex>',
         `#include <worldpos_vertex>
         vWPos = (modelMatrix * vec4(transformed, 1.0)).xyz;
-        vWNormal = normalize(mat3(modelMatrix) * objectNormal);`
+        vWNormal = normalize(mat3(modelMatrix) * objectNormal);
+        vStyle = aStyle;`
       );
     shader.fragmentShader = shader.fragmentShader
       .replace(
@@ -27,6 +30,7 @@ export function makeFacadeMaterial(): THREE.MeshLambertMaterial {
         `#include <common>
         varying vec3 vWPos;
         varying vec3 vWNormal;
+        varying float vStyle;
         float bhash(vec2 p) {
           return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453);
         }`
@@ -38,26 +42,45 @@ export function makeFacadeMaterial(): THREE.MeshLambertMaterial {
           vec3 wn = normalize(vWNormal);
           float vertical = 1.0 - abs(wn.y);
           if (vertical > 0.55 && vWPos.y > 0.5) {
-            // tangential coordinate along the wall + height
             float u = vWPos.x * wn.z - vWPos.z * wn.x;
             float v = vWPos.y;
-            float floorH = 3.1;
-            float winW = 2.5;
+            bool glassTower = vStyle > 0.5;
+            float floorH = glassTower ? 3.4 : 3.1;
+            float winW = glassTower ? 1.7 : 2.5;
             bool storefront = v < 4.6;
             if (storefront) { floorH = 4.6; winW = 4.2; }
             vec2 cellId = vec2(floor(u / winW), floor(v / floorH));
             vec2 f = vec2(fract(u / winW), fract(v / floorH));
-            float inX = step(0.18, f.x) * (1.0 - step(0.85, f.x));
-            float inY = step(0.25, f.y) * (1.0 - step(0.8, f.y));
-            if (storefront) {
-              inX = step(0.08, f.x) * (1.0 - step(0.92, f.x));
-              inY = step(0.05, f.y) * (1.0 - step(0.75, f.y));
-            }
-            float win = inX * inY;
             float rnd = bhash(cellId + floor(diffuseColor.rg * 61.0));
-            vec3 glass = mix(vec3(0.13, 0.16, 0.2), vec3(0.38, 0.44, 0.52), rnd * rnd);
-            if (storefront) glass = mix(vec3(0.1, 0.11, 0.13), vec3(0.3, 0.28, 0.24), rnd);
-            diffuseColor.rgb = mix(diffuseColor.rgb, glass, win * 0.88);
+
+            if (glassTower && !storefront) {
+              // curtain wall: thin mullions + spandrel band each floor
+              float mull = step(0.055, f.x) * (1.0 - step(0.945, f.x));
+              float pane = step(0.06, f.y) * (1.0 - step(0.72, f.y));
+              float spandrel = step(0.78, f.y) * (1.0 - step(0.97, f.y));
+              // sky gradient down the pane + per-pane tint
+              vec3 glass = mix(vec3(0.30, 0.37, 0.46), vec3(0.55, 0.63, 0.72), f.y * 0.8 + rnd * 0.25);
+              diffuseColor.rgb = mix(diffuseColor.rgb, glass, mull * pane * 0.92);
+              diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * 0.55, spandrel * 0.8);
+            } else {
+              float inX = step(0.18, f.x) * (1.0 - step(0.85, f.x));
+              float inY = step(0.25, f.y) * (1.0 - step(0.8, f.y));
+              if (storefront) {
+                inX = step(0.08, f.x) * (1.0 - step(0.92, f.x));
+                inY = step(0.05, f.y) * (1.0 - step(0.75, f.y));
+              }
+              float win = inX * inY;
+              vec3 glass = mix(vec3(0.13, 0.16, 0.2), vec3(0.38, 0.44, 0.52), rnd * rnd);
+              if (storefront) glass = mix(vec3(0.1, 0.11, 0.13), vec3(0.3, 0.28, 0.24), rnd);
+              // window inset: lintel shadow at the top of the opening, darker jambs
+              float lintel = 1.0 - 0.5 * smoothstep(0.68, 0.8, f.y) * win;
+              float jamb = 1.0 - 0.28 * (step(0.18, f.x) - step(0.24, f.x) + step(0.79, f.x) - step(0.85, f.x)) * inY;
+              diffuseColor.rgb = mix(diffuseColor.rgb, glass, win * 0.88);
+              diffuseColor.rgb *= lintel * jamb;
+              // sill highlight under the window
+              float sill = smoothstep(0.2, 0.25, f.y) * (1.0 - smoothstep(0.25, 0.3, f.y)) * inX;
+              diffuseColor.rgb += vec3(0.05) * sill * (storefront ? 0.0 : 1.0);
+            }
             // grounding gradient: subtle darkening near street
             diffuseColor.rgb *= 0.86 + 0.14 * clamp(v / 7.0, 0.0, 1.0);
           }

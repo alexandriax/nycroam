@@ -24,15 +24,19 @@ const TOWER: [number, number, number][] = [
   [0.55, 0.6, 0.68],  // blue curtain wall
 ];
 
-export function buildingColor(seed: number, height: number): [number, number, number] {
+export function buildingColor(seed: number, height: number): { col: [number, number, number]; glass: boolean } {
   const r = hash01(seed);
-  const pool = height > 90 ? TOWER : height > 45 ? (r > 0.4 ? TOWER : MASONRY) : MASONRY;
+  const glass = height > 90 || (height > 45 && r > 0.4);
+  const pool = glass ? TOWER : MASONRY;
   const c = pool[Math.floor(hash01(seed + 7) * pool.length) % pool.length];
   // slight per-building jitter (also feeds the window shader's per-building randomness)
   const j = (hash01(seed + 13) - 0.5) * 0.08;
-  return [
-    Math.min(1, Math.max(0, c[0] + j)),
-    Math.min(1, Math.max(0, c[1] + j)),
-    Math.min(1, Math.max(0, c[2] + j * 0.8)),
-  ];
+  return {
+    col: [
+      Math.min(1, Math.max(0, c[0] + j)),
+      Math.min(1, Math.max(0, c[1] + j)),
+      Math.min(1, Math.max(0, c[2] + j * 0.8)),
+    ],
+    glass,
+  };
 }

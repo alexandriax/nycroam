@@ -188,6 +188,7 @@ export class TileManager {
       geo.setAttribute('normal', new THREE.BufferAttribute(payload.normal, 3));
       geo.setAttribute('color', new THREE.BufferAttribute(payload.color, 3));
       if (payload.uv) geo.setAttribute('uv', new THREE.BufferAttribute(payload.uv, 2));
+      if (payload.style) geo.setAttribute('aStyle', new THREE.BufferAttribute(payload.style, 1));
       geo.setIndex(new THREE.BufferAttribute(payload.index, 1));
       geo.computeBoundingSphere();
       const mesh = new THREE.Mesh(geo, mat);

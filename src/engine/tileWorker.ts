@@ -11,9 +11,11 @@ class MeshAcc {
   col: number[] = [];
   idx: number[] = [];
   uvs: number[] | null = null;
+  styles: number[] | null = null;
 
-  constructor(withUv = false) {
+  constructor(withUv = false, withStyle = false) {
     if (withUv) this.uvs = [];
+    if (withStyle) this.styles = [];
   }
 
   get vcount() { return this.pos.length / 3; }
@@ -23,7 +25,10 @@ class MeshAcc {
     this.nrm.push(nx, ny, nz);
     this.col.push(r, g, b);
     if (this.uvs) this.uvs.push(u, v);
+    if (this.styles) this.styles.push(this.styleCursor);
   }
+
+  styleCursor = 0;
 
   tri(a: number, b: number, c: number) { this.idx.push(a, b, c); }
 
@@ -35,6 +40,7 @@ class MeshAcc {
       color: new Float32Array(this.col),
       index: new Uint32Array(this.idx),
       ...(this.uvs ? { uv: new Float32Array(this.uvs) } : {}),
+      ...(this.styles ? { style: new Float32Array(this.styles) } : {}),
     };
   }
 }
@@ -296,7 +302,7 @@ function buildTile(tile: TileJson): BuildResponse {
   const v2 = (tile.v ?? 1) >= 2; // elevations baked; areas/trees are [x,z,e] triples
 
   // ---- buildings ----
-  const bAcc = new MeshAcc();
+  const bAcc = new MeshAcc(false, true);
   const colRings: number[][] = [];
   const colAabb: number[] = [];
   let seedBase = (tile.x * 73856093) ^ (tile.z * 19349663);
@@ -316,9 +322,10 @@ function buildTile(tile: TileJson): BuildResponse {
       const h = Math.max(3, b.h);
       const minH = b.m ?? 0;
       const base = b.b ?? 0;
-      const color = buildingColor(seed, h);
+      const bc = buildingColor(seed, h);
+      bAcc.styleCursor = bc.glass ? 1 : 0;
       // sink foundations 2.5m so sloped ground never shows a gap under walls
-      extrude(bAcc, rings, base + minH - (minH > 0 ? 0 : 2.5), base + h, color);
+      extrude(bAcc, rings, base + minH - (minH > 0 ? 0 : 2.5), base + h, bc.col);
 
       // collision only for ground-level buildings
       if (minH < 1 && rings[0].length >= 6) {
@@ -340,7 +347,7 @@ function buildTile(tile: TileJson): BuildResponse {
         cx /= n; cz /= n;
         // rough area check
         const area = Math.abs(ringArea(ring));
-        if (area > 220) waterTower(bAcc, cx, cz, base + h, seed + 5);
+        if (area > 220) { bAcc.styleCursor = 0; waterTower(bAcc, cx, cz, base + h, seed + 5); }
       }
     }
   }
@@ -480,6 +487,7 @@ self.onmessage = async (ev: MessageEvent<BuildRequest>) => {
       if (m) {
         transfer.push(m.position.buffer, m.normal.buffer, m.color.buffer, m.index.buffer);
         if (m.uv) transfer.push(m.uv.buffer);
+        if (m.style) transfer.push(m.style.buffer);
       }
     }
     if (out.trees) transfer.push(out.trees.buffer);
