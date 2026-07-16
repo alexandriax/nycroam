@@ -7,6 +7,15 @@
  */
 export const SANS = `'Questrial', 'Helvetica Neue', Arial, sans-serif`;
 
+/**
+ * Archivo Black: a genuine heavy face (self-hosted, public/fonts) for the bold
+ * MTA-style signage — line bullets, direction plates, EXIT, roll-signs. Its own
+ * weight beats Questrial's synthetic bold, which smears at texture scale. Draw
+ * it WITHOUT the `bold` keyword: the face is already black, and a synthetic bold
+ * on top of it only fuzzes the edges.
+ */
+export const BLACK = `'Archivo Black', 'Helvetica Neue', Arial, sans-serif`;
+
 /** Mosaic name tablets stay serif: they copy the real 1900s IRT tablets. */
 export const SERIF = `'Georgia', 'Times New Roman', serif`;
 
@@ -22,6 +31,7 @@ export async function loadSans(): Promise<void> {
     await Promise.all([
       document.fonts.load(`400 100px 'Questrial'`),
       document.fonts.load(`bold 100px 'Questrial'`),
+      document.fonts.load(`400 100px 'Archivo Black'`),
     ]);
   } catch {
     /* face unavailable: the fallback stack renders, nothing else breaks */

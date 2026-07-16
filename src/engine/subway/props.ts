@@ -325,6 +325,42 @@ export function buildRailing(length: number): THREE.Group {
 }
 
 // ---------------------------------------------------------------------------
+// Fare-control barrier
+// ---------------------------------------------------------------------------
+
+/**
+ * Fixed fare-control barrier panel: a solid waist-high hunter-green panel with
+ * a black kick plate at the floor, a stainless cap rail, and framing end posts.
+ * `length` along +x, centered. Closes a fare line from the turnstile bank out
+ * to the walls so the only way through the line is a turnstile.
+ */
+export function buildFareBarrier(length: number): THREE.Group {
+  const group = new THREE.Group();
+  const h = 1.0;
+
+  const panel = new THREE.Mesh(new THREE.BoxGeometry(length, h - 0.14, 0.07), HUNTER_GREEN);
+  panel.position.set(0, (h - 0.14) / 2 + 0.05, 0);
+  group.add(panel);
+
+  const kick = new THREE.Mesh(new THREE.BoxGeometry(length, 0.06, 0.11), BLACK_STEEL);
+  kick.position.set(0, 0.03, 0);
+  group.add(kick);
+
+  const cap = new THREE.Mesh(new THREE.BoxGeometry(length, 0.07, 0.15), STAINLESS);
+  cap.position.set(0, h, 0);
+  group.add(cap);
+
+  const postGeo = new THREE.BoxGeometry(0.1, h, 0.1);
+  for (const x of [-length / 2, length / 2]) {
+    const post = new THREE.Mesh(postGeo, HUNTER_GREEN);
+    post.position.set(x, h / 2, 0);
+    group.add(post);
+  }
+
+  return group;
+}
+
+// ---------------------------------------------------------------------------
 // Stairs
 // ---------------------------------------------------------------------------
 

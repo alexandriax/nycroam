@@ -228,13 +228,33 @@ export const builders: Record<string, (ctx: LandmarkCtx) => THREE.Group> = {
       s.position.set(x, 0, z);
       return s;
     };
-    g.add(signStack(-38, -50, 1, 12, 30, 3));
-    g.add(signStack(-40, -12, 1, 14, 34, 4));
-    g.add(signStack(-36, 25, 1, 10, 24, 2));
-    g.add(signStack(-39, 55, 1, 12, 28, 3));
-    g.add(signStack(38, -35, -1, 13, 32, 3));
-    g.add(signStack(40, 5, -1, 15, 35, 4));
-    g.add(signStack(37, 45, -1, 11, 26, 3));
+    // A dense two-sided billboard canyon — real Times Square is wall-to-wall
+    // spectaculars. The tall masts march up both avenue walls at ~3x the former
+    // density; heights/widths/counts vary per index (deterministic), and a
+    // low tier of projecting panels fills the gaps just above street level.
+    for (const side of [1, -1] as const) {
+      const wallX = side === 1 ? -38 : 39;
+      let k = 0;
+      for (let z = -60; z <= 62; z += 12.5, k++) {
+        const top = 22 + ((k * 7) % 16);     // 22..37 m
+        const panelW = 10 + ((k * 5) % 7);   // 10..16 m
+        const n = 2 + (k % 3);               // 2..4 stacked panels
+        const depth = (k % 2) * 2.4;         // stagger so planes don't co-merge
+        g.add(signStack(wallX + side * depth, z, side, panelW, top, n));
+      }
+    }
+    for (const side of [1, -1] as const) {
+      const wallX = side === 1 ? -33 : 34;
+      let k = 0;
+      for (let z = -54; z <= 58; z += 15, k++) {
+        const pw = 7 + ((k * 3) % 5);
+        const ph = 4 + (k % 3);
+        const panel = new THREE.Mesh(new THREE.PlaneGeometry(pw, ph), billboardMaterial(seed++));
+        panel.position.set(wallX, 4 + (k % 2) * 3.6, z);
+        panel.rotation.y = side === 1 ? Math.PI / 2 : -Math.PI / 2;
+        g.add(panel);
+      }
+    }
     // one giant curved wrap screen at the south point of the bowtie
     const wrap = new THREE.Mesh(
       new THREE.CylinderGeometry(12, 12, 12, 12, 1, true, Math.PI / 2 - 0.85, 1.7),

@@ -8,10 +8,11 @@ import { makeSubwayWallTexture, makeTerrazzoTexture } from '../textures';
 import { makeWorldDetailMaterial } from '../materials';
 import {
   buildTurnstileRow, buildBooth, buildBench, buildTrashCan, buildRotogate,
-  buildStairs, buildPillar, buildMetroCardMachine, buildRailing,
+  buildStairs, buildPillar, buildMetroCardMachine, buildRailing, buildFareBarrier,
 } from './props';
 import type { WalkBox } from '../collision';
 import { setupStationLights } from '../sky';
+import { directionLabel, bothDirectionsLabel } from './directions';
 
 export interface CrossSection {
   width: number;
@@ -272,7 +273,9 @@ export class StationWorld {
       spec.layout.type === 'dual-island' && stoppingZs.length === 4
         ? (i < 2 ? 1 : -1)
         : (i % 2 === 0 ? 1 : -1));
-    const dirLabel = (d: 1 | -1) => (d === 1 ? 'Uptown & The Bronx' : 'Downtown & Brooklyn');
+    // Realistic per-route direction labels (the shuttle points at Grand Central /
+    // Times Sq, not "Uptown & The Bronx"; crosstown lines name their real ends).
+    const dirLabel = (d: 1 | -1) => directionLabel(spec.routes, d, spec.name);
     // directions boardable from a platform = dirs of stopping tracks adjacent to it
     const platformDirs = (pl: { zMin: number; zMax: number }): (1 | -1)[] => {
       const dirs = new Set<1 | -1>();
@@ -538,29 +541,72 @@ export class StationWorld {
       {
         const pl = cs.platforms.find((pp) => Math.abs((pp.zMin + pp.zMax) / 2 - s.z) < 0.5);
         const dirs = pl ? platformDirs(pl) : [];
-        const text = dirs.length === 1 ? dirLabel(dirs[0]) : 'Uptown & Downtown';
+        const text = dirs.length === 1 ? dirLabel(dirs[0]) : bothDirectionsLabel(spec.routes, spec.name);
         hangSign(spec.routes, text, s.x + stairRun / 2, MEZZ_Y + 2.25, s.z, true);
       }
     }
 
     // ---- fare control on mezzanine ----
-    const fcX = -mezzHalf + 8;
+    // One continuous fare line spanning z across the mezzanine, at an x clear of
+    // EVERY opening for every layout. Platform stairwells occupy the x within
+    // ~13.6m of each mezz end and the street-exit stairs sit at the -x end, so
+    // the central band is always open. fcX sits toward the unpaid (-x) side of
+    // that band and the deepest prop (the booth, ~1.6m deep) is kept clear of
+    // the platform-stair openings. The line reads as: [barrier][booth][4
+    // turnstiles][rotogate][barrier], wall to wall — the only way across is a
+    // turnstile.
+    const holeLeftX = Math.max(
+      -mezzHalf,
+      ...stairHoles.filter((h) => (h.minX + h.maxX) / 2 < 0).map((h) => h.maxX),
+      ...exitRects.map((r) => r.maxX),
+    );
+    const holeRightX = Math.min(
+      mezzHalf,
+      ...stairHoles.filter((h) => (h.minX + h.maxX) / 2 > 0).map((h) => h.minX),
+    );
+    const boothHalfDepth = 0.8; // BOOTH_D / 2 — deepest fare prop in x
+    const fcXmin = holeLeftX + boothHalfDepth + 0.5;
+    const fcXmax = holeRightX - boothHalfDepth - 0.5;
+    if (fcXmin > fcXmax) console.warn('[StationWorld] mezzanine too narrow for a clear fare line');
+    const fcX = Math.max(fcXmin, Math.min(fcXmax, -mezzHalf + 18));
+
+    const fareGroups: THREE.Group[] = [];
+    const tsHalfZ = (4 * 0.85) / 2; // turnstile bank half-span in z (pitch 0.85)
     const turnstiles = buildTurnstileRow(4);
-    turnstiles.rotation.y = Math.PI / 2;
+    turnstiles.rotation.y = Math.PI / 2; // bank spans z; riders pass toward +x (paid side)
     turnstiles.position.set(fcX, MEZZ_Y, 0);
-    root.add(turnstiles);
-    this.shadowCasters.push(turnstiles);
+    fareGroups.push(turnstiles);
+    // token booth inline on the -z flank, abutting the bank
+    const boothHalfZ = 1.1; // BOOTH_W / 2 (booth is rotated, so its width lies along z)
+    const boothZ = -(tsHalfZ + boothHalfZ);
     const booth = buildBooth();
     booth.rotation.y = Math.PI / 2;
-    booth.position.set(fcX - 1.8, MEZZ_Y, -mezzW / 2 + 1.6);
-    root.add(booth);
-    this.shadowCasters.push(booth);
+    booth.position.set(fcX, MEZZ_Y, boothZ);
+    fareGroups.push(booth);
+    // exit rotogate inline on the +z flank, abutting the bank
+    const rotoHalfZ = 0.6;
+    const rotoZ = tsHalfZ + rotoHalfZ;
     const roto = buildRotogate();
-    roto.position.set(fcX, MEZZ_Y, mezzW / 2 - 1.6);
-    root.add(roto);
+    roto.position.set(fcX, MEZZ_Y, rotoZ);
+    fareGroups.push(roto);
+    // fixed barriers close the line from each flank out to the mezzanine walls
+    const barSpans: [number, number][] = [
+      [-mezzW / 2, boothZ - boothHalfZ], // -z wall -> booth
+      [rotoZ + rotoHalfZ, mezzW / 2],    // rotogate -> +z wall
+    ];
+    for (const [z0, z1] of barSpans) {
+      const len = z1 - z0;
+      if (len < 0.1) continue;
+      const bar = buildFareBarrier(len);
+      bar.rotation.y = Math.PI / 2;
+      bar.position.set(fcX, MEZZ_Y, (z0 + z1) / 2);
+      fareGroups.push(bar);
+    }
+    for (const g of fareGroups) { root.add(g); this.shadowCasters.push(g); }
+    // MetroCard machines on the unpaid side, backed against the -z wall
     for (let i = 0; i < 3; i++) {
       const mvm = buildMetroCardMachine();
-      mvm.position.set(-mezzHalf + 8.5 + i * 2.2, MEZZ_Y, -mezzW / 2 + 0.55);
+      mvm.position.set(fcX - 3.5 + i * 1.1, MEZZ_Y, -mezzW / 2 + 0.55);
       root.add(mvm);
     }
 
@@ -580,13 +626,26 @@ export class StationWorld {
         ramp: { axis: 'x', y0: MEZZ_Y + 3.2, y1: MEZZ_Y },
       });
       this.exitZones.push({ minX: exTop, maxX: exTop + 1.3, minZ: ez - stairW / 2, maxZ: ez + stairW / 2, y: MEZZ_Y + 3.2 });
-      // railings along the open floor edges + dark stairwell shroud above the ceiling opening
+      // railings along the open floor edges
       for (const zEdge of [ez - stairW / 2 - 0.3, ez + stairW / 2 + 0.3]) {
         const rail = buildRailing(exX + 0.4 - (exTop - 0.45));
         rail.position.set((exTop - 0.45 + exX + 0.4) / 2, MEZZ_Y, zEdge);
         root.add(rail);
       }
-      this.box(3.9, 3.9, stairW + 1.0, darkMat, exTop + 1.05, MEZZ_CEIL + 0.35, ez, root);
+      // exit-stair shaft: thin walls rising from the mezz ceiling opening up to
+      // a lit street opening. Nothing hangs below the ceiling (y=MEZZ_CEIL); the
+      // +x side — the side the stair ascends FROM — is left open so the player
+      // looks up the stairs toward the light instead of at a dark cap.
+      {
+        const sMinX = exTop - 0.45, sMaxX = exTop + 2.9;
+        const sMinZ = ez - stairW / 2 - 0.3, sMaxZ = ez + stairW / 2 + 0.3;
+        const sCx = (sMinX + sMaxX) / 2, sWx = sMaxX - sMinX, sWz = sMaxZ - sMinZ;
+        const yBot = MEZZ_CEIL, yTop = MEZZ_Y + 5.0, sh = yTop - yBot;
+        this.box(sWx, sh, 0.1, platSideMat, sCx, yBot + sh / 2, sMinZ, root); // side wall
+        this.box(sWx, sh, 0.1, platSideMat, sCx, yBot + sh / 2, sMaxZ, root); // side wall
+        this.box(0.1, sh, sWz, lightMat, sMinX, yBot + sh / 2, ez, root);     // lit street opening (-x end)
+        this.box(sWx, 0.12, sWz, lightMat, sCx, yTop, ez, root);             // lit sky cap
+      }
       const sh = 0.42, sw = sh * exitInfo.aspect;
       const sign = new THREE.Mesh(this.track(new THREE.PlaneGeometry(sw, sh)), exitMat);
       sign.position.set(exX + 0.85, MEZZ_Y + 2.3, ez);
@@ -596,12 +655,12 @@ export class StationWorld {
       root.add(sign);
     }
 
-    // spawn: on mezzanine just inside fare control. The candidate spot may
-    // land inside a stairwell floor hole (it did at Grand Central — the
-    // player spawned hovering over the platform stairs, unable to move), so
-    // scan z offsets until the spot is solid mezzanine floor.
+    // spawn: on the mezzanine on the UNPAID side, facing the fare line. The
+    // candidate spot may land inside a stairwell floor hole (it did at Grand
+    // Central — the player spawned hovering over the platform stairs, unable to
+    // move), so scan z offsets until the spot is solid mezzanine floor.
     {
-      const sx = fcX + 4;
+      const sx = fcX - 3.2;
       let sz = 0;
       for (const cand of [0, 2.6, -2.6, 3.6, -3.6, 5, -5]) {
         const onMezz = this.walkBoxes.some((b) =>
