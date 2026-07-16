@@ -1,4 +1,12 @@
+<div align="center">
+
+<img src="assets/mascot-512.png" alt="NYC World mascot: a red apple wearing purple high-top sneakers" width="150">
+
 # NYC World — Manhattan
+
+**[www.nycroam.com](https://www.nycroam.com)**
+
+</div>
 
 A browser-based, first-person explorable 3D Manhattan at 1:1 scale — every street,
 building, and park from OpenStreetMap on real USGS terrain — with a fully rideable
