@@ -310,6 +310,29 @@ kbd {
   text-align: center;
 }
 
+/* re-center button: top-left of the minimap, shown only while panned */
+.mm-recenter {
+  position: absolute;
+  left: 4px;
+  top: 4px;
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  color: rgba(255, 255, 255, 0.85);
+  background: rgba(10, 13, 17, 0.78);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+.mm-recenter:hover { background: rgba(20, 26, 32, 0.92); color: #fff; }
+.mm-recenter.compact { width: 20px; height: 20px; border-radius: 6px; left: 2px; top: 2px; }
+
 .bullet {
   display: inline-flex;
   align-items: center;

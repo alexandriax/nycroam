@@ -4,23 +4,30 @@ import { useEffect, useRef, useState } from 'react';
 import type { World } from '../engine/World';
 import { SANS } from '../engine/fonts';
 
-// meters from center to edge. The old 9500m island-wide view is gone.
-const ZOOMS = [220, 650, 2600];
-// The two closest zooms draw every street from the tile stream. The widest one
-// can't — tiles only load within ~1.1km — so it falls back to the baked
+// meters from center to edge. The widest shows most of the island at once.
+const ZOOMS = [220, 650, 2600, 6500];
+// The two closest zooms draw every street from the tile stream. The wide ones
+// can't — tiles only load within ~1.1km — so they fall back to the baked
 // island-wide major-street skeleton (public/geo/streets.json).
 const STREET_MAX_ZOOM_IDX = 1;
-const MAJORS_ZOOM_IDX = 2;
+const MAJORS_ZOOM_IDX = 2; // this index and wider use the baked skeleton
 
 type Majors = { w: number; p: number[] }[];
 
 /**
  * Corner minimap: island silhouette, streets, one POI layer (subway stations /
- * bike docks / bus stops + live buses), and a heading arrow.
+ * bike docks / bus stops + live buses), and a heading arrow. Drag to pan the
+ * view off the player; a re-center button restores auto-follow.
  */
 export default function MiniMap({ world, size = 208, layer = 'transit' }: { world: World; size?: number; layer?: 'transit' | 'bikes' | 'bus' }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [zoomIdx, setZoomIdx] = useState(1);
+  const [following, setFollowing] = useState(true);
+  const followRef = useRef(true);
+  const panRef = useRef<{ x: number; z: number }>({ x: 0, z: 0 });
+  const dragRef = useRef(false);
+  const lastPtr = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
+  const movedRef = useRef(0);
   const dataRef = useRef<{
     rings: number[][];
     stations: { x: number; z: number; color: string }[];
@@ -31,6 +38,9 @@ export default function MiniMap({ world, size = 208, layer = 'transit' }: { worl
 
   const R = size / 2 - 6;
   const compact = size < 160;
+
+  const recenter = () => { followRef.current = true; setFollowing(true); };
+  const setFollow = (on: boolean) => { followRef.current = on; setFollowing(on); };
 
   useEffect(() => {
     let alive = true;
@@ -70,6 +80,8 @@ export default function MiniMap({ world, size = 208, layer = 'transit' }: { worl
       const yaw = world.controlsRef.yaw;
       const radius = ZOOMS[zoomIdx];
       const s = R / radius;
+      // map center: the player when following, else the panned point
+      const c = followRef.current ? { x: p.x, z: p.z } : panRef.current;
       const cx = size / 2, cy = size / 2;
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       ctx.clearRect(0, 0, size, size);
@@ -84,8 +96,8 @@ export default function MiniMap({ world, size = 208, layer = 'transit' }: { worl
       ctx.arc(cx, cy, R, 0, Math.PI * 2);
       ctx.clip();
 
-      const sx = (wx: number) => cx + (wx - p.x) * s;
-      const sy = (wz: number) => cy + (wz - p.z) * s;
+      const sx = (wx: number) => cx + (wx - c.x) * s;
+      const sy = (wz: number) => cy + (wz - c.z) * s;
 
       if (d) {
         // island silhouette
@@ -130,11 +142,13 @@ export default function MiniMap({ world, size = 208, layer = 'transit' }: { worl
       };
 
       if (zoomIdx <= STREET_MAX_ZOOM_IDX) {
-        // full detail from the tile stream. Cover the whole visible circle: the
-        // player sits anywhere within their own tile, hence radius + one tile.
+        // full detail from the tile stream around the map center. Cover the whole
+        // visible circle: the player sits anywhere within their own tile, hence
+        // radius + one tile. (When panned far this is empty — tiles only stream
+        // near the player — but the outline + POIs still draw.)
         const tileR = Math.ceil(radius / 256) + 1;
         strokeBuckets((bucket) => {
-          for (const rp of world.roadPathsNear(p.x, p.z, tileR)) {
+          for (const rp of world.roadPathsNear(c.x, c.z, tileR)) {
             const count = rp.start.length - 1;
             for (let i = 0; i < count; i++) {
               const a = rp.start[i], b = rp.start[i + 1];
@@ -144,7 +158,7 @@ export default function MiniMap({ world, size = 208, layer = 'transit' }: { worl
             }
           }
         }, 0.7);
-      } else if (zoomIdx === MAJORS_ZOOM_IDX && d?.majors.length) {
+      } else if (zoomIdx >= MAJORS_ZOOM_IDX && d?.majors.length) {
         // avenues + highways only, island-wide, with a viewport cull
         const lim = radius * 1.05;
         strokeBuckets((bucket) => {
@@ -152,7 +166,7 @@ export default function MiniMap({ world, size = 208, layer = 'transit' }: { worl
             const pts = way.p;
             let visible = false;
             for (let i = 0; i < pts.length; i += 2) {
-              if (Math.abs(pts[i] - p.x) < lim && Math.abs(pts[i + 1] - p.z) < lim) { visible = true; break; }
+              if (Math.abs(pts[i] - c.x) < lim && Math.abs(pts[i + 1] - c.z) < lim) { visible = true; break; }
             }
             if (!visible) continue;
             const path = bucket(way.w * s * 0.75);
@@ -205,11 +219,13 @@ export default function MiniMap({ world, size = 208, layer = 'transit' }: { worl
         }
       }
 
-      // player heading arrow
+      // player heading arrow, drawn at the player's actual position (= center
+      // when following, elsewhere when panned).
       const a = compact ? 0.72 : 1;
       const fwdX = -Math.sin(yaw), fwdZ = -Math.cos(yaw);
+      const pX = sx(p.x), pY = sy(p.z);
       ctx.save();
-      ctx.translate(cx, cy);
+      ctx.translate(pX, pY);
       ctx.rotate(Math.atan2(fwdX, -fwdZ));
       ctx.beginPath();
       ctx.moveTo(0, -7 * a);
@@ -218,7 +234,10 @@ export default function MiniMap({ world, size = 208, layer = 'transit' }: { worl
       ctx.lineTo(-5 * a, 6 * a);
       ctx.closePath();
       ctx.fillStyle = '#ffffff';
+      ctx.strokeStyle = 'rgba(0,0,0,0.55)';
+      ctx.lineWidth = 1;
       ctx.fill();
+      ctx.stroke();
       ctx.restore();
       ctx.restore();
 
@@ -246,14 +265,63 @@ export default function MiniMap({ world, size = 208, layer = 'transit' }: { worl
     ? `${(ZOOMS[zoomIdx] / 1000).toFixed(1)} km`
     : `${ZOOMS[zoomIdx]} m`;
 
+  // ---- drag-to-pan (pointer events cover mouse + touch) ----
+  const onPointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    dragRef.current = true;
+    movedRef.current = 0;
+    lastPtr.current = { x: e.clientX, y: e.clientY };
+    // seed the pan point from the current center so the first drag has no jump
+    if (followRef.current) {
+      const p = world.getPos();
+      panRef.current = { x: p.x, z: p.z };
+    }
+    e.currentTarget.setPointerCapture?.(e.pointerId);
+  };
+  const onPointerMove = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    if (!dragRef.current) return;
+    const s = R / ZOOMS[zoomIdx];
+    const dx = e.clientX - lastPtr.current.x, dy = e.clientY - lastPtr.current.y;
+    lastPtr.current = { x: e.clientX, y: e.clientY };
+    movedRef.current += Math.abs(dx) + Math.abs(dy);
+    // drag the map with the finger: content follows the pointer, so the center
+    // moves opposite to the drag
+    panRef.current.x -= dx / s;
+    panRef.current.z -= dy / s;
+    if (followRef.current) setFollow(false);
+  };
+  const onPointerUp = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    dragRef.current = false;
+    e.currentTarget.releasePointerCapture?.(e.pointerId);
+  };
+
   return (
     <div style={{ position: 'relative', width: size, height: size }}>
       <canvas
         ref={canvasRef}
-        onClick={() => setZoomIdx((z) => (z + 1) % ZOOMS.length)}
-        style={{ width: size, height: size, cursor: 'pointer', touchAction: 'manipulation' }}
-        title="Click to cycle zoom"
+        onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={onPointerUp}
+        onPointerCancel={onPointerUp}
+        style={{ width: size, height: size, cursor: following ? 'grab' : 'grabbing', touchAction: 'none' }}
+        title="Drag to pan"
       />
+      {!following && (
+        <button
+          className={`mm-recenter${compact ? ' compact' : ''}`}
+          onPointerDown={(e) => e.stopPropagation()}
+          onClick={(e) => { e.stopPropagation(); recenter(); }}
+          title="Re-center on me"
+          aria-label="Re-center on me"
+        >
+          <svg viewBox="0 0 16 16" width={compact ? 11 : 13} height={compact ? 11 : 13} fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+            <circle cx="8" cy="8" r="3.2" />
+            <line x1="8" y1="1" x2="8" y2="3.4" />
+            <line x1="8" y1="12.6" x2="8" y2="15" />
+            <line x1="1" y1="8" x2="3.4" y2="8" />
+            <line x1="12.6" y1="8" x2="15" y2="8" />
+          </svg>
+        </button>
+      )}
       <div className={`mm-zoom${compact ? ' compact' : ''}`}>
         <button
           onClick={(e) => { e.stopPropagation(); zoomIn(); }}

@@ -113,6 +113,14 @@ interface MeshedBus {
   lastNextStop: string | null | undefined; // undefined = never pushed
   lastStopReq: boolean;
   init: boolean;
+  // anti-overlap: on-shape base pos + right-of-travel normal, plus a smoothed
+  // lateral offset so two buses sharing an avenue slide into adjacent lanes
+  baseX: number;
+  baseZ: number;
+  rnx: number;
+  rnz: number;
+  sepOff: number;   // smoothed lateral displacement (m, along the right normal)
+  sepT: number;     // per-frame scratch target
 }
 
 interface PlacedStop {
@@ -494,8 +502,9 @@ export class BusSystem {
       this.pointAt(dir, _st.s, _pt);
       this.tangentAt(dir, _st.s, _tan);
       // curb pull-in: slide along the right-of-travel normal while serving a stop
-      const wx = _pt.x - _tan.z * _st.lat;
-      const wz = _pt.z + _tan.x * _st.lat;
+      const rnx = -_tan.z, rnz = _tan.x; // unit right-of-travel normal
+      const wx = _pt.x + rnx * _st.lat;
+      const wz = _pt.z + rnz * _st.lat;
       const gy = heightAt(wx, wz);
       const rawYaw = Math.atan2(-_tan.z, _tan.x);
       if (!mb.init) {
@@ -504,8 +513,10 @@ export class BusSystem {
         mb.y += (gy - mb.y) * yK;
         mb.yaw = angLerp(mb.yaw, rawYaw, yawK);
       }
+      // stash on-shape pose; final x/z set in the separation pass below
+      mb.baseX = wx; mb.baseZ = wz; mb.rnx = rnx; mb.rnz = rnz;
       const g = mb.model.group;
-      g.position.set(wx, mb.y, wz);
+      g.position.y = mb.y;
       g.rotation.y = mb.yaw;
 
       // measured ground speed (clamp wrap/degenerate to 0)
@@ -519,6 +530,53 @@ export class BusSystem {
       if (nx !== mb.lastNextStop) { mb.model.setNextStop(nx); mb.lastNextStop = nx; }
       if (_st.stopReq !== mb.lastStopReq) { mb.model.setStopRequested(_st.stopReq); mb.lastStopReq = _st.stopReq; }
     }
+    this.separateMeshed(dt);
+  }
+
+  /**
+   * Keep meshed buses from phasing through each other. Buses are spaced by
+   * headway within a route (they never collide same-route), but different routes
+   * share avenues and drive merged. Here each visible bus, in a stable priority
+   * order (by key), yields laterally to every higher-priority bus it overlaps —
+   * sliding into the adjacent lane. Only the lower-priority bus of a pair moves,
+   * so there's no oscillation; the offset is smoothed, so it reads as a lane
+   * change, not a snap. The ridden bus never yields (the camera rides it).
+   */
+  private separateMeshed(dt: number) {
+    const vis: MeshedBus[] = [];
+    for (const mb of this.meshed.values()) if (mb.model.group.visible) vis.push(mb);
+    vis.sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
+    const TRIGGER2 = 12.5 * 12.5; // bus length + margin: closer than this can overlap
+    const SEP_LAT = 3.0;          // desired lateral gap between two buses
+    const MAX_OFF = 3.2;          // never slide more than ~one lane off the line
+    // Sequential in priority order: each bus's target clears it of every
+    // higher-priority bus at that bus's ALREADY-DECIDED offset, so a chain of
+    // overlaps resolves into distinct lanes instead of all piling into one.
+    for (let j = 0; j < vis.length; j++) {
+      const b = vis[j];
+      if (b.key === this.riddenKey) { b.sepT = 0; continue; }
+      let target = 0;
+      for (let i = 0; i < j; i++) {
+        const a = vis[i];
+        const ax = a.baseX + a.rnx * a.sepT, az = a.baseZ + a.rnz * a.sepT;
+        const bx = b.baseX + b.rnx * target, bz = b.baseZ + b.rnz * target;
+        const dx = bx - ax, dz = bz - az;
+        const d2 = dx * dx + dz * dz;
+        if (d2 >= TRIGGER2 || d2 < 1e-8) continue;
+        const lat = dx * b.rnx + dz * b.rnz;
+        const need = SEP_LAT - Math.abs(lat);
+        if (need > 0) target += (lat >= 0 ? 1 : -1) * need;
+      }
+      b.sepT = target > MAX_OFF ? MAX_OFF : target < -MAX_OFF ? -MAX_OFF : target;
+    }
+    const k = Math.min(1, dt * 4);
+    for (const mb of vis) {
+      mb.sepOff += (mb.sepT - mb.sepOff) * k;
+      if (Math.abs(mb.sepOff) < 0.01) mb.sepOff = 0;
+      const g = mb.model.group;
+      g.position.x = mb.baseX + mb.rnx * mb.sepOff;
+      g.position.z = mb.baseZ + mb.rnz * mb.sepOff;
+    }
   }
 
   private buildMeshed(dir: DirRT, k: number, key: string): MeshedBus {
@@ -528,6 +586,7 @@ export class BusSystem {
     const mb: MeshedBus = {
       key, dir, k, model, y: 0, yaw: 0, lastS: 0,
       lastNextStop: undefined, lastStopReq: false, init: false,
+      baseX: 0, baseZ: 0, rnx: 1, rnz: 0, sepOff: 0, sepT: 0,
     };
     this.meshed.set(key, mb);
     return mb;
