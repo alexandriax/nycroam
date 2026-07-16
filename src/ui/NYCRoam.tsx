@@ -107,7 +107,9 @@ export default function NYCRoam() {
 
   useEffect(() => {
     if (!canvasRef.current) return;
-    setIsTouch(navigator.maxTouchPoints > 1);
+    // ?touch=1 forces the touch layout on a desktop browser (joystick, GO,
+    // half-size map) — same spirit as ?tick=1 / ?station=
+    setIsTouch(navigator.maxTouchPoints > 1 || new URLSearchParams(location.search).has('touch'));
     const world = new World(canvasRef.current);
     worldRef.current = world;
     (window as unknown as { __nyc: World }).__nyc = world;
@@ -162,22 +164,53 @@ export default function NYCRoam() {
         <div className="hud-panel stats">
           {hud ? `${hud.fps} fps · ${hud.tilesLoaded} tiles${hud.tilesPending ? ` (+${hud.tilesPending})` : ''}${hud.fly ? ' · HELI' : ''}` : '—'}
         </div>
+
+        {/* helicopter + its altitude pair live with the other chrome, not over the map */}
+        {hud && !hud.loading && !hud.error && hud.mode === 'street' && (
+          <button
+            onClick={() => { const c = worldRef.current?.controlsRef; if (c) c.fly = !c.fly; }}
+            className={`hud-panel heli-btn${hud.fly ? ' on' : ''}${isTouch ? ' touch' : ''}`}
+          >
+            <span className="heli-ico">🚁</span>
+            {hud.fly ? 'Land' : 'Helicopter'}
+            {!isTouch && <kbd>F</kbd>}
+          </button>
+        )}
+        {isTouch && hud?.mode === 'street' && hud?.fly && (
+          <div className="alt-pair">
+            <button
+              className="hud-panel alt-btn"
+              onPointerDown={() => worldRef.current?.controlsRef.setTouchVertical(1)}
+              onPointerUp={() => worldRef.current?.controlsRef.setTouchVertical(0)}
+              onPointerLeave={() => worldRef.current?.controlsRef.setTouchVertical(0)}
+              aria-label="Ascend"
+            >▲</button>
+            <button
+              className="hud-panel alt-btn"
+              onPointerDown={() => worldRef.current?.controlsRef.setTouchVertical(-1)}
+              onPointerUp={() => worldRef.current?.controlsRef.setTouchVertical(0)}
+              onPointerLeave={() => worldRef.current?.controlsRef.setTouchVertical(0)}
+              aria-label="Descend"
+            >▼</button>
+          </div>
+        )}
+
+        {/* controls legend */}
+        {!isTouch && showHelp && !loading && !error && (
+          <div className="hud-panel legend" onClick={() => setShowHelp(false)} title="Click to hide">
+            <div className="legend-row"><kbd>Click</kbd><span>Look</span></div>
+            <div className="legend-row"><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd><span>Move</span></div>
+            <div className="legend-row"><kbd>Shift</kbd><span>Run</span></div>
+            <div className="legend-row"><kbd>Space</kbd><kbd>C</kbd><span>Fly up / down</span></div>
+            <div className="legend-row"><kbd>E</kbd><span>Enter subway · board · step off</span></div>
+          </div>
+        )}
       </div>
 
-      {/* minimap + helicopter toggle */}
+      {/* minimap: bottom-right corner in every view, half size on touch */}
       {worldRef.current && hud && !hud.loading && !hud.error && hud.mode === 'street' && (
-        <div style={{ position: 'absolute', right: 12, bottom: isTouch ? 170 : 12, display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 8 }}>
-          <MiniMap world={worldRef.current} />
-          {!isTouch && (
-            <button
-              onClick={() => { const c = worldRef.current?.controlsRef; if (c) c.fly = !c.fly; }}
-              className={`hud-panel heli-btn${hud.fly ? ' on' : ''}`}
-            >
-              <span className="heli-ico">🚁</span>
-              {hud.fly ? 'Land' : 'Helicopter'}
-              <kbd>F</kbd>
-            </button>
-          )}
+        <div style={{ position: 'absolute', right: 12, bottom: 12 }}>
+          <MiniMap world={worldRef.current} size={isTouch ? 104 : 208} />
         </div>
       )}
 
@@ -220,48 +253,15 @@ export default function NYCRoam() {
       {isTouch && worldRef.current && (
         <>
           <TouchControls world={worldRef.current} />
-          <div style={{ position: 'absolute', right: 20, bottom: 96, display: 'flex', flexDirection: 'column', gap: 12 }}>
-            {(hud?.prompt || (hud?.mode === 'ride' && hud.ride?.state === 'dwell')) && (
-              <button
-                onClick={() => worldRef.current?.action()}
-                style={{ width: 64, height: 64, borderRadius: '50%', border: 'none', background: '#00933C', color: '#fff', fontWeight: 700, fontSize: 16 }}
-              >GO</button>
-            )}
-            {hud?.mode === 'street' && hud?.fly && (
-              <>
-                <button
-                  onPointerDown={() => worldRef.current?.controlsRef.setTouchVertical(1)}
-                  onPointerUp={() => worldRef.current?.controlsRef.setTouchVertical(0)}
-                  onPointerLeave={() => worldRef.current?.controlsRef.setTouchVertical(0)}
-                  style={{ width: 64, height: 64, borderRadius: '50%', border: '1px solid rgba(255,255,255,0.3)', background: 'rgba(12,14,18,0.7)', color: '#fff', fontSize: 22 }}
-                >▲</button>
-                <button
-                  onPointerDown={() => worldRef.current?.controlsRef.setTouchVertical(-1)}
-                  onPointerUp={() => worldRef.current?.controlsRef.setTouchVertical(0)}
-                  onPointerLeave={() => worldRef.current?.controlsRef.setTouchVertical(0)}
-                  style={{ width: 64, height: 64, borderRadius: '50%', border: '1px solid rgba(255,255,255,0.3)', background: 'rgba(12,14,18,0.7)', color: '#fff', fontSize: 22 }}
-                >▼</button>
-              </>
-            )}
-            {hud?.mode === 'street' && (
-              <button
-                onClick={() => { const c = worldRef.current?.controlsRef; if (c) c.fly = !c.fly; }}
-                style={{ width: 64, height: 64, borderRadius: '50%', border: '1px solid rgba(255,255,255,0.3)', background: hud?.fly ? '#0d5c33' : 'rgba(12,14,18,0.7)', color: '#fff', fontSize: 22 }}
-              >🚁</button>
-            )}
-          </div>
+          {/* GO sits above the minimap, which now owns the bottom-right corner */}
+          {(hud?.prompt || (hud?.mode === 'ride' && hud.ride?.state === 'dwell')) && (
+            <button
+              onClick={() => worldRef.current?.action()}
+              className="go-btn"
+              style={{ bottom: hud?.mode === 'street' ? 128 : 24 }}
+            >GO</button>
+          )}
         </>
-      )}
-
-      {/* controls help */}
-      {!isTouch && showHelp && !loading && !error && (
-        <div className="hud-panel legend" onClick={() => setShowHelp(false)} title="Click to hide">
-          <div className="legend-row"><kbd>Click</kbd><span>Look</span></div>
-          <div className="legend-row"><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd><span>Move</span></div>
-          <div className="legend-row"><kbd>Shift</kbd><span>Run</span></div>
-          <div className="legend-row"><kbd>F</kbd><span>Helicopter</span><kbd>Space</kbd><kbd>C</kbd><span>Up / down</span></div>
-          <div className="legend-row"><kbd>E</kbd><span>Enter subway · board · step off</span></div>
-        </div>
       )}
 
       {/* loading */}

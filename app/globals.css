@@ -54,14 +54,12 @@ kbd {
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.09);
 }
 
-/* ---- controls legend ---- */
+/* ---- controls legend (top-right column, under the heli button) ---- */
 .legend {
-  position: absolute;
-  bottom: 12px;
-  left: 12px;
   padding: 10px 12px;
   display: flex;
   flex-direction: column;
+  align-items: flex-end;
   gap: 6px;
   cursor: pointer;
   transition: opacity 0.2s ease;
@@ -74,11 +72,12 @@ kbd {
   font-size: 11px;
   letter-spacing: 0.2px;
 }
+/* right-aligned column: label first, then its keys, reading inward */
 .legend-row span {
   color: rgba(255, 255, 255, 0.5);
-  margin-right: 6px;
+  order: -1;
+  margin-right: 3px;
 }
-.legend-row span:last-child { margin-right: 0; }
 
 /* ---- jump-to ---- */
 .jumpto {
@@ -130,6 +129,41 @@ kbd {
   color: #eafff3;
 }
 .heli-btn.on .heli-ico { filter: none; }
+/* touch: same pill, but a 44px-tall tap target */
+.heli-btn.touch { padding: 12px 14px; font-size: 13px; }
+
+/* ---- altitude pair (touch, under the heli button) ---- */
+.alt-pair { display: flex; gap: 6px; }
+.alt-btn {
+  width: 52px;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  font-size: 15px;
+  color: rgba(255, 255, 255, 0.85);
+  cursor: pointer;
+  touch-action: manipulation;
+}
+.alt-btn:active { background: rgba(255, 255, 255, 0.14); color: #fff; }
+
+/* ---- GO (touch primary action) ---- */
+.go-btn {
+  position: absolute;
+  right: 20px;
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  border: none;
+  background: #00933C;
+  color: #fff;
+  font-weight: 700;
+  font-size: 16px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.4);
+  cursor: pointer;
+  touch-action: manipulation;
+}
 
 /* ---- minimap zoom ---- */
 .mm-zoom {
@@ -164,6 +198,9 @@ kbd {
 }
 .mm-zoom button:hover:not(:disabled) { background: rgba(255, 255, 255, 0.12); color: #fff; }
 .mm-zoom button:disabled { opacity: 0.28; cursor: default; }
+/* half-size map: drop the scale label and tighten, or the pill eats the map */
+.mm-zoom.compact { right: 2px; bottom: 2px; gap: 0; border-radius: 7px; }
+.mm-zoom.compact button { width: 18px; height: 18px; font-size: 12px; }
 .mm-scale {
   font-size: 9px;
   letter-spacing: 0.4px;

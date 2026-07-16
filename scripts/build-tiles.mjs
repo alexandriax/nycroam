@@ -619,6 +619,37 @@ async function main() {
     }
   }
 
+  // ---- MAJOR STREETS: island-wide skeleton for the minimap's widest zoom -------------------
+  // The minimap draws streets from the tile stream, but tiles only load within ~1.1km of the
+  // player, so at the widest zoom most of the view has no road data at all. Bake the
+  // avenue/highway skeleton once: simplified and major-only, it ships whole for the price of
+  // a couple of tiles. Widths match ROAD_STYLE so the minimap can weight these lines with the
+  // exact same math it uses for the streamed centerlines.
+  console.log('Extracting major streets for the minimap...');
+  const MAJOR_W = { motorway: 22, trunk: 20, primary: 17, secondary: 14 };
+  const majorWays = [];
+  let majorPtsBefore = 0, majorPtsAfter = 0;
+  for (const el of roadsMap.values()) {
+    if (el.type !== 'way') continue;
+    const tags = el.tags || {};
+    const w = MAJOR_W[tags.highway];
+    if (!w) continue;
+    if (tags.area === 'yes' || tags.tunnel === 'yes') continue;
+    if (!el.geometry || el.geometry.length < 2) continue;
+    const pts = el.geometry.map((g) => lonLatToXZ(g.lon, g.lat));
+    majorPtsBefore += pts.length;
+    // 12m ~= half a pixel at the widest zoom; detail below that is invisible
+    const simp = pts.length > 2 ? simplifyRing(pts, 12) : pts;
+    if (simp.length < 2) continue;
+    majorPtsAfter += simp.length;
+    majorWays.push({ w, p: simp.flatMap((pt) => [Math.round(pt[0]), Math.round(pt[1])]) });
+  }
+  fs.writeFileSync(path.join(GEO_DIR, 'streets.json'), JSON.stringify({ v: 1, ways: majorWays }));
+  console.log(
+    `  major streets: ${majorWays.length} ways, ${majorPtsBefore} -> ${majorPtsAfter} points ` +
+      `(${(fs.statSync(path.join(GEO_DIR, 'streets.json')).size / 1024).toFixed(0)}KB)`
+  );
+
   // ---- STREET SIGNS: real intersections of named streets --------------------
   console.log('Extracting street-sign intersections...');
   const SIGN_CLASSES = new Set(['motorway', 'trunk', 'primary', 'secondary', 'tertiary', 'unclassified', 'residential']);

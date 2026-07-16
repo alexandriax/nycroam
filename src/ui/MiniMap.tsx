@@ -3,36 +3,50 @@
 import { useEffect, useRef, useState } from 'react';
 import type { World } from '../engine/World';
 
-const SIZE = 208;
-const R = SIZE / 2 - 6;
 // meters from center to edge. The old 9500m island-wide view is gone.
 const ZOOMS = [220, 650, 2600];
-// street centerlines are drawn at the two closest zooms; at 2.6km they'd be a
-// grey smear, and the tiles that far out aren't loaded anyway
+// The two closest zooms draw every street from the tile stream. The widest one
+// can't — tiles only load within ~1.1km — so it falls back to the baked
+// island-wide major-street skeleton (public/geo/streets.json).
 const STREET_MAX_ZOOM_IDX = 1;
+const MAJORS_ZOOM_IDX = 2;
+
+type Majors = { w: number; p: number[] }[];
 
 /**
- * Corner minimap: island silhouette, streets at the two closest zooms, subway
- * stations (trunk-colored, ringed), and a heading arrow.
+ * Corner minimap: island silhouette, streets, subway stations (trunk-colored,
+ * ringed), and a heading arrow.
  */
-export default function MiniMap({ world }: { world: World }) {
+export default function MiniMap({ world, size = 208 }: { world: World; size?: number }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [zoomIdx, setZoomIdx] = useState(1);
   const dataRef = useRef<{
     rings: number[][];
     stations: { x: number; z: number; color: string }[];
+    majors: Majors;
   } | null>(null);
+
+  const R = size / 2 - 6;
+  const compact = size < 160;
 
   useEffect(() => {
     let alive = true;
     (async () => {
-      let rings: number[][] = [];
-      try {
-        const res = await fetch('/geo/outline.json');
-        if (res.ok) rings = (await res.json()).rings ?? [];
-      } catch { /* silhouette optional */ }
+      const grab = async (url: string) => {
+        try {
+          const res = await fetch(url);
+          return res.ok ? await res.json() : null;
+        } catch { return null; }
+      };
+      const [outline, streets] = await Promise.all([grab('/geo/outline.json'), grab('/geo/streets.json')]);
       const { stations } = world.mapData();
-      if (alive) dataRef.current = { rings, stations };
+      if (alive) {
+        dataRef.current = {
+          rings: outline?.rings ?? [],
+          majors: streets?.ways ?? [],
+          stations,
+        };
+      }
     })();
     return () => { alive = false; };
   }, [world]);
@@ -42,8 +56,8 @@ export default function MiniMap({ world }: { world: World }) {
     if (!cv) return;
     const ctx = cv.getContext('2d')!;
     const dpr = Math.min(2, window.devicePixelRatio || 1);
-    cv.width = SIZE * dpr;
-    cv.height = SIZE * dpr;
+    cv.width = size * dpr;
+    cv.height = size * dpr;
 
     const draw = () => {
       const d = dataRef.current;
@@ -51,9 +65,9 @@ export default function MiniMap({ world }: { world: World }) {
       const yaw = world.controlsRef.yaw;
       const radius = ZOOMS[zoomIdx];
       const s = R / radius;
-      const cx = SIZE / 2, cy = SIZE / 2;
+      const cx = size / 2, cy = size / 2;
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-      ctx.clearRect(0, 0, SIZE, SIZE);
+      ctx.clearRect(0, 0, size, size);
 
       // frame + clip
       ctx.beginPath();
@@ -83,65 +97,94 @@ export default function MiniMap({ world }: { world: World }) {
         ctx.stroke();
       }
 
-      // streets — centerlines stream in with the tiles, so they exist exactly
-      // where the world is loaded. Cover the full visible circle: the player
-      // sits anywhere within their own tile, so radius + one tile of slack.
-      if (zoomIdx <= STREET_MAX_ZOOM_IDX) {
+      // ---- streets ----
+      // Bucket by stroke width into one Path2D each, so the whole grid costs a
+      // handful of stroke calls. Safe only because the strokes are OPAQUE: roads
+      // arrive as many pieces split at tile edges, and translucent strokes double
+      // up where their round caps overlap, freckling every junction.
+      const strokeBuckets = (
+        add: (bucket: (lw: number) => Path2D) => void,
+        floor: number,
+      ) => {
+        const buckets = new Map<number, Path2D>();
+        const bucket = (lw: number) => {
+          const k = Math.max(floor, Math.round(lw * 4) / 4);
+          let path = buckets.get(k);
+          if (!path) { path = new Path2D(); buckets.set(k, path); }
+          return path;
+        };
+        add(bucket);
         ctx.lineCap = 'round';
         ctx.lineJoin = 'round';
-        // OPAQUE on purpose: roads arrive as many pieces (split at tile edges and
-        // intersections), so translucent strokes double up where their round caps
-        // overlap and freckle every junction with bright blobs.
         ctx.strokeStyle = '#93a1ae';
-        const tileR = Math.ceil(radius / 256) + 1;
-        // bucket by stroke width so the whole grid is a handful of stroke calls
-        // instead of thousands — safe precisely because the strokes are opaque
-        const buckets = new Map<number, Path2D>();
-        for (const rp of world.roadPathsNear(p.x, p.z, tileR)) {
-          const count = rp.start.length - 1;
-          for (let i = 0; i < count; i++) {
-            const a = rp.start[i], b = rp.start[i + 1];
-            // width in meters -> screen px, floored so alleys stay hairlines
-            const lw = Math.max(0.7, Math.round(rp.width[i] * s * 0.75 * 4) / 4);
-            let path = buckets.get(lw);
-            if (!path) { path = new Path2D(); buckets.set(lw, path); }
-            path.moveTo(sx(rp.pts[a * 2]), sy(rp.pts[a * 2 + 1]));
-            for (let j = a + 1; j < b; j++) path.lineTo(sx(rp.pts[j * 2]), sy(rp.pts[j * 2 + 1]));
-          }
-        }
-        // widest first so major avenues sit under the side streets they meet
+        // widest first so avenues sit under the side streets that meet them
         for (const lw of [...buckets.keys()].sort((x, y) => y - x)) {
           ctx.lineWidth = lw;
           ctx.stroke(buckets.get(lw)!);
         }
+      };
+
+      if (zoomIdx <= STREET_MAX_ZOOM_IDX) {
+        // full detail from the tile stream. Cover the whole visible circle: the
+        // player sits anywhere within their own tile, hence radius + one tile.
+        const tileR = Math.ceil(radius / 256) + 1;
+        strokeBuckets((bucket) => {
+          for (const rp of world.roadPathsNear(p.x, p.z, tileR)) {
+            const count = rp.start.length - 1;
+            for (let i = 0; i < count; i++) {
+              const a = rp.start[i], b = rp.start[i + 1];
+              const path = bucket(rp.width[i] * s * 0.75);
+              path.moveTo(sx(rp.pts[a * 2]), sy(rp.pts[a * 2 + 1]));
+              for (let j = a + 1; j < b; j++) path.lineTo(sx(rp.pts[j * 2]), sy(rp.pts[j * 2 + 1]));
+            }
+          }
+        }, 0.7);
+      } else if (zoomIdx === MAJORS_ZOOM_IDX && d?.majors.length) {
+        // avenues + highways only, island-wide, with a viewport cull
+        const lim = radius * 1.05;
+        strokeBuckets((bucket) => {
+          for (const way of d.majors) {
+            const pts = way.p;
+            let visible = false;
+            for (let i = 0; i < pts.length; i += 2) {
+              if (Math.abs(pts[i] - p.x) < lim && Math.abs(pts[i + 1] - p.z) < lim) { visible = true; break; }
+            }
+            if (!visible) continue;
+            const path = bucket(way.w * s * 0.75);
+            path.moveTo(sx(pts[0]), sy(pts[1]));
+            for (let i = 2; i < pts.length; i += 2) path.lineTo(sx(pts[i]), sy(pts[i + 1]));
+          }
+        }, 0.6);
       }
 
+      // stations: trunk-colored, white-ringed. (Per-entrance dots used to be
+      // scattered here too — 835 green specks that read as visual noise.)
       if (d) {
-        // stations: trunk-colored, white-ringed. (Per-entrance dots used to be
-        // scattered here too — 835 green specks that read as visual noise.)
+        const dotR = compact ? 2.4 : 3.4;
         for (const st of d.stations) {
           const X = sx(st.x), Y = sy(st.z);
-          if (X < -6 || X > SIZE + 6 || Y < -6 || Y > SIZE + 6) continue;
+          if (X < -6 || X > size + 6 || Y < -6 || Y > size + 6) continue;
           ctx.beginPath();
-          ctx.arc(X, Y, 3.4, 0, Math.PI * 2);
+          ctx.arc(X, Y, dotR, 0, Math.PI * 2);
           ctx.fillStyle = st.color;
           ctx.fill();
-          ctx.lineWidth = 1.2;
+          ctx.lineWidth = compact ? 0.9 : 1.2;
           ctx.strokeStyle = '#f4f6f8';
           ctx.stroke();
         }
       }
 
       // player heading arrow
+      const a = compact ? 0.72 : 1;
       const fwdX = -Math.sin(yaw), fwdZ = -Math.cos(yaw);
       ctx.save();
       ctx.translate(cx, cy);
       ctx.rotate(Math.atan2(fwdX, -fwdZ));
       ctx.beginPath();
-      ctx.moveTo(0, -7);
-      ctx.lineTo(5, 6);
-      ctx.lineTo(0, 3);
-      ctx.lineTo(-5, 6);
+      ctx.moveTo(0, -7 * a);
+      ctx.lineTo(5 * a, 6 * a);
+      ctx.lineTo(0, 3 * a);
+      ctx.lineTo(-5 * a, 6 * a);
       ctx.closePath();
       ctx.fillStyle = '#ffffff';
       ctx.fill();
@@ -155,15 +198,15 @@ export default function MiniMap({ world }: { world: World }) {
       ctx.lineWidth = 1.5;
       ctx.stroke();
       ctx.fillStyle = 'rgba(255,255,255,0.75)';
-      ctx.font = 'bold 10px Helvetica, Arial';
+      ctx.font = `bold ${compact ? 8 : 10}px Helvetica, Arial`;
       ctx.textAlign = 'center';
-      ctx.fillText('N', cx, cy - R + 11);
+      ctx.fillText('N', cx, cy - R + (compact ? 9 : 11));
     };
 
     draw();
     const iv = window.setInterval(draw, 250);
     return () => window.clearInterval(iv);
-  }, [world, zoomIdx]);
+  }, [world, zoomIdx, size, R, compact]);
 
   // zoomIdx 0 is closest, so "+" walks toward 0
   const zoomIn = () => setZoomIdx((z) => Math.max(0, z - 1));
@@ -173,20 +216,20 @@ export default function MiniMap({ world }: { world: World }) {
     : `${ZOOMS[zoomIdx]} m`;
 
   return (
-    <div style={{ position: 'relative', width: SIZE, height: SIZE }}>
+    <div style={{ position: 'relative', width: size, height: size }}>
       <canvas
         ref={canvasRef}
         onClick={() => setZoomIdx((z) => (z + 1) % ZOOMS.length)}
-        style={{ width: SIZE, height: SIZE, cursor: 'pointer', touchAction: 'manipulation' }}
+        style={{ width: size, height: size, cursor: 'pointer', touchAction: 'manipulation' }}
         title="Click to cycle zoom"
       />
-      <div className="mm-zoom">
+      <div className={`mm-zoom${compact ? ' compact' : ''}`}>
         <button
           onClick={(e) => { e.stopPropagation(); zoomIn(); }}
           disabled={zoomIdx === 0}
           aria-label="Zoom in"
         >+</button>
-        <span className="mm-scale">{scale}</span>
+        {!compact && <span className="mm-scale">{scale}</span>}
         <button
           onClick={(e) => { e.stopPropagation(); zoomOut(); }}
           disabled={zoomIdx === ZOOMS.length - 1}
