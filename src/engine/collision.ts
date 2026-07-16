@@ -64,6 +64,27 @@ export function resolveBuildingCollision(
   return [px, pz];
 }
 
+/** True if (x,z) is inside any building footprint (even-odd over every ring). */
+export function pointInBuildings(x: number, z: number, sets: CollisionData[]): boolean {
+  for (const set of sets) {
+    const ringCount = set.ringStart.length - 1;
+    for (let ri = 0; ri < ringCount; ri++) {
+      const minX = set.aabb[ri * 4], minZ = set.aabb[ri * 4 + 1];
+      const maxX = set.aabb[ri * 4 + 2], maxZ = set.aabb[ri * 4 + 3];
+      if (x < minX || x > maxX || z < minZ || z > maxZ) continue;
+      const start = set.ringStart[ri], end = set.ringStart[ri + 1];
+      let inside = false;
+      for (let i = start, j = end - 1; i < end; j = i++) {
+        const xi = set.points[i * 2], zi = set.points[i * 2 + 1];
+        const xj = set.points[j * 2], zj = set.points[j * 2 + 1];
+        if ((zi > z) !== (zj > z) && x < ((xj - xi) * (z - zi)) / (zj - zi) + xi) inside = !inside;
+      }
+      if (inside) return true;
+    }
+  }
+  return false;
+}
+
 /** Axis-aligned walkable box with a floor height (stations). Ramps interpolate y along z or x. */
 export interface WalkBox {
   minX: number; maxX: number; minZ: number; maxZ: number;

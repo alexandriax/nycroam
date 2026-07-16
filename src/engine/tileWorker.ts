@@ -5,6 +5,56 @@ import { ROAD_STYLE, AREA_STYLE, CONCRETE_CLASSES } from './tileTypes';
 import { buildingColor, hash01 } from './palette';
 import { TILE_SIZE } from './geo';
 
+// Vehicular road classes (a sign inside one of these ribbons is standing in the
+// street). Footways/paths/crossings are excluded — signs belong on sidewalks.
+const VEHICULAR_ROADS = new Set([
+  'motorway', 'trunk', 'primary', 'secondary', 'tertiary', 'unclassified',
+  'residential', 'living_street', 'service',
+  'motorway_link', 'trunk_link', 'primary_link', 'secondary_link', 'tertiary_link',
+]);
+
+/**
+ * Push a baked sign position out of any vehicular road ribbon onto the nearest
+ * sidewalk. Baked corner offsets under-cleared wide avenues, leaving some signs
+ * mid-roadway; this walks the sign out of the deepest-penetrating ribbon a few
+ * times, which converges to the corner at a 2-street intersection. Total travel
+ * is capped so a data glitch can't fling a sign across the block.
+ */
+function nudgeSignOutOfRoads(
+  sx: number, sz: number, vroads: { pts: number[]; half: number }[],
+): [number, number] {
+  const SIDEWALK = 1.9; // clearance past the curb
+  const MAX_TRAVEL = 16;
+  let x = sx, z = sz;
+  for (let iter = 0; iter < 5; iter++) {
+    let worst = 0, wx = 0, wz = 0;
+    for (const vr of vroads) {
+      const target = vr.half + SIDEWALK;
+      const p = vr.pts;
+      for (let i = 0; i + 3 < p.length; i += 2) {
+        const x1 = p[i], z1 = p[i + 1], x2 = p[i + 2], z2 = p[i + 3];
+        const dx = x2 - x1, dz = z2 - z1;
+        const l2 = dx * dx + dz * dz;
+        if (l2 < 1e-6) continue;
+        let t = ((x - x1) * dx + (z - z1) * dz) / l2;
+        t = t < 0 ? 0 : t > 1 ? 1 : t;
+        const qx = x1 + t * dx, qz = z1 + t * dz;
+        const ox = x - qx, oz = z - qz;
+        const pen = target - Math.hypot(ox, oz);
+        if (pen > worst) { worst = pen; wx = ox; wz = oz; }
+      }
+    }
+    if (worst <= 0.01) break;
+    const d = Math.hypot(wx, wz);
+    if (d > 1e-3) { x += (wx / d) * worst; z += (wz / d) * worst; }
+    else { x += worst; } // exactly on a centerline: nudge along +x
+  }
+  // clamp total displacement (keeps a glitchy push near the original corner)
+  const tdx = x - sx, tdz = z - sz, td = Math.hypot(tdx, tdz);
+  if (td > MAX_TRAVEL) { x = sx + (tdx / td) * MAX_TRAVEL; z = sz + (tdz / td) * MAX_TRAVEL; }
+  return [x, z];
+}
+
 class MeshAcc {
   pos: number[] = [];
   nrm: number[] = [];
@@ -410,6 +460,8 @@ function buildTile(tile: TileJson): BuildResponse {
   const mmStart: number[] = [0];
   const mmPts: number[] = [];
   const mmWidth: number[] = [];
+  // vehicular centerlines (world coords) for pushing signs off the roadbed
+  const vroads: { pts: number[]; half: number }[] = [];
 
   if (tile.roads) {
     for (const r of tile.roads) {
@@ -422,6 +474,7 @@ function buildTile(tile: TileJson): BuildResponse {
         pts[i * 2 + 1] = toWorld(r.p[i * 2 + 1], oz);
         ys[i] = (r.e ? r.e[i] : r.b ? 7 : 0) + style.y;
       }
+      if (n >= 2 && VEHICULAR_ROADS.has(r.c)) vroads.push({ pts, half: style.w / 2 });
       if (!MINIMAP_SKIP.has(r.c) && n >= 2) {
         for (const v of pts) mmPts.push(v);
         mmStart.push(mmPts.length / 2);
@@ -515,13 +568,11 @@ function buildTile(tile: TileJson): BuildResponse {
   }
 
   // ---- signs: to world coords (geometry built on the main thread, atlas needs DOM) ----
-  const signs = (tile.signs ?? []).map((s) => ({
-    x: toWorld(s.p[0], ox),
-    y: s.e / 10,
-    z: toWorld(s.p[1], oz),
-    names: s.n,
-    angles: s.a,
-  }));
+  // then nudge any that baked into a roadbed out onto the sidewalk.
+  const signs = (tile.signs ?? []).map((s) => {
+    const [sx, sz] = nudgeSignOutOfRoads(toWorld(s.p[0], ox), toWorld(s.p[1], oz), vroads);
+    return { x: sx, y: s.e / 10, z: sz, names: s.n, angles: s.a };
+  });
 
   return {
     type: 'built',

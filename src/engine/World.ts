@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import { TileManager } from './TileManager';
 import { PlayerControls } from './controls';
-import { resolveBuildingCollision, nearestWallDir, floorAt, floorAtAny } from './collision';
+import { resolveBuildingCollision, nearestWallDir, floorAt, floorAtAny, pointInBuildings } from './collision';
 import { setupSky, setupLights, followSun, SKY } from './sky';
 import { quality } from './quality';
 import { makeSkylineMaterial, makeFlatMaterial, makeWaterMaterial } from './materials';
@@ -11,6 +11,10 @@ import { BikeManager } from './bikes';
 import { LandmarkManager } from './landmarks/LandmarkManager';
 import { LANDMARKS_REG } from './landmarks/registry';
 import { BikeView } from './bikeview';
+import { BusSystem, type BusRideHandle } from './bus/BusSystem';
+import { BusModel } from './bus/model';
+import { buildBusStop } from './bus/stops';
+import { BUS, type BusHud, type BusRouteBadge } from './bus/types';
 import { loadSans } from './fonts';
 import { StationWorld } from './subway/StationWorld';
 import { ElevatedStationWorld } from './subway/ElevatedStationWorld';
@@ -27,16 +31,18 @@ const LEGACY_SAVE_KEY = 'nycworld'; // read-only: keeps positions saved before t
 const WALK_EYE = 1.7; // standing; BikeView.eyeHeight is the seated one
 
 export interface HudState {
-  mode: 'street' | 'station' | 'ride';
+  mode: 'street' | 'station' | 'ride' | 'bus';
   fly: boolean;
   prompt: string | null; // e.g. "72 St · 1·2·3"
   promptRoutes: string[];
+  promptBus: BusRouteBadge[]; // bus route chips on the prompt (stops / boarding)
   promptHint: string | null; // action verb ("grab a bike"); null = subway walk-in default
   riding: boolean; // on a bike
   area: string | null; // current neighborhood (street mode)
   stationName: string | null;
   stationRoutes: string[];
   ride: RideHud | null;
+  bus: BusHud | null; // set while riding a bus (mode 'bus')
   tilesLoaded: number;
   tilesPending: number;
   fps: number;
@@ -77,7 +83,12 @@ export class World {
   private scheduler: TrainScheduler | null = null;
   private ride: RideWorld | null = null;
   private network: NetworkData | null = null;
-  private mode: 'street' | 'station' | 'ride' = 'street';
+  private buses: BusSystem;
+  private busRide: BusRideHandle | null = null;
+  private busLocal = new THREE.Vector3(3.0, 0, 0.2); // rider offset inside the cabin
+  private prevBusYaw = 0;
+  private busEndSince = 0;
+  private mode: 'street' | 'station' | 'ride' | 'bus' = 'street';
   private pos = new THREE.Vector3(0, 0, 40); // feet position
   private returnPos = new THREE.Vector3();
   private eyeHeight = WALK_EYE;
@@ -89,6 +100,7 @@ export class World {
   private hudTimer = 0;
   private transitioning = false;
   private lastEnterGuard = 0; // avoid instant re-trigger loops
+  private spawnResolve = false; // eject from a building after a teleport/exit, once tiles load
   private skyDome: THREE.Object3D | null = null;
   private lastRaf = 0;
   private tickInterval = 0;
@@ -101,8 +113,8 @@ export class World {
   private flyVel = new THREE.Vector3();
   private flyTarget = new THREE.Vector3();
   hud: HudState = {
-    mode: 'street', fly: false, prompt: null, promptRoutes: [], promptHint: null, riding: false, area: null, stationName: null,
-    stationRoutes: [], ride: null, tilesLoaded: 0, tilesPending: 0, fps: 0, loading: true, error: null,
+    mode: 'street', fly: false, prompt: null, promptRoutes: [], promptBus: [], promptHint: null, riding: false, area: null, stationName: null,
+    stationRoutes: [], ride: null, bus: null, tilesLoaded: 0, tilesPending: 0, fps: 0, loading: true, error: null,
   };
   onHud: ((h: HudState) => void) | null = null;
   onFade: ((opaque: boolean) => void) | null = null;
@@ -152,9 +164,19 @@ export class World {
       (x, z) => nearestWallDir(x, z, 15, this.tiles.collisionNear(x, z)),
     );
 
+    // buses: sim + culling live in BusSystem; the vehicle/stop visuals are
+    // injected so the system stays compile-independent of the mesh modules
+    this.buses = new BusSystem(
+      this.streetScene,
+      (o) => new BusModel(o, this.envTex),
+      buildBusStop,
+    );
+    // pull each stop kit off the roadway onto the sidewalk once its tiles load
+    this.buses.resolvePlacement = (x, z) => this.resolveBusStop(x, z);
+
     this.controls = new PlayerControls(canvas);
     this.controls.onToggleFly = () => {
-      if (this.riding) return; // dock the bike first
+      if (this.riding || this.mode === 'bus') return; // dock the bike / step off first
       this.controls.fly = !this.controls.fly; // allowed everywhere (rescue hatch in stations)
     };
     this.controls.onAction = () => this.tryAction();
@@ -187,6 +209,7 @@ export class World {
       // must settle before the first step(): sign textures bake lazily from
       // update() and a canvas drawn pre-webfont keeps the fallback for good
       loadSans(),
+      this.buses.init(), // optional like the subway network — keep last (indexes below)
     ]);
     results.shift(); results.shift(); // terrain/network optional; index 0 = tiles below
     const tileFail = results[0].status === 'rejected';
@@ -382,11 +405,76 @@ export class World {
     if (this.mode === 'station') this.exitStation(true);
     const [x, z] = lonLatToXZ(lon, lat);
     this.pos.set(x, 0, z);
+    this.spawnResolve = true; // resolved out of any building once tiles arrive
     this.save();
+  }
+
+  /**
+   * A standing point at/near (x,z) that is NOT inside a building. If the target
+   * is already clear, just resolve grazing contact. Otherwise spiral outward and
+   * take the nearest open point — guarantees a teleport/exit never leaves the
+   * player embedded in a building (where they could then walk out through walls).
+   */
+  private freeSpawn(x: number, z: number): [number, number] {
+    const near0 = this.tiles.collisionNear(x, z);
+    if (!pointInBuildings(x, z, near0)) return resolveBuildingCollision(x, z, 0.5, near0);
+    for (let ring = 2.5; ring <= 26; ring += 2.5) {
+      for (let a = 0; a < 16; a++) {
+        const ang = (a / 16) * Math.PI * 2;
+        const tx = x + Math.cos(ang) * ring, tz = z + Math.sin(ang) * ring;
+        const near = this.tiles.collisionNear(tx, tz);
+        if (!pointInBuildings(tx, tz, near)) return resolveBuildingCollision(tx, tz, 0.5, near);
+      }
+    }
+    return [x, z]; // fully enclosed (shouldn't happen in Manhattan) — leave as-is
+  }
+
+  /**
+   * Curb-resolve a bus stop's raw GTFS point: defer until its tiles load (null),
+   * then push it out of any roadway ribbon onto the sidewalk and clear of
+   * buildings. GTFS points are curbside but some land in wide roadbeds; buses
+   * pass on the street side, so the pole belongs a couple meters curbward.
+   */
+  private resolveBusStop(x: number, z: number): [number, number] | null {
+    if (!this.tiles.readyAround(x, z)) return null;
+    // 2-tile radius so a wide avenue whose centerline sits in the neighbouring
+    // tile still counts (a 1-tile lookup left edge stops half in the roadbed)
+    const paths = this.tiles.roadPathsNear(x, z, 2);
+    let px = x, pz = z;
+    const SIDEWALK = 1.6;
+    for (let iter = 0; iter < 6; iter++) {
+      let worst = 0, wx = 0, wz = 0;
+      for (const rp of paths) {
+        const roadCount = rp.start.length - 1;
+        for (let r = 0; r < roadCount; r++) {
+          const target = rp.width[r] * 0.5 + SIDEWALK;
+          const a = rp.start[r], b = rp.start[r + 1];
+          for (let j = a; j < b - 1; j++) {
+            const x1 = rp.pts[j * 2], z1 = rp.pts[j * 2 + 1];
+            const x2 = rp.pts[(j + 1) * 2], z2 = rp.pts[(j + 1) * 2 + 1];
+            const dx = x2 - x1, dz = z2 - z1, l2 = dx * dx + dz * dz;
+            if (l2 < 1e-6) continue;
+            let t = ((px - x1) * dx + (pz - z1) * dz) / l2;
+            t = t < 0 ? 0 : t > 1 ? 1 : t;
+            const ox = px - (x1 + t * dx), oz = pz - (z1 + t * dz);
+            const pen = target - Math.hypot(ox, oz);
+            if (pen > worst) { worst = pen; wx = ox; wz = oz; }
+          }
+        }
+      }
+      if (worst <= 0.02) break;
+      const d = Math.hypot(wx, wz);
+      if (d > 1e-3) { px += (wx / d) * worst; pz += (wz / d) * worst; } else px += worst;
+    }
+    return resolveBuildingCollision(px, pz, 0.8, this.tiles.collisionNear(px, pz));
   }
 
   private tryAction() {
     if (this.transitioning) return;
+    if (this.mode === 'bus') {
+      if (this.busRide?.canExit) this.exitBus();
+      return;
+    }
     if (this.mode === 'street') {
       const nearDock = this.bikes.nearest(this.pos.x, this.pos.z, 4.5);
       if (this.riding) {
@@ -394,6 +482,9 @@ export class World {
         if (nearDock?.canDock && this.bikes.dockBike(nearDock.dock)) this.setRiding(false);
         return;
       }
+      // an open bus at the curb wins: you walked to the stop for it
+      const bb = this.controls.fly ? null : this.buses.boardable(this.pos.x, this.pos.z);
+      if (bb) { this.boardBus(bb.key); return; }
       const near = this.entrances.nearest(this.pos.x, this.pos.z, 4.5);
       const dE = near ? Math.hypot(near.pos[0] - this.pos.x, near.pos[1] - this.pos.z) : Infinity;
       if (near && dE <= (nearDock?.d ?? Infinity)) {
@@ -432,6 +523,75 @@ export class World {
     } else {
       this.bikeView?.detach();
     }
+    this.pushHud();
+  }
+
+  /** Step through the open doors of a dwelling bus. Street mode only. */
+  private async boardBus(key: string) {
+    if (this.transitioning || this.riding) return;
+    const h = this.buses.board(key);
+    if (!h) return;
+    this.transitioning = true;
+    try {
+      this.onFade?.(true);
+      await wait(280);
+      this.busRide = h;
+      this.mode = 'bus';
+      this.hud.mode = 'bus';
+      this.controls.fly = false;
+      // start mid-cabin in the aisle, facing whatever way you were looking
+      this.busLocal.set(0.6, 0, 0.1);
+      this.prevBusYaw = h.pos.yaw;
+      this.busEndSince = 0;
+      this.lastEnterGuard = performance.now();
+      this.hud.prompt = null;
+      this.hud.promptRoutes = [];
+      this.hud.promptBus = [];
+      this.hud.promptHint = null;
+      this.pushHud();
+      await wait(80);
+    } finally {
+      this.onFade?.(false);
+      this.transitioning = false;
+    }
+  }
+
+  /** Step off at the current stop, onto the sidewalk by the front door. */
+  private async exitBus(instant = false) {
+    if ((this.transitioning && !instant) || !this.busRide) return;
+    this.transitioning = true;
+    try {
+      if (!instant) { this.onFade?.(true); await wait(280); }
+      let [ex, ez] = this.busRide.exitPos();
+      this.busRide.end();
+      this.busRide = null;
+      this.mode = 'street';
+      this.hud.mode = 'street';
+      this.hud.bus = null;
+      // narrow sidewalks: never step off INTO a building face
+      [ex, ez] = resolveBuildingCollision(ex, ez, 0.42, this.tiles.collisionNear(ex, ez));
+      this.pos.set(ex, heightAt(ex, ez), ez);
+      this.spawnResolve = true; // re-eject once tiles here are fully loaded
+      this.busEndSince = 0;
+      this.lastEnterGuard = performance.now();
+      this.pushHud();
+      if (!instant) await wait(80);
+    } finally {
+      if (!instant) this.onFade?.(false);
+      this.transitioning = false;
+    }
+  }
+
+  /** Sync fallback when a ridden run ends unexpectedly: stand up where the bus was. */
+  private exitBusStranded(h: BusRideHandle) {
+    h.end();
+    this.busRide = null;
+    this.mode = 'street';
+    this.hud.mode = 'street';
+    this.hud.bus = null;
+    this.pos.set(h.pos.x, heightAt(h.pos.x, h.pos.z), h.pos.z);
+    this.busEndSince = 0;
+    this.lastEnterGuard = performance.now();
     this.pushHud();
   }
 
@@ -494,6 +654,7 @@ export class World {
         this.mode = 'street';
         this.hud.mode = 'street';
         this.pos.copy(this.returnPos);
+        this.spawnResolve = true;
       }
       this.hud.ride = null;
       this.lastEnterGuard = performance.now();
@@ -552,6 +713,7 @@ export class World {
     this.currentStationSpec = null;
     this.mode = 'street';
     this.pos.copy(this.returnPos);
+    this.spawnResolve = true; // entrances sit against buildings — eject if inside one
     this.hud.mode = 'street';
     this.hud.stationName = null;
     this.hud.stationRoutes = [];
@@ -586,6 +748,16 @@ export class World {
     let dz = (fwd.z * input.forward + right.z * input.strafe) * speed * dt;
 
     if (this.mode === 'street') {
+      // safe spawn: after a teleport / exit we may have landed inside a building
+      // footprint (entrances hug walls, jump targets are raw lat/lon). Once the
+      // tiles here have integrated, push out to the nearest sidewalk. Skip while
+      // flying — the helicopter teleport lands you above the rooftops on purpose.
+      if (this.spawnResolve && !this.controls.fly && this.tiles.readyAround(this.pos.x, this.pos.z)) {
+        const [rx, rz] = this.freeSpawn(this.pos.x, this.pos.z);
+        this.pos.x = rx; this.pos.z = rz;
+        this.pos.y = heightAt(rx, rz);
+        this.spawnResolve = false;
+      }
       const prevX = this.pos.x, prevZ = this.pos.z;
       if (this.controls.fly) {
         // helicopter: momentum-smoothed velocity incl. vertical
@@ -597,7 +769,10 @@ export class World {
         this.flyVel.lerp(this.flyTarget, 1 - Math.exp(-dt * 2.4));
         this.pos.x += this.flyVel.x * dt;
         this.pos.z += this.flyVel.z * dt;
-        this.pos.y = Math.max(1.2, Math.min(1200, this.pos.y + this.flyVel.y * dt));
+        // never descend below the ground under you: clamp to terrain + clearance
+        // (Manhattan hills rise ~80m, so a fixed floor let you sink underground)
+        const floorY = heightAt(this.pos.x, this.pos.z) + 1.3;
+        this.pos.y = Math.max(floorY, Math.min(1200, this.pos.y + this.flyVel.y * dt));
       } else {
         this.flyVel.set(0, 0, 0);
         let nx = this.pos.x + dx, nz = this.pos.z + dz;
@@ -624,6 +799,7 @@ export class World {
       this.tiles.update(this.pos.x, this.pos.z);
       this.entrances.update(this.pos.x, this.pos.z, dt);
       this.bikes.update(this.pos.x, this.pos.z, dt);
+      this.buses.update(this.pos.x, this.pos.z, dt);
       this.landmarks.update(this.pos.x, this.pos.z, dt);
 
       if (this.riding && this.bikeView) {
@@ -642,26 +818,43 @@ export class World {
       }
 
       // proximity prompts. On a bike the subway is out of reach (dock first),
-      // so only dock prompts show; on foot the closer of entrance/dock wins.
+      // so only dock prompts show; on foot an OPEN bus at the curb wins (it's
+      // leaving; everything else keeps), then the closer of entrance/dock, then
+      // a waiting-at-the-stop readout with live arrival estimates.
       const near = this.riding ? null : this.entrances.nearest(this.pos.x, this.pos.z, 5);
       const nearDock = this.bikes.nearest(this.pos.x, this.pos.z, 4.5);
+      const boardBus = this.riding || this.controls.fly ? null : this.buses.boardable(this.pos.x, this.pos.z);
       const dE = near ? Math.hypot(near.pos[0] - this.pos.x, near.pos[1] - this.pos.z) : Infinity;
       this.hud.prompt = null;
       this.hud.promptRoutes = [];
+      this.hud.promptBus = [];
       this.hud.promptHint = null;
-      if (near && !this.controls.fly && dE <= (nearDock?.d ?? Infinity)) {
+      if (boardBus) {
+        this.hud.prompt = `to ${boardBus.dest}`;
+        this.hud.promptBus = [{ id: boardBus.route, color: boardBus.color, sbs: boardBus.sbs }];
+        this.hud.promptHint = 'board the bus';
+        const dDoor = Math.hypot(boardBus.door[0] - this.pos.x, boardBus.door[1] - this.pos.z);
+        if (dDoor < 1.7 && performance.now() - this.lastEnterGuard > 2500 && !this.transitioning) {
+          this.boardBus(boardBus.key);
+        }
+      } else if (near && !this.controls.fly && dE <= (nearDock?.d ?? Infinity)) {
         this.hud.prompt = `${near.station.name}`;
         this.hud.promptRoutes = near.station.routes;
         if (dE < 1.9 && performance.now() - this.lastEnterGuard > 2500 && !this.transitioning) {
           this.enterStation(near.station, near.pos);
         }
-      } else if (nearDock && !this.controls.fly) {
-        if (this.riding && nearDock.canDock) {
-          this.hud.prompt = nearDock.dock.spec.n;
-          this.hud.promptHint = 'dock your bike';
-        } else if (!this.riding && nearDock.canGrab) {
-          this.hud.prompt = nearDock.dock.spec.n;
-          this.hud.promptHint = 'grab a bike';
+      } else if (nearDock && !this.controls.fly && (this.riding ? nearDock.canDock : nearDock.canGrab)) {
+        this.hud.prompt = nearDock.dock.spec.n;
+        this.hud.promptHint = this.riding ? 'dock your bike' : 'grab a bike';
+      } else if (!this.riding && !this.controls.fly) {
+        const stop = this.buses.nearestStop(this.pos.x, this.pos.z, 5);
+        if (stop) {
+          this.hud.prompt = stop.name;
+          this.hud.promptBus = stop.badges;
+          const a = stop.arrivals[0];
+          this.hud.promptHint = a
+            ? `${a.route} ${a.seconds < 45 ? 'due' : `${Math.round(a.seconds / 60)} min`}`
+            : 'bus stop';
         }
       }
     } else if (this.mode === 'ride' && this.ride) {
@@ -679,12 +872,66 @@ export class World {
       this.hud.ride = this.ride.hudInfo;
       this.hud.prompt = null;
       this.hud.promptRoutes = [];
+      this.hud.promptBus = [];
       // end of the Manhattan run: hold the doors, then step off automatically
       if (this.ride.atEnd && this.ride.canExit) {
         if (this.atEndSince === 0) this.atEndSince = performance.now();
         else if (performance.now() - this.atEndSince > 6000) { this.atEndSince = 0; this.exitRide(); }
       } else {
         this.atEndSince = 0;
+      }
+    } else if (this.mode === 'bus' && this.busRide) {
+      const h = this.busRide;
+      // the world streams around the MOVING bus — that's the whole ride view
+      this.buses.update(h.pos.x, h.pos.z, dt);
+      if (!h.active) {
+        // the run ended out from under us (terminal auto-exit should catch it
+        // first) — step off right where the bus vanished, no fade
+        this.exitBusStranded(h);
+      } else {
+        // the cabin turns and your view turns with it
+        const dyaw = shortAngle(h.pos.yaw - this.prevBusYaw);
+        this.controls.yaw += dyaw;
+        this.prevBusYaw = h.pos.yaw;
+        // walk the aisle: camera-space input mapped into bus-local axes
+        const th = h.pos.yaw;
+        const lx = dx * Math.cos(th) - dz * Math.sin(th);
+        const lz = dx * Math.sin(th) + dz * Math.cos(th);
+        this.busLocal.x = Math.max(BUS.interior.minX, Math.min(BUS.interior.maxX, this.busLocal.x + lx));
+        this.busLocal.z = Math.max(BUS.interior.minZ, Math.min(BUS.interior.maxZ, this.busLocal.z + lz));
+        // keep the player anchored to the bus for tiles/minimap/save
+        this.pos.set(h.pos.x, heightAt(h.pos.x, h.pos.z), h.pos.z);
+        if (this.sun) followSun(this.sun, this.pos.x, this.pos.z);
+        this.waterUpdate?.(dt);
+        this.tiles.update(this.pos.x, this.pos.z);
+        this.entrances.update(this.pos.x, this.pos.z, dt);
+        this.bikes.update(this.pos.x, this.pos.z, dt);
+        this.landmarks.update(this.pos.x, this.pos.z, dt);
+        this.hoodTimer -= dt;
+        if (this.hoodTimer <= 0) {
+          this.hoodTimer = 1.0;
+          this.hud.area = this.hoodAt(this.pos.x, this.pos.z);
+        }
+        this.hud.bus = h.hud;
+        this.hud.prompt = null;
+        this.hud.promptRoutes = [];
+        this.hud.promptBus = [];
+        this.hud.promptHint = null;
+        // walk-off: while dwelling, stepping into an open door bay steps you
+        // off — the same affordance as walking on (E still works)
+        const nearDoor = Math.abs(this.busLocal.x - BUS.doorX.front) < 1.1
+          || Math.abs(this.busLocal.x - BUS.doorX.rear) < 1.2;
+        if (h.canExit && nearDoor && this.busLocal.z > BUS.interior.maxZ - 0.08
+          && performance.now() - this.lastEnterGuard > 2500 && !this.transitioning) {
+          this.exitBus();
+        }
+        // end of the run: hold the doors, then step off automatically
+        if (h.atEnd && h.canExit) {
+          if (this.busEndSince === 0) this.busEndSince = performance.now();
+          else if (performance.now() - this.busEndSince > 6000) { this.busEndSince = 0; this.exitBus(); }
+        } else {
+          this.busEndSince = 0;
+        }
       }
     } else if (this.station) {
       const st = this.station;
@@ -741,6 +988,7 @@ export class World {
         }
       }
       const b = !inExit && this.network ? this.scheduler?.boardable(this.pos.x, this.pos.z) : null;
+      this.hud.promptBus = [];
       if (inExit) {
         this.hud.prompt = 'Exit to street';
         this.hud.promptRoutes = [];
@@ -764,7 +1012,15 @@ export class World {
       }
     }
 
-    const eye = new THREE.Vector3(this.pos.x, this.pos.y + this.eyeHeight, this.pos.z);
+    let eye: THREE.Vector3;
+    if (this.mode === 'bus' && this.busRide) {
+      // camera rides the cabin: local aisle offset through the bus transform
+      const g = this.busRide.model.group;
+      g.updateMatrixWorld();
+      eye = g.localToWorld(new THREE.Vector3(this.busLocal.x, BUS.floorY + BUS.eye, this.busLocal.z));
+    } else {
+      eye = new THREE.Vector3(this.pos.x, this.pos.y + this.eyeHeight, this.pos.z);
+    }
     this.controls.applyToCamera(this.camera, eye);
     this.skyDome?.position.copy(this.camera.position);
     const scene = this.mode === 'ride' && this.ride ? this.ride.scene
@@ -795,7 +1051,8 @@ export class World {
   private save() {
     try {
       localStorage.setItem(SAVE_KEY, JSON.stringify({
-        x: this.pos.x, z: this.pos.z, yaw: this.controls.yaw, mode: this.mode === 'station' ? 'street' : this.mode,
+        x: this.pos.x, z: this.pos.z, yaw: this.controls.yaw,
+        mode: this.mode === 'station' || this.mode === 'bus' ? 'street' : this.mode,
       }));
     } catch { /* private mode */ }
   }
@@ -826,12 +1083,20 @@ export class World {
     stations: { x: number; z: number; color: string; name: string }[];
     entrances: [number, number][];
     docks: [number, number][];
+    busStops: [number, number][];
   } {
     const stations = [...this.entrances.stationsMap.values()].map((s) => ({
       x: s.pos[0], z: s.pos[1], color: routeColor(s.routes[0]), name: s.name,
     }));
-    return { stations, entrances: this.entrances.entrancePositions(), docks: this.bikes.dockPositions() };
+    return {
+      stations,
+      entrances: this.entrances.entrancePositions(),
+      docks: this.bikes.dockPositions(),
+      busStops: this.buses.stopPositions(),
+    };
   }
+  /** Live bus positions, island-wide (minimap bus layer). */
+  getBuses() { return this.buses.busPositions(); }
   /** Road centerlines near the player, for the minimap's closest zoom. */
   roadPathsNear(x: number, z: number, tileR = 2) { return this.tiles.roadPathsNear(x, z, tileR); }
   getTrains() { return this.scheduler?.trainStates ?? []; }
@@ -852,6 +1117,7 @@ export class World {
     this.tiles.destroy();
     this.entrances.destroy();
     this.bikes.destroy();
+    this.buses.dispose();
     this.landmarks.destroy();
     this.bikeView?.dispose();
     this.scheduler?.dispose();
@@ -862,3 +1128,6 @@ export class World {
 }
 
 function wait(ms: number) { return new Promise((r) => setTimeout(r, ms)); }
+
+/** Wrap to (-PI, PI] so a bus heading crossing the seam doesn't spin the view. */
+function shortAngle(a: number) { return Math.atan2(Math.sin(a), Math.cos(a)); }
