@@ -46,7 +46,7 @@ function makeStripMap(routeId: string, stops: string[], names: Map<string, strin
   ctx.fillRect(0, 0, cv.width, cv.height);
   const color = routeColor(routeId);
   const dim = '#c7c6bd'; // greyed line/ring for already-visited stops
-  const x0 = 96, x1 = cv.width - 44;
+  const x0 = 96, x1 = cv.width - 130; // wider right margin so the terminal label fits
   const y = 48;
   const n = stops.length;
   const cur = x0 + ((x1 - x0) * currentIdx) / Math.max(1, n - 1);
@@ -89,15 +89,23 @@ function makeStripMap(routeId: string, stops: string[], names: Map<string, strin
       ctx.lineWidth = 4; ctx.strokeStyle = color; ctx.stroke();
     }
     const name = names.get(stops[i]) ?? stops[i];
-    const label = name.length > 20 ? name.slice(0, 19) + '…' : name;
+    const label = name.length > 18 ? name.slice(0, 17) + '…' : name;
     ctx.save();
     ctx.translate(x, y + 24);
     ctx.rotate(0.5);
     ctx.textAlign = 'left';
     ctx.textBaseline = 'middle';
-    if (current) { ctx.font = `19px ${BLACK}`; ctx.fillStyle = '#111'; }
-    else if (visited) { ctx.font = `17px ${SANS}`; ctx.fillStyle = '#9d9c93'; }
-    else { ctx.font = `18px ${SANS}`; ctx.fillStyle = '#2f2e2a'; }
+    let fs: number, fam: string;
+    if (current) { fs = 19; fam = BLACK; ctx.fillStyle = '#111'; }
+    else if (visited) { fs = 17; fam = SANS; ctx.fillStyle = '#9d9c93'; }
+    else { fs = 18; fam = SANS; ctx.fillStyle = '#2f2e2a'; }
+    // Shrink the font so the rotated label never runs off the right or bottom of
+    // the canvas: a label of pixel-width W reaches cos(0.5)*W right and sin(0.5)*W
+    // down from its anchor, so cap W by whichever edge is nearer.
+    const budget = Math.min((cv.width - 8 - x) / Math.cos(0.5), (cv.height - 6 - (y + 24)) / Math.sin(0.5));
+    ctx.font = `${fs}px ${fam}`;
+    const tw = ctx.measureText(label).width;
+    if (tw > budget) { fs = Math.max(11, Math.floor((fs * budget) / tw)); ctx.font = `${fs}px ${fam}`; }
     ctx.fillText(label, 0, 0);
     ctx.restore();
   }
@@ -127,12 +135,15 @@ export class RideWorld {
   private stateLen = 6;
   private doorOpenAmt = 1;
 
-  private doorPanels: { mesh: THREE.Object3D; home: number; dir: 1 | -1 }[] = [];
+  private doorPanels: { mesh: THREE.Object3D; home: number; dir: 1 | -1; side: 1 | -1 }[] = [];
   private streaks!: THREE.InstancedMesh;
-  private backdrop = new THREE.Group();
+  private backdrop = new THREE.Group();      // +z platform (door side)
+  private backdropNeg = new THREE.Group();   // -z platform (mirror, for island platforms)
   private backdropWall!: THREE.Mesh;
   private mosaicPlane!: THREE.Mesh;
   private stripMat!: THREE.MeshBasicMaterial;
+  private nextSign = new THREE.Group();      // center hanging next-stop announcement sign
+  private nextSignMat!: THREE.MeshBasicMaterial;
   private disposables: (THREE.BufferGeometry | THREE.Material | THREE.Texture)[] = [];
   private carHalf: number;
 
@@ -221,7 +232,7 @@ export class RideWorld {
     // side walls with 3 door bays; door bay centers at -len/3, 0, +len/3
     const bays = [-len / 3, 0, len / 3];
     const doorW = 1.3;
-    for (const side of [-1, 1]) {
+    for (const side of [-1, 1] as const) {
       const z = side * hw;
       // wall segments between bays
       const cuts = [-len / 2, ...bays.flatMap((b) => [b - doorW / 2, b + doorW / 2]), len / 2];
@@ -263,7 +274,7 @@ export class RideWorld {
           const stile = 0.09;
           this.box(stile, 0.77, 0.06, doorM, -pw / 2 + stile / 2, 1.435, 0, panel);
           this.box(stile, 0.77, 0.06, doorM, pw / 2 - stile / 2, 1.435, 0, panel);
-          this.doorPanels.push({ mesh: panel, home: homeX, dir: d });
+          this.doorPanels.push({ mesh: panel, home: homeX, dir: d, side });
         }
       }
     }
@@ -287,6 +298,19 @@ export class RideWorld {
       if (side === 1) sm.rotation.y = Math.PI;
       this.scene.add(sm);
     }
+
+    // center hanging next-stop sign: two back-to-back quads facing ±x so it
+    // reads from either end of the car (like the LED sign on real rolling stock).
+    this.nextSignMat = this.track(new THREE.MeshBasicMaterial({ color: 0xffffff }));
+    const signGeo = this.track(new THREE.PlaneGeometry(1.7, 0.42));
+    for (const ry of [Math.PI / 2, -Math.PI / 2]) {
+      const s = new THREE.Mesh(signGeo, this.nextSignMat);
+      s.rotation.y = ry;
+      this.nextSign.add(s);
+    }
+    this.nextSign.position.set(0, CAR_INTERIOR_H - 0.32, 0);
+    this.scene.add(this.nextSign);
+    this.box(0.06, 0.16, 0.06, steel, 0, CAR_INTERIOR_H - 0.13, 0); // mount bracket to ceiling
   }
 
   private buildOutside() {
@@ -349,11 +373,16 @@ export class RideWorld {
     // express pass-through platform (lives on the +z side group, hidden until used)
     this.buildExpressStation();
 
-    // arrival backdrop (station wall + mosaic) on the +z (door-opening) side
+    // arrival backdrop (station wall + mosaic) on BOTH sides: +z is the door
+    // side, -z is the mirrored island-platform view so neither window row is black.
     this.scene.add(this.backdrop);
     this.backdrop.position.set(0, 0, 2.75);
     this.backdrop.visible = true;
-    this.sideNeg.visible = true;
+    this.scene.add(this.backdropNeg);
+    this.backdropNeg.position.set(0, 0, -2.75);
+    this.backdropNeg.visible = true;
+    // start dwelling: both platforms shown, both tunnels hidden
+    this.sideNeg.visible = false;
     this.sidePos.visible = false;
   }
 
@@ -443,36 +472,73 @@ export class RideWorld {
   }
 
   private setBackdrop(stationId: string) {
-    // clear previous
-    for (const c of [...this.backdrop.children]) {
-      this.backdrop.remove(c);
-      const mesh = c as THREE.Mesh;
-      mesh.geometry?.dispose();
-      const mat = mesh.material as THREE.MeshLambertMaterial | undefined;
-      if (mat?.map) mat.map.dispose();
-      mat?.dispose();
+    // clear previous content on both platforms
+    for (const grp of [this.backdrop, this.backdropNeg]) {
+      for (const c of [...grp.children]) {
+        grp.remove(c);
+        const mesh = c as THREE.Mesh;
+        mesh.geometry?.dispose();
+        const mat = mesh.material as THREE.MeshLambertMaterial | undefined;
+        if (mat?.map) mat.map.dispose();
+        mat?.dispose();
+      }
     }
     const band = this.bandColors.get(stationId) ?? '#555';
     const name = this.names.get(stationId) ?? '';
-    const wallTex = makeWallTexture(band);
-    wallTex.repeat.set(8, 1);
-    const wall = new THREE.Mesh(new THREE.PlaneGeometry(64, 5.6), new THREE.MeshLambertMaterial({ map: wallTex }));
-    wall.rotation.y = Math.PI;
-    wall.position.set(0, 1.6, 0.2);
-    this.backdrop.add(wall);
-    const mosaic = makeNameMosaicTexture(name, band);
-    const mw = 0.8 * mosaic.aspect;
-    for (const mx of [-12, 0, 12]) {
-      const mp = new THREE.Mesh(new THREE.PlaneGeometry(mw, 0.8), new THREE.MeshLambertMaterial({ map: mosaic.texture }));
-      mp.rotation.y = Math.PI;
-      mp.position.set(mx, 1.9, 0.1);
-      this.backdrop.add(mp);
+    // Build a mirrored copy on each side. The group sits at z = S*2.75; local z
+    // is signed by S and the wall/mosaic face the car (rot.y = PI on +z, 0 on -z)
+    // so both window rows look out onto a lit platform + tiled wall + name tablet.
+    for (const S of [1, -1] as const) {
+      const grp = S === 1 ? this.backdrop : this.backdropNeg;
+      const face = S === 1 ? Math.PI : 0;
+      const wallTex = makeWallTexture(band);
+      wallTex.repeat.set(8, 1);
+      const wall = new THREE.Mesh(new THREE.PlaneGeometry(64, 5.6), new THREE.MeshLambertMaterial({ map: wallTex }));
+      wall.rotation.y = face;
+      wall.position.set(0, 1.6, S * 0.2);
+      grp.add(wall);
+      const mosaic = makeNameMosaicTexture(name, band);
+      const mw = 0.8 * mosaic.aspect;
+      for (const mx of [-12, 0, 12]) {
+        const mp = new THREE.Mesh(new THREE.PlaneGeometry(mw, 0.8), new THREE.MeshLambertMaterial({ map: mosaic.texture }));
+        mp.rotation.y = face;
+        mp.position.set(mx, 1.9, S * 0.1);
+        grp.add(mp);
+      }
+      // platform floor slab (horizontal; normal faces up either way)
+      const slab = new THREE.Mesh(new THREE.PlaneGeometry(64, 4.4), new THREE.MeshLambertMaterial({ color: 0x8f8f8c }));
+      slab.rotation.x = -Math.PI / 2;
+      slab.position.set(0, -0.02, S * -2.2);
+      grp.add(slab);
     }
-    // platform floor slab
-    const slab = new THREE.Mesh(new THREE.PlaneGeometry(64, 4.4), new THREE.MeshLambertMaterial({ color: 0x8f8f8c }));
-    slab.rotation.x = -Math.PI / 2;
-    slab.position.set(0, -0.02, -2.2);
-    this.backdrop.add(slab);
+  }
+
+  /** Bake the center announcement sign (MTA black panel, heavy white text). */
+  private setNextSign(text: string) {
+    const cv = document.createElement('canvas');
+    cv.width = 1024; cv.height = 256;
+    const ctx = cv.getContext('2d')!;
+    ctx.fillStyle = '#0a0a0a';
+    ctx.fillRect(0, 0, cv.width, cv.height);
+    ctx.strokeStyle = '#2b2b2b';
+    ctx.lineWidth = 10;
+    ctx.strokeRect(6, 6, cv.width - 12, cv.height - 12);
+    ctx.fillStyle = '#ffffff';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    let fs = 92;
+    ctx.font = `${fs}px ${BLACK}`;
+    while (ctx.measureText(text).width > cv.width - 80 && fs > 28) {
+      fs -= 4;
+      ctx.font = `${fs}px ${BLACK}`;
+    }
+    ctx.fillText(text, cv.width / 2, cv.height / 2 + 4);
+    const tex = new THREE.CanvasTexture(cv);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    tex.anisotropy = 4;
+    if (this.nextSignMat.map) this.nextSignMat.map.dispose();
+    this.nextSignMat.map = tex;
+    this.nextSignMat.needsUpdate = true;
   }
 
   private setStrip() {
@@ -495,12 +561,16 @@ export class RideWorld {
     this.t = 0;
     this.stateLen = len;
     this.setBackdrop(this.stops[this.idx]);
-    this.backdrop.visible = true;
-    this.sidePos.visible = false;      // +z shows the platform, not the tunnel
+    this.backdrop.visible = true;      // +z platform
+    this.backdropNeg.visible = true;   // -z platform (mirror) — no black side
+    this.sidePos.visible = false;      // both sides show the platform, not the tunnel
+    this.sideNeg.visible = false;
     this.expressActive = false;
     this.expressStation.visible = false;
     if (this.streaks) this.streaks.visible = false;
     this.setStrip();
+    const thisName = this.names.get(this.stops[this.idx]) ?? '';
+    this.setNextSign(this.atEnd ? `Last stop — ${thisName}` : `This is ${thisName}`);
   }
 
   get currentStationId() { return this.stops[this.idx]; }
@@ -532,6 +602,7 @@ export class RideWorld {
         this.state = 'closing';
         this.t = 0;
         this.stateLen = 1.4;
+        this.setNextSign('Stand clear of the closing doors');
       }
     } else if (this.state === 'closing') {
       this.doorOpenAmt = Math.max(0, this.doorOpenAmt - dt * 1.1);
@@ -542,10 +613,13 @@ export class RideWorld {
         this.state = 'moving';
         this.t = 0;
         this.stateLen = Math.max(8, Math.min(38, secs / 2.2));
-        // reveal the tunnel on both sides, hide the platform backdrop
+        // departure: reveal the tunnel on both sides, hide both platform backdrops
         this.backdrop.visible = false;
+        this.backdropNeg.visible = false;
         this.sidePos.visible = true;
+        this.sideNeg.visible = true;
         this.streaks.visible = true;
+        this.setNextSign(`Next stop: ${this.names.get(this.stops[this.idx]) ?? ''}`);
         // schedule an express fly-by for long (express) segments
         this.expressActive = this.stateLen >= 15;
         if (this.expressActive) this.setExpressName(this.pickExpressName());
@@ -570,10 +644,10 @@ export class RideWorld {
       if (this.t >= this.stateLen) this.enterDwell(12);
     }
 
-    // door panel animation
+    // door panel animation — only the +z (platform) side opens; -z stays shut
     const slide = 0.62 * this.doorOpenAmt;
     for (const d of this.doorPanels) {
-      d.mesh.position.x = d.home + d.dir * slide;
+      d.mesh.position.x = d.side === 1 ? d.home + d.dir * slide : d.home;
     }
   }
 
