@@ -8,7 +8,7 @@ import { heightAt } from './terrain';
  * Collapse a prop group into one mesh per material (a kit is otherwise ~40
  * meshes — railing posts, steps, rails — which wrecks the draw-call budget).
  */
-function mergeByMaterial(group: THREE.Group): THREE.Group {
+export function mergeByMaterial(group: THREE.Group): THREE.Group {
   group.updateMatrixWorld(true);
   const byMat = new Map<THREE.Material, THREE.BufferGeometry[]>();
   group.traverse((o) => {
@@ -253,7 +253,7 @@ export class EntranceManager {
   }
 }
 
-function disposeGroup(g: THREE.Group) {
+export function disposeGroup(g: THREE.Group) {
   g.traverse((o) => {
     if (o instanceof THREE.Mesh) {
       if (o.userData.shared) return;

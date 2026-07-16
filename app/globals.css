@@ -165,6 +165,37 @@ kbd {
   touch-action: manipulation;
 }
 
+/* ---- map layer toggle (subway / bikes) ---- */
+.layer-toggle {
+  display: flex;
+  gap: 2px;
+  padding: 2px;
+  border-radius: 9px;
+  background: rgba(10, 13, 17, 0.78);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.09);
+}
+.layer-toggle button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 22px;
+  padding: 0;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.45);
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+.layer-toggle button:hover { color: rgba(255, 255, 255, 0.8); }
+.layer-toggle button.on {
+  background: rgba(255, 255, 255, 0.14);
+  color: #fff;
+}
+
 /* ---- minimap zoom ---- */
 .mm-zoom {
   position: absolute;

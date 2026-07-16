@@ -7,6 +7,7 @@ import { setupSky, setupLights, followSun, SKY } from './sky';
 import { quality } from './quality';
 import { makeSkylineMaterial, makeFlatMaterial, makeWaterMaterial } from './materials';
 import { EntranceManager } from './EntranceManager';
+import { BikeManager } from './bikes';
 import { StationWorld } from './subway/StationWorld';
 import { ElevatedStationWorld } from './subway/ElevatedStationWorld';
 import { TrainScheduler } from './subway/scheduler';
@@ -24,6 +25,8 @@ export interface HudState {
   fly: boolean;
   prompt: string | null; // e.g. "72 St · 1·2·3"
   promptRoutes: string[];
+  promptHint: string | null; // action verb ("grab a bike"); null = subway walk-in default
+  riding: boolean; // on a bike
   stationName: string | null;
   stationRoutes: string[];
   ride: RideHud | null;
@@ -56,6 +59,8 @@ export class World {
   private streetScene = new THREE.Scene();
   private tiles: TileManager;
   private entrances: EntranceManager;
+  private bikes: BikeManager;
+  private riding = false; // on a bike (street mode only)
   private controls: PlayerControls;
   private station: StationWorld | ElevatedStationWorld | null = null;
   private scheduler: TrainScheduler | null = null;
@@ -85,7 +90,7 @@ export class World {
   private flyVel = new THREE.Vector3();
   private flyTarget = new THREE.Vector3();
   hud: HudState = {
-    mode: 'street', fly: false, prompt: null, promptRoutes: [], stationName: null,
+    mode: 'street', fly: false, prompt: null, promptRoutes: [], promptHint: null, riding: false, stationName: null,
     stationRoutes: [], ride: null, tilesLoaded: 0, tilesPending: 0, fps: 0, loading: true, error: null,
   };
   onHud: ((h: HudState) => void) | null = null;
@@ -126,9 +131,18 @@ export class World {
       },
       (x, z) => nearestWallDir(x, z, 15, this.tiles.collisionNear(x, z)),
     );
+    this.bikes = new BikeManager(
+      this.streetScene,
+      (x, z) => {
+        if (!this.tiles.readyAround(x, z)) return null;
+        return resolveBuildingCollision(x, z, 2.6, this.tiles.collisionNear(x, z));
+      },
+      (x, z) => nearestWallDir(x, z, 15, this.tiles.collisionNear(x, z)),
+    );
 
     this.controls = new PlayerControls(canvas);
     this.controls.onToggleFly = () => {
+      if (this.riding) return; // dock the bike first
       this.controls.fly = !this.controls.fly; // allowed everywhere (rescue hatch in stations)
     };
     this.controls.onAction = () => this.tryAction();
@@ -154,6 +168,7 @@ export class World {
       this.loadNetwork(),
       this.tiles.init(),
       this.entrances.init(),
+      this.bikes.init(),
       this.loadGround(),
       this.loadSkyline(),
     ]);
@@ -302,8 +317,26 @@ export class World {
   private tryAction() {
     if (this.transitioning) return;
     if (this.mode === 'street') {
+      const nearDock = this.bikes.nearest(this.pos.x, this.pos.z, 4.5);
+      if (this.riding) {
+        // the only street action on a bike: dock it
+        if (nearDock?.canDock && this.bikes.dockBike(nearDock.dock)) {
+          this.riding = false;
+          this.hud.riding = false;
+          this.pushHud();
+        }
+        return;
+      }
       const near = this.entrances.nearest(this.pos.x, this.pos.z, 4.5);
-      if (near) this.enterStation(near.station, near.pos);
+      const dE = near ? Math.hypot(near.pos[0] - this.pos.x, near.pos[1] - this.pos.z) : Infinity;
+      if (near && dE <= (nearDock?.d ?? Infinity)) {
+        this.enterStation(near.station, near.pos);
+      } else if (nearDock?.canGrab && this.bikes.grab(nearDock.dock)) {
+        this.riding = true;
+        this.hud.riding = true;
+        this.controls.fly = false;
+        this.pushHud();
+      }
     } else if (this.mode === 'ride') {
       if (this.ride?.canExit) this.exitRide();
     } else if (this.station) {
@@ -452,8 +485,9 @@ export class World {
     const input = this.controls.consumeInput();
     const { fwd, right } = this.controls.basis();
 
-    const baseSpeed = this.mode === 'station' ? 3.6 : this.controls.fly ? 42 : 5.2;
-    const speed = baseSpeed * (input.sprint ? (this.controls.fly ? 3.2 : 2.1) : 1);
+    // bike (13 m/s) beats even a full sprint (10.9); no sprint modifier on wheels
+    const baseSpeed = this.mode === 'station' ? 3.6 : this.controls.fly ? 42 : this.riding ? 13 : 5.2;
+    const speed = baseSpeed * (input.sprint && !this.riding ? (this.controls.fly ? 3.2 : 2.1) : 1);
     let dx = (fwd.x * input.forward + right.x * input.strafe) * speed * dt;
     let dz = (fwd.z * input.forward + right.z * input.strafe) * speed * dt;
 
@@ -494,19 +528,30 @@ export class World {
       this.waterUpdate?.(dt);
       this.tiles.update(this.pos.x, this.pos.z);
       this.entrances.update(this.pos.x, this.pos.z, dt);
+      this.bikes.update(this.pos.x, this.pos.z, dt);
 
-      // proximity prompt + auto-enter when stepping into the stairwell mouth
-      const near = this.entrances.nearest(this.pos.x, this.pos.z, 5);
-      if (near && !this.controls.fly) {
+      // proximity prompts. On a bike the subway is out of reach (dock first),
+      // so only dock prompts show; on foot the closer of entrance/dock wins.
+      const near = this.riding ? null : this.entrances.nearest(this.pos.x, this.pos.z, 5);
+      const nearDock = this.bikes.nearest(this.pos.x, this.pos.z, 4.5);
+      const dE = near ? Math.hypot(near.pos[0] - this.pos.x, near.pos[1] - this.pos.z) : Infinity;
+      this.hud.prompt = null;
+      this.hud.promptRoutes = [];
+      this.hud.promptHint = null;
+      if (near && !this.controls.fly && dE <= (nearDock?.d ?? Infinity)) {
         this.hud.prompt = `${near.station.name}`;
         this.hud.promptRoutes = near.station.routes;
-        const d = Math.hypot(near.pos[0] - this.pos.x, near.pos[1] - this.pos.z);
-        if (d < 1.9 && performance.now() - this.lastEnterGuard > 2500 && !this.transitioning) {
+        if (dE < 1.9 && performance.now() - this.lastEnterGuard > 2500 && !this.transitioning) {
           this.enterStation(near.station, near.pos);
         }
-      } else {
-        this.hud.prompt = null;
-        this.hud.promptRoutes = [];
+      } else if (nearDock && !this.controls.fly) {
+        if (this.riding && nearDock.canDock) {
+          this.hud.prompt = nearDock.dock.spec.n;
+          this.hud.promptHint = 'dock your bike';
+        } else if (!this.riding && nearDock.canGrab) {
+          this.hud.prompt = nearDock.dock.spec.n;
+          this.hud.promptHint = 'grab a bike';
+        }
       }
     } else if (this.mode === 'ride' && this.ride) {
       // constrained walking inside the car
@@ -649,11 +694,15 @@ export class World {
   getPos() { return { x: this.pos.x, y: this.pos.y, z: this.pos.z, mode: this.mode }; }
 
   /** Static overlay data for the minimap. */
-  mapData(): { stations: { x: number; z: number; color: string; name: string }[]; entrances: [number, number][] } {
+  mapData(): {
+    stations: { x: number; z: number; color: string; name: string }[];
+    entrances: [number, number][];
+    docks: [number, number][];
+  } {
     const stations = [...this.entrances.stationsMap.values()].map((s) => ({
       x: s.pos[0], z: s.pos[1], color: routeColor(s.routes[0]), name: s.name,
     }));
-    return { stations, entrances: this.entrances.entrancePositions() };
+    return { stations, entrances: this.entrances.entrancePositions(), docks: this.bikes.dockPositions() };
   }
   /** Road centerlines near the player, for the minimap's closest zoom. */
   roadPathsNear(x: number, z: number, tileR = 2) { return this.tiles.roadPathsNear(x, z, tileR); }
@@ -674,6 +723,7 @@ export class World {
     this.controls.dispose();
     this.tiles.destroy();
     this.entrances.destroy();
+    this.bikes.destroy();
     this.scheduler?.dispose();
     this.station?.dispose();
     this.ride?.dispose();

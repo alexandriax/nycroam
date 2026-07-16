@@ -104,6 +104,7 @@ export default function NYCRoam() {
   const [fade, setFade] = useState(false);
   const [showHelp, setShowHelp] = useState(true);
   const [isTouch, setIsTouch] = useState(false);
+  const [mapLayer, setMapLayer] = useState<'transit' | 'bikes'>('transit');
 
   useEffect(() => {
     if (!canvasRef.current) return;
@@ -162,11 +163,11 @@ export default function NYCRoam() {
           {LANDMARKS.map((l) => <option key={l.name} value={l.name}>{l.name}</option>)}
         </select>
         <div className="hud-panel stats">
-          {hud ? `${hud.fps} fps · ${hud.tilesLoaded} tiles${hud.tilesPending ? ` (+${hud.tilesPending})` : ''}${hud.fly ? ' · HELI' : ''}` : '—'}
+          {hud ? `${hud.fps} fps · ${hud.tilesLoaded} tiles${hud.tilesPending ? ` (+${hud.tilesPending})` : ''}${hud.fly ? ' · HELI' : ''}${hud.riding ? ' · BIKE' : ''}` : '—'}
         </div>
 
         {/* helicopter + its altitude pair live with the other chrome, not over the map */}
-        {hud && !hud.loading && !hud.error && hud.mode === 'street' && (
+        {hud && !hud.loading && !hud.error && hud.mode === 'street' && !hud.riding && (
           <button
             onClick={() => { const c = worldRef.current?.controlsRef; if (c) c.fly = !c.fly; }}
             className={`hud-panel heli-btn${hud.fly ? ' on' : ''}${isTouch ? ' touch' : ''}`}
@@ -209,8 +210,42 @@ export default function NYCRoam() {
 
       {/* minimap: bottom-right corner in every view, half size on touch */}
       {worldRef.current && hud && !hud.loading && !hud.error && hud.mode === 'street' && (
-        <div style={{ position: 'absolute', right: 12, bottom: 12 }}>
-          <MiniMap world={worldRef.current} size={isTouch ? 104 : 208} />
+        <div style={{ position: 'absolute', right: 12, bottom: 12, display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 6 }}>
+          <div className="layer-toggle" role="tablist" aria-label="Map layer">
+            <button
+              role="tab"
+              aria-selected={mapLayer === 'transit'}
+              className={mapLayer === 'transit' ? 'on' : ''}
+              onClick={() => setMapLayer('transit')}
+              title="Subway stations"
+            >
+              <svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
+                <rect x="3.2" y="1.8" width="9.6" height="10" rx="2.2" />
+                <line x1="3.2" y1="7.4" x2="12.8" y2="7.4" />
+                <circle cx="5.7" cy="9.9" r="0.4" fill="currentColor" />
+                <circle cx="10.3" cy="9.9" r="0.4" fill="currentColor" />
+                <line x1="5.4" y1="14.2" x2="4.2" y2="12" />
+                <line x1="10.6" y1="14.2" x2="11.8" y2="12" />
+              </svg>
+            </button>
+            <button
+              role="tab"
+              aria-selected={mapLayer === 'bikes'}
+              className={mapLayer === 'bikes' ? 'on' : ''}
+              onClick={() => setMapLayer('bikes')}
+              title="Bike docks"
+            >
+              <svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="3.6" cy="11" r="2.6" />
+                <circle cx="12.4" cy="11" r="2.6" />
+                <path d="M3.6 11 L6.2 5.6 L10.6 5.6" />
+                <path d="M6.2 5.6 L8.6 11 L3.6 11" />
+                <line x1="9.9" y1="3.6" x2="11.2" y2="3.6" />
+                <line x1="10.6" y1="3.6" x2="12.4" y2="11" />
+              </svg>
+            </button>
+          </div>
+          <MiniMap world={worldRef.current} size={isTouch ? 104 : 208} layer={mapLayer} />
         </div>
       )}
 
@@ -245,7 +280,11 @@ export default function NYCRoam() {
         }}>
           {hud.promptRoutes.length > 0 && <Bullets routes={hud.promptRoutes} />}
           <span>{hud.prompt}</span>
-          <span style={{ opacity: 0.6, fontSize: 12 }}>{isTouch ? '· walk in / tap GO' : '· walk in or press E'}</span>
+          <span style={{ opacity: 0.6, fontSize: 12 }}>
+            {hud.promptHint
+              ? (isTouch ? `· ${hud.promptHint} (GO)` : `· ${hud.promptHint} (E)`)
+              : (isTouch ? '· walk in / tap GO' : '· walk in or press E')}
+          </span>
         </div>
       )}
 

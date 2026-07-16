@@ -17,12 +17,13 @@ type Majors = { w: number; p: number[] }[];
  * Corner minimap: island silhouette, streets, subway stations (trunk-colored,
  * ringed), and a heading arrow.
  */
-export default function MiniMap({ world, size = 208 }: { world: World; size?: number }) {
+export default function MiniMap({ world, size = 208, layer = 'transit' }: { world: World; size?: number; layer?: 'transit' | 'bikes' }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [zoomIdx, setZoomIdx] = useState(1);
   const dataRef = useRef<{
     rings: number[][];
     stations: { x: number; z: number; color: string }[];
+    docks: [number, number][];
     majors: Majors;
   } | null>(null);
 
@@ -39,12 +40,13 @@ export default function MiniMap({ world, size = 208 }: { world: World; size?: nu
         } catch { return null; }
       };
       const [outline, streets] = await Promise.all([grab('/geo/outline.json'), grab('/geo/streets.json')]);
-      const { stations } = world.mapData();
+      const { stations, docks } = world.mapData();
       if (alive) {
         dataRef.current = {
           rings: outline?.rings ?? [],
           majors: streets?.ways ?? [],
           stations,
+          docks,
         };
       }
     })();
@@ -157,11 +159,15 @@ export default function MiniMap({ world, size = 208 }: { world: World; size?: nu
         }, 0.6);
       }
 
-      // stations: trunk-colored, white-ringed. (Per-entrance dots used to be
-      // scattered here too — 835 green specks that read as visual noise.)
+      // one POI layer at a time: subway stations (trunk-colored) or bike docks
+      // (blue). Both white-ringed. (Per-entrance dots used to be scattered here
+      // too — 835 green specks that read as visual noise.)
       if (d) {
         const dotR = compact ? 2.4 : 3.4;
-        for (const st of d.stations) {
+        const pois: { x: number; z: number; color: string }[] = layer === 'bikes'
+          ? d.docks.map(([x, z]) => ({ x, z, color: '#2f7fe0' }))
+          : d.stations;
+        for (const st of pois) {
           const X = sx(st.x), Y = sy(st.z);
           if (X < -6 || X > size + 6 || Y < -6 || Y > size + 6) continue;
           ctx.beginPath();
@@ -206,7 +212,7 @@ export default function MiniMap({ world, size = 208 }: { world: World; size?: nu
     draw();
     const iv = window.setInterval(draw, 250);
     return () => window.clearInterval(iv);
-  }, [world, zoomIdx, size, R, compact]);
+  }, [world, zoomIdx, size, R, compact, layer]);
 
   // zoomIdx 0 is closest, so "+" walks toward 0
   const zoomIn = () => setZoomIdx((z) => Math.max(0, z - 1));

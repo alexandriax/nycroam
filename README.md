@@ -89,6 +89,7 @@ Mobile keeps a lean shadowless tier automatically.
 
 - USGS/AWS Terrain Tiles (Terrarium) — elevation
 - MTA GTFS static — route stop sequences and travel times
+- NYC bike share (GBFS station_information) — public bike dock locations and capacities
 
 ## Known limitations
 
