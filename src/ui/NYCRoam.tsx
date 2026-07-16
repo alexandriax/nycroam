@@ -26,6 +26,24 @@ function Bullets({ routes, size = 22 }: { routes: string[]; size?: number }) {
   );
 }
 
+/** Bus route chips: MTA buses use rounded rectangles, not subway bullets. */
+function BusChips({ badges, size = 22 }: { badges: { id: string; color: string; sbs: boolean }[]; size?: number }) {
+  return (
+    <span style={{ display: 'inline-flex', gap: 3, verticalAlign: 'middle', flexWrap: 'wrap' }}>
+      {badges.slice(0, 5).map((b) => (
+        <span key={b.id} style={{
+          display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+          background: b.color, color: '#fff', borderRadius: size * 0.2,
+          height: size, padding: `0 ${Math.round(size * 0.28)}px`,
+          fontWeight: 700, fontSize: size * 0.5, letterSpacing: 0.4,
+          boxShadow: b.sbs ? 'inset 0 0 0 2px #00a6ce' : undefined,
+        }}>{b.id}</span>
+      ))}
+      {badges.length > 5 && <span style={{ fontSize: size * 0.5, opacity: 0.7 }}>+{badges.length - 5}</span>}
+    </span>
+  );
+}
+
 /** Virtual joystick (left = move). Right half of screen drags look. */
 function TouchControls({ world }: { world: World }) {
   const baseRef = useRef<HTMLDivElement>(null);
@@ -112,7 +130,7 @@ export default function NYCRoam() {
   const [fade, setFade] = useState(false);
   const [showHelp, setShowHelp] = useState(true);
   const [isTouch, setIsTouch] = useState(false);
-  const [mapLayer, setMapLayer] = useState<'transit' | 'bikes'>('transit');
+  const [mapLayer, setMapLayer] = useState<'transit' | 'bikes' | 'bus'>('transit');
 
   useEffect(() => {
     if (!canvasRef.current) return;
@@ -176,7 +194,7 @@ export default function NYCRoam() {
           </optgroup>
         </select>
         <div className="hud-panel stats">
-          {hud ? `${hud.fps} fps · ${hud.tilesLoaded} tiles${hud.tilesPending ? ` (+${hud.tilesPending})` : ''}${hud.fly ? ' · HELI' : ''}${hud.riding ? ' · BIKE' : ''}` : '—'}
+          {hud ? `${hud.fps} fps · ${hud.tilesLoaded} tiles${hud.tilesPending ? ` (+${hud.tilesPending})` : ''}${hud.fly ? ' · HELI' : ''}${hud.riding ? ' · BIKE' : ''}${hud.mode === 'bus' ? ' · BUS' : ''}` : '—'}
         </div>
 
         {/* controls legend */}
@@ -222,7 +240,7 @@ export default function NYCRoam() {
       </div>
 
       {/* minimap: bottom-right corner in every view, half size on touch */}
-      {worldRef.current && hud && !hud.loading && !hud.error && hud.mode === 'street' && (
+      {worldRef.current && hud && !hud.loading && !hud.error && (hud.mode === 'street' || hud.mode === 'bus') && (
         <div style={{ position: 'absolute', right: 12, bottom: 12, display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 6 }}>
           <div className="layer-toggle" role="tablist" aria-label="Map layer">
             <button
@@ -257,6 +275,23 @@ export default function NYCRoam() {
                 <line x1="10.6" y1="3.6" x2="12.4" y2="11" />
               </svg>
             </button>
+            <button
+              role="tab"
+              aria-selected={mapLayer === 'bus'}
+              className={mapLayer === 'bus' ? 'on' : ''}
+              onClick={() => setMapLayer('bus')}
+              title="Bus stops + live buses"
+            >
+              <svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
+                <rect x="3" y="1.8" width="10" height="11.2" rx="1.6" />
+                <line x1="3" y1="6.6" x2="13" y2="6.6" />
+                <line x1="5.2" y1="3.2" x2="10.8" y2="3.2" />
+                <circle cx="5.6" cy="10.4" r="0.5" fill="currentColor" />
+                <circle cx="10.4" cy="10.4" r="0.5" fill="currentColor" />
+                <line x1="4.6" y1="14.6" x2="4.6" y2="13" />
+                <line x1="11.4" y1="14.6" x2="11.4" y2="13" />
+              </svg>
+            </button>
           </div>
           <MiniMap world={worldRef.current} size={isTouch ? 104 : 208} layer={mapLayer} />
         </div>
@@ -288,13 +323,37 @@ export default function NYCRoam() {
         </div>
       )}
 
+      {/* bus riding panel */}
+      {hud?.mode === 'bus' && hud.bus && (
+        <div className="hud-panel" style={{
+          position: 'absolute', bottom: isTouch ? 170 : 84, left: '50%', transform: 'translateX(-50%)',
+          padding: '12px 20px', display: 'flex', gap: 12, alignItems: 'center', whiteSpace: 'nowrap',
+        }}>
+          <BusChips badges={[{ id: hud.bus.route, color: hud.bus.color, sbs: hud.bus.sbs }]} size={28} />
+          <div style={{ lineHeight: 1.45 }}>
+            <div style={{ fontSize: 12, opacity: 0.65 }}>to {hud.bus.dest}</div>
+            <div style={{ fontSize: 15 }}>
+              {hud.bus.state === 'dwell' && (hud.bus.atEnd
+                ? <>Last stop — <b>{hud.bus.thisStop}</b></>
+                : <>This is <b>{hud.bus.thisStop}</b></>)}
+              {hud.bus.state === 'closing' && <span className="pulse">Doors closing</span>}
+              {hud.bus.state === 'moving' && <>Next stop: <b>{hud.bus.thisStop}</b></>}
+            </div>
+            {hud.bus.state === 'dwell' && (
+              <div style={{ fontSize: 11, opacity: 0.6 }}>{isTouch ? 'tap GO to step off' : 'press E to step off'}</div>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* entrance / exit prompt */}
-      {hud?.prompt && hud.mode !== 'ride' && (
+      {hud?.prompt && hud.mode !== 'ride' && hud.mode !== 'bus' && (
         <div className="hud-panel pulse" style={{
           position: 'absolute', bottom: isTouch ? 170 : 96, left: '50%', transform: 'translateX(-50%)',
           padding: '10px 18px', fontSize: 15, display: 'flex', gap: 8, alignItems: 'center', whiteSpace: 'nowrap',
         }}>
           {hud.promptRoutes.length > 0 && <Bullets routes={hud.promptRoutes} />}
+          {hud.promptBus.length > 0 && <BusChips badges={hud.promptBus} />}
           <span>{hud.prompt}</span>
           <span style={{ opacity: 0.6, fontSize: 12 }}>
             {hud.promptHint
@@ -309,11 +368,13 @@ export default function NYCRoam() {
         <>
           <TouchControls world={worldRef.current} />
           {/* GO sits above the minimap, which now owns the bottom-right corner */}
-          {(hud?.prompt || (hud?.mode === 'ride' && hud.ride?.state === 'dwell')) && (
+          {(hud?.prompt
+            || (hud?.mode === 'ride' && hud.ride?.state === 'dwell')
+            || (hud?.mode === 'bus' && hud.bus?.state === 'dwell')) && (
             <button
               onClick={() => worldRef.current?.action()}
               className="go-btn"
-              style={{ bottom: hud?.mode === 'street' ? 128 : 24 }}
+              style={{ bottom: hud?.mode === 'street' || hud?.mode === 'bus' ? 128 : 24 }}
             >GO</button>
           )}
         </>

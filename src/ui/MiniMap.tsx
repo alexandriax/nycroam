@@ -15,16 +15,17 @@ const MAJORS_ZOOM_IDX = 2;
 type Majors = { w: number; p: number[] }[];
 
 /**
- * Corner minimap: island silhouette, streets, subway stations (trunk-colored,
- * ringed), and a heading arrow.
+ * Corner minimap: island silhouette, streets, one POI layer (subway stations /
+ * bike docks / bus stops + live buses), and a heading arrow.
  */
-export default function MiniMap({ world, size = 208, layer = 'transit' }: { world: World; size?: number; layer?: 'transit' | 'bikes' }) {
+export default function MiniMap({ world, size = 208, layer = 'transit' }: { world: World; size?: number; layer?: 'transit' | 'bikes' | 'bus' }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [zoomIdx, setZoomIdx] = useState(1);
   const dataRef = useRef<{
     rings: number[][];
     stations: { x: number; z: number; color: string }[];
     docks: [number, number][];
+    busStops: [number, number][];
     majors: Majors;
   } | null>(null);
 
@@ -41,13 +42,14 @@ export default function MiniMap({ world, size = 208, layer = 'transit' }: { worl
         } catch { return null; }
       };
       const [outline, streets] = await Promise.all([grab('/geo/outline.json'), grab('/geo/streets.json')]);
-      const { stations, docks } = world.mapData();
+      const { stations, docks, busStops } = world.mapData();
       if (alive) {
         dataRef.current = {
           rings: outline?.rings ?? [],
           majors: streets?.ways ?? [],
           stations,
           docks,
+          busStops,
         };
       }
     })();
@@ -161,9 +163,31 @@ export default function MiniMap({ world, size = 208, layer = 'transit' }: { worl
       }
 
       // one POI layer at a time: subway stations (trunk-colored) or bike docks
-      // (blue). Both white-ringed. (Per-entrance dots used to be scattered here
+      // (blue), white-ringed dots — or the bus layer: every stop as a small
+      // flat square with LIVE buses on top as bigger ringed dots, so a moving
+      // bus never reads as a stop. (Per-entrance dots used to be scattered here
       // too — 835 green specks that read as visual noise.)
-      if (d) {
+      if (d && layer === 'bus') {
+        const sq = compact ? 1.7 : 2.4;
+        ctx.fillStyle = '#8fa3b8';
+        for (const [x, z] of d.busStops) {
+          const X = sx(x), Y = sy(z);
+          if (X < -4 || X > size + 4 || Y < -4 || Y > size + 4) continue;
+          ctx.fillRect(X - sq / 2, Y - sq / 2, sq, sq);
+        }
+        const busR = compact ? 2.5 : 3.4;
+        for (const b of world.getBuses()) {
+          const X = sx(b.x), Y = sy(b.z);
+          if (X < -6 || X > size + 6 || Y < -6 || Y > size + 6) continue;
+          ctx.beginPath();
+          ctx.arc(X, Y, busR, 0, Math.PI * 2);
+          ctx.fillStyle = b.color;
+          ctx.fill();
+          ctx.lineWidth = compact ? 0.9 : 1.2;
+          ctx.strokeStyle = '#f4f6f8';
+          ctx.stroke();
+        }
+      } else if (d) {
         const dotR = compact ? 2.4 : 3.4;
         const pois: { x: number; z: number; color: string }[] = layer === 'bikes'
           ? d.docks.map(([x, z]) => ({ x, z, color: '#2f7fe0' }))
