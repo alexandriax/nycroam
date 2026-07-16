@@ -39,7 +39,7 @@ export const LANDMARKS_REG: LandmarkEntry[] = [
   { id: 'sept11-museum', name: '9/11 Memorial Museum', lat: 40.7115, lon: -74.0125, set: 'fidi', r: 450 },
   { id: 'sept11-pools', name: 'September 11 Memorial Pools', lat: 40.7118, lon: -74.0133, set: 'fidi', r: 500 },
   { id: 'oculus', name: 'Oculus', lat: 40.7115, lon: -74.0113, set: 'fidi', r: 600 },
-  { id: 'nyse', name: 'New York Stock Exchange', lat: 40.707, lon: -74.0107, set: 'fidi', r: 450, rot: 0.35 },
+  { id: 'nyse', name: 'New York Stock Exchange', lat: 40.7069, lon: -74.0113, set: 'fidi', r: 450, rot: 0.35 },
   { id: 'nyse-facade', name: 'NYSE Facade', lat: 40.7069, lon: -74.0113, set: 'fidi', r: 450, aliasOf: 'nyse' },
   { id: 'federal-hall', name: 'Federal Hall', lat: 40.7074, lon: -74.0102, set: 'fidi', r: 420, rot: -1.22 },
   { id: 'trinity-church', name: 'Trinity Church', lat: 40.7081, lon: -74.0121, set: 'fidi', r: 700, rot: 1.62 },
@@ -64,7 +64,7 @@ export const LANDMARKS_REG: LandmarkEntry[] = [
   { id: 'little-italy', name: 'Little Italy', lat: 40.7191, lon: -73.9973, set: 'civic', r: 380, rot: 0.05 },
   { id: 'brooklyn-bridge', name: 'Brooklyn Bridge', lat: 40.7069, lon: -73.9987, set: 'civic', r: 1700, rot: -1.12 },
   { id: 'manhattan-bridge', name: 'Manhattan Bridge', lat: 40.7095, lon: -73.991, set: 'civic', r: 1700, rot: -0.95 },
-  { id: 'williamsburg-bridge', name: 'Williamsburg Bridge', lat: 40.714, lon: -73.976, set: 'civic', r: 1600, rot: -1.35 },
+  { id: 'williamsburg-bridge', name: 'Williamsburg Bridge', lat: 40.7143, lon: -73.9745, set: 'civic', r: 1600, rot: -1.35 },
 
   // ---- village / chelsea / hudson yards ----
   { id: 'washington-arch', name: 'Washington Square Arch', lat: 40.7314, lon: -73.9971, set: 'village', r: 500, rot: 0.05 },
@@ -107,11 +107,11 @@ export const LANDMARKS_REG: LandmarkEntry[] = [
   { id: 'summit-1v', name: 'Summit One Vanderbilt', lat: 40.7529, lon: -73.9787, set: 'midtown-east', r: 1400, aliasOf: 'one-vanderbilt' },
   { id: 'united-nations', name: 'United Nations Headquarters', lat: 40.749, lon: -73.968, set: 'midtown-east', r: 800, rot: 0 },
   { id: 'roosevelt-tram', name: 'Roosevelt Island Tramway', lat: 40.7615, lon: -73.9642, set: 'midtown-east', r: 700, rot: GRID },
-  { id: 'queensboro-bridge', name: 'Ed Koch Queensboro Bridge', lat: 40.757, lon: -73.9635, set: 'midtown-east', r: 1500, rot: GRID },
+  { id: 'queensboro-bridge', name: 'Ed Koch Queensboro Bridge', lat: 40.7595, lon: -73.9605, set: 'midtown-east', r: 1500, rot: GRID },
 
   // ---- uptown west (columbus circle -> UWS) + UES museums ----
   { id: 'columbus-circle', name: 'Columbus Circle', lat: 40.768, lon: -73.9819, set: 'uptown', r: 550, rot: GRID },
-  { id: 'hearst-tower', name: 'Hearst Tower', lat: 40.7663, lon: -73.9857, set: 'uptown', r: 900, rot: GRID },
+  { id: 'hearst-tower', name: 'Hearst Tower', lat: 40.7666, lon: -73.9836, set: 'uptown', r: 900, rot: GRID },
   { id: 'plaza-hotel', name: 'The Plaza Hotel', lat: 40.7644, lon: -73.9745, set: 'uptown', r: 550, rot: GRID },
   { id: 'pulitzer-fountain', name: 'Pulitzer Fountain', lat: 40.764, lon: -73.9737, set: 'uptown', r: 400, rot: GRID },
   { id: 'lincoln-center', name: 'Lincoln Center', lat: 40.7727, lon: -73.9829, set: 'uptown', r: 550, rot: GRID },
@@ -137,16 +137,16 @@ export const LANDMARKS_REG: LandmarkEntry[] = [
   { id: 'harlem-meer', name: 'Harlem Meer', lat: 40.7966, lon: -73.952, set: 'park', r: 420, rot: GRID },
 
   // ---- heights (morningside / harlem / washington heights / inwood) ----
-  { id: 'apollo', name: 'Apollo Theater', lat: 40.8096, lon: -73.9502, set: 'heights', r: 450, rot: GRID },
+  { id: 'apollo', name: 'Apollo Theater', lat: 40.8101, lon: -73.9499, set: 'heights', r: 450, rot: GRID },
   { id: 'st-john-divine', name: 'Cathedral of St. John the Divine', lat: 40.8038, lon: -73.9619, set: 'heights', r: 700, rot: GRID },
   { id: 'columbia', name: 'Columbia University — Low Library', lat: 40.8081, lon: -73.9619, set: 'heights', r: 550, rot: GRID },
   { id: 'riverside-church', name: 'Riverside Church', lat: 40.8119, lon: -73.9633, set: 'heights', r: 900, rot: GRID },
   { id: 'grants-tomb', name: "Grant's Tomb", lat: 40.8134, lon: -73.963, set: 'heights', r: 550, rot: GRID },
   { id: 'grant-plaza', name: 'General Grant Memorial Plaza', lat: 40.8134, lon: -73.963, set: 'heights', r: 550, aliasOf: 'grants-tomb' },
-  { id: 'riverside-park', name: 'Riverside Park', lat: 40.785, lon: -73.9823, set: 'heights', r: 400, rot: GRID },
+  { id: 'riverside-park', name: 'Riverside Park', lat: 40.785, lon: -73.9838, set: 'heights', r: 400, rot: GRID },
   { id: 'hamilton-grange', name: 'Hamilton Grange', lat: 40.8214, lon: -73.9469, set: 'heights', r: 400, rot: GRID },
-  { id: 'morris-jumel', name: 'Morris-Jumel Mansion', lat: 40.834, lon: -73.9354, set: 'heights', r: 400, rot: GRID },
-  { id: 'dyckman-farmhouse', name: 'Dyckman Farmhouse', lat: 40.8672, lon: -73.9339, set: 'heights', r: 380, rot: GRID },
+  { id: 'morris-jumel', name: 'Morris-Jumel Mansion', lat: 40.8345, lon: -73.9386, set: 'heights', r: 400, rot: GRID },
+  { id: 'dyckman-farmhouse', name: 'Dyckman Farmhouse', lat: 40.8668, lon: -73.9229, set: 'heights', r: 380, rot: GRID },
   { id: 'cloisters', name: 'The Cloisters', lat: 40.8649, lon: -73.9317, set: 'heights', r: 700, rot: 0.2 },
   { id: 'fort-tryon', name: 'Fort Tryon Park', lat: 40.8593, lon: -73.9327, set: 'heights', r: 420, rot: 0.2 },
   { id: 'inwood-hill', name: 'Inwood Hill Park', lat: 40.8712, lon: -73.9243, set: 'heights', r: 420, rot: 0 },

@@ -490,7 +490,7 @@ async function main() {
   // drops the parts our build replaces (e.g. Hearst's tower above its 1928
   // base) while keeping the rest of the building.
   const LANDMARK_FIT = [
-    { id: 'hearst-tower', lat: 40.7665, lon: -73.9827, r: 45, clearAboveMin: 24, clearAboveH: 34 },
+    { id: 'hearst-tower', lat: 40.7666, lon: -73.9836, r: 45, clearAboveH: 5 },
     { id: 'chrysler', lat: 40.7516, lon: -73.9755, r: 45, clearAboveMin: 184, clearAboveH: 270 },
     { id: 'empire-state', lat: 40.7484, lon: -73.9857, r: 40, clearAboveMin: 325 },
     { id: 'one-vanderbilt', lat: 40.7529, lon: -73.9787, r: 40 },
