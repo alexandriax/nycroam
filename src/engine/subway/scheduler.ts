@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { Train } from './train';
-import type { StationSpec, TrackInfo, NetworkData } from './types';
+import type { StationSpec, TrackInfo, NetworkData, Arrival } from './types';
 
 /** Express partner shown blasting through local stations' center tracks. */
 const EXPRESS_PARTNER: Record<string, string> = {
@@ -24,7 +24,13 @@ interface Slot {
   timeScale: number;
   cooldown: number; // seconds until next spawn
   passThrough: boolean;
+  platformSide: 1 | -1; // train-LOCAL z-sign facing the platform (doors open here)
 }
+
+// Rough real seconds for a freshly-spawned train to go hidden->approach->dwell,
+// before the timeScale compression is applied — used to estimate the countdown
+// for a track with no train on it yet.
+const SPAWN_TO_DWELL = 19;
 
 /**
  * Runs arrivals on a station's tracks: one train per track at a time, cycling
@@ -59,6 +65,11 @@ export class TrainScheduler {
         assigned = outer ? [routes[0]] : routes.slice(1);
         if (!assigned.length) assigned = routes;
       }
+      // Doors/openings face the platform. The train group is rotated 180° for
+      // downtown (dirSign -1), which flips its local z-axis, so the LOCAL
+      // platform side is the world side times that flip.
+      const worldSide = info.platformSides?.[i] ?? 1;
+      const platformSide: 1 | -1 = (worldSide * (dirSign === -1 ? -1 : 1)) as 1 | -1;
       this.slots.push({
         trackZ: tz,
         dirSign,
@@ -70,6 +81,7 @@ export class TrainScheduler {
         timeScale: 1.35, // compresses the ~40s internal cycle to ~30s
         cooldown: Math.random() * headway, // stagger initial arrivals
         passThrough: false,
+        platformSide,
       });
     });
 
@@ -86,6 +98,7 @@ export class TrainScheduler {
         timeScale: 0.45, // slows the fixed approach duration to a realistic blast-through
         cooldown: 10 + Math.random() * 25,
         passThrough: true,
+        platformSide: 1, // express blows through; doors never open
       });
     }
   }
@@ -113,7 +126,7 @@ export class TrainScheduler {
   private spawn(s: Slot) {
     const route = s.routes[s.routeIdx % s.routes.length];
     s.routeIdx++;
-    const train = new Train({ division: this.spec.division, routes: [route] });
+    const train = new Train({ division: this.spec.division, routes: [route], platformSide: s.platformSide });
     train.group.position.set(0, this.info.railY, s.trackZ);
     if (s.dirSign === -1) train.group.rotation.y = Math.PI;
     const bb = new THREE.Box3().setFromObject(train.group);
@@ -152,6 +165,31 @@ export class TrainScheduler {
     return this.slots
       .filter((s) => s.train)
       .map((s) => ({ x: Math.round(s.train!.group.position.x * 10) / 10, doors: s.train!.doorsOpen }));
+  }
+
+  /**
+   * Soonest next train per DIRECTION, for the platform countdown clocks. A slot
+   * with a train uses the train's own time-to-dwell (internal seconds ÷ the
+   * slot's timeScale → real seconds); an empty slot uses its cooldown plus a
+   * fresh train's spawn→dwell time. Returns one entry per direction (the min).
+   */
+  arrivals(): Arrival[] {
+    const best = new Map<1 | -1, Arrival>();
+    for (const s of this.slots) {
+      if (s.passThrough) continue;
+      let seconds: number;
+      if (s.train) {
+        const internal = s.train.secondsToArrival;
+        seconds = internal === Infinity ? Math.max(0, s.cooldown) + SPAWN_TO_DWELL : internal / s.timeScale;
+      } else {
+        seconds = Math.max(0, s.cooldown) + SPAWN_TO_DWELL / s.timeScale;
+      }
+      const prev = best.get(s.dirSign);
+      if (!prev || seconds < prev.seconds) {
+        best.set(s.dirSign, { dirSign: s.dirSign, routes: s.routes, seconds });
+      }
+    }
+    return [...best.values()];
   }
 
   dispose() {

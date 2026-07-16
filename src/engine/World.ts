@@ -16,7 +16,7 @@ import { StationWorld } from './subway/StationWorld';
 import { ElevatedStationWorld } from './subway/ElevatedStationWorld';
 import { TrainScheduler } from './subway/scheduler';
 import { RideWorld, type RideHud } from './subway/RideWorld';
-import type { StationSpec, NetworkData } from './subway/types';
+import type { StationSpec, NetworkData, Arrival } from './subway/types';
 import { routeColor } from './subway/types';
 import { boardLabel } from './subway/directions';
 import { lonLatToXZ } from './geo';
@@ -509,6 +509,9 @@ export class World {
       ? new ElevatedStationWorld(spec, this.envTex)
       : new StationWorld(spec, this.envTex);
     this.scheduler = new TrainScheduler(this.station.scene, spec, this.station.trackInfo, this.network);
+    // feed the platform countdown clocks: the station redraws them from this on
+    // its own timer (reads the live scheduler each call, so it survives rebuilds).
+    (this.station as { arrivalsFn?: () => Arrival[] }).arrivalsFn = () => this.scheduler?.arrivals() ?? [];
     this.currentStationSpec = spec;
   }
 

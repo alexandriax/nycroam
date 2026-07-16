@@ -9,6 +9,13 @@ export interface TrainOpts {
   division: string;
   routes: string[];
   carCount?: number;
+  /**
+   * The car's LOCAL z-sign that faces the platform (+1 or -1). The scheduler
+   * computes it from the track/rotation and passes it here. Only this side gets
+   * window openings and opening doors; the opposite side is built solid so you
+   * never see straight through the car to the tunnel. Default +1.
+   */
+  platformSide?: 1 | -1;
 }
 
 // ---------------------------------------------------------------------------
@@ -128,6 +135,7 @@ interface CarGeometrySet {
   sideEndUpper: THREE.BoxGeometry; // outer wall segment, head -> door-top
   sideMidLower: THREE.BoxGeometry; // inner wall segment, floor -> sill
   sideMidUpper: THREE.BoxGeometry; // inner wall segment, head -> door-top
+  sideSolid: THREE.BoxGeometry; // FAR side: one solid wall (no window/door openings)
   header: THREE.BoxGeometry; // full-length upper wall spanning above the doors
   floor: THREE.BoxGeometry; // interior floor
   ceiling: THREE.BoxGeometry; // lit ceiling strip
@@ -158,6 +166,9 @@ function getCarGeometry(division: string): CarGeometrySet {
       sideEndUpper: new THREE.BoxGeometry(endSegW, ABOVE_H, WALL_THK),
       sideMidLower: new THREE.BoxGeometry(midSegW, BELOW_H, WALL_THK),
       sideMidUpper: new THREE.BoxGeometry(midSegW, ABOVE_H, WALL_THK),
+      // Far wall: full-length, floor -> door-top solid panel. Combined with the
+      // header above it, the whole far side is opaque from floor to roof.
+      sideSolid: new THREE.BoxGeometry(L * 0.98, DOOR_TOP_H, WALL_THK),
       header: new THREE.BoxGeometry(L * 0.98, H - DOOR_TOP_H, WALL_THK),
       floor: new THREE.BoxGeometry(L * 0.92, 0.08, W - 2 * WALL_THK - 0.02),
       ceiling: new THREE.BoxGeometry(L * 0.85, 0.06, W * 0.5),
@@ -248,7 +259,9 @@ export class Train {
   private readonly frameMesh: THREE.InstancedMesh; // all window sill/head lips + mullions, one draw call
   private readonly doorLeaves: THREE.Object3D[] = [];
   private readonly doorClosedX: number[] = [];
-  private readonly doorSign: number[] = [];
+  private readonly doorSign: number[] = []; // slide direction (±x) of each leaf
+  private readonly doorLeafSide: number[] = []; // local z-sign of the wall each leaf belongs to
+  private readonly platformSide: 1 | -1; // local z-sign facing the platform
   private readonly rollSignTexture: THREE.CanvasTexture;
   private readonly rollSignMaterial: THREE.MeshLambertMaterial;
 
@@ -262,6 +275,7 @@ export class Train {
   private doorOffset = 0;
 
   constructor(opts: TrainOpts) {
+    this.platformSide = opts.platformSide === -1 ? -1 : 1;
     const dims = carDims(opts.division);
     const defaultCount = opts.division === 'IRT' ? 10 : 8;
     const carCount = Math.max(1, Math.floor(opts.carCount ?? defaultCount));
@@ -277,11 +291,12 @@ export class Train {
     this.group.add(this.wheelMesh);
 
     // Window framing: 2 lips (sill + head) plus (panes-1) mullions per wall
-    // segment, on both sides of every car, all in a single InstancedMesh so the
-    // whole train's window detail is one draw call.
+    // segment, on the PLATFORM SIDE ONLY of every car (the far side is solid, so
+    // it has no windows to frame), all in a single InstancedMesh so the whole
+    // train's window detail is one draw call.
     let framePerSide = 0;
     for (const seg of segs) framePerSide += 2 + (panesFor(seg.w) - 1);
-    this.frameMesh = new THREE.InstancedMesh(FRAME_BAR_GEO, BODY_MATERIAL, carCount * 2 * framePerSide);
+    this.frameMesh = new THREE.InstancedMesh(FRAME_BAR_GEO, BODY_MATERIAL, carCount * framePerSide);
     this.group.add(this.frameMesh);
 
     const route = opts.routes[0] ?? 'S';
@@ -310,9 +325,10 @@ export class Train {
 
       this.addBodyShell(localX, dims, geo, segs);
 
-      // Window framing on both wall faces, mounted flush with the wall skin.
-      for (const sideZ of [-1, 1]) {
-        const fz = sideZ * (dims.width / 2 - WALL_THK / 2);
+      // Window framing on the PLATFORM-side wall only (the far side is solid),
+      // mounted flush with the wall skin.
+      {
+        const fz = this.platformSide * (dims.width / 2 - WALL_THK / 2);
         for (const seg of segs) {
           const sx = localX + seg.cx;
           // sill lip
@@ -365,8 +381,8 @@ export class Train {
       for (const sideZ of [-1, 1]) {
         const z = sideZ * (dims.width / 2 + 0.004);
         for (const dx of doorXs) {
-          this.addDoorLeaf(localX + dx - halfGap, z, -1);
-          this.addDoorLeaf(localX + dx + halfGap, z, 1);
+          this.addDoorLeaf(localX + dx - halfGap, z, -1, sideZ);
+          this.addDoorLeaf(localX + dx + halfGap, z, 1, sideZ);
         }
       }
 
@@ -380,14 +396,20 @@ export class Train {
 
   /**
    * Segmented stainless shell + a minimal lit interior, replacing the single
-   * solid body box. Each side wall is cut into solid segments between the door
-   * bays, and each segment is further split into a below-window panel (floor ->
-   * sill) and an above-window panel (head -> door-top). The WIN_SILL..WIN_HEAD
-   * row is left as a real OPENING, so from the platform you see the lit floor,
-   * benches, poles and far interior straight through the window — the same view
-   * you already get through an open door, with no glass to mis-sort. The door
-   * bays stay open (covered only by the sliding leaves). All geometry is shared
-   * (division-cached) and all materials are module-scope.
+   * solid body box. The two sides now differ:
+   *
+   * - PLATFORM side (`sideZ === platformSide`): cut into solid segments between
+   *   the door bays, each split into a below-window panel (floor -> sill) and an
+   *   above-window panel (head -> door-top). The WIN_SILL..WIN_HEAD row is left
+   *   as a real OPENING, and the door bays stay open (covered only by the
+   *   sliding leaves), so from the platform you see the lit floor, benches,
+   *   poles and far wall straight through — no glass to mis-sort.
+   * - FAR side: one full-length solid panel (floor -> door-top), plus the header
+   *   above it. No window row, no bay openings, so looking through the near
+   *   windows/open doors you see the lit interior backed by a solid wall — never
+   *   straight through to the tunnel.
+   *
+   * All geometry is shared (division-cached) and all materials are module-scope.
    */
   private addBodyShell(localX: number, dims: CarDims, geo: CarGeometrySet, segs: { cx: number; w: number; mid: boolean }[]): void {
     const { length: L, width: W, height: H } = dims;
@@ -396,14 +418,23 @@ export class Train {
     const upperY = FLOOR_Y + WIN_HEAD + ABOVE_H / 2;
     for (const sideZ of [-1, 1]) {
       const z = sideZ * wallZ;
-      // below- and above-window solid panels for each segment (window row open)
-      for (const s of segs) {
-        const lower = new THREE.Mesh(s.mid ? geo.sideMidLower : geo.sideEndLower, BODY_MATERIAL);
-        lower.position.set(localX + s.cx, lowerY, z);
-        this.group.add(lower);
-        const upper = new THREE.Mesh(s.mid ? geo.sideMidUpper : geo.sideEndUpper, BODY_MATERIAL);
-        upper.position.set(localX + s.cx, upperY, z);
-        this.group.add(upper);
+      if (sideZ === this.platformSide) {
+        // platform side: below- and above-window panels per segment (window row
+        // and door bays left open for the sliding leaves and the lit interior).
+        for (const s of segs) {
+          const lower = new THREE.Mesh(s.mid ? geo.sideMidLower : geo.sideEndLower, BODY_MATERIAL);
+          lower.position.set(localX + s.cx, lowerY, z);
+          this.group.add(lower);
+          const upper = new THREE.Mesh(s.mid ? geo.sideMidUpper : geo.sideEndUpper, BODY_MATERIAL);
+          upper.position.set(localX + s.cx, upperY, z);
+          this.group.add(upper);
+        }
+      } else {
+        // far side: one solid wall covering segments, window row AND door bays,
+        // so nothing on this side shows through to the tunnel.
+        const solid = new THREE.Mesh(geo.sideSolid, BODY_MATERIAL);
+        solid.position.set(localX, FLOOR_Y + DOOR_TOP_H / 2, z);
+        this.group.add(solid);
       }
       // header: continuous wall above the doors (the roof-line band)
       const header = new THREE.Mesh(geo.header, BODY_MATERIAL);
@@ -433,9 +464,13 @@ export class Train {
    * One sliding door leaf, built as a Group of a below-window panel and an
    * above-window panel so the leaf has its own see-through window opening
    * (matching the wall windows). The Group is what slides; updateDoors moves
-   * `.position.x`, so doorClosedX/doorSign semantics are unchanged.
+   * `.position.x`, so doorClosedX/doorSign semantics are unchanged. `sideZ` is
+   * the local z-sign of the wall the leaf belongs to; only leaves whose side
+   * matches `platformSide` actually open (see updateDoors). Far-side leaves stay
+   * shut and are backed by the solid far wall, so their window row shows solid
+   * stainless, never the tunnel.
    */
-  private addDoorLeaf(x: number, z: number, sign: number): void {
+  private addDoorLeaf(x: number, z: number, sign: number, sideZ: number): void {
     const leaf = new THREE.Group();
     leaf.position.set(x, FLOOR_Y, z); // origin at the car floor
     const lower = new THREE.Mesh(DOOR_LOWER_GEO, DOOR_MATERIAL);
@@ -448,6 +483,7 @@ export class Train {
     this.doorLeaves.push(leaf);
     this.doorClosedX.push(x);
     this.doorSign.push(sign);
+    this.doorLeafSide.push(sideZ);
   }
 
   /**
@@ -537,6 +573,18 @@ export class Train {
     return this.doorOffset > 0.001;
   }
 
+  /**
+   * Estimated seconds until this train is DWELLING at the platform, for the
+   * platform countdown clocks: 0 while dwelling, the remaining approach time
+   * while approaching, and a large sentinel (Infinity) while hidden/departing or
+   * before it ever arrives, so a train that isn't inbound is ignored.
+   */
+  get secondsToArrival(): number {
+    if (this.state === 'dwell') return 0;
+    if (this.state === 'approach') return Math.max(0, this.stateDuration - this.stateTime);
+    return Infinity;
+  }
+
   /** Advance the arrive -> dwell -> depart cycle by dt seconds. */
   update(dt: number): void {
     this.stateTime += dt;
@@ -600,8 +648,11 @@ export class Train {
     }
     normalizedOpen = Math.min(1, Math.max(0, normalizedOpen));
     this.doorOffset = normalizedOpen * DOOR_SLIDE_DISTANCE;
+    // Only the platform-side leaves slide; far-side leaves stay pinned shut (and
+    // are backed by the solid far wall), so there is no see-through door bay.
     for (let i = 0; i < this.doorLeaves.length; i++) {
-      this.doorLeaves[i].position.x = this.doorClosedX[i] + this.doorSign[i] * this.doorOffset;
+      const offset = this.doorLeafSide[i] === this.platformSide ? this.doorOffset : 0;
+      this.doorLeaves[i].position.x = this.doorClosedX[i] + this.doorSign[i] * offset;
     }
   }
 

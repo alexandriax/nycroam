@@ -1,8 +1,8 @@
 import * as THREE from 'three';
-import type { StationSpec, TrackInfo } from './types';
+import type { StationSpec, TrackInfo, Arrival } from './types';
 import {
   makeNameMosaicTexture, makeHangingSignTexture,
-  makeColumnSignTexture, makeExitSignTexture,
+  makeColumnSignTexture, makeExitSignTexture, drawBullet,
 } from './signage';
 import { makeSubwayWallTexture, makeTerrazzoTexture } from '../textures';
 import { makeWorldDetailMaterial } from '../materials';
@@ -13,6 +13,7 @@ import {
 import type { WalkBox } from '../collision';
 import { setupStationLights } from '../sky';
 import { directionLabel, bothDirectionsLabel } from './directions';
+import { BLACK, SANS } from '../fonts';
 
 export interface CrossSection {
   width: number;
@@ -97,7 +98,21 @@ export class StationWorld {
   readonly exitZones: ExitZone[] = [];
   readonly name: string;
   trackInfo!: TrackInfo;
+  /** Set by the orchestrator: returns the soonest arrival per direction so the
+   *  platform countdown clocks can tick. Consumed in update(); never set here. */
+  arrivalsFn?: () => Arrival[];
   private disposables: (THREE.BufferGeometry | THREE.Material | THREE.Texture)[] = [];
+  // One redrawable LED countdown panel per served direction (built in build()).
+  private countdownClocks: {
+    dir: 1 | -1;
+    routes: string[];
+    label: string;
+    canvas: HTMLCanvasElement;
+    ctx: CanvasRenderingContext2D;
+    texture: THREE.CanvasTexture;
+    lastText: string;
+  }[] = [];
+  private clockTimer = 0;
 
   constructor(spec: StationSpec, env: THREE.Texture | null = null) {
     this.name = spec.name;
@@ -370,6 +385,9 @@ export class StationWorld {
         }
       }
       for (let x = -half + 3; x < half; x += 4.6) {
+        // skip strips that would float over a stairwell opening (same guard as
+        // the ceiling beams) so no light bar hangs in the middle of the stairs
+        if (stairHoles.some((h) => x > h.minX - 0.3 && x < h.maxX + 0.3)) continue;
         const strip = new THREE.Mesh(lightGeo, lightMat);
         strip.position.set(x, CEIL - 0.06, (p.zMin + p.zMax) / 2);
         strip.matrixAutoUpdate = false;
@@ -422,6 +440,25 @@ export class StationWorld {
         for (const sx of [-L / 4, 0, L / 4]) {
           hangSign(spec.routes, dirLabel(trackDirs[i]), sx, CEIL - 0.55, edgeZ, true);
         }
+      });
+    }
+
+    // ---- platform countdown clocks (one per served direction) ----
+    // An MTA-style black LED panel hangs over the platform edge that a
+    // direction's trains stop at — right beside that direction's hanging sign,
+    // offset in x so the two don't coincide — reading "Next <dir> train: M:SS".
+    // Each owns a redrawable CanvasTexture ticked from arrivalsFn() in update().
+    const clockDone = new Set<1 | -1>();
+    for (const p of cs.platforms) {
+      stoppingZs.forEach((tz, i) => {
+        const dir = trackDirs[i];
+        if (clockDone.has(dir)) return;
+        const nearMin = Math.abs(tz - p.zMin) < TRACK_W * 0.8;
+        const nearMax = Math.abs(tz - p.zMax) < TRACK_W * 0.8;
+        if (!nearMin && !nearMax) return;
+        clockDone.add(dir);
+        const edgeZ = nearMin ? p.zMin + 0.55 : p.zMax - 0.55;
+        this.buildCountdownClock(root, spec.routes, dir, dirLabel(dir), 4, CEIL - 0.55, edgeZ);
       });
     }
 
@@ -492,6 +529,9 @@ export class StationWorld {
       root.add(wall);
     }
     for (let x = -mezzHalf + 3; x < mezzHalf; x += 4.2) {
+      // same stairwell-opening guard: skip any strip over a stair x-range so no
+      // light bar shows through the platform-stair holes in the mezz floor
+      if (stairHoles.some((h) => x > h.minX - 0.3 && x < h.maxX + 0.3)) continue;
       const strip = new THREE.Mesh(lightGeo, lightMat);
       strip.position.set(x, MEZZ_CEIL - 0.06, 0);
       strip.matrixAutoUpdate = false;
@@ -672,10 +712,25 @@ export class StationWorld {
     }
 
     // ---- track info for the train scheduler ----
+    // Which z-side each stopping track's platform sits on: nearest platform
+    // center vs the track z (+1 = platform toward +z, -1 = toward -z; a dead-on
+    // tie picks +1). Aligned with trackZs/trackDirs so the scheduler opens the
+    // doors on the platform side only.
+    const platformSides: (1 | -1)[] = stoppingZs.map((tz) => {
+      let bestC = tz, bestD = Infinity;
+      for (const p of cs.platforms) {
+        const pc = (p.zMin + p.zMax) / 2;
+        const d = Math.abs(pc - tz);
+        if (d < bestD) { bestD = d; bestC = pc; }
+      }
+      const s = Math.sign(bestC - tz);
+      return (s === 0 ? 1 : s) as 1 | -1;
+    });
     const isSidePass = spec.layout.type === 'side' && spec.layout.passTracks > 0 && cs.tracks.length > 2;
     this.trackInfo = {
       trackZs: stoppingZs,
       trackDirs,
+      platformSides,
       passTrackZs: isSidePass ? cs.tracks.slice(1, -1) : undefined,
       railY: -1.1,
       half,
@@ -685,7 +740,119 @@ export class StationWorld {
     this.platformSpawn.set(4, 0, (p0.zMin + p0.zMax) / 2);
   }
 
-  update(_dt: number) { /* structure only; trains live in the scheduler */ }
+  /** Build one redrawable LED countdown panel and register it for ticking. */
+  private buildCountdownClock(
+    parent: THREE.Object3D, routes: string[], dir: 1 | -1, label: string,
+    x: number, y: number, z: number,
+  ) {
+    const cw = 1024, ch = 256;
+    const canvas = document.createElement('canvas');
+    canvas.width = cw; canvas.height = ch;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return; // no 2D context (non-browser); skip the clock, station still builds
+    const texture = this.track(new THREE.CanvasTexture(canvas));
+    texture.colorSpace = THREE.SRGBColorSpace;
+    texture.anisotropy = 4;
+    texture.magFilter = THREE.LinearFilter;
+    texture.minFilter = THREE.LinearMipmapLinearFilter;
+    // signage is UNLIT: MeshBasic, two back-to-back front-facing quads (never a
+    // single DoubleSide plane, which would mirror the text on its far face)
+    const mat = this.track(new THREE.MeshBasicMaterial({ map: texture }));
+    const ph = 0.6, pw = ph * (cw / ch); // ~2.4 m LED panel
+    const geo = this.track(new THREE.PlaneGeometry(pw, ph));
+    const g = new THREE.Group();
+    const a = new THREE.Mesh(geo, mat);
+    const b = new THREE.Mesh(geo, mat);
+    a.rotation.y = Math.PI / 2; a.position.x = 0.012;   // panel spans z, read walking along x
+    b.rotation.y = -Math.PI / 2; b.position.x = -0.012;
+    g.add(a, b);
+    g.position.set(x, y, z);
+    g.traverse((o) => { o.matrixAutoUpdate = false; o.updateMatrix(); });
+    parent.add(g);
+    const clock = { dir, routes, label, canvas, ctx, texture, lastText: '' };
+    this.countdownClocks.push(clock);
+    this.drawCountdownFace(clock, '—');
+  }
+
+  /** Re-fill one clock's canvas with its bullets/label and the given time. The
+   *  bullets and label are static, so only redraw when the time text changed. */
+  private drawCountdownFace(clock: StationWorld['countdownClocks'][number], timeStr: string) {
+    if (timeStr === clock.lastText) return;
+    clock.lastText = timeStr;
+    const { ctx, canvas } = clock;
+    const w = canvas.width, h = canvas.height;
+    const midY = h * 0.46;
+
+    ctx.fillStyle = '#050506';
+    ctx.fillRect(0, 0, w, h);
+    ctx.strokeStyle = '#242629';
+    ctx.lineWidth = 6;
+    ctx.strokeRect(6, 6, w - 12, h - 12);
+
+    // route bullets on the left
+    let x = 34;
+    const r = clock.routes.length > 3 ? 40 : 50;
+    for (const route of clock.routes.slice(0, 4)) {
+      drawBullet(ctx, x + r, midY, r, route);
+      x += r * 2 + 14;
+    }
+    x += 16;
+
+    // bright amber time on the right ("Now" / "M:SS" / "—")
+    const timeRight = w - 34;
+    ctx.font = `64px ${BLACK}`;
+    ctx.textAlign = 'right';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = '#ffb020';
+    ctx.fillText(timeStr, timeRight, midY);
+    const timeLeft = timeRight - ctx.measureText(timeStr).width;
+
+    // "Next <direction> train" fit between the bullets and the time
+    const head = `Next ${clock.label} train`;
+    const maxW = Math.max(40, timeLeft - 22 - x);
+    let size = 46;
+    ctx.textAlign = 'left';
+    ctx.font = `${size}px ${SANS}`;
+    while (ctx.measureText(head).width > maxW && size > 16) {
+      size -= 2;
+      ctx.font = `${size}px ${SANS}`;
+    }
+    ctx.fillStyle = '#f4f4ec';
+    ctx.fillText(head, x, midY);
+
+    // amber "min" tag under a real countdown (not under "Now"/"—")
+    if (timeStr !== 'Now' && timeStr !== '—') {
+      ctx.font = `26px ${SANS}`;
+      ctx.textAlign = 'right';
+      ctx.fillStyle = '#c07a10';
+      ctx.fillText('min', timeRight, h * 0.82);
+    }
+
+    clock.texture.needsUpdate = true;
+  }
+
+  /** "M:SS", or "Now" at ≤0, or "—" when the arrival is missing/non-finite. */
+  private formatArrival(a: Arrival | undefined): string {
+    if (!a || !Number.isFinite(a.seconds)) return '—';
+    const s = Math.max(0, Math.round(a.seconds));
+    if (s <= 0) return 'Now';
+    return `${Math.floor(s / 60)}:${(s % 60).toString().padStart(2, '0')}`;
+  }
+
+  update(dt: number) {
+    // Structure is static; the only live thing is the countdown clocks. Poll
+    // arrivalsFn() ~2x/sec and redraw only the panels whose time changed (canvas
+    // and texture are reused — no per-frame allocation).
+    if (this.countdownClocks.length === 0) return;
+    this.clockTimer += dt;
+    if (this.clockTimer < 0.5) return;
+    this.clockTimer = 0;
+    const arrivals = this.arrivalsFn?.();
+    for (const clock of this.countdownClocks) {
+      const a = arrivals?.find((ar) => ar.dirSign === clock.dir);
+      this.drawCountdownFace(clock, this.formatArrival(a));
+    }
+  }
 
   dispose() {
     // prop groups create their own geometries; free everything in the scene
