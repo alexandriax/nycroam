@@ -654,6 +654,13 @@ export class StationWorld {
       const rows = p.zMax - p.zMin > 6 ? [(p.zMin + p.zMax) / 2] : [(p.zMin + p.zMax) / 2];
       for (const cz of rows) {
         for (let x = -half + 6; x < half - 2; x += 4.6) {
+          // no pillar standing inside a stairwell: match the stair hole's x-range
+          // (same guard the ceiling beams use) AND its z-range, so only the
+          // platform that actually has the stair loses the column — a pillar on
+          // the OTHER platform at the same x is kept.
+          if (stairHoles.some((h) =>
+            x > h.minX - 0.3 && x < h.maxX + 0.3 &&
+            cz > h.minZ - 0.3 && cz < h.maxZ + 0.3)) continue;
           const pillar = buildPillar(CEIL, colColor);
           pillar.position.set(x, 0, cz);
           root.add(pillar);
@@ -786,11 +793,24 @@ export class StationWorld {
       minZ: ez - stairW / 2 - 0.3, maxZ: ez + stairW / 2 + 0.3,
     }));
     const mezzRect = { minX: -mezzHalf, maxX: mezzHalf, minZ: -mezzW / 2, maxZ: mezzW / 2 };
-    for (const r of rectSubtract(mezzRect, [...stairHoles, ...exitRects])) {
+    // VISUAL mezz floor: carve only the platform stairwells. The exit stairs
+    // ASCEND from this floor toward the street, so it stays SOLID under them
+    // (bug 1: carving exitRects here left a black void around the rising steps);
+    // only the mezz CEILING opens for the passage up (exitCeilHoles, below). The
+    // exit steps' bases sit at MEZZ_Y and the slab top is MEZZ_Y, so they rest
+    // on it cleanly.
+    for (const r of rectSubtract(mezzRect, stairHoles)) {
       const w = r.maxX - r.minX, d = r.maxZ - r.minZ;
       if (w < 0.05 || d < 0.05) continue;
       this.box(w, 0.5, d, mezzFloorMat, (r.minX + r.maxX) / 2, MEZZ_Y - 0.25, (r.minZ + r.maxZ) / 2, root);
-      // walkable only where floor exists (stair openings excluded)
+    }
+    // WALKBOXES (unchanged): still carve BOTH the platform stairwells and the
+    // exit-stair footprints, so the only floor accepting the player inside an
+    // exit stairwell is its ramp walkbox (added with the exit stairs). Visuals
+    // and walkboxes are independent, so a solid slab under the exit ramp is fine.
+    for (const r of rectSubtract(mezzRect, [...stairHoles, ...exitRects])) {
+      const w = r.maxX - r.minX, d = r.maxZ - r.minZ;
+      if (w < 0.05 || d < 0.05) continue;
       this.walkBoxes.push({ minX: r.minX, maxX: r.maxX, minZ: r.minZ, maxZ: r.maxZ, y: MEZZ_Y });
     }
 
@@ -867,6 +887,23 @@ export class StationWorld {
       stair.rotation.y = Math.PI / 2;
       stair.position.set(s.x + stairRun, 0, s.z);
       root.add(stair);
+      // filler slabs closing the padded stair hole so the floor MEETS the stairs
+      // (bug 2). The hole is padded 0.4 in x and 0.3 in z beyond the stair body;
+      // without these, a black strip shows at the top edge and both sides. All
+      // sit flush with the mezz floor (top at MEZZ_Y) in the same material and
+      // abut the surrounding floor exactly (no coplanar overlap -> no z-fight).
+      {
+        const cz = s.z;
+        // top landing: fills x in [s.x-0.4 (hole edge) .. s.x (first step)],
+        // full hole width in z, so the mezz floor meets the top step.
+        this.box(0.4, 0.5, stairW + 0.6, mezzFloorMat, s.x - 0.2, MEZZ_Y - 0.25, cz, root);
+        // side strips: fill the 0.3m z-padding on each flank down the whole run
+        // (x in [s.x .. s.x+stairRun+0.4]); reads as a floor margin inside the
+        // railing before the steps.
+        for (const zc of [cz - stairW / 2 - 0.15, cz + stairW / 2 + 0.15]) {
+          this.box(stairRun + 0.4, 0.5, 0.3, mezzFloorMat, s.x + stairRun / 2 + 0.2, MEZZ_Y - 0.25, zc, root);
+        }
+      }
       // ramp walkbox covers the ENTIRE floor opening (padding included) so
       // there is no dead strip where no floor accepts the player
       this.walkBoxes.push({

@@ -218,13 +218,25 @@ export class RideWorld {
 
   private buildCar(len: number, w: number) {
     const hw = w / 2;
-    const steel = this.track(new THREE.MeshStandardMaterial({ color: 0xc9ccd0, metalness: 0.55, roughness: 0.45 }));
+    // interior steel: shifted a touch darker/cooler than the old 0xc9ccd0 so the
+    // car reads as an interior, not an exterior panel, seen under the cabin lights.
+    const steel = this.track(new THREE.MeshStandardMaterial({ color: 0xb4b7ba, metalness: 0.55, roughness: 0.45 }));
     const floorM = this.track(new THREE.MeshLambertMaterial({ color: 0x9a8f7c }));
     const benchM = this.track(new THREE.MeshLambertMaterial({ color: 0x2b4d8c }));
     const cabWinM = this.track(new THREE.MeshLambertMaterial({ color: 0x0d1116 }));
     const lightM = this.track(new THREE.MeshBasicMaterial({ color: 0xfff7e4 }));
     const poleM = this.track(new THREE.MeshStandardMaterial({ color: 0xb9bdc2, metalness: 0.8, roughness: 0.25 }));
     const doorM = this.track(new THREE.MeshStandardMaterial({ color: 0xb4b8bd, metalness: 0.5, roughness: 0.5 }));
+    // storm-door steel: a shade darker than the wall so the end-of-car door reads
+    // as its own fixture, not a continuation of the wall plane.
+    const stormDoorM = this.track(new THREE.MeshStandardMaterial({ color: 0x9a9ea3, metalness: 0.55, roughness: 0.4 }));
+    // next-car diorama palette: dimmer greys/blue than the main cabin so the car
+    // glimpsed through the storm-door window reads as farther away / less lit.
+    const dioramaFloorM = this.track(new THREE.MeshLambertMaterial({ color: 0x6f6656 }));
+    const dioramaWallM = this.track(new THREE.MeshLambertMaterial({ color: 0x7c7f82 }));
+    const dioramaBenchM = this.track(new THREE.MeshLambertMaterial({ color: 0x1f3660 }));
+    const dioramaLightM = this.track(new THREE.MeshBasicMaterial({ color: 0xd9c79c }));
+    const dioramaPoleGeo = this.track(new THREE.CylinderGeometry(0.024, 0.024, 1.9, 8));
 
     // floor / ceiling
     this.box(len, 0.12, w, floorM, 0, -0.06, 0);
@@ -233,10 +245,62 @@ export class RideWorld {
       this.box(1.7, 0.05, 0.3, lightM, x, CAR_INTERIOR_H - 0.03, -0.5);
       this.box(1.7, 0.05, 0.3, lightM, x, CAR_INTERIOR_H - 0.03, 0.5);
     }
-    // end walls with cab door — window is an opaque dark panel (no transparency to mis-sort)
-    for (const e of [-1, 1]) {
-      this.box(0.08, CAR_INTERIOR_H, w, steel, e * (len / 2), CAR_INTERIOR_H / 2, 0);
-      this.box(0.06, 1.5, 0.7, cabWinM, e * (len / 2) - e * 0.03, 1.35, 0);
+    // end walls: a storm door (with a real window into the next car) flanked by
+    // two small dark windows. The flush end-wall skin has a genuine rectangular
+    // OPENING directly behind the door's own window opening — both real holes,
+    // zero transparency — so riders looking through see a lit next-car diorama
+    // beyond the end of this car instead of blackness.
+    const dsHalfW = 0.35;               // storm-door half-width (0.7 m door)
+    const winHalfW = 0.20;              // door-window half-width (0.4 m opening)
+    const winY0 = 1.05, winY1 = 1.85;   // door-window y-range (0.8 m tall, eye height)
+    const doorY0 = 0.08, doorY1 = 1.98; // storm-door panel y-range (1.9 m tall)
+    const doorProud = 0.05;             // door sits this far in front of the wall skin, toward the interior
+    const bandH = winY1 - winY0, bandYc = (winY0 + winY1) / 2;
+    const flankSegW = hw - winHalfW;    // wall width on either side of the window opening
+    for (const e of [-1, 1] as const) {
+      const xw = e * (len / 2);         // flush end-wall plane
+      const xd = xw - e * doorProud;    // storm-door plane, proud toward the car interior
+
+      // flush end-wall skin: solid bands above/below the window, solid flanking
+      // segments beside it — the gap between them is the real opening.
+      this.box(0.08, winY0, w, steel, xw, winY0 / 2, 0);
+      this.box(0.08, CAR_INTERIOR_H - winY1, w, steel, xw, (winY1 + CAR_INTERIOR_H) / 2, 0);
+      if (flankSegW > 0.02) {
+        this.box(0.08, bandH, flankSegW, steel, xw, bandYc, (hw + winHalfW) / 2);
+        this.box(0.08, bandH, flankSegW, steel, xw, bandYc, -(hw + winHalfW) / 2);
+      }
+      // two small flanking windows: opaque dark panes proud of the flush wall
+      // (decorative, not real openings — same trick the old single cab-window pane used)
+      this.box(0.06, 0.7, 0.5, cabWinM, xw - e * 0.03, bandYc, (hw + winHalfW) / 2);
+      this.box(0.06, 0.7, 0.5, cabWinM, xw - e * 0.03, bandYc, -(hw + winHalfW) / 2);
+
+      // storm-door panel: proud door-grey frame with its own matching window
+      // opening (below-window band, above-window band, two stiles).
+      this.box(0.06, winY0 - doorY0, dsHalfW * 2, stormDoorM, xd, (doorY0 + winY0) / 2, 0);
+      this.box(0.06, doorY1 - winY1, dsHalfW * 2, stormDoorM, xd, (winY1 + doorY1) / 2, 0);
+      const stileW = dsHalfW - winHalfW;
+      this.box(0.06, bandH, stileW, stormDoorM, xd, bandYc, (winHalfW + dsHalfW) / 2);
+      this.box(0.06, bandH, stileW, stormDoorM, xd, bandYc, -(winHalfW + dsHalfW) / 2);
+
+      // next-car diorama: parented beyond the end wall (x runs from the wall out
+      // to xw + e*dioramaDepth) so the storm-door window looks into a short lit
+      // interior with real depth instead of the tunnel/void.
+      const dd = 2.4;       // diorama depth
+      const dw = w - 0.1;   // stay within the car's own width
+      const dh = 2.05;      // slightly shorter than this car's interior height
+      const cx = xw + e * (dd / 2);
+      this.box(dd, 0.1, dw, dioramaFloorM, cx, -0.06, 0);                                    // floor
+      this.box(dd, 0.08, dw, dioramaWallM, cx, dh + 0.04, 0);                                // ceiling
+      this.box(dd, dh, 0.06, dioramaWallM, cx, dh / 2, dw / 2);                              // side wall
+      this.box(dd, dh, 0.06, dioramaWallM, cx, dh / 2, -dw / 2);                             // side wall
+      this.box(0.08, dh, dw, dioramaWallM, xw + e * dd, dh / 2, 0);                          // far wall — closes off the void
+      this.box(dd * 0.85, 0.04, 0.5, dioramaLightM, cx, dh - 0.04, 0);                       // dim ceiling light strip
+      this.box(dd * 0.5, 0.1, 0.4, dioramaBenchM, xw + e * dd * 0.62, 0.42, dw / 2 - 0.25);  // bench hint
+      for (const pz of [-0.4, 0.4]) {
+        const p = new THREE.Mesh(dioramaPoleGeo, poleM);
+        p.position.set(xw + e * dd * 0.35, dh / 2 - 0.05, pz);
+        this.scene.add(p);
+      }
     }
 
     // side walls with 3 door bays; door bay centers at -len/3, 0, +len/3
