@@ -3,7 +3,15 @@
 import { useEffect, useRef, useState } from 'react';
 import { World, LANDMARKS, type HudState } from '../engine/World';
 import { routeColor, bulletTextColor } from '../engine/subway/types';
+import { LANDMARKS_REG } from '../engine/landmarks/registry';
 import MiniMap from './MiniMap';
+
+// Every premium landmark (skip alias entries — they resolve to another's build),
+// sorted, for the "Jump to…" menu. Pairs with the ?landmark=<id> deep link.
+const LANDMARK_JUMPS = LANDMARKS_REG
+  .filter((l) => !l.aliasOf)
+  .map((l) => ({ name: l.name, lat: l.lat, lon: l.lon }))
+  .sort((a, b) => a.name.localeCompare(b.name));
 
 function Bullets({ routes, size = 22 }: { routes: string[]; size?: number }) {
   return (
@@ -154,13 +162,18 @@ export default function NYCRoam() {
           className="hud-panel jumpto"
           defaultValue=""
           onChange={(e) => {
-            const lm = LANDMARKS.find((l) => l.name === e.target.value);
-            if (lm) worldRef.current?.teleport(lm.lat, lm.lon);
+            const [la, lo] = e.target.value.split(',').map(Number);
+            if (Number.isFinite(la) && Number.isFinite(lo)) worldRef.current?.teleport(la, lo);
             e.target.value = '';
           }}
         >
           <option value="" disabled>Jump to…</option>
-          {LANDMARKS.map((l) => <option key={l.name} value={l.name}>{l.name}</option>)}
+          <optgroup label="Popular">
+            {LANDMARKS.map((l) => <option key={l.name} value={`${l.lat},${l.lon}`}>{l.name}</option>)}
+          </optgroup>
+          <optgroup label="Landmarks">
+            {LANDMARK_JUMPS.map((l) => <option key={l.name} value={`${l.lat},${l.lon}`}>{l.name}</option>)}
+          </optgroup>
         </select>
         <div className="hud-panel stats">
           {hud ? `${hud.fps} fps · ${hud.tilesLoaded} tiles${hud.tilesPending ? ` (+${hud.tilesPending})` : ''}${hud.fly ? ' · HELI' : ''}${hud.riding ? ' · BIKE' : ''}` : '—'}
@@ -263,7 +276,10 @@ export default function NYCRoam() {
                 ? <>Last stop — <b>{hud.ride.thisStop}</b></>
                 : <>This is <b>{hud.ride.thisStop}</b></>)}
               {hud.ride.state === 'closing' && <span className="pulse">Stand clear of the closing doors</span>}
-              {hud.ride.state === 'moving' && <>Next stop: <b>{hud.ride.nextStop ?? '—'}</b></>}
+              {/* while moving, RideWorld has already advanced idx to the station
+                  we're pulling into, so thisStop IS the next stop (nextStop is the
+                  one after — showing it here announced a stop too far ahead). */}
+              {hud.ride.state === 'moving' && <>Next stop: <b>{hud.ride.thisStop}</b></>}
             </div>
             {hud.ride.state === 'dwell' && (
               <div style={{ fontSize: 11, opacity: 0.6 }}>{isTouch ? 'tap GO to step off' : 'press E to step off'}</div>
@@ -309,6 +325,8 @@ export default function NYCRoam() {
           position: 'absolute', inset: 0, background: '#0b0e12', display: 'flex',
           flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 16,
         }}>
+          <img src="/mark.png" alt="" width={72} height={72} draggable={false}
+            style={{ imageRendering: 'auto', filter: 'drop-shadow(0 4px 14px rgba(0,0,0,0.5))' }} />
           <div style={{ fontSize: 26, letterSpacing: 6, fontWeight: 700 }}>NYC ROAM</div>
           <div style={{ display: 'flex', gap: 4 }}>
             {['1', 'A', 'N', '4', 'B', '7', 'L'].map((r) => (

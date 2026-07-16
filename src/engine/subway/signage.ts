@@ -4,7 +4,7 @@
 // meant to be consumed as THREE.Texture maps by props.ts / train.ts / streetprops.ts.
 import * as THREE from 'three';
 import { routeColor, bulletTextColor } from './types';
-import { SANS, SERIF } from '../fonts';
+import { BLACK, SERIF } from '../fonts';
 
 function createCanvas(w: number, h: number): { canvas: HTMLCanvasElement; ctx: CanvasRenderingContext2D } {
   const canvas = document.createElement('canvas');
@@ -40,12 +40,15 @@ function jitterColor(rgb: [number, number, number], amount: number): string {
   return `rgb(${r}, ${g}, ${b})`;
 }
 
-function fitFontSize(ctx: CanvasRenderingContext2D, text: string, maxWidth: number, family: string, startPx: number): number {
+// `weight` is a CSS font prefix ('bold ' for synthetic-bold faces; '' for
+// Archivo Black, whose face is already heavy — layering synthetic bold on it
+// only fuzzes the glyph edges at texture scale).
+function fitFontSize(ctx: CanvasRenderingContext2D, text: string, maxWidth: number, family: string, startPx: number, weight = 'bold '): number {
   let size = startPx;
-  ctx.font = `bold ${size}px ${family}`;
+  ctx.font = `${weight}${size}px ${family}`;
   while (ctx.measureText(text).width > maxWidth && size > 12) {
     size -= 2;
-    ctx.font = `bold ${size}px ${family}`;
+    ctx.font = `${weight}${size}px ${family}`;
   }
   return size;
 }
@@ -109,7 +112,7 @@ export function drawBullet(ctx: CanvasRenderingContext2D, x: number, y: number, 
   ctx.fillStyle = routeColor(route);
   ctx.fill();
   ctx.fillStyle = bulletTextColor(route);
-  ctx.font = `bold ${Math.round(r * 1.15)}px ${SANS}`;
+  ctx.font = `${Math.round(r * 1.2)}px ${BLACK}`;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   ctx.fillText(route, x, y + r * 0.05);
@@ -226,7 +229,7 @@ export function makeHangingSignTexture(opts: { routes: string[]; text: string; a
   x += 24;
 
   ctx.fillStyle = '#ffffff';
-  ctx.font = `bold 90px ${SANS}`;
+  ctx.font = `82px ${BLACK}`;
   ctx.textAlign = 'left';
   ctx.textBaseline = 'middle';
   ctx.fillText(opts.text, x, cy);
@@ -252,8 +255,8 @@ export function makeColumnSignTexture(name: string): { texture: THREE.Texture; a
   ctx.strokeRect(6, 6, w - 12, h - 12);
 
   const text = name.toUpperCase();
-  const size = fitFontSize(ctx, text, w - 48, SANS, 56);
-  ctx.font = `bold ${size}px ${SANS}`;
+  const size = fitFontSize(ctx, text, w - 48, BLACK, 52, '');
+  ctx.font = `${size}px ${BLACK}`;
   ctx.fillStyle = '#ffffff';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
@@ -276,7 +279,7 @@ export function makeExitSignTexture(withArrow: boolean): { texture: THREE.Textur
   ctx.strokeRect(5, 5, w - 10, h - 10);
 
   ctx.fillStyle = '#ffffff';
-  ctx.font = `bold 84px ${SANS}`;
+  ctx.font = `76px ${BLACK}`;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   const tx = withArrow ? w / 2 + 40 : w / 2;

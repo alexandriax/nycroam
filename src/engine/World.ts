@@ -9,6 +9,7 @@ import { makeSkylineMaterial, makeFlatMaterial, makeWaterMaterial } from './mate
 import { EntranceManager } from './EntranceManager';
 import { BikeManager } from './bikes';
 import { LandmarkManager } from './landmarks/LandmarkManager';
+import { LANDMARKS_REG } from './landmarks/registry';
 import { BikeView } from './bikeview';
 import { loadSans } from './fonts';
 import { StationWorld } from './subway/StationWorld';
@@ -17,6 +18,7 @@ import { TrainScheduler } from './subway/scheduler';
 import { RideWorld, type RideHud } from './subway/RideWorld';
 import type { StationSpec, NetworkData } from './subway/types';
 import { routeColor } from './subway/types';
+import { boardLabel } from './subway/directions';
 import { lonLatToXZ } from './geo';
 import { loadTerrain, heightAt } from './terrain';
 
@@ -205,12 +207,27 @@ export class World {
     }
 
     // deep-link: ?station=<name or gtfs id> jumps straight into a station interior
-    const q = new URLSearchParams(location.search).get('station');
+    const params = new URLSearchParams(location.search);
+    const q = params.get('station');
     if (q) {
       const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '');
       const spec = this.entrances.findStation((s) => s.id.toLowerCase() === q.toLowerCase())
         ?? this.entrances.findStation((s) => norm(s.name).includes(norm(q)));
       if (spec) this.enterStation(spec, spec.pos);
+    }
+
+    // deep-link: ?landmark=<id or name> teleports to a premium landmark for fast
+    // QA (the LandmarkManager streams it in the moment we land inside its radius).
+    // Lift into helicopter view so you never spawn buried inside the build.
+    const lm = params.get('landmark');
+    if (lm) {
+      const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '');
+      const entry = LANDMARKS_REG.find((l) => l.id.toLowerCase() === lm.toLowerCase())
+        ?? LANDMARKS_REG.find((l) => norm(l.name).includes(norm(lm)));
+      if (entry) {
+        this.teleport(entry.lat, entry.lon);
+        this.controls.fly = true;
+      }
     }
   }
 
@@ -425,6 +442,15 @@ export class World {
       this.onFade?.(true);
       await wait(420);
       const startId = this.currentStationSpec.id;
+      // The 42nd St shuttle is a terminal at BOTH ends (only Times Sq <-> Grand
+      // Central): whichever platform you board, the sole destination is the other
+      // stop. Force the direction toward it so a 2-stop line never boards you into
+      // an instant "Last stop" (dirSign +1 rides toward stops[last]).
+      const rStops = this.network.routes[route]?.stops;
+      if (rStops && rStops.length <= 2) {
+        const i = rStops.indexOf(startId);
+        if (i >= 0) dirSign = i === 0 ? 1 : -1;
+      }
       this.scheduler?.dispose();
       this.scheduler = null;
       this.station?.dispose();
@@ -708,8 +734,19 @@ export class World {
         this.hud.prompt = 'Exit to street';
         this.hud.promptRoutes = [];
       } else if (b) {
-        this.hud.prompt = `Board — ${b.dirSign === 1 ? 'Uptown' : 'Downtown'}`;
+        this.hud.prompt = `Board — ${boardLabel([b.route], b.dirSign, st.name)}`;
         this.hud.promptRoutes = [b.route];
+        // Walk-in boarding: stepping up to the open doors boards you, no key
+        // needed — the same "walk into it" affordance as a street entrance (E
+        // still works via tryAction). The guard blocks an instant re-board right
+        // after stepping off, and the ~3m band means you must reach the platform
+        // edge, not just stand on the platform.
+        if (Math.abs(this.pos.z - b.trackZ) < 3.0
+          && performance.now() - this.lastEnterGuard > 2500
+          && !this.transitioning
+          && this.network?.routes[b.route]) {
+          this.beginRide(b.route, b.dirSign);
+        }
       } else {
         this.hud.prompt = null;
         this.hud.promptRoutes = [];

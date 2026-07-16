@@ -414,6 +414,18 @@ async function main() {
     const isBuilding = !isPart && buildingVal !== undefined && buildingVal !== 'no';
     if (!isPart && !isBuilding) continue;
 
+    // Drop below-grade footprints. OSM maps big subway-station complexes as
+    // `building=train_station` polygons that trace the mezzanine UNDER the
+    // streets (59th St–Columbus Circle, Penn Station, Herald Sq, Fulton St…).
+    // Rendered as above-ground massing they become flat slabs bleeding across
+    // whole avenues (the "shops bleeding into 8th Ave" at Columbus Circle). The
+    // app already builds all 153 stations procedurally, so anything underground
+    // is dropped here; real station terminals that sit above grade (Grand
+    // Central h=45.8, the Oculus h=47, Fulton Center) carry no location=under-
+    // ground / negative layer and are kept.
+    const layerNum = parseFloat(tags.layer);
+    if (tags.location === 'underground' || (buildingVal === 'train_station' && layerNum < 0)) continue;
+
     let polys = [];
     if (el.type === 'way') {
       wayCount++;

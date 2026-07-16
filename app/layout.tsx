@@ -10,9 +10,9 @@ const siteUrl =
   (process.env.VERCEL_URL && `https://${process.env.VERCEL_URL}`) ||
   'http://localhost:3000';
 
-const title = 'NYC Roam — Manhattan at 1:1';
+const title = 'NYC Roam — Open-world Manhattan with realistic transit';
 const description =
-  'Walk a full-scale 3D Manhattan in your browser. Every street and building from OpenStreetMap, ' +
+  'Roam an open-world 3D Manhattan in your browser. Every street and building from OpenStreetMap, ' +
   'real terrain and trees, and subway entrances you can walk down into — then board a train and ride the line.';
 
 export const metadata: Metadata = {
@@ -56,6 +56,15 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <link
           rel="preload"
           href="/fonts/questrial-latin.woff2"
+          as="font"
+          type="font/woff2"
+          crossOrigin="anonymous"
+        />
+        {/* Archivo Black is also on the critical path: every bold sign texture
+            baked in World.init blocks on it (see fonts.ts loadSans). */}
+        <link
+          rel="preload"
+          href="/fonts/archivo-black-latin.woff2"
           as="font"
           type="font/woff2"
           crossOrigin="anonymous"
