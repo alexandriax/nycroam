@@ -6,6 +6,11 @@ import type { LandmarkCtx } from './kit';
 
 type BuilderMap = Record<string, (ctx: LandmarkCtx) => THREE.Group>;
 
+interface Fit {
+  cx: number; cz: number; rot: number;
+  w: number; d: number; roofH: number; keptH: number; topW: number; topD: number;
+}
+
 /**
  * Streams premium landmark detail by proximity. Each themed set module
  * (./sets/<name>.ts) is a separate webpack chunk, dynamic-imported the first
@@ -22,6 +27,8 @@ export class LandmarkManager {
   private sets = new Map<string, Promise<BuilderMap | null>>();
   private timer = 0;
   private initialPlaced = false;
+  private fits: Record<string, Fit> | null = null;
+  private fitsLoading: Promise<void> | null = null;
 
   constructor(scene: THREE.Scene) {
     this.scene = scene;
@@ -39,21 +46,38 @@ export class LandmarkManager {
     return p;
   }
 
+  private loadFits(): Promise<void> {
+    if (!this.fitsLoading) {
+      this.fitsLoading = fetch('/geo/landmarks-fit.json')
+        .then((r) => (r.ok ? r.json() : null))
+        .then((j) => { this.fits = j?.fits ?? {}; })
+        .catch(() => { this.fits = {}; });
+    }
+    return this.fitsLoading;
+  }
+
   private async build(lm: Landmark) {
     if (this.building.has(lm.id) || this.placed.has(lm.id)) return;
     this.building.add(lm.id);
     try {
+      await this.loadFits();
       const builders = await this.loadSet(lm.set);
       const make = builders?.[lm.id];
       if (!make) return;
-      const rot = lm.rot ?? 0;
+      // building-attached landmarks snap to the measured host massing: its
+      // oriented-bbox center and edge rotation beat any hand-typed anchor
+      const fit = this.fits?.[lm.id];
+      const px = fit ? fit.cx : lm.x;
+      const pz = fit ? fit.cz : lm.z;
+      const rot = fit ? fit.rot : (lm.rot ?? 0);
       const cos = Math.cos(rot), sin = Math.sin(rot);
       const ctx: LandmarkCtx = {
         // local offset -> world, so builders can terrace onto real terrain
-        groundAt: (dx, dz) => heightAt(lm.x + dx * cos + dz * sin, lm.z - dx * sin + dz * cos),
+        groundAt: (dx, dz) => heightAt(px + dx * cos + dz * sin, pz - dx * sin + dz * cos),
+        fit: fit ? { w: fit.w, d: fit.d, roofH: fit.roofH, keptH: fit.keptH, topW: fit.topW, topD: fit.topD } : undefined,
       };
       const group = mergeByMaterial(make(ctx));
-      group.position.set(lm.x, heightAt(lm.x, lm.z), lm.z);
+      group.position.set(px, heightAt(px, pz), pz);
       group.rotation.y = rot;
       this.scene.add(group);
       this.placed.set(lm.id, group);

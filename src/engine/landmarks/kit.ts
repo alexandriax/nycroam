@@ -17,6 +17,15 @@ import * as THREE from 'three';
 export interface LandmarkCtx {
   /** Terrain height at a world offset from the landmark origin (dx, dz in local pre-rotation meters). */
   groundAt: (dx: number, dz: number) => number;
+  /**
+   * Host-building measurements from the tile pipeline (landmarks-fit.json),
+   * present for building-attached landmarks. The group is already positioned
+   * at the massing's oriented-bbox center and rotated to its long edge, so
+   * local +-x spans `w` and +-z spans `d`. `keptH` is the roof of the massing
+   * left standing (crowns start there); `roofH` includes any parts the
+   * pipeline cleared for replacement.
+   */
+  fit?: { w: number; d: number; roofH: number; keptH: number; topW: number; topD: number };
 }
 
 // ---- shared materials (module scope: one instance across all landmarks) ----

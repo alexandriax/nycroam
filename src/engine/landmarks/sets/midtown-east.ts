@@ -131,17 +131,23 @@ export const builders: Record<string, (ctx: LandmarkCtx) => THREE.Group> = {
   },
 
   // Chrysler iconic crown: seven terraced steel arcs with triangular window slots, needle spire, corner eagles
-  chrysler: () => {
+  chrysler: (ctx) => {
     const g = new THREE.Group();
-    // real crown base is ~15m radius — 24 made it flare wider than the tower
-    g.add(cyl(4, 15, 42, STEEL_LM, 0, 261, 0, 8)); // tapered core mass under the arches (y 240..282)
+    // The crown seats on the MEASURED shaft shoulder (the pipeline clears
+    // OSM's stacked crown parts and tells us where the kept massing ends),
+    // so it can never float above or sink into the tower.
+    const base = ctx.fit?.keptH ?? 240; // shaft shoulder
+    const tipY = (ctx.fit?.roofH ?? base + 42) + 37; // real spire tops ~37m past the old roof
+    const crownH = (ctx.fit?.roofH ?? base + 42) - base;
+    const R = Math.max(10, Math.min(16, ((ctx.fit?.topW ?? 30) + (ctx.fit?.topD ?? 30)) / 4 + 4));
+    g.add(cyl(4, R, crownH, STEEL_LM, 0, base + crownH / 2, 0, 8)); // tapered core under the arches
     const depth = 3;
     for (let f = 0; f < 4; f++) {
       const facePane = new THREE.Group();
       facePane.rotation.y = (f * Math.PI) / 2;
       for (let i = 0; i < 7; i++) {
-        const r = 15 - 1.85 * i; // 15 -> 3.9
-        const cy = 240 + 6 * i; // spring line 240 -> 276
+        const r = R - (R - 3.9) * (i / 6); // R -> 3.9
+        const cy = base + (crownH / 7) * i; // spring lines climb the crown zone
         const zPos = r - depth / 2;
         const arch = new THREE.Mesh(
           new THREE.CylinderGeometry(r, r, depth, 12, 1, true, -Math.PI / 2, Math.PI),
@@ -159,13 +165,13 @@ export const builders: Record<string, (ctx: LandmarkCtx) => THREE.Group> = {
       }
       g.add(facePane);
     }
-    g.add(cyl(0.05, 1.2, 37, STEEL_LM, 0, 300.5, 0, 8)); // needle spire 282 -> 319
+    g.add(cyl(0.05, 1.2, 37, STEEL_LM, 0, tipY - 18.5, 0, 8)); // needle spire
     const ball = new THREE.Mesh(new THREE.SphereGeometry(0.35, 6, 5), STEEL_LM);
-    ball.position.y = 319;
+    ball.position.y = tipY;
     g.add(ball);
     for (let k = 0; k < 4; k++) {
       const e = chryslerEagle();
-      e.position.set(0, 235, 0);
+      e.position.set(0, base - 5, 0);
       e.rotation.y = Math.PI / 4 + (k * Math.PI) / 2; // diagonal corners
       g.add(e);
     }

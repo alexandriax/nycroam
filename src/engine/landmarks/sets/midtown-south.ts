@@ -63,27 +63,30 @@ function lampPost(): THREE.Group {
 
 export const builders: Record<string, (ctx: LandmarkCtx) => THREE.Group> = {
   // Empire State: art-deco crown + dirigible mast only (OSM builds the shaft below y=373)
-  'empire-state': () => {
+  'empire-state': (ctx) => {
+    // ESB crown: OSM masses the tower to its 330m upper roof plus two crude
+    // stick parts for the mast — the pipeline clears the sticks and we build
+    // the art-deco drum + dirigible mast from the measured roof up.
     const g = new THREE.Group();
-    // faint warm observation-deck glow band ringing the 86th floor (y=320)
+    const roof = ctx.fit?.keptH ?? 373;
+    const tip = ctx.fit?.roofH ?? roof + 70; // OSM's cleared mast reached here
+    for (const [i, [r, h]] of ([[8.5, 8], [6.5, 7], [4.8, 7]] as const).entries()) {
+      const yb = roof + [0, 8, 15][i];
+      g.add(cyl(r * 0.82, r, h, LIMESTONE, 0, yb + h / 2, 0, 12));
+    }
+    const mastBase = roof + 22;
+    g.add(cyl(1.6, 2.6, (tip - 12) - mastBase, STEEL_LM, 0, (mastBase + tip - 12) / 2, 0, 8));
+    g.add(cyl(0.12, 0.7, 12, STEEL_LM, 0, tip - 6, 0, 6)); // antenna
+    for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
+      g.add(box(1.4, 6, 1.4, LIMESTONE, sx * 9.5, roof + 3, sz * 9.5)); // corner setback piers
+    }
+    // warm observation-deck glow band just below the drum
     const glow = new THREE.Mesh(
-      new THREE.CylinderGeometry(18.5, 18.5, 2.2, 16, 1, true),
-      new THREE.MeshBasicMaterial({ color: '#ffe9c2' }),
+      new THREE.CylinderGeometry(11.5, 11.5, 1.6, 16, 1, true),
+      new THREE.MeshBasicMaterial({ color: '#ffd9a0' }),
     );
-    glow.position.y = 320;
+    glow.position.y = roof - 4;
     g.add(glow);
-    // stepped limestone observation drum rising from y=373
-    g.add(cyl(10.5, 11.5, 3.0, LIMESTONE, 0, 374.5, 0, 16));
-    g.add(cyl(8.6, 9.2, 2.6, LIMESTONE, 0, 377.3, 0, 16));
-    g.add(cyl(7.0, 7.6, 2.4, LIMESTONE, 0, 379.8, 0, 16));
-    // four tiny setback corner spires at the drum base (y=373)
-    for (const [sx, sz] of [[9.5, 9.5], [-9.5, 9.5], [9.5, -9.5], [-9.5, -9.5]] as const)
-      g.add(cyl(0.05, 0.5, 6.5, LIMESTONE, sx, 376.2, sz, 6));
-    // steel dirigible mooring mast tapering 381 -> 443 with an antenna tip
-    g.add(cyl(3.4, 5.4, 14, STEEL_LM, 0, 388, 0, 12)); // 381..395 mooring section
-    g.add(cyl(1.5, 3.4, 20, STEEL_LM, 0, 405, 0, 10)); // 395..415 taper
-    g.add(cyl(0.6, 1.5, 16, STEEL_LM, 0, 423, 0, 8)); // 415..431 upper mast
-    g.add(cyl(0.06, 0.6, 12, STEEL_LM, 0, 437, 0, 6)); // 431..443 antenna
     return g;
   },
 

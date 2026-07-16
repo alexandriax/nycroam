@@ -149,30 +149,54 @@ export const builders: Record<string, (ctx: LandmarkCtx) => THREE.Group> = {
   },
 
   // Hearst Tower: diagrid steel overlay (zigzag diamonds, no corner verticals) wrapping the OSM tower footprint
-  'hearst-tower': () => {
+  'hearst-tower': (ctx) => {
+    // Hearst Tower: the 1928 Urban cast-stone base (OSM has no separate base
+    // part, so the pipeline clears the whole massing and we own all of it),
+    // with the diagrid tower rising out of it — glazed, not a bare frame:
+    // a mullioned glass box wears the diagonal steel lattice, with the
+    // signature bird's-mouth corner notches (no corner verticals).
     const g = new THREE.Group();
-    const y0 = 30, y1 = 182, rows = 6, rowH = (y1 - y0) / rows;
-    const HW = 24, HD = 18.5; // half of the ~48m x 37m footprint
+    const bw = (ctx.fit?.w ?? 79), bd = (ctx.fit?.d ?? 70);
+    const baseH = 26;
+    // -- 1928 base: cast stone with fluted pilasters and a deep cornice
+    g.add(box(bw, baseH, bd, LIMESTONE, 0, baseH / 2, 0));
+    g.add(box(bw + 1.6, 1.8, bd + 1.6, DARKSTONE, 0, baseH + 0.9, 0)); // cornice
+    for (let x = -bw / 2 + 4; x <= bw / 2 - 4; x += 6.2) {
+      for (const sz of [1, -1]) g.add(box(1.4, baseH - 4, 1.1, WHITE_LM, x, (baseH - 4) / 2 + 2, sz * (bd / 2 + 0.35)));
+    }
+    for (let z = -bd / 2 + 5; z <= bd / 2 - 5; z += 6.2) {
+      for (const sx of [1, -1]) g.add(box(1.1, baseH - 4, 1.4, WHITE_LM, sx * (bw / 2 + 0.35), (baseH - 4) / 2 + 2, z));
+    }
+    // -- glazed tower: mullioned glass volume the lattice sits on
+    const y0 = baseH, y1 = 182;
+    const HW = 24, HD = 18.5; // ~48m x 37m tower footprint, centered on the base
+    const glass = box(HW * 2 - 1.1, y1 - y0, HD * 2 - 1.1, GLASS_LM, 0, (y0 + y1) / 2, 0);
+    g.add(glass);
+    // floor bands every ~4 storeys so the glass reads as storeys, not a slab
+    for (let y = y0 + 16; y < y1; y += 16) {
+      g.add(box(HW * 2 - 0.9, 0.55, HD * 2 - 0.9, STEEL_LM, 0, y, 0));
+    }
     const faces: Face[] = [
       { half: HW, fixed: HD, axis: 'z', sign: 1 }, { half: HW, fixed: HD, axis: 'z', sign: -1 },
       { half: HD, fixed: HW, axis: 'x', sign: 1 }, { half: HD, fixed: HW, axis: 'x', sign: -1 },
     ];
     const P = (f: Face, u: number, y: number): THREE.Vector3 =>
       f.axis === 'z' ? new THREE.Vector3(u, y, f.sign * f.fixed) : new THREE.Vector3(f.sign * f.fixed, y, u);
+    const rows = 6, rowH = (y1 - y0) / rows;
     for (const f of faces) {
-      const n = Math.max(3, Math.round((f.half * 2) / 12)), bw = (f.half * 2) / n;
+      const n = Math.max(3, Math.round((f.half * 2) / 12)), seg = (f.half * 2) / n;
       for (let r = 0; r < rows; r++) {
         const yb = y0 + r * rowH, yt = yb + rowH;
         for (let i = 0; i < n; i++) {
-          const xL = -f.half + i * bw, xR = xL + bw;
-          g.add(strut(P(f, xL, yb), P(f, xR, yt), 0.55, STEEL_LM, 6)); // rising diagonal
-          g.add(strut(P(f, xL, yt), P(f, xR, yb), 0.55, STEEL_LM, 6)); // falling diagonal
+          const xL = -f.half + i * seg, xR = xL + seg;
+          g.add(strut(P(f, xL, yb), P(f, xR, yt), 0.55, STEEL_LM, 6));
+          g.add(strut(P(f, xL, yt), P(f, xR, yb), 0.55, STEEL_LM, 6));
         }
       }
-      // horizontal belts only at base and crown; corners left open = "bird's-mouth" notch
-      g.add(strut(P(f, -f.half, y0), P(f, f.half, y0), 0.4, STEEL_LM, 6));
-      g.add(strut(P(f, -f.half, y1), P(f, f.half, y1), 0.4, STEEL_LM, 6));
+      g.add(strut(P(f, -f.half, y0), P(f, f.half, y0), 0.45, STEEL_LM, 6));
+      g.add(strut(P(f, -f.half, y1), P(f, f.half, y1), 0.45, STEEL_LM, 6));
     }
+    g.add(box(HW * 2 - 2, 1.4, HD * 2 - 2, STEEL_LM, 0, y1 + 0.7, 0)); // roof rim
     return g;
   },
 
