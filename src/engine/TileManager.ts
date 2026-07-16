@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
-import type { BuildResponse, MeshPayload, CollisionData } from './tileTypes';
+import type { BuildResponse, MeshPayload, CollisionData, RoadPaths } from './tileTypes';
 import { TILE_SIZE, tileKey } from './geo';
 import { hash01 } from './palette';
 import {
@@ -16,6 +16,7 @@ interface TileRecord {
   state: 'queued' | 'building' | 'ready' | 'empty';
   group: THREE.Group | null;
   collision: CollisionData | null;
+  roadPaths: RoadPaths | null;
   geometries: THREE.BufferGeometry[];
   textures: THREE.Texture[];
 }
@@ -122,6 +123,19 @@ export class TileManager {
     return out;
   }
 
+  /** Road centerlines for tiles within `tileR` tiles of (x,z) — minimap streets. */
+  roadPathsNear(x: number, z: number, tileR = 2): RoadPaths[] {
+    const tx = Math.floor(x / TILE_SIZE), tz = Math.floor(z / TILE_SIZE);
+    const out: RoadPaths[] = [];
+    for (let dx = -tileR; dx <= tileR; dx++) {
+      for (let dz = -tileR; dz <= tileR; dz++) {
+        const r = this.records.get(tileKey(tx + dx, tz + dz));
+        if (r?.roadPaths) out.push(r.roadPaths);
+      }
+    }
+    return out;
+  }
+
   update(camX: number, camZ: number) {
     if (!this.ready) return;
     const ctx = Math.floor(camX / TILE_SIZE), ctz = Math.floor(camZ / TILE_SIZE);
@@ -136,7 +150,7 @@ export class TileManager {
         const cx = (tx + 0.5) * TILE_SIZE, cz = (tz + 0.5) * TILE_SIZE;
         const d = Math.hypot(cx - camX, cz - camZ);
         if (d > this.loadRadius) continue;
-        this.records.set(key, { key, tx, tz, state: 'queued', group: null, collision: null, geometries: [], textures: [] });
+        this.records.set(key, { key, tx, tz, state: 'queued', group: null, collision: null, roadPaths: null, geometries: [], textures: [] });
         this.queue.push(key);
       }
     }
@@ -262,6 +276,7 @@ export class TileManager {
 
     rec.group = group;
     rec.collision = res.collision;
+    rec.roadPaths = res.roadPaths;
     rec.state = 'ready';
     this.scene.add(group);
   }

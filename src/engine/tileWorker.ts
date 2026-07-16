@@ -404,6 +404,13 @@ function buildTile(tile: TileJson): BuildResponse {
     }
   }
 
+  // minimap centerlines: real streets only — footways/steps/crossings would
+  // turn the closest zoom into hairball noise
+  const MINIMAP_SKIP = new Set(['footway', 'path', 'steps', 'crossing', 'cycleway', 'service']);
+  const mmStart: number[] = [0];
+  const mmPts: number[] = [];
+  const mmWidth: number[] = [];
+
   if (tile.roads) {
     for (const r of tile.roads) {
       const style = ROAD_STYLE[r.c] ?? ROAD_STYLE.residential;
@@ -414,6 +421,11 @@ function buildTile(tile: TileJson): BuildResponse {
         pts[i * 2] = toWorld(r.p[i * 2], ox);
         pts[i * 2 + 1] = toWorld(r.p[i * 2 + 1], oz);
         ys[i] = (r.e ? r.e[i] : r.b ? 7 : 0) + style.y;
+      }
+      if (!MINIMAP_SKIP.has(r.c) && n >= 2) {
+        for (const v of pts) mmPts.push(v);
+        mmStart.push(mmPts.length / 2);
+        mmWidth.push(style.w);
       }
       const concrete = CONCRETE_CLASSES.has(r.c);
       const acc = concrete ? wAcc : rAcc;
@@ -523,6 +535,13 @@ function buildTile(tile: TileJson): BuildResponse {
     hydrants,
     signs: signs.length ? signs : null,
     collision,
+    roadPaths: mmWidth.length
+      ? {
+          start: new Uint32Array(mmStart),
+          pts: new Float32Array(mmPts),
+          width: new Float32Array(mmWidth),
+        }
+      : null,
   };
 }
 
@@ -545,11 +564,13 @@ self.onmessage = async (ev: MessageEvent<BuildRequest>) => {
     if (out.trees) transfer.push(out.trees.buffer);
     if (out.hydrants) transfer.push(out.hydrants.buffer);
     if (out.collision) transfer.push(out.collision.ringStart.buffer, out.collision.points.buffer, out.collision.aabb.buffer);
+    if (out.roadPaths) transfer.push(out.roadPaths.start.buffer, out.roadPaths.pts.buffer, out.roadPaths.width.buffer);
     (self as unknown as Worker).postMessage(out, transfer);
   } catch (e) {
     (self as unknown as Worker).postMessage({
       type: 'built', key: req.key, buildings: null, roads: null, walks: null,
       areas: null, markings: null, trees: null, hydrants: null, signs: null, collision: null,
+      roadPaths: null,
       error: String(e),
     } satisfies BuildResponse);
   }

@@ -132,12 +132,13 @@ export default function NYCRoam() {
 
       {/* top bar */}
       <div className="hud-panel" style={{
-        position: 'absolute', top: 12, left: 12, padding: '10px 14px',
-        display: 'flex', alignItems: 'center', gap: 10,
+        position: 'absolute', top: 12, left: 12, padding: '7px 12px',
+        display: 'flex', alignItems: 'center', gap: 9,
         maxWidth: 'calc(100vw - 268px)', overflow: 'hidden', whiteSpace: 'nowrap',
       }}>
-        <strong className="wordmark" style={{ letterSpacing: 1.5, fontSize: 14 }}>NYC ROAM</strong>
-        <span style={{ opacity: 0.65, fontSize: 12, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+        {/* the mascot IS the wordmark — sized to the text it replaces */}
+        <img src="/mark.png" alt="NYC Roam" width={18} height={18} className="mark" draggable={false} />
+        <span style={{ opacity: 0.62, fontSize: 12, overflow: 'hidden', textOverflow: 'ellipsis', letterSpacing: 0.2 }}>
           {hud?.mode === 'station'
             ? <>{hud.stationName} <Bullets routes={hud.stationRoutes} size={16} /></>
             : 'Manhattan'}
@@ -148,7 +149,6 @@ export default function NYCRoam() {
       <div style={{ position: 'absolute', top: 12, right: 12, display: 'flex', flexDirection: 'column', gap: 8, alignItems: 'flex-end' }}>
         <select
           className="hud-panel jumpto"
-          style={{ padding: '8px 10px', background: 'rgba(12,14,18,0.72)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 8, maxWidth: 220 }}
           defaultValue=""
           onChange={(e) => {
             const lm = LANDMARKS.find((l) => l.name === e.target.value);
@@ -159,7 +159,7 @@ export default function NYCRoam() {
           <option value="" disabled>Jump to…</option>
           {LANDMARKS.map((l) => <option key={l.name} value={l.name}>{l.name}</option>)}
         </select>
-        <div className="hud-panel" style={{ padding: '6px 10px', fontSize: 11, opacity: 0.8 }}>
+        <div className="hud-panel stats">
           {hud ? `${hud.fps} fps · ${hud.tilesLoaded} tiles${hud.tilesPending ? ` (+${hud.tilesPending})` : ''}${hud.fly ? ' · HELI' : ''}` : '—'}
         </div>
       </div>
@@ -171,9 +171,12 @@ export default function NYCRoam() {
           {!isTouch && (
             <button
               onClick={() => { const c = worldRef.current?.controlsRef; if (c) c.fly = !c.fly; }}
-              className="hud-panel"
-              style={{ padding: '8px 14px', border: '1px solid rgba(255,255,255,0.15)', borderRadius: 8, background: hud.fly ? '#0d5c33' : 'rgba(12,14,18,0.72)', cursor: 'pointer', fontSize: 13 }}
-            >{hud.fly ? '🚁 Land (F)' : '🚁 Helicopter (F)'}</button>
+              className={`hud-panel heli-btn${hud.fly ? ' on' : ''}`}
+            >
+              <span className="heli-ico">🚁</span>
+              {hud.fly ? 'Land' : 'Helicopter'}
+              <kbd>F</kbd>
+            </button>
           )}
         </div>
       )}
@@ -252,10 +255,12 @@ export default function NYCRoam() {
 
       {/* controls help */}
       {!isTouch && showHelp && !loading && !error && (
-        <div className="hud-panel" style={{ position: 'absolute', bottom: 12, left: 12, padding: '10px 14px', fontSize: 12, lineHeight: 1.7, opacity: 0.9 }}
-          onClick={() => setShowHelp(false)}>
-          <b>Click</b> to look · <b>WASD</b> move · <b>Shift</b> run · <b>F</b> helicopter (+<b>Space/C</b> up/down)<br />
-          Walk into a green-globe stairway to ride the subway · <b>E</b> to enter/exit · <i>(click to hide)</i>
+        <div className="hud-panel legend" onClick={() => setShowHelp(false)} title="Click to hide">
+          <div className="legend-row"><kbd>Click</kbd><span>Look</span></div>
+          <div className="legend-row"><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd><span>Move</span></div>
+          <div className="legend-row"><kbd>Shift</kbd><span>Run</span></div>
+          <div className="legend-row"><kbd>F</kbd><span>Helicopter</span><kbd>Space</kbd><kbd>C</kbd><span>Up / down</span></div>
+          <div className="legend-row"><kbd>E</kbd><span>Enter subway · board · step off</span></div>
         </div>
       )}
 

@@ -16,11 +16,162 @@ html, body {
 canvas { display: block; touch-action: none; }
 
 .hud-panel {
-  background: rgba(12, 14, 18, 0.72);
+  /* deeper blur + a hairline top highlight reads as glass rather than a grey box.
+     Saturation stays near neutral: the backdrop is often Central Park, and
+     boosting it tints every panel olive. */
+  background: rgba(10, 12, 16, 0.74);
+  backdrop-filter: blur(20px) saturate(108%);
+  -webkit-backdrop-filter: blur(20px) saturate(108%);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 12px;
+  box-shadow:
+    0 8px 28px rgba(0, 0, 0, 0.38),
+    inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+
+.mark {
+  display: block;
+  filter: drop-shadow(0 1px 3px rgba(0, 0, 0, 0.5));
+}
+
+/* ---- keycaps: one shape reused by the legend and the heli button ---- */
+kbd {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 19px;
+  height: 19px;
+  padding: 0 5px;
+  font-family: inherit;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  color: rgba(255, 255, 255, 0.92);
+  background: rgba(255, 255, 255, 0.09);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-bottom-color: rgba(255, 255, 255, 0.07);
+  border-radius: 5px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.09);
+}
+
+/* ---- controls legend ---- */
+.legend {
+  position: absolute;
+  bottom: 12px;
+  left: 12px;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  cursor: pointer;
+  transition: opacity 0.2s ease;
+}
+.legend:hover { opacity: 0.55; }
+.legend-row {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  letter-spacing: 0.2px;
+}
+.legend-row span {
+  color: rgba(255, 255, 255, 0.5);
+  margin-right: 6px;
+}
+.legend-row span:last-child { margin-right: 0; }
+
+/* ---- jump-to ---- */
+.jumpto {
+  appearance: none;
+  -webkit-appearance: none;
+  padding: 7px 30px 7px 12px;
+  max-width: 220px;
+  font-size: 12px;
+  letter-spacing: 0.2px;
+  color: rgba(255, 255, 255, 0.85);
+  cursor: pointer;
+  /* chevron, drawn rather than shipped */
+  background-image: linear-gradient(45deg, transparent 50%, rgba(255, 255, 255, 0.5) 50%),
+    linear-gradient(135deg, rgba(255, 255, 255, 0.5) 50%, transparent 50%);
+  background-position: calc(100% - 15px) center, calc(100% - 11px) center;
+  background-size: 4px 4px, 4px 4px;
+  background-repeat: no-repeat;
+  transition: border-color 0.15s ease, color 0.15s ease;
+}
+.jumpto:hover { border-color: rgba(255, 255, 255, 0.18); color: #fff; }
+.jumpto:focus-visible { outline: none; border-color: rgba(255, 255, 255, 0.3); }
+.jumpto option { background: #10141a; color: #e8eaed; }
+
+.stats {
+  padding: 5px 10px;
+  font-size: 10px;
+  letter-spacing: 0.6px;
+  font-variant-numeric: tabular-nums;
+  color: rgba(255, 255, 255, 0.45);
+}
+
+/* ---- helicopter ---- */
+.heli-btn {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 10px 7px 9px;
+  font-size: 12px;
+  letter-spacing: 0.2px;
+  color: rgba(255, 255, 255, 0.85);
+  cursor: pointer;
+  transition: border-color 0.15s ease, color 0.15s ease, background 0.15s ease;
+}
+.heli-btn:hover { border-color: rgba(255, 255, 255, 0.18); color: #fff; }
+.heli-ico { font-size: 12px; line-height: 1; filter: saturate(0.15) brightness(1.5); }
+.heli-btn.on {
+  background: rgba(13, 92, 51, 0.6);
+  border-color: rgba(70, 220, 140, 0.35);
+  color: #eafff3;
+}
+.heli-btn.on .heli-ico { filter: none; }
+
+/* ---- minimap zoom ---- */
+.mm-zoom {
+  position: absolute;
+  right: 4px;
+  bottom: 4px;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
+  border-radius: 9px;
+  background: rgba(10, 13, 17, 0.78);
   backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.09);
+}
+.mm-zoom button {
+  width: 20px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  font-size: 13px;
+  line-height: 1;
+  color: rgba(255, 255, 255, 0.8);
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+.mm-zoom button:hover:not(:disabled) { background: rgba(255, 255, 255, 0.12); color: #fff; }
+.mm-zoom button:disabled { opacity: 0.28; cursor: default; }
+.mm-scale {
+  font-size: 9px;
+  letter-spacing: 0.4px;
+  font-variant-numeric: tabular-nums;
+  color: rgba(255, 255, 255, 0.45);
+  padding: 0 2px;
+  min-width: 26px;
+  text-align: center;
 }
 
 .bullet {
@@ -44,6 +195,5 @@ select, button {
 }
 
 @media (max-width: 560px) {
-  .wordmark { display: none; }
-  .jumpto { max-width: 150px !important; }
+  .jumpto { max-width: 150px; }
 }

@@ -66,11 +66,22 @@ export interface BuildResponse {
   hydrants: Float32Array | null; // [x,y,z,rotY] * n (world coords)
   signs: { x: number; y: number; z: number; names: string[]; angles: number[] }[] | null;
   collision: CollisionData | null;
+  roadPaths: RoadPaths | null; // minimap street lines
   error?: string;
 }
 
 /** Road classes rendered as poured concrete rather than asphalt. */
 export const CONCRETE_CLASSES = new Set(['pedestrian', 'footway', 'path', 'steps']);
+
+/**
+ * Road centerlines for the minimap, in the same flat/offset shape as
+ * CollisionData so it costs 3 transferables per tile instead of one per road.
+ */
+export interface RoadPaths {
+  start: Uint32Array; // index into pts (per path), length = pathCount+1
+  pts: Float32Array; // [x0,z0,x1,z1,...] world meters
+  width: Float32Array; // per path, meters (drives minimap line weight)
+}
 
 export interface CollisionData {
   // Building outer rings for player push-out. World-space meters.

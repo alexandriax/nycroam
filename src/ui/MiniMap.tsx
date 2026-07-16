@@ -5,11 +5,14 @@ import type { World } from '../engine/World';
 
 const SIZE = 208;
 const R = SIZE / 2 - 6;
-const ZOOMS = [650, 2600, 9500]; // meters of world shown from center to edge
+// meters from center to edge. Index 0 is the closest zoom (street level, where
+// road centerlines are drawn); the old 9500m island-wide view is gone.
+const ZOOMS = [220, 650, 2600];
+const STREET_ZOOM_IDX = 0;
 
 /**
- * Corner minimap: island silhouette, subway stations (trunk-colored, ringed),
- * entrance dots, and a heading arrow. Click to cycle zoom.
+ * Corner minimap: island silhouette, streets at the closest zoom, subway
+ * stations (trunk-colored, ringed), entrance dots, and a heading arrow.
  */
 export default function MiniMap({ world }: { world: World }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -78,7 +81,32 @@ export default function MiniMap({ world }: { world: World }) {
         ctx.strokeStyle = '#41505c';
         ctx.lineWidth = 1;
         ctx.stroke();
+      }
 
+      // streets, closest zoom only — centerlines stream in with the tiles, so
+      // they exist exactly where the world is loaded
+      if (zoomIdx === STREET_ZOOM_IDX) {
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
+        // OPAQUE on purpose: roads arrive as many pieces (split at tile edges and
+        // intersections), so translucent strokes double up where their round caps
+        // overlap and freckle every junction with bright blobs.
+        ctx.strokeStyle = '#93a1ae';
+        for (const rp of world.roadPathsNear(p.x, p.z, 2)) {
+          const count = rp.start.length - 1;
+          for (let i = 0; i < count; i++) {
+            const a = rp.start[i], b = rp.start[i + 1];
+            // width in meters -> screen px, floored so alleys stay hairlines
+            ctx.lineWidth = Math.max(0.7, rp.width[i] * s * 0.75);
+            ctx.beginPath();
+            ctx.moveTo(sx(rp.pts[a * 2]), sy(rp.pts[a * 2 + 1]));
+            for (let j = a + 1; j < b; j++) ctx.lineTo(sx(rp.pts[j * 2]), sy(rp.pts[j * 2 + 1]));
+            ctx.stroke();
+          }
+        }
+      }
+
+      if (d) {
         // subway entrances (the green dots you actually walk into)
         ctx.fillStyle = '#37e874';
         for (const [ex, ez] of d.entrances) {
@@ -134,12 +162,34 @@ export default function MiniMap({ world }: { world: World }) {
     return () => window.clearInterval(iv);
   }, [world, zoomIdx]);
 
+  // zoomIdx 0 is closest, so "+" walks toward 0
+  const zoomIn = () => setZoomIdx((z) => Math.max(0, z - 1));
+  const zoomOut = () => setZoomIdx((z) => Math.min(ZOOMS.length - 1, z + 1));
+  const scale = ZOOMS[zoomIdx] >= 1000
+    ? `${(ZOOMS[zoomIdx] / 1000).toFixed(1)} km`
+    : `${ZOOMS[zoomIdx]} m`;
+
   return (
-    <canvas
-      ref={canvasRef}
-      onClick={() => setZoomIdx((z) => (z + 1) % ZOOMS.length)}
-      style={{ width: SIZE, height: SIZE, cursor: 'pointer', touchAction: 'manipulation' }}
-      title="Click to zoom"
-    />
+    <div style={{ position: 'relative', width: SIZE, height: SIZE }}>
+      <canvas
+        ref={canvasRef}
+        onClick={() => setZoomIdx((z) => (z + 1) % ZOOMS.length)}
+        style={{ width: SIZE, height: SIZE, cursor: 'pointer', touchAction: 'manipulation' }}
+        title="Click to cycle zoom"
+      />
+      <div className="mm-zoom">
+        <button
+          onClick={(e) => { e.stopPropagation(); zoomIn(); }}
+          disabled={zoomIdx === 0}
+          aria-label="Zoom in"
+        >+</button>
+        <span className="mm-scale">{scale}</span>
+        <button
+          onClick={(e) => { e.stopPropagation(); zoomOut(); }}
+          disabled={zoomIdx === ZOOMS.length - 1}
+          aria-label="Zoom out"
+        >−</button>
+      </div>
+    </div>
   );
 }

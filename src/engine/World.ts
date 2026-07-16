@@ -655,6 +655,8 @@ export class World {
     }));
     return { stations, entrances: this.entrances.entrancePositions() };
   }
+  /** Road centerlines near the player, for the minimap's closest zoom. */
+  roadPathsNear(x: number, z: number, tileR = 2) { return this.tiles.roadPathsNear(x, z, tileR); }
   getTrains() { return this.scheduler?.trainStates ?? []; }
   getRide() { return this.ride?.hudInfo ?? null; }
   /** Debug: advance the station/ride sim by `s` seconds in fixed steps. */

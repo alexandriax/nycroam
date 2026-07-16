@@ -14,6 +14,7 @@
 //   app/icon.png      512 transparent, for high-DPI and PWA
 //   app/apple-icon.png 180 on an opaque tile (iOS composites transparency badly)
 //   assets/mascot-512.png  README asset
+//   public/mark.png    96px, the in-game HUD wordmark
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -163,3 +164,9 @@ console.log('app/apple-icon.png  180px on #0b0e12');
 
 fs.writeFileSync(path.join(ROOT, 'assets', 'mascot-512.png'), PNG.sync.write(icon512));
 console.log('assets/mascot-512.png  512px (README)');
+
+// HUD wordmark: displayed at 18px, so 96 covers 3x retina. Reusing the 512
+// icon there would ship 207KB for an 18px mark — and the favicon's URL is
+// query-hashed, so it would not even share a cache entry.
+fs.writeFileSync(path.join(ROOT, 'public', 'mark.png'), PNG.sync.write(resize(cropped, 96)));
+console.log('public/mark.png     96px (HUD wordmark)');
