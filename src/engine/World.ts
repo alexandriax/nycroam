@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import { TileManager } from './TileManager';
 import { PlayerControls } from './controls';
-import { resolveBuildingCollision, nearestWallDir, floorAt, floorAtAny } from './collision';
+import { resolveBuildingCollision, nearestWallDir, floorAt, floorAtAny, pointInBuildings } from './collision';
 import { setupSky, setupLights, followSun, SKY } from './sky';
 import { quality } from './quality';
 import { makeSkylineMaterial, makeFlatMaterial, makeWaterMaterial } from './materials';
@@ -100,6 +100,7 @@ export class World {
   private hudTimer = 0;
   private transitioning = false;
   private lastEnterGuard = 0; // avoid instant re-trigger loops
+  private spawnResolve = false; // eject from a building after a teleport/exit, once tiles load
   private skyDome: THREE.Object3D | null = null;
   private lastRaf = 0;
   private tickInterval = 0;
@@ -170,6 +171,8 @@ export class World {
       (o) => new BusModel(o, this.envTex),
       buildBusStop,
     );
+    // pull each stop kit off the roadway onto the sidewalk once its tiles load
+    this.buses.resolvePlacement = (x, z) => this.resolveBusStop(x, z);
 
     this.controls = new PlayerControls(canvas);
     this.controls.onToggleFly = () => {
@@ -402,7 +405,68 @@ export class World {
     if (this.mode === 'station') this.exitStation(true);
     const [x, z] = lonLatToXZ(lon, lat);
     this.pos.set(x, 0, z);
+    this.spawnResolve = true; // resolved out of any building once tiles arrive
     this.save();
+  }
+
+  /**
+   * A standing point at/near (x,z) that is NOT inside a building. If the target
+   * is already clear, just resolve grazing contact. Otherwise spiral outward and
+   * take the nearest open point — guarantees a teleport/exit never leaves the
+   * player embedded in a building (where they could then walk out through walls).
+   */
+  private freeSpawn(x: number, z: number): [number, number] {
+    const near0 = this.tiles.collisionNear(x, z);
+    if (!pointInBuildings(x, z, near0)) return resolveBuildingCollision(x, z, 0.5, near0);
+    for (let ring = 2.5; ring <= 26; ring += 2.5) {
+      for (let a = 0; a < 16; a++) {
+        const ang = (a / 16) * Math.PI * 2;
+        const tx = x + Math.cos(ang) * ring, tz = z + Math.sin(ang) * ring;
+        const near = this.tiles.collisionNear(tx, tz);
+        if (!pointInBuildings(tx, tz, near)) return resolveBuildingCollision(tx, tz, 0.5, near);
+      }
+    }
+    return [x, z]; // fully enclosed (shouldn't happen in Manhattan) — leave as-is
+  }
+
+  /**
+   * Curb-resolve a bus stop's raw GTFS point: defer until its tiles load (null),
+   * then push it out of any roadway ribbon onto the sidewalk and clear of
+   * buildings. GTFS points are curbside but some land in wide roadbeds; buses
+   * pass on the street side, so the pole belongs a couple meters curbward.
+   */
+  private resolveBusStop(x: number, z: number): [number, number] | null {
+    if (!this.tiles.readyAround(x, z)) return null;
+    // 2-tile radius so a wide avenue whose centerline sits in the neighbouring
+    // tile still counts (a 1-tile lookup left edge stops half in the roadbed)
+    const paths = this.tiles.roadPathsNear(x, z, 2);
+    let px = x, pz = z;
+    const SIDEWALK = 1.6;
+    for (let iter = 0; iter < 6; iter++) {
+      let worst = 0, wx = 0, wz = 0;
+      for (const rp of paths) {
+        const roadCount = rp.start.length - 1;
+        for (let r = 0; r < roadCount; r++) {
+          const target = rp.width[r] * 0.5 + SIDEWALK;
+          const a = rp.start[r], b = rp.start[r + 1];
+          for (let j = a; j < b - 1; j++) {
+            const x1 = rp.pts[j * 2], z1 = rp.pts[j * 2 + 1];
+            const x2 = rp.pts[(j + 1) * 2], z2 = rp.pts[(j + 1) * 2 + 1];
+            const dx = x2 - x1, dz = z2 - z1, l2 = dx * dx + dz * dz;
+            if (l2 < 1e-6) continue;
+            let t = ((px - x1) * dx + (pz - z1) * dz) / l2;
+            t = t < 0 ? 0 : t > 1 ? 1 : t;
+            const ox = px - (x1 + t * dx), oz = pz - (z1 + t * dz);
+            const pen = target - Math.hypot(ox, oz);
+            if (pen > worst) { worst = pen; wx = ox; wz = oz; }
+          }
+        }
+      }
+      if (worst <= 0.02) break;
+      const d = Math.hypot(wx, wz);
+      if (d > 1e-3) { px += (wx / d) * worst; pz += (wz / d) * worst; } else px += worst;
+    }
+    return resolveBuildingCollision(px, pz, 0.8, this.tiles.collisionNear(px, pz));
   }
 
   private tryAction() {
@@ -507,6 +571,7 @@ export class World {
       // narrow sidewalks: never step off INTO a building face
       [ex, ez] = resolveBuildingCollision(ex, ez, 0.42, this.tiles.collisionNear(ex, ez));
       this.pos.set(ex, heightAt(ex, ez), ez);
+      this.spawnResolve = true; // re-eject once tiles here are fully loaded
       this.busEndSince = 0;
       this.lastEnterGuard = performance.now();
       this.pushHud();
@@ -589,6 +654,7 @@ export class World {
         this.mode = 'street';
         this.hud.mode = 'street';
         this.pos.copy(this.returnPos);
+        this.spawnResolve = true;
       }
       this.hud.ride = null;
       this.lastEnterGuard = performance.now();
@@ -647,6 +713,7 @@ export class World {
     this.currentStationSpec = null;
     this.mode = 'street';
     this.pos.copy(this.returnPos);
+    this.spawnResolve = true; // entrances sit against buildings — eject if inside one
     this.hud.mode = 'street';
     this.hud.stationName = null;
     this.hud.stationRoutes = [];
@@ -681,6 +748,16 @@ export class World {
     let dz = (fwd.z * input.forward + right.z * input.strafe) * speed * dt;
 
     if (this.mode === 'street') {
+      // safe spawn: after a teleport / exit we may have landed inside a building
+      // footprint (entrances hug walls, jump targets are raw lat/lon). Once the
+      // tiles here have integrated, push out to the nearest sidewalk. Skip while
+      // flying — the helicopter teleport lands you above the rooftops on purpose.
+      if (this.spawnResolve && !this.controls.fly && this.tiles.readyAround(this.pos.x, this.pos.z)) {
+        const [rx, rz] = this.freeSpawn(this.pos.x, this.pos.z);
+        this.pos.x = rx; this.pos.z = rz;
+        this.pos.y = heightAt(rx, rz);
+        this.spawnResolve = false;
+      }
       const prevX = this.pos.x, prevZ = this.pos.z;
       if (this.controls.fly) {
         // helicopter: momentum-smoothed velocity incl. vertical
@@ -692,7 +769,10 @@ export class World {
         this.flyVel.lerp(this.flyTarget, 1 - Math.exp(-dt * 2.4));
         this.pos.x += this.flyVel.x * dt;
         this.pos.z += this.flyVel.z * dt;
-        this.pos.y = Math.max(1.2, Math.min(1200, this.pos.y + this.flyVel.y * dt));
+        // never descend below the ground under you: clamp to terrain + clearance
+        // (Manhattan hills rise ~80m, so a fixed floor let you sink underground)
+        const floorY = heightAt(this.pos.x, this.pos.z) + 1.3;
+        this.pos.y = Math.max(floorY, Math.min(1200, this.pos.y + this.flyVel.y * dt));
       } else {
         this.flyVel.set(0, 0, 0);
         let nx = this.pos.x + dx, nz = this.pos.z + dz;

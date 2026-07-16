@@ -230,6 +230,13 @@ export class BusSystem {
   private riddenKey: string | null = null;
   private ride: BusRide | null = null;
 
+  /**
+   * Optional curb resolver (set by World). Given a stop's raw GTFS point, returns
+   * a sidewalk point clear of roadways + buildings, or null to DEFER placement
+   * until the tiles there have loaded. Without it, stops sit at the raw point.
+   */
+  resolvePlacement: ((x: number, z: number) => [number, number] | null) | null = null;
+
   constructor(scene: THREE.Scene, makeModel: BusModelFactory, makeStop: BusStopKitFactory) {
     this.scene = scene;
     this.makeModel = makeModel;
@@ -584,6 +591,14 @@ export class BusSystem {
   }
 
   private placeStop(st: { id: string; x: number; z: number; seed: number }) {
+    // pull the raw GTFS point onto the sidewalk (off roadways/buildings). null =
+    // tiles not loaded here yet → defer; the next scan tick retries this stop.
+    let sx = st.x, sz = st.z;
+    if (this.resolvePlacement) {
+      const rp = this.resolvePlacement(st.x, st.z);
+      if (rp === null) return;
+      sx = rp[0]; sz = rp[1];
+    }
     const info = this.data!.stops[st.id];
     // badges from the stop's serving route ids (skip routes dropped at bake time)
     const badges: BusRouteBadge[] = [];
@@ -605,10 +620,10 @@ export class BusSystem {
     }
     const shelter = badges.length >= 2 && hash01(st.seed * 13 + 2) < 0.45;
     const group = this.makeStop(badges, st.seed, shelter);
-    group.position.set(st.x, heightAt(st.x, st.z), st.z);
+    group.position.set(sx, heightAt(sx, sz), sz);
     group.rotation.y = yaw;
     this.scene.add(group);
-    this.placedStops.set(st.id, { id: st.id, group, x: st.x, z: st.z });
+    this.placedStops.set(st.id, { id: st.id, group, x: sx, z: sz });
   }
 
   // ---- boarding / riding ----

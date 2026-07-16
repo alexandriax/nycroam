@@ -468,8 +468,12 @@ function buildInterior(g: THREE.Group): void {
   addCyl(g, POLE, 0.018, FRONT_DOOR_W - 0.2, BUS.doorX.front, 2.28, 1.1, 6, true);
   addCyl(g, POLE, 0.018, REAR_DOOR_W - 0.2, BUS.doorX.rear, 2.28, 1.1, 6, true);
 
-  // driver cab (x > interior.maxX = 3.3): partition ends the walk box
-  addBox(g, PANEL, 0.05, 1.92, 1.44, 3.34, 1.34, -0.52); // cab partition
+  // driver cab (x > interior.maxX = 3.3). The walk box (BUS.interior.maxX in
+  // World) already stops the rider here, so the divider is only a low modesty
+  // panel — you see over it to the driver and the front destination sign.
+  addBox(g, PANEL, 0.05, 0.98, 1.44, 3.34, 0.87, -0.52); // low cab divider
+  // slim grab pole up the curb-side edge of the divider (was the full panel)
+  addCyl(g, POLE, 0.02, 1.94, 3.34, 1.35, 0.16);
   addBox(g, SKIRT, 0.5, 0.42, 2.1, 5.7, 1.01, 0); // dash (visible through the windshield)
   addBox(g, BAND, 0.2, 0.1, 0.5, 5.43, 1.27, -0.55); // instrument binnacle
   const col = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 0.45, 6).rotateZ(0.5), BAND);
