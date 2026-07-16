@@ -483,11 +483,121 @@ async function main() {
       `${suppressedCount} plain buildings suppressed by parts, ${keptBuildings.length} kept polygons`
   );
 
+  // Building-attached landmarks (crowns, the Hearst diagrid tower...) must sit
+  // on the REAL massing, not at a hand-typed coordinate: measure each host
+  // building's oriented footprint and heights into public/geo/landmarks-fit.json,
+  // which LandmarkManager feeds to the builders. `clearAboveMin` additionally
+  // drops the parts our build replaces (e.g. Hearst's tower above its 1928
+  // base) while keeping the rest of the building.
+  const LANDMARK_FIT = [
+    { id: 'hearst-tower', lat: 40.7666, lon: -73.9836, r: 45, clearAboveH: 5 },
+    { id: 'chrysler', lat: 40.7516, lon: -73.9755, r: 45, clearAboveMin: 184, clearAboveH: 270 },
+    { id: 'empire-state', lat: 40.7484, lon: -73.9857, r: 40, clearAboveMin: 325 },
+    { id: 'one-vanderbilt', lat: 40.7529, lon: -73.9787, r: 40 },
+    { id: 'woolworth', lat: 40.7124, lon: -74.0083, r: 40 },
+    { id: 'top-of-the-rock', lat: 40.7591, lon: -73.9794, r: 40 },
+    { id: 'flatiron', lat: 40.7411, lon: -73.9897, r: 40 },
+    { id: 'msg', lat: 40.7505, lon: -73.9934, r: 80 },
+    { id: 'edge-deck', lat: 40.7539, lon: -74.0006, r: 45 },
+  ].map((e) => { const [x, z] = lonLatToXZ(e.lon, e.lat); return { ...e, x, z }; });
+
+  console.log('Measuring landmark host buildings...');
+  const fitOut = {};
+  const fitCleared = new Set(); // building object refs to drop
+  for (const lf of LANDMARK_FIT) {
+    const cands = keptBuildings.filter((b) => {
+      const dx = b.centroid[0] - lf.x, dz = b.centroid[1] - lf.z;
+      return dx * dx + dz * dz < lf.r * lf.r;
+    });
+    if (!cands.length) { console.warn(`  fit ${lf.id}: NO building found at anchor`); continue; }
+    // dominant orientation: longest edge of the largest footprint
+    const largest = cands.reduce((a, b) => (b.area > a.area ? b : a));
+    let ex = 1, ez = 0, bestLen = 0;
+    const ring = largest.outer;
+    for (let i = 0; i < ring.length; i++) {
+      const a = ring[i], b = ring[(i + 1) % ring.length];
+      const dx = b[0] - a[0], dz = b[1] - a[1];
+      const len = dx * dx + dz * dz;
+      if (len > bestLen) { bestLen = len; const l = Math.sqrt(len); ex = dx / l; ez = dz / l; }
+    }
+    const rot = Math.atan2(-ez, ex); // rotation.y mapping local +x onto the edge
+    const proj = (pt) => {
+      const dx = pt[0] - lf.x, dz = pt[1] - lf.z;
+      return [dx * ex + dz * ez, -dx * ez + dz * ex]; // [along, perp]
+    };
+    const measure = (list) => {
+      let minU = Infinity, maxU = -Infinity, minV = Infinity, maxV = -Infinity, roof = 0;
+      for (const b of list) {
+        roof = Math.max(roof, b.height);
+        for (const pt of b.outer) {
+          const [u, v] = proj(pt);
+          if (u < minU) minU = u; if (u > maxU) maxU = u;
+          if (v < minV) minV = v; if (v > maxV) maxV = v;
+        }
+      }
+      return { minU, maxU, minV, maxV, roof };
+    };
+    const all = measure(cands);
+    const isTall = (b) => (lf.clearAboveMin !== undefined && (b.minHeight ?? 0) >= lf.clearAboveMin)
+      || (lf.clearAboveH !== undefined && b.height >= lf.clearAboveH);
+    const cleared = lf.clearAboveMin !== undefined || lf.clearAboveH !== undefined ? cands.filter(isTall) : [];
+    for (const b of cleared) fitCleared.add(b);
+    const kept = cands.filter((b) => !cleared.includes(b));
+    const keptM = kept.length ? measure(kept) : all;
+    const top = measure(cands.filter((b) => b.height >= all.roof - 12));
+    // center of the full-massing obb, in world coords
+    const cu = (all.minU + all.maxU) / 2, cv = (all.minV + all.maxV) / 2;
+    fitOut[lf.id] = {
+      cx: Math.round((lf.x + ex * cu - ez * cv) * 10) / 10,
+      cz: Math.round((lf.z + ez * cu + ex * cv) * 10) / 10,
+      rot: Math.round(rot * 1000) / 1000,
+      w: Math.round(all.maxU - all.minU),
+      d: Math.round(all.maxV - all.minV),
+      roofH: Math.round(all.roof),          // tallest massing incl. parts we cleared
+      keptH: Math.round(keptM.roof),        // tallest massing left standing
+      topW: Math.round(top.maxU - top.minU),
+      topD: Math.round(top.maxV - top.minV),
+      parts: cands.length,
+      clearedParts: cleared.length,
+    };
+    console.log(`  fit ${lf.id}: ${cands.length} parts, obb ${fitOut[lf.id].w}x${fitOut[lf.id].d}m rot ${fitOut[lf.id].rot}, roof ${fitOut[lf.id].roofH}m, kept ${fitOut[lf.id].keptH}m, cleared ${cleared.length}`);
+  }
+  fs.writeFileSync(path.join(GEO_DIR, 'landmarks-fit.json'), JSON.stringify({ v: 1, fits: fitOut }));
+
+  // Premium landmark builds (src/engine/landmarks) REPLACE the generic OSM
+  // massing at these spots — a bespoke Oculus/Guggenheim/cathedral built at a
+  // point that OSM also maps as a building would be swallowed inside it.
+  // Buildings whose centroid falls within r of a point are dropped; layered
+  // landmarks (crowns, marquees, facades) keep their massing and are NOT here.
+  const LANDMARK_CLEAR = [
+    ['oculus', 40.7115, -74.0113, 55], ['sept11-museum', 40.7115, -74.0125, 28],
+    ['trinity-church', 40.7081, -74.0121, 40], ['federal-hall', 40.7074, -74.0102, 30],
+    ['castle-clinton', 40.7033, -74.017, 38], ['fraunces-tavern', 40.7034, -74.0113, 18],
+    ['whitehall-terminal', 40.7013, -74.0131, 45], ['city-hall', 40.7128, -74.006, 50],
+    ['st-patricks', 40.7586, -73.9758, 62], ['guggenheim', 40.783, -73.959, 40],
+    ['un-secretariat', 40.749, -73.9687, 55], ['un-ga', 40.7497, -73.9674, 45],
+    ['dakota', 40.7765, -73.9761, 42], ['carnegie-hall', 40.7651, -73.9799, 35],
+    ['whitney', 40.7397, -74.0089, 35], ['vessel', 40.7538, -74.0022, 40],
+    ['little-island', 40.742, -74.01, 70], ['belvedere', 40.7794, -73.9692, 28],
+    ['grants-tomb', 40.8134, -73.963, 32], ['riverside-church', 40.8119, -73.9633, 42],
+    ['columbia-low', 40.8081, -73.9619, 42], ['st-john-divine', 40.8038, -73.9619, 55],
+    ['cloisters', 40.8649, -73.9317, 55], ['hamilton-grange', 40.8214, -73.9469, 18],
+    ['morris-jumel', 40.834, -73.9354, 20], ['dyckman-farmhouse', 40.8672, -73.9339, 18],
+  ].map(([id, lat, lon, r]) => { const [x, z] = lonLatToXZ(lon, lat); return { id, x, z, r }; });
+  let landmarkCleared = 0;
+
   // bin into tiles + collect skyline candidates
   const tileBuildings = new Map(); // key -> array of output objs
   const tileBuildingFootprints = new Map(); // key -> array of {outer,holes} world-meter rings (for tree placement filters)
   const skylineCandidates = [];
   for (const b of keptBuildings) {
+    let cleared = fitCleared.has(b);
+    for (const lc of LANDMARK_CLEAR) {
+      if (cleared) break;
+      const dx = b.centroid[0] - lc.x, dz = b.centroid[1] - lc.z;
+      if (dx * dx + dz * dz < lc.r * lc.r) { cleared = true; break; }
+    }
+    if (cleared) { landmarkCleared++; continue; }
     const [tx, tz] = tileOf(b.centroid);
     const key = tileKeyOf(tx, tz);
     const p = [toTileLocalDecimeters(b.outer, tx, tz), ...b.holes.map((h) => toTileLocalDecimeters(h, tx, tz))];
@@ -502,6 +612,8 @@ async function main() {
 
     if (b.height >= 70) skylineCandidates.push(b);
   }
+
+  console.log(`  landmark clearing: ${landmarkCleared} buildings dropped at ${LANDMARK_CLEAR.length} premium-landmark sites`);
 
   // ---- ROADS ----------------------------------------------------------------------------
   console.log('Processing roads...');
