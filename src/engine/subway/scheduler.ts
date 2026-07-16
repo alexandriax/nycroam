@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { Train } from './train';
-import type { StationSpec, TrackInfo, NetworkData } from './types';
+import { directionLabel } from './directions';
+import type { StationSpec, TrackInfo, NetworkData, Arrival } from './types';
 
 /** Express partner shown blasting through local stations' center tracks. */
 const EXPRESS_PARTNER: Record<string, string> = {
@@ -24,7 +25,13 @@ interface Slot {
   timeScale: number;
   cooldown: number; // seconds until next spawn
   passThrough: boolean;
+  platformSide: 1 | -1; // train-LOCAL z-sign facing the platform (doors open here)
 }
+
+// Rough real seconds for a freshly-spawned train to go hidden->approach->dwell,
+// before the timeScale compression is applied — used to estimate the countdown
+// for a track with no train on it yet.
+const SPAWN_TO_DWELL = 19;
 
 /**
  * Runs arrivals on a station's tracks: one train per track at a time, cycling
@@ -59,6 +66,11 @@ export class TrainScheduler {
         assigned = outer ? [routes[0]] : routes.slice(1);
         if (!assigned.length) assigned = routes;
       }
+      // Doors/openings face the platform. The train group is rotated 180° for
+      // downtown (dirSign -1), which flips its local z-axis, so the LOCAL
+      // platform side is the world side times that flip.
+      const worldSide = info.platformSides?.[i] ?? 1;
+      const platformSide: 1 | -1 = (worldSide * (dirSign === -1 ? -1 : 1)) as 1 | -1;
       this.slots.push({
         trackZ: tz,
         dirSign,
@@ -70,6 +82,7 @@ export class TrainScheduler {
         timeScale: 1.35, // compresses the ~40s internal cycle to ~30s
         cooldown: Math.random() * headway, // stagger initial arrivals
         passThrough: false,
+        platformSide,
       });
     });
 
@@ -86,6 +99,7 @@ export class TrainScheduler {
         timeScale: 0.45, // slows the fixed approach duration to a realistic blast-through
         cooldown: 10 + Math.random() * 25,
         passThrough: true,
+        platformSide: 1, // express blows through; doors never open
       });
     }
   }
@@ -113,7 +127,12 @@ export class TrainScheduler {
   private spawn(s: Slot) {
     const route = s.routes[s.routeIdx % s.routes.length];
     s.routeIdx++;
-    const train = new Train({ division: this.spec.division, routes: [route] });
+    const train = new Train({
+      division: this.spec.division,
+      routes: [route],
+      platformSide: s.platformSide,
+      dirLabel: directionLabel([route], s.dirSign, this.spec.name),
+    });
     train.group.position.set(0, this.info.railY, s.trackZ);
     if (s.dirSign === -1) train.group.rotation.y = Math.PI;
     const bb = new THREE.Box3().setFromObject(train.group);
@@ -152,6 +171,38 @@ export class TrainScheduler {
     return this.slots
       .filter((s) => s.train)
       .map((s) => ({ x: Math.round(s.train!.group.position.x * 10) / 10, doors: s.train!.doorsOpen }));
+  }
+
+  /**
+   * Upcoming trains for the platform countdown displays, ONE ENTRY PER TRAIN
+   * (each with a single route) so the boards can list "N … 2 MIN" and
+   * "R … 12 MIN" as separate rows instead of mashing "N/R". Per slot: the
+   * inbound train (if any) leads with its live time-to-dwell, then the route
+   * ROTATION is projected forward at ~headway spacing — so the same order the
+   * scheduler will actually spawn. Up to 3 per slot, sorted by the consumer.
+   */
+  arrivals(): Arrival[] {
+    const out: Arrival[] = [];
+    for (const s of this.slots) {
+      if (s.passThrough) continue;
+      const len = s.routes.length;
+      let base: number; // seconds until the FIRST of the projected spawns dwells
+      if (s.train) {
+        const eta = s.train.secondsToArrival;
+        if (eta !== Infinity) {
+          // inbound/dwelling train: it is routes[routeIdx-1] (spawn incremented)
+          out.push({ dirSign: s.dirSign, routes: [s.routes[(s.routeIdx - 1 + len) % len]], seconds: eta / s.timeScale });
+        }
+        // next spawn comes after this train's remaining cycle + recycle cooldown
+        base = (eta === Infinity ? 0 : eta / s.timeScale) + this.headway;
+      } else {
+        base = Math.max(0, s.cooldown) + SPAWN_TO_DWELL / s.timeScale;
+      }
+      for (let k = 0; out.length < 64 && k < 3; k++) {
+        out.push({ dirSign: s.dirSign, routes: [s.routes[(s.routeIdx + k) % len]], seconds: base + k * this.headway });
+      }
+    }
+    return out;
   }
 
   dispose() {

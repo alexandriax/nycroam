@@ -55,10 +55,21 @@ export interface TrackInfo {
   trackZs: number[];
   /** Direction each stopping track serves, aligned with trackZs (+1 = uptown). */
   trackDirs?: (1 | -1)[]; // stopping tracks (z centers, station-local)
+  /** Which z-side the platform sits on for each stopping track, aligned with
+   *  trackZs (+1 = platform toward +z, -1 = toward -z). Doors/windows on a
+   *  platform train open on this side only; the far side stays solid. */
+  platformSides?: (1 | -1)[];
   passTrackZs?: number[]; // express pass-through tracks (no platform)
   railY: number; // rail-top y (train group y)
   half: number; // platformLength / 2
   portal: number; // |x| where tunnel/viaduct swallows trains
+}
+
+/** One platform countdown-clock reading: soonest next train per direction. */
+export interface Arrival {
+  dirSign: 1 | -1;
+  routes: string[]; // routes that can serve this direction here
+  seconds: number; // estimated seconds until it's at the platform (0 = now)
 }
 
 /** Official MTA trunk-line colors. */

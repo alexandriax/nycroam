@@ -16,7 +16,7 @@ import { StationWorld } from './subway/StationWorld';
 import { ElevatedStationWorld } from './subway/ElevatedStationWorld';
 import { TrainScheduler } from './subway/scheduler';
 import { RideWorld, type RideHud } from './subway/RideWorld';
-import type { StationSpec, NetworkData } from './subway/types';
+import type { StationSpec, NetworkData, Arrival } from './subway/types';
 import { routeColor } from './subway/types';
 import { boardLabel } from './subway/directions';
 import { lonLatToXZ } from './geo';
@@ -459,6 +459,8 @@ export class World {
       this.mode = 'ride';
       this.pos.set(0, 0, 0);
       this.controls.fly = false;
+      // block the walk-OFF check while the player is still holding the walk-IN key
+      this.lastEnterGuard = performance.now();
       this.hud.mode = 'ride';
       this.pushHud();
       await wait(80);
@@ -509,6 +511,9 @@ export class World {
       ? new ElevatedStationWorld(spec, this.envTex)
       : new StationWorld(spec, this.envTex);
     this.scheduler = new TrainScheduler(this.station.scene, spec, this.station.trackInfo, this.network);
+    // feed the platform countdown clocks: the station redraws them from this on
+    // its own timer (reads the live scheduler each call, so it survives rebuilds).
+    (this.station as { arrivalsFn?: () => Arrival[] }).arrivalsFn = () => this.scheduler?.arrivals() ?? [];
     this.currentStationSpec = spec;
   }
 
@@ -664,6 +669,12 @@ export class World {
       this.pos.x = Math.max(-6.8, Math.min(6.8, this.pos.x + dx));
       this.pos.z = Math.max(-1.05, Math.min(1.05, this.pos.z + dz));
       this.pos.y = 0;
+      // walk-off: while dwelling, stepping into the open platform-side (+z)
+      // doors steps you off — same affordance as walking in (E still works).
+      if (this.ride.canExit && this.pos.z > 0.92
+        && performance.now() - this.lastEnterGuard > 2500 && !this.transitioning) {
+        this.exitRide();
+      }
       this.ride.update(dt);
       this.hud.ride = this.ride.hudInfo;
       this.hud.prompt = null;

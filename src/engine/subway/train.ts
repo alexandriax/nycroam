@@ -3,12 +3,26 @@
 // arrive -> dwell -> depart loop along the local +x axis.
 import * as THREE from 'three';
 import { routeColor, bulletTextColor } from './types';
-import { BLACK } from '../fonts';
+import { BLACK, LED } from '../fonts';
 
 export interface TrainOpts {
   division: string;
   routes: string[];
   carCount?: number;
+  /**
+   * The car's LOCAL z-sign that faces the platform (+1 or -1). The scheduler
+   * computes it from the track/rotation and passes it here. Only this side gets
+   * window openings and opening doors; the opposite side is built solid so you
+   * never see straight through the car to the tunnel. Default +1.
+   */
+  platformSide?: 1 | -1;
+  /**
+   * Where the train is headed, e.g. "Uptown & The Bronx" or
+   * "Grand Central–42 St". Baked (once per train) into the exterior side
+   * signs next to the route bullet, and — space permitting — under the front
+   * cab's roll sign. Signs show the bullet alone when omitted.
+   */
+  dirLabel?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -26,6 +40,24 @@ const WALL_THK = 0.08;
 const BAY_HALF = 0.65; // half-width of a door bay opening (halfGap 0.34 + leaf half 0.31)
 const DOOR_TOP_H = 1.9; // door/opening height above the car floor
 
+// Window band, measured above the car floor. The wall (and each door leaf) is a
+// solid panel from floor -> WIN_SILL and from WIN_HEAD -> door-top, leaving the
+// WIN_SILL..WIN_HEAD row as a real OPENING that shows the lit interior straight
+// through (no transparent glass to mis-sort), exactly like an open door.
+const WIN_SILL = 0.95; // window bottom above the car floor
+const WIN_HEAD = 1.62; // window top above the car floor
+const BELOW_H = WIN_SILL; // solid below-window panel height
+const ABOVE_H = DOOR_TOP_H - WIN_HEAD; // solid above-window panel height
+const BAND_H = WIN_HEAD - WIN_SILL; // open window-row height
+const FRAME_DEPTH = WALL_THK + 0.03; // frame bars sit a touch proud of the wall
+const LIP_H = 0.07; // sill / head frame-lip thickness (black band edges, R160-style)
+const MULLION_W = 0.06; // vertical mullion / band-post thickness
+const DOOR_LEAF_W = 0.62;
+// Door-leaf window: sits a touch lower than the wall window (its sill drops below
+// WIN_SILL) so the door glass reads as the larger R160 door window. The head stays
+// at WIN_HEAD so the door and wall window tops line up.
+const DOOR_WIN_SILL = 0.8;
+
 interface CarDims {
   length: number;
   width: number;
@@ -38,53 +70,144 @@ function carDims(division: string): CarDims {
     : { length: 18.3, width: 3.0, height: 3.2 };
 }
 
+// The four solid wall segments between the door bays (shared by the shell, the
+// window framing and the interior placement so they always line up).
+function wallSegments(L: number): { cx: number; w: number; mid: boolean }[] {
+  const endSegW = L * 0.22 - BAY_HALF; // outer segment: car end -> first bay
+  const midSegW = L * 0.27 - 2 * BAY_HALF; // inner segment: between two bays
+  const endCx = (L * 0.76 + BAY_HALF) / 2; // outer segment center magnitude
+  const midCx = L * 0.135; // inner segment center magnitude
+  return [
+    { cx: -endCx, w: endSegW, mid: false },
+    { cx: -midCx, w: midSegW, mid: true },
+    { cx: midCx, w: midSegW, mid: true },
+    { cx: endCx, w: endSegW, mid: false },
+  ];
+}
+
+// Panes per wall segment: a wide segment gets vertical mullions so it reads as
+// two or three separate windows (real R-cars) instead of one long slot.
+function panesFor(w: number): number {
+  return Math.max(2, Math.round(w / 1.6));
+}
+
 // ---------------------------------------------------------------------------
 // Shared materials (module scope: every Train instance reuses these).
 // ---------------------------------------------------------------------------
 const BODY_MATERIAL = new THREE.MeshStandardMaterial({ color: '#c3c6c9', metalness: 0.75, roughness: 0.35 });
-// Dark glass that reads as a lit subway window: near-black so it never looks
-// like a hole, with a warm emissive lift so it glows like the lit interior
-// behind it. Opaque (no transparency sort) and double-sided so a single
-// instanced plane works on either wall face and inside a door leaf.
-const WINDOW_GLASS_MATERIAL = new THREE.MeshLambertMaterial({ color: '#1a1d20', emissive: '#5a5240', emissiveIntensity: 0.4, side: THREE.DoubleSide });
+// Matte near-black for the R160 window band: the window sill/head lips, the
+// vertical mullions and the band side-posts are drawn in this so the platform-
+// side window row reads as a dark band with light openings, not bright framing.
+const BAND_MATERIAL = new THREE.MeshLambertMaterial({ color: '#141618' });
 const ROOF_MATERIAL = new THREE.MeshLambertMaterial({ color: '#0a0a0a' });
 const UNDERCARRIAGE_MATERIAL = new THREE.MeshLambertMaterial({ color: '#111214' });
 const BOGIE_MATERIAL = new THREE.MeshLambertMaterial({ color: '#161719' });
 const WHEEL_MATERIAL = new THREE.MeshLambertMaterial({ color: '#3a3b3d' });
 const DOOR_MATERIAL = new THREE.MeshLambertMaterial({ color: '#8d9094', side: THREE.DoubleSide });
+// Black cab masking / anticlimber / sign backing.
 const END_CAP_MATERIAL = new THREE.MeshLambertMaterial({ color: '#0d0d0d', side: THREE.DoubleSide });
+// Dark front-cab glass (operator + storm-door windows): near-black, faintly
+// reflective, opaque so it never mis-sorts against the interior behind it.
+const CAB_GLASS_MATERIAL = new THREE.MeshStandardMaterial({ color: '#0d1116', metalness: 0.35, roughness: 0.2 });
 const HEADLIGHT_MATERIAL = new THREE.MeshLambertMaterial({ color: '#fff8e0', emissive: '#fff8e0', emissiveIntensity: 1.2 });
 const MARKER_MATERIAL = new THREE.MeshLambertMaterial({ color: '#ff2222', emissive: '#ff2222', emissiveIntensity: 1.0 });
-// Interior seen through the open doors. Kept to a handful of shared materials.
-const INTERIOR_FLOOR_MATERIAL = new THREE.MeshLambertMaterial({ color: '#33363b' });
+// Interior seen through the open doors/windows. Kept to a handful of shared
+// materials, deliberately DARKER than the bright stainless exterior so a doorway
+// reads as "inside" (a warm mid-grey world) rather than more silver body:
+// - floor: dark warm grey
+// - wall liner: a mid-grey panel set just inside the solid far wall, so the
+//   interior face you see through the near openings is grey, not stainless
+// - ceiling liner: a dark panel flanking the lit strip
+// Benches stay transit-blue.
+const INTERIOR_FLOOR_MATERIAL = new THREE.MeshLambertMaterial({ color: '#35322d' });
+const INTERIOR_WALL_MATERIAL = new THREE.MeshLambertMaterial({ color: '#6c6e72' });
+const INTERIOR_CEILING_MATERIAL = new THREE.MeshLambertMaterial({ color: '#3b3c40' });
 const CEILING_LIGHT_MATERIAL = new THREE.MeshBasicMaterial({ color: '#fff3d6' });
 const BENCH_MATERIAL = new THREE.MeshLambertMaterial({ color: '#2b4d8c' });
 const POLE_MATERIAL = new THREE.MeshStandardMaterial({ color: '#b9bdc2', metalness: 0.8, roughness: 0.25 });
 
 // ---------------------------------------------------------------------------
-// Shared geometries
+// Shared geometries (fixed-size, so shared across both divisions)
 // ---------------------------------------------------------------------------
 const WHEEL_GEO = new THREE.CylinderGeometry(0.21, 0.21, 0.08, 8);
 const BOGIE_GEO = new THREE.BoxGeometry(1.6, 0.3, 1.9);
-const DOOR_LEAF_GEO = new THREE.PlaneGeometry(0.62, 1.9);
-// Discrete windows (fixed size, so shared across both divisions like the door
-// leaf): a wide pane for the wall segments between bays, and a small pane set
-// into each sliding door leaf.
-const WALL_WINDOW_GEO = new THREE.PlaneGeometry(1.0, 0.8);
-const DOOR_WINDOW_GEO = new THREE.PlaneGeometry(0.4, 0.66);
+// Door leaf split into a solid panel below the window and above the window,
+// leaving the window row open. The lower panel stops at DOOR_WIN_SILL (below the
+// wall's WIN_SILL) so the door window is taller than a wall window, matching the
+// R160's large door glass. Fixed leaf width, so shared across divisions.
+const DOOR_LOWER_GEO = new THREE.BoxGeometry(DOOR_LEAF_W, DOOR_WIN_SILL, 0.05);
+const DOOR_UPPER_GEO = new THREE.BoxGeometry(DOOR_LEAF_W, ABOVE_H, 0.05);
+// Unit cube scaled per-instance to make every window sill/head lip and mullion
+// in one InstancedMesh (one draw call for all window framing on the train).
+const FRAME_BAR_GEO = new THREE.BoxGeometry(1, 1, 1);
+// Front-cab detail (fixed sizes).
+const CAB_STORM_WIN_GEO = new THREE.BoxGeometry(0.05, 0.72, 0.44); // center storm-door window
+const CAB_SIDE_WIN_GEO = new THREE.BoxGeometry(0.05, 0.52, 0.6); // operator / flanking window
+const SIGN_PANEL_GEO = new THREE.BoxGeometry(0.04, 0.32, 0.72); // black backing behind the route sign
+const COUPLER_GEO = new THREE.BoxGeometry(0.34, 0.18, 0.2);
 const ROLL_SIGN_GEO = new THREE.PlaneGeometry(0.5, 0.22);
 const LIGHT_SPHERE_GEO = new THREE.SphereGeometry(0.06, 6, 4);
 const UNIT_SCALE = new THREE.Vector3(1, 1, 1);
+const IDENTITY_QUAT = new THREE.Quaternion();
+
+// Exterior side sign: an R160-style orange LED destination display baked into
+// one canvas (see makeSideSignTexture) — a rounded black panel with the route
+// letter, a gap, then the destination, all in the LED (VT323) face glowing
+// orange. Mapped onto one compact single-sided panel shared by every sign mesh
+// on the train (one PlaneGeometry, positioned/rotated per instance — never
+// DoubleSide, so each panel only renders from the side it's meant to face). The
+// leading LED_ROUTE_FRAC of the canvas width holds the route letter; the rest
+// holds the destination (the front cab crops to just that destination region).
+const SIDE_SIGN_TEX_W = 512;
+const SIDE_SIGN_TEX_H = 120;
+const LED_ROUTE_FRAC = 0.22; // fraction of canvas width reserved for the route letter
+const SIDE_SIGN_WIDTH = 0.9; // meters
+const SIDE_SIGN_HEIGHT = (SIDE_SIGN_WIDTH * SIDE_SIGN_TEX_H) / SIDE_SIGN_TEX_W; // ~0.21m, matches canvas aspect
+const SIDE_SIGN_GEO = new THREE.PlaneGeometry(SIDE_SIGN_WIDTH, SIDE_SIGN_HEIGHT);
+
+// Small front-cab destination crop: same texture as the side signs, but a
+// separate (module-scope, shared) plane whose UVs sample only the
+// destination-text portion of that canvas, so the front cab can show
+// "bullet (existing roll sign) + orange LED destination" without baking a
+// second texture per train.
+const FRONT_DEST_WIDTH = 0.34;
+const FRONT_DEST_HEIGHT = 0.1;
+const FRONT_DEST_GEO = new THREE.PlaneGeometry(FRONT_DEST_WIDTH, FRONT_DEST_HEIGHT);
+{
+  const uv = FRONT_DEST_GEO.attributes.uv;
+  for (let i = 0; i < uv.count; i++) {
+    uv.setX(i, LED_ROUTE_FRAC + uv.getX(i) * (1 - LED_ROUTE_FRAC));
+  }
+  uv.needsUpdate = true;
+}
+
+// Car-number + US-flag decal. One canvas per TRAIN bakes every car's number as
+// its own horizontal row (flag on the left, four white digits to its right);
+// each car's decal plane is a per-car CLONE of this geometry with its UV.y
+// remapped to its own row, so all cars share the single texture (see
+// makeNumberFlagTexture / addNumberDecal).
+const NUMBER_ATLAS_W = 192; // px per row
+const NUMBER_ROW_H = 64; // px per row (height = NUMBER_ROW_H * carCount)
+const NUMBER_DECAL_W = 0.48; // meters
+const NUMBER_DECAL_H = (NUMBER_DECAL_W * NUMBER_ROW_H) / NUMBER_ATLAS_W; // matches one row's aspect
+const NUMBER_DECAL_GEO = new THREE.PlaneGeometry(NUMBER_DECAL_W, NUMBER_DECAL_H);
 
 interface CarGeometrySet {
   roof: THREE.BoxGeometry;
   undercarriage: THREE.BoxGeometry;
-  endCap: THREE.PlaneGeometry;
-  sideEnd: THREE.BoxGeometry; // solid wall segment between a car end and the outer bay
-  sideMid: THREE.BoxGeometry; // solid wall segment between two adjacent bays
+  cabFace: THREE.BoxGeometry; // flat end wall closing a car end
+  cabMask: THREE.BoxGeometry; // black band the cab windows sit in
+  anticlimber: THREE.BoxGeometry; // black striker plate at the car end bottom
+  sideEndLower: THREE.BoxGeometry; // outer wall segment, floor -> sill
+  sideEndUpper: THREE.BoxGeometry; // outer wall segment, head -> door-top
+  sideMidLower: THREE.BoxGeometry; // inner wall segment, floor -> sill
+  sideMidUpper: THREE.BoxGeometry; // inner wall segment, head -> door-top
+  sideSolid: THREE.BoxGeometry; // FAR side: one solid wall (no window/door openings)
+  sideLiner: THREE.BoxGeometry; // darker interior liner set just inside the far wall
   header: THREE.BoxGeometry; // full-length upper wall spanning above the doors
   floor: THREE.BoxGeometry; // interior floor
   ceiling: THREE.BoxGeometry; // lit ceiling strip
+  ceilingLiner: THREE.BoxGeometry; // dark ceiling panel flanking the lit strip
   bench: THREE.BoxGeometry; // longitudinal bench block
   pole: THREE.CylinderGeometry; // grab pole
 }
@@ -100,18 +223,28 @@ function getCarGeometry(division: string): CarGeometrySet {
     const L = dims.length;
     const W = dims.width;
     const H = dims.height;
-    const wallHalf = L * 0.49;
-    const endSegW = wallHalf - L * 0.27 - BAY_HALF; // outer segment: car end -> first bay
+    const endSegW = L * 0.22 - BAY_HALF; // outer segment: car end -> first bay
     const midSegW = L * 0.27 - 2 * BAY_HALF; // inner segment: between two bays
     set = {
       roof: new THREE.BoxGeometry(L, 0.08, W * 0.96),
       undercarriage: new THREE.BoxGeometry(L * 0.8, 0.2, W * 0.7),
-      endCap: new THREE.PlaneGeometry(W * 0.9, H * 0.7),
-      sideEnd: new THREE.BoxGeometry(endSegW, DOOR_TOP_H, WALL_THK),
-      sideMid: new THREE.BoxGeometry(midSegW, DOOR_TOP_H, WALL_THK),
+      cabFace: new THREE.BoxGeometry(0.08, H, W * 0.96),
+      cabMask: new THREE.BoxGeometry(0.04, 0.9, W * 0.86),
+      anticlimber: new THREE.BoxGeometry(0.16, 0.16, W * 0.92),
+      sideEndLower: new THREE.BoxGeometry(endSegW, BELOW_H, WALL_THK),
+      sideEndUpper: new THREE.BoxGeometry(endSegW, ABOVE_H, WALL_THK),
+      sideMidLower: new THREE.BoxGeometry(midSegW, BELOW_H, WALL_THK),
+      sideMidUpper: new THREE.BoxGeometry(midSegW, ABOVE_H, WALL_THK),
+      // Far wall: full-length, floor -> door-top solid panel. Combined with the
+      // header above it, the whole far side is opaque from floor to roof.
+      sideSolid: new THREE.BoxGeometry(L * 0.98, DOOR_TOP_H, WALL_THK),
+      // Interior liner just inside the far wall: thin panel whose inner face
+      // shows the darker interior grey (the far wall's outer face stays stainless).
+      sideLiner: new THREE.BoxGeometry(L * 0.96, DOOR_TOP_H - 0.04, 0.02),
       header: new THREE.BoxGeometry(L * 0.98, H - DOOR_TOP_H, WALL_THK),
       floor: new THREE.BoxGeometry(L * 0.92, 0.08, W - 2 * WALL_THK - 0.02),
       ceiling: new THREE.BoxGeometry(L * 0.85, 0.06, W * 0.5),
+      ceilingLiner: new THREE.BoxGeometry(L * 0.9, 0.05, W * 0.82),
       bench: new THREE.BoxGeometry(midSegW * 0.9, 0.42, 0.34),
       pole: new THREE.CylinderGeometry(0.022, 0.022, H - 0.25, 6),
     };
@@ -150,6 +283,140 @@ function makeRollSignTexture(route: string): THREE.CanvasTexture {
   const ctx = canvas.getContext('2d');
   if (!ctx) throw new Error('2D canvas context unavailable');
   drawRouteBullet(ctx, size, route);
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  return texture;
+}
+
+// Shrink `text` until it fits `maxWidth` in `family`, mirroring signage.ts's
+// fitFontSize (train.ts can't import that module, so this is a small local
+// duplicate). Faces here (Archivo Black, VT323) are drawn WITHOUT synthetic bold.
+function fitFontSize(ctx: CanvasRenderingContext2D, text: string, maxWidth: number, startPx: number, family: string): number {
+  let size = startPx;
+  ctx.font = `${size}px ${family}`;
+  while (ctx.measureText(text).width > maxWidth && size > 12) {
+    size -= 2;
+    ctx.font = `${size}px ${family}`;
+  }
+  return size;
+}
+
+/**
+ * The destination shown on the LED signs, derived from a free-form dirLabel:
+ * take the part after the last "&" (so "Uptown & Astoria" -> "ASTORIA"), then
+ * drop any cross-street suffix after a dash (so "Grand Central–42 St" ->
+ * "GRAND CENTRAL"), upper-cased. Empty label -> empty destination.
+ */
+function deriveDestination(dirLabel: string): string {
+  let s = dirLabel.trim();
+  if (!s) return '';
+  const amp = s.lastIndexOf('&');
+  if (amp >= 0) s = s.slice(amp + 1);
+  const dash = s.search(/[–—-]/);
+  if (dash > 0) s = s.slice(0, dash);
+  return s.trim().toUpperCase();
+}
+
+// Rounded-rect path helper (some canvas backends lack ctx.roundRect).
+function roundRectPath(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number): void {
+  const rr = Math.min(r, w / 2, h / 2);
+  ctx.beginPath();
+  ctx.moveTo(x + rr, y);
+  ctx.arcTo(x + w, y, x + w, y + h, rr);
+  ctx.arcTo(x + w, y + h, x, y + h, rr);
+  ctx.arcTo(x, y + h, x, y, rr);
+  ctx.arcTo(x, y, x + w, y, rr);
+  ctx.closePath();
+}
+
+/**
+ * The exterior side-sign texture: an R160 orange-LED destination display on a
+ * rounded black panel with transparent corners (so the panel reads as a black
+ * box sitting on the silver body). Layout: the route letter centered in the
+ * leading LED_ROUTE_FRAC of the width, then the destination left-aligned in the
+ * remainder — both in the VT323 LED face, glowing orange. One of these is baked
+ * per TRAIN (every car + both sides share it, same route + direction).
+ */
+function makeSideSignTexture(route: string, destination: string): THREE.CanvasTexture {
+  const w = SIDE_SIGN_TEX_W;
+  const h = SIDE_SIGN_TEX_H;
+  const canvas = document.createElement('canvas');
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) throw new Error('2D canvas context unavailable');
+  ctx.clearRect(0, 0, w, h); // transparent corners outside the rounded panel
+  roundRectPath(ctx, 0, 0, w, h, h * 0.22);
+  ctx.fillStyle = '#0a0b0c';
+  ctx.fill();
+
+  const orange = '#f59f2a';
+  ctx.fillStyle = orange;
+  ctx.shadowColor = orange;
+  ctx.shadowBlur = 7;
+  ctx.textBaseline = 'middle';
+  const midY = h / 2 + h * 0.03;
+
+  // route letter, centered in the leading region
+  const routeRegion = LED_ROUTE_FRAC * w;
+  ctx.textAlign = 'center';
+  const routeSize = fitFontSize(ctx, route, routeRegion - h * 0.2, Math.round(h * 0.74), LED);
+  ctx.font = `${routeSize}px ${LED}`;
+  ctx.fillText(route, routeRegion * 0.52, midY);
+
+  // destination, left-aligned in the remaining region
+  if (destination) {
+    ctx.textAlign = 'left';
+    const destX = routeRegion + h * 0.08;
+    const destSize = fitFontSize(ctx, destination, w - destX - h * 0.12, Math.round(h * 0.64), LED);
+    ctx.font = `${destSize}px ${LED}`;
+    ctx.fillText(destination, destX, midY);
+  }
+
+  ctx.shadowBlur = 0;
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  return texture;
+}
+
+// A tiny US flag (13 stripes + blue canton) drawn into a rect. Stars are omitted
+// — invisible at decal scale — but the canton reads correctly.
+function drawUSFlag(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number): void {
+  const stripeH = h / 13;
+  for (let s = 0; s < 13; s++) {
+    ctx.fillStyle = s % 2 === 0 ? '#b22234' : '#ffffff';
+    ctx.fillRect(x, y + s * stripeH, w, stripeH + 0.5);
+  }
+  ctx.fillStyle = '#3c3b6e';
+  ctx.fillRect(x, y, w * 0.42, stripeH * 7);
+}
+
+/**
+ * Car-number + flag atlas: one canvas per TRAIN, one horizontal row per car
+ * (US flag then the four-digit number in silver-white). Each car's decal plane
+ * samples its own row via a UV remap (see addNumberDecal), so the whole train
+ * shares this single texture rather than baking one per car.
+ */
+function makeNumberFlagTexture(numbers: number[]): THREE.CanvasTexture {
+  const rows = numbers.length;
+  const w = NUMBER_ATLAS_W;
+  const rowH = NUMBER_ROW_H;
+  const canvas = document.createElement('canvas');
+  canvas.width = w;
+  canvas.height = rowH * rows;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) throw new Error('2D canvas context unavailable');
+  ctx.clearRect(0, 0, w, rowH * rows);
+  ctx.textBaseline = 'middle';
+  ctx.textAlign = 'left';
+  for (let i = 0; i < rows; i++) {
+    const y0 = i * rowH;
+    const flagH = rowH * 0.44;
+    drawUSFlag(ctx, 8, y0 + (rowH - flagH) / 2, flagH * 1.8, flagH);
+    ctx.font = `${Math.round(rowH * 0.52)}px ${BLACK}`;
+    ctx.fillStyle = '#e8eaed';
+    ctx.fillText(String(numbers[i]), 8 + flagH * 1.8 + 12, y0 + rowH / 2 + 2);
+  }
   const texture = new THREE.CanvasTexture(canvas);
   texture.colorSpace = THREE.SRGBColorSpace;
   return texture;
@@ -196,12 +463,19 @@ export class Train {
   readonly group: THREE.Group;
 
   private readonly wheelMesh: THREE.InstancedMesh;
-  private readonly windowMesh: THREE.InstancedMesh; // all wall windows, one draw call
-  private readonly doorLeaves: THREE.Mesh[] = [];
+  private readonly frameMesh: THREE.InstancedMesh; // all window sill/head lips + mullions, one draw call
+  private readonly doorLeaves: THREE.Object3D[] = [];
   private readonly doorClosedX: number[] = [];
-  private readonly doorSign: number[] = [];
+  private readonly doorSign: number[] = []; // slide direction (±x) of each leaf
+  private readonly doorLeafSide: number[] = []; // local z-sign of the wall each leaf belongs to
+  private readonly platformSide: 1 | -1; // local z-sign facing the platform
   private readonly rollSignTexture: THREE.CanvasTexture;
   private readonly rollSignMaterial: THREE.MeshLambertMaterial;
+  private readonly sideSignTexture: THREE.CanvasTexture; // exterior side signs + front-cab dest crop share this
+  private readonly sideSignMaterial: THREE.MeshLambertMaterial;
+  private readonly numberFlagTexture: THREE.CanvasTexture; // per-train atlas of every car's number + flag
+  private readonly numberFlagMaterial: THREE.MeshLambertMaterial;
+  private readonly numberDecalGeos: THREE.PlaneGeometry[] = []; // per-car UV-remapped clones of NUMBER_DECAL_GEO
 
   private fromX = 0;
   private stopX = 0;
@@ -213,26 +487,14 @@ export class Train {
   private doorOffset = 0;
 
   constructor(opts: TrainOpts) {
+    this.platformSide = opts.platformSide === -1 ? -1 : 1;
     const dims = carDims(opts.division);
     const defaultCount = opts.division === 'IRT' ? 10 : 8;
     const carCount = Math.max(1, Math.floor(opts.carCount ?? defaultCount));
     const carPitch = dims.length + CAR_GAP;
     const geo = getCarGeometry(opts.division);
-
-    // Wall-window layout: two windows centered in each of the four solid wall
-    // segments between the door bays (never over a bay), matching the segment
-    // geometry built in addBodyShell. Height sits inside the door-height wall.
     const L = dims.length;
-    const endSegW = L * 0.22 - BAY_HALF; // outer segment width (car end -> first bay)
-    const midSegW = L * 0.27 - 2 * BAY_HALF; // inner segment width (between two bays)
-    const segEndCx = (L * 0.76 + BAY_HALF) / 2; // outer segment center magnitude
-    const windowY = FLOOR_Y + DOOR_TOP_H * 0.68; // window height inside the wall segment
-    const winSegs: { cx: number; w: number }[] = [
-      { cx: -segEndCx, w: endSegW },
-      { cx: -L * 0.135, w: midSegW },
-      { cx: L * 0.135, w: midSegW },
-      { cx: segEndCx, w: endSegW },
-    ];
+    const segs = wallSegments(L);
 
     this.group = new THREE.Group();
     this.group.visible = false;
@@ -240,47 +502,116 @@ export class Train {
     this.wheelMesh = new THREE.InstancedMesh(WHEEL_GEO, WHEEL_MATERIAL, carCount * 8);
     this.group.add(this.wheelMesh);
 
-    // 16 wall windows per car (2 per segment x 4 segments x 2 sides), all in a
-    // single shared InstancedMesh so window count is one draw call per train.
-    this.windowMesh = new THREE.InstancedMesh(WALL_WINDOW_GEO, WINDOW_GLASS_MATERIAL, carCount * 16);
-    this.group.add(this.windowMesh);
+    // Window framing on the PLATFORM SIDE ONLY of every car (the far side is
+    // solid, so it has no windows to frame): 2 lips (sill + head) + (panes-1)
+    // mullions + 2 band side-posts per wall segment, all in a single
+    // InstancedMesh (one draw call) drawn in BAND_MATERIAL so the window row
+    // reads as a dark R160 band framing the light openings.
+    let framePerSide = 0;
+    for (const seg of segs) framePerSide += 2 + (panesFor(seg.w) - 1) + 2;
+    this.frameMesh = new THREE.InstancedMesh(FRAME_BAR_GEO, BAND_MATERIAL, carCount * framePerSide);
+    this.group.add(this.frameMesh);
 
     const route = opts.routes[0] ?? 'S';
+    const dirLabel = (opts.dirLabel ?? '').trim();
+    const destination = deriveDestination(dirLabel);
     this.rollSignTexture = makeRollSignTexture(route);
     this.rollSignMaterial = new THREE.MeshLambertMaterial({
       map: this.rollSignTexture,
       color: '#ffffff',
       side: THREE.DoubleSide,
     });
+    // Exterior side signs: single-sided (never DoubleSide) so each panel only
+    // renders from the face it's rotated to point at. Transparent so the rounded
+    // black LED panel's corners show the body behind them.
+    this.sideSignTexture = makeSideSignTexture(route, destination);
+    this.sideSignMaterial = new THREE.MeshLambertMaterial({
+      map: this.sideSignTexture,
+      color: '#ffffff',
+      transparent: true,
+    });
+
+    // Per-train car-number + flag atlas. Numbers start from a route-derived base
+    // (deterministic across rebuilds — no Math.random) so a given train keeps its
+    // numbers; each car is base + its index. One decal geometry per car remaps
+    // its UV.y onto its own atlas row (all cars share the one texture).
+    let routeCharSum = 0;
+    const routeSrc = opts.routes.join('') || route;
+    for (let c = 0; c < routeSrc.length; c++) routeCharSum += routeSrc.charCodeAt(c);
+    const numberBase = 8000 + ((routeCharSum * 7) % 900);
+    const carNumbers: number[] = [];
+    for (let i = 0; i < carCount; i++) carNumbers.push(numberBase + i);
+    this.numberFlagTexture = makeNumberFlagTexture(carNumbers);
+    this.numberFlagMaterial = new THREE.MeshLambertMaterial({
+      map: this.numberFlagTexture,
+      color: '#ffffff',
+      transparent: true,
+    });
+    for (let i = 0; i < carCount; i++) {
+      const g = NUMBER_DECAL_GEO.clone();
+      const uv = g.attributes.uv;
+      for (let k = 0; k < uv.count; k++) {
+        uv.setY(k, 1 - (i + 1) / carCount + uv.getY(k) / carCount);
+      }
+      uv.needsUpdate = true;
+      this.numberDecalGeos.push(g);
+    }
 
     let wheelIndex = 0;
     const wheelMatrix = new THREE.Matrix4();
     const wheelQuat = new THREE.Quaternion().setFromEuler(new THREE.Euler(Math.PI / 2, 0, 0));
     const wheelPos = new THREE.Vector3();
 
-    let windowIndex = 0;
-    const windowMatrix = new THREE.Matrix4();
-    const windowPos = new THREE.Vector3();
-    const windowQuat = new THREE.Quaternion(); // identity: DoubleSide plane needs no facing
+    let frameIndex = 0;
+    const frameMatrix = new THREE.Matrix4();
+    const framePos = new THREE.Vector3();
+    const frameScale = new THREE.Vector3();
+    const winCenterY = FLOOR_Y + (WIN_SILL + WIN_HEAD) / 2;
 
     for (let i = 0; i < carCount; i++) {
       const localX = i * carPitch;
       const isFront = i === carCount - 1;
       const isRear = i === 0;
 
-      this.addBodyShell(localX, dims, geo);
+      this.addBodyShell(localX, dims, geo, segs);
+      this.addSideSigns(localX, dims, segs);
+      this.addNumberDecal(localX, dims, segs, i);
 
-      // Discrete wall windows: two per solid segment, on both sides, mounted
-      // just proud of the outer wall face (±W/2). Nothing is placed over a door
-      // bay, so there is no dark band spanning the doorways.
-      for (const sideZ of [-1, 1]) {
-        const wz = sideZ * (dims.width / 2 + 0.006);
-        for (const seg of winSegs) {
-          const spread = seg.w * 0.22; // window offset from the segment center
-          for (const sx of [-spread, spread]) {
-            windowPos.set(localX + seg.cx + sx, windowY, wz);
-            windowMatrix.compose(windowPos, windowQuat, UNIT_SCALE);
-            this.windowMesh.setMatrixAt(windowIndex++, windowMatrix);
+      // Window framing on the PLATFORM-side wall only (the far side is solid),
+      // mounted flush with the wall skin. Drawn in BAND_MATERIAL (black): the
+      // sill/head lips, the pane mullions and the two segment-edge side-posts
+      // together box each window group in black, so the window row reads as a
+      // dark band with light openings.
+      {
+        const fz = this.platformSide * (dims.width / 2 - WALL_THK / 2);
+        for (const seg of segs) {
+          const sx = localX + seg.cx;
+          // sill lip
+          framePos.set(sx, FLOOR_Y + WIN_SILL, fz);
+          frameScale.set(seg.w, LIP_H, FRAME_DEPTH);
+          frameMatrix.compose(framePos, IDENTITY_QUAT, frameScale);
+          this.frameMesh.setMatrixAt(frameIndex++, frameMatrix);
+          // head lip
+          framePos.set(sx, FLOOR_Y + WIN_HEAD, fz);
+          frameScale.set(seg.w, LIP_H, FRAME_DEPTH);
+          frameMatrix.compose(framePos, IDENTITY_QUAT, frameScale);
+          this.frameMesh.setMatrixAt(frameIndex++, frameMatrix);
+          // vertical mullions dividing the opening into panes
+          const panes = panesFor(seg.w);
+          for (let k = 1; k < panes; k++) {
+            const mx = localX + seg.cx - seg.w / 2 + (seg.w * k) / panes;
+            framePos.set(mx, winCenterY, fz);
+            frameScale.set(MULLION_W, BAND_H, FRAME_DEPTH);
+            frameMatrix.compose(framePos, IDENTITY_QUAT, frameScale);
+            this.frameMesh.setMatrixAt(frameIndex++, frameMatrix);
+          }
+          // band side-posts at both segment edges (close the black band frame,
+          // separating the window group from the adjoining door bays)
+          for (const edge of [-1, 1]) {
+            framePos.set(sx + edge * (seg.w / 2), winCenterY, fz);
+            frameScale.set(MULLION_W, BAND_H, FRAME_DEPTH);
+            frameMatrix.compose(framePos, IDENTITY_QUAT, frameScale);
+            this.frameMesh.setMatrixAt(frameIndex++, frameMatrix);
           }
         }
       }
@@ -313,75 +644,72 @@ export class Train {
       for (const sideZ of [-1, 1]) {
         const z = sideZ * (dims.width / 2 + 0.004);
         for (const dx of doorXs) {
-          this.addDoorLeaf(localX + dx - halfGap, z, -1);
-          this.addDoorLeaf(localX + dx + halfGap, z, 1);
+          this.addDoorLeaf(localX + dx - halfGap, z, -1, sideZ);
+          this.addDoorLeaf(localX + dx + halfGap, z, 1, sideZ);
         }
       }
 
-      if (isFront) {
-        const faceX = localX + dims.length / 2 + 0.01;
-        const endCap = new THREE.Mesh(geo.endCap, END_CAP_MATERIAL);
-        endCap.rotation.y = Math.PI / 2;
-        endCap.position.set(faceX, FLOOR_Y + dims.height * 0.55, 0);
-        this.group.add(endCap);
-
-        const sign = new THREE.Mesh(ROLL_SIGN_GEO, this.rollSignMaterial);
-        sign.rotation.y = Math.PI / 2;
-        sign.position.set(faceX + 0.01, FLOOR_Y + dims.height * 0.92, 0);
-        this.group.add(sign);
-
-        for (const hz of [-0.5, 0.5]) {
-          const headlight = new THREE.Mesh(LIGHT_SPHERE_GEO, HEADLIGHT_MATERIAL);
-          headlight.position.set(faceX + 0.02, FLOOR_Y + 0.2, hz * dims.width * 0.35);
-          this.group.add(headlight);
-        }
-      }
-
-      if (isRear) {
-        const faceX = localX - dims.length / 2 - 0.01;
-        for (const mz of [-0.5, 0.5]) {
-          const marker = new THREE.Mesh(LIGHT_SPHERE_GEO, MARKER_MATERIAL);
-          marker.position.set(faceX - 0.02, FLOOR_Y + dims.height * 0.75, mz * dims.width * 0.35);
-          this.group.add(marker);
-        }
-      }
+      if (isFront) this.addCarEnd(localX, dims, geo, 1, dirLabel);
+      if (isRear) this.addCarEnd(localX, dims, geo, -1, dirLabel);
     }
 
     this.wheelMesh.instanceMatrix.needsUpdate = true;
-    this.windowMesh.instanceMatrix.needsUpdate = true;
+    this.frameMesh.instanceMatrix.needsUpdate = true;
   }
 
   /**
    * Segmented stainless shell + a minimal lit interior, replacing the single
-   * solid body box. The side walls are cut into solid segments between the door
-   * bays, leaving real openings that the sliding doors cover; behind an OPEN
-   * door a player on the platform now sees floor, benches, poles, the far
-   * interior wall and a warm ceiling strip instead of a blank silver wall.
+   * solid body box. The two sides now differ:
+   *
+   * - PLATFORM side (`sideZ === platformSide`): cut into solid segments between
+   *   the door bays, each split into a below-window panel (floor -> sill) and an
+   *   above-window panel (head -> door-top). The WIN_SILL..WIN_HEAD row is left
+   *   as a real OPENING, and the door bays stay open (covered only by the
+   *   sliding leaves), so from the platform you see the lit floor, benches,
+   *   poles and far wall straight through — no glass to mis-sort.
+   * - FAR side: one full-length solid panel (floor -> door-top), plus the header
+   *   above it. No window row, no bay openings, so looking through the near
+   *   windows/open doors you see the lit interior backed by a solid wall — never
+   *   straight through to the tunnel.
+   *
    * All geometry is shared (division-cached) and all materials are module-scope.
    */
-  private addBodyShell(localX: number, dims: CarDims, geo: CarGeometrySet): void {
+  private addBodyShell(localX: number, dims: CarDims, geo: CarGeometrySet, segs: { cx: number; w: number; mid: boolean }[]): void {
     const { length: L, width: W, height: H } = dims;
     const wallZ = W / 2 - WALL_THK / 2; // outer face flush with the old body skin (±W/2)
-    const segEndCx = (L * 0.49 + L * 0.27 + BAY_HALF) / 2; // center of the outer wall segments
-    const segs: { g: THREE.BoxGeometry; cx: number }[] = [
-      { g: geo.sideEnd, cx: -segEndCx },
-      { g: geo.sideMid, cx: -L * 0.135 },
-      { g: geo.sideMid, cx: L * 0.135 },
-      { g: geo.sideEnd, cx: segEndCx },
-    ];
+    const lowerY = FLOOR_Y + BELOW_H / 2;
+    const upperY = FLOOR_Y + WIN_HEAD + ABOVE_H / 2;
     for (const sideZ of [-1, 1]) {
       const z = sideZ * wallZ;
-      // lower wall: solid segments between the door bays (openings left at bays)
-      for (const s of segs) {
-        const wall = new THREE.Mesh(s.g, BODY_MATERIAL);
-        wall.position.set(localX + s.cx, FLOOR_Y + DOOR_TOP_H / 2, z);
-        this.group.add(wall);
+      if (sideZ === this.platformSide) {
+        // platform side: below- and above-window panels per segment (window row
+        // and door bays left open for the sliding leaves and the lit interior).
+        for (const s of segs) {
+          const lower = new THREE.Mesh(s.mid ? geo.sideMidLower : geo.sideEndLower, BODY_MATERIAL);
+          lower.position.set(localX + s.cx, lowerY, z);
+          this.group.add(lower);
+          const upper = new THREE.Mesh(s.mid ? geo.sideMidUpper : geo.sideEndUpper, BODY_MATERIAL);
+          upper.position.set(localX + s.cx, upperY, z);
+          this.group.add(upper);
+        }
+      } else {
+        // far side: one solid wall covering segments, window row AND door bays,
+        // so nothing on this side shows through to the tunnel. Its OUTER face
+        // stays stainless (BODY_MATERIAL); a darker interior liner sits just
+        // inboard of it so the wall you see THROUGH the near openings reads as a
+        // grey interior, not more silver body.
+        const solid = new THREE.Mesh(geo.sideSolid, BODY_MATERIAL);
+        solid.position.set(localX, FLOOR_Y + DOOR_TOP_H / 2, z);
+        this.group.add(solid);
+        const liner = new THREE.Mesh(geo.sideLiner, INTERIOR_WALL_MATERIAL);
+        liner.position.set(localX, FLOOR_Y + DOOR_TOP_H / 2, sideZ * (wallZ - WALL_THK / 2 - 0.011));
+        this.group.add(liner);
       }
-      // header: continuous wall above the doors (no opening — the roof-line band)
+      // header: continuous wall above the doors (the roof-line band)
       const header = new THREE.Mesh(geo.header, BODY_MATERIAL);
       header.position.set(localX, FLOOR_Y + DOOR_TOP_H + (H - DOOR_TOP_H) / 2, z);
       this.group.add(header);
-      // longitudinal benches in the two inter-door bays (clear of the doorways)
+      // longitudinal benches in the two inter-door bays (below the window line)
       for (const bx of [-L * 0.135, L * 0.135]) {
         const bench = new THREE.Mesh(geo.bench, BENCH_MATERIAL);
         bench.position.set(localX + bx, FLOOR_Y + 0.21, sideZ * (W / 2 - WALL_THK - 0.17));
@@ -391,6 +719,11 @@ export class Train {
     const floor = new THREE.Mesh(geo.floor, INTERIOR_FLOOR_MATERIAL);
     floor.position.set(localX, FLOOR_Y - 0.04, 0);
     this.group.add(floor);
+    // dark ceiling panel set just above/behind the lit strip, so the roof tone
+    // around the light reads dark rather than as bright body metal.
+    const ceilingLiner = new THREE.Mesh(geo.ceilingLiner, INTERIOR_CEILING_MATERIAL);
+    ceilingLiner.position.set(localX, FLOOR_Y + H - 0.11, 0);
+    this.group.add(ceilingLiner);
     const ceiling = new THREE.Mesh(geo.ceiling, CEILING_LIGHT_MATERIAL);
     ceiling.position.set(localX, FLOOR_Y + H - 0.16, 0);
     this.group.add(ceiling);
@@ -401,19 +734,160 @@ export class Train {
     }
   }
 
-  private addDoorLeaf(x: number, z: number, sign: number): void {
-    const leaf = new THREE.Mesh(DOOR_LEAF_GEO, DOOR_MATERIAL);
-    leaf.position.set(x, FLOOR_Y + 0.95, z);
-    // Small window in the (opaque) leaf, parented so it slides with the door.
-    // Local axes match world (leaf is unrotated); nudge it proud of the outer
-    // leaf face so it never z-fights, at the same height as the wall windows.
-    const doorWindow = new THREE.Mesh(DOOR_WINDOW_GEO, WINDOW_GLASS_MATERIAL);
-    doorWindow.position.set(0, 0.4, Math.sign(z) * 0.006);
-    leaf.add(doorWindow);
+  /**
+   * One sliding door leaf, built as a Group of a below-window panel and an
+   * above-window panel so the leaf has its own see-through window opening
+   * (matching the wall windows). The Group is what slides; updateDoors moves
+   * `.position.x`, so doorClosedX/doorSign semantics are unchanged. `sideZ` is
+   * the local z-sign of the wall the leaf belongs to; only leaves whose side
+   * matches `platformSide` actually open (see updateDoors). Far-side leaves stay
+   * shut and are backed by the solid far wall, so their window row shows solid
+   * stainless, never the tunnel.
+   */
+  private addDoorLeaf(x: number, z: number, sign: number, sideZ: number): void {
+    const leaf = new THREE.Group();
+    leaf.position.set(x, FLOOR_Y, z); // origin at the car floor
+    const lower = new THREE.Mesh(DOOR_LOWER_GEO, DOOR_MATERIAL);
+    lower.position.set(0, DOOR_WIN_SILL / 2, 0);
+    leaf.add(lower);
+    const upper = new THREE.Mesh(DOOR_UPPER_GEO, DOOR_MATERIAL);
+    upper.position.set(0, WIN_HEAD + ABOVE_H / 2, 0);
+    leaf.add(upper);
     this.group.add(leaf);
     this.doorLeaves.push(leaf);
     this.doorClosedX.push(x);
     this.doorSign.push(sign);
+    this.doorLeafSide.push(sideZ);
+  }
+
+  /**
+   * The orange-LED destination sign, one per side of the car. Placed over the
+   * SOLID above-window panel of a mid segment (between two door bays) at the top
+   * of the window band, so — like the reference — the LED sits IN the black band
+   * between windows and beside a door, never over a window or door opening (that
+   * panel is solid stainless, so the opaque LED display has no interior showing
+   * through behind it). Each panel is a single-sided plane rotated to face
+   * outward on its own side only (never DoubleSide, per repo convention),
+   * sitting ~0.01m proud of the wall skin.
+   */
+  private addSideSigns(localX: number, dims: CarDims, segs: { cx: number; w: number; mid: boolean }[]): void {
+    const { width: W } = dims;
+    const seg = segs[1]; // a mid segment, solidly walled above the window row
+    const signX = localX + seg.cx;
+    const signY = FLOOR_Y + WIN_HEAD + ABOVE_H / 2; // top-of-band solid panel center
+    for (const sideZ of [-1, 1] as const) {
+      const sign = new THREE.Mesh(SIDE_SIGN_GEO, this.sideSignMaterial);
+      sign.position.set(signX, signY, sideZ * (W / 2 + 0.01));
+      if (sideZ === -1) sign.rotation.y = Math.PI; // flip the single-sided plane to face -z
+      this.group.add(sign);
+    }
+  }
+
+  /**
+   * The car-number + US-flag decal, one per side, near the +x end of the car on
+   * the SOLID above-window panel of the end segment (same top-of-band height as
+   * the LED sign, but at the car end, and on a different segment so the two never
+   * overlap). The plane is this car's own UV-remapped clone of NUMBER_DECAL_GEO,
+   * sampling its row of the shared per-train number/flag atlas; single-sided and
+   * rotated to face outward on its own side only.
+   */
+  private addNumberDecal(localX: number, dims: CarDims, segs: { cx: number; w: number; mid: boolean }[], carIndex: number): void {
+    const { width: W } = dims;
+    const seg = segs[segs.length - 1]; // +x end segment (solid above the window row)
+    const g = this.numberDecalGeos[carIndex];
+    const x = localX + seg.cx;
+    const y = FLOOR_Y + WIN_HEAD + ABOVE_H / 2;
+    for (const sideZ of [-1, 1] as const) {
+      const decal = new THREE.Mesh(g, this.numberFlagMaterial);
+      decal.position.set(x, y, sideZ * (W / 2 + 0.012));
+      if (sideZ === -1) decal.rotation.y = Math.PI;
+      this.group.add(decal);
+    }
+  }
+
+  /**
+   * A car end. `dir` = +1 builds the lead-car FRONT (flat R-series cab: black
+   * window band with a center storm-door window flanked by two operator
+   * windows, a lit route sign up top, low white headlights + red taillights,
+   * and a black anticlimber/coupler at the bottom). `dir` = -1 builds the
+   * trailing REAR: the same cab face + storm/flank windows so it isn't an open
+   * hole, the existing red marker pair up high, and a low red taillight pair.
+   */
+  private addCarEnd(localX: number, dims: CarDims, geo: CarGeometrySet, dir: 1 | -1, dirLabel: string): void {
+    const { width: W, height: H } = dims;
+    const faceX = localX + dir * (dims.length / 2 + 0.01);
+    const outX = (d: number) => faceX + dir * d; // proud toward the car end
+
+    // flat cab face closing the car end
+    const face = new THREE.Mesh(geo.cabFace, BODY_MATERIAL);
+    face.position.set(faceX, FLOOR_Y + H / 2, 0);
+    this.group.add(face);
+
+    // black band the cab windows sit in
+    const mask = new THREE.Mesh(geo.cabMask, END_CAP_MATERIAL);
+    mask.position.set(outX(0.02), FLOOR_Y + 1.55, 0);
+    this.group.add(mask);
+
+    // center storm-door window (dark glass)
+    const storm = new THREE.Mesh(CAB_STORM_WIN_GEO, CAB_GLASS_MATERIAL);
+    storm.position.set(outX(0.05), FLOOR_Y + 1.5, 0);
+    this.group.add(storm);
+
+    // two flanking operator/cab windows (dark glass)
+    for (const wz of [-1, 1]) {
+      const sideWin = new THREE.Mesh(CAB_SIDE_WIN_GEO, CAB_GLASS_MATERIAL);
+      sideWin.position.set(outX(0.05), FLOOR_Y + 1.6, wz * (W * 0.26));
+      this.group.add(sideWin);
+    }
+
+    // black anticlimber + coupler at the bottom
+    const anticlimber = new THREE.Mesh(geo.anticlimber, END_CAP_MATERIAL);
+    anticlimber.position.set(outX(0.06), FLOOR_Y - 0.02, 0);
+    this.group.add(anticlimber);
+    const coupler = new THREE.Mesh(COUPLER_GEO, UNDERCARRIAGE_MATERIAL);
+    coupler.position.set(outX(0.2), FLOOR_Y - 0.05, 0);
+    this.group.add(coupler);
+
+    if (dir === 1) {
+      // lit route/destination sign up top
+      const signPanel = new THREE.Mesh(SIGN_PANEL_GEO, END_CAP_MATERIAL);
+      signPanel.position.set(outX(0.03), FLOOR_Y + H * 0.86, 0);
+      this.group.add(signPanel);
+      const sign = new THREE.Mesh(ROLL_SIGN_GEO, this.rollSignMaterial);
+      sign.rotation.y = Math.PI / 2;
+      sign.position.set(outX(0.06), FLOOR_Y + H * 0.86, 0);
+      this.group.add(sign);
+      // destination text under the roll sign, cropped from the same side-sign
+      // texture used for the exterior panels (no extra bake) — skipped when
+      // there's no dirLabel to show.
+      if (dirLabel) {
+        const dest = new THREE.Mesh(FRONT_DEST_GEO, this.sideSignMaterial);
+        dest.rotation.y = Math.PI / 2;
+        dest.position.set(outX(0.06), FLOOR_Y + H * 0.86 - 0.16, 0);
+        this.group.add(dest);
+      }
+      // low white headlights + red taillights, in corner clusters
+      for (const lz of [-1, 1]) {
+        const head = new THREE.Mesh(LIGHT_SPHERE_GEO, HEADLIGHT_MATERIAL);
+        head.position.set(outX(0.04), FLOOR_Y + 0.34, lz * W * 0.36);
+        this.group.add(head);
+        const tail = new THREE.Mesh(LIGHT_SPHERE_GEO, MARKER_MATERIAL);
+        tail.position.set(outX(0.04), FLOOR_Y + 0.62, lz * W * 0.36);
+        this.group.add(tail);
+      }
+    } else {
+      // rear: existing high red marker pair (kept) + a low red taillight pair
+      for (const mz of [-0.5, 0.5]) {
+        const marker = new THREE.Mesh(LIGHT_SPHERE_GEO, MARKER_MATERIAL);
+        marker.position.set(outX(0.04), FLOOR_Y + H * 0.72, mz * dims.width * 0.7);
+        this.group.add(marker);
+      }
+      for (const lz of [-1, 1]) {
+        const tail = new THREE.Mesh(LIGHT_SPHERE_GEO, MARKER_MATERIAL);
+        tail.position.set(outX(0.04), FLOOR_Y + 0.5, lz * W * 0.36);
+        this.group.add(tail);
+      }
+    }
   }
 
   /** Portal x-positions: offstage approach start, platform dwell stop, offstage departure end. */
@@ -425,6 +899,18 @@ export class Train {
 
   get doorsOpen(): boolean {
     return this.doorOffset > 0.001;
+  }
+
+  /**
+   * Estimated seconds until this train is DWELLING at the platform, for the
+   * platform countdown clocks: 0 while dwelling, the remaining approach time
+   * while approaching, and a large sentinel (Infinity) while hidden/departing or
+   * before it ever arrives, so a train that isn't inbound is ignored.
+   */
+  get secondsToArrival(): number {
+    if (this.state === 'dwell') return 0;
+    if (this.state === 'approach') return Math.max(0, this.stateDuration - this.stateTime);
+    return Infinity;
   }
 
   /** Advance the arrive -> dwell -> depart cycle by dt seconds. */
@@ -490,8 +976,11 @@ export class Train {
     }
     normalizedOpen = Math.min(1, Math.max(0, normalizedOpen));
     this.doorOffset = normalizedOpen * DOOR_SLIDE_DISTANCE;
+    // Only the platform-side leaves slide; far-side leaves stay pinned shut (and
+    // are backed by the solid far wall), so there is no see-through door bay.
     for (let i = 0; i < this.doorLeaves.length; i++) {
-      this.doorLeaves[i].position.x = this.doorClosedX[i] + this.doorSign[i] * this.doorOffset;
+      const offset = this.doorLeafSide[i] === this.platformSide ? this.doorOffset : 0;
+      this.doorLeaves[i].position.x = this.doorClosedX[i] + this.doorSign[i] * offset;
     }
   }
 
@@ -499,8 +988,13 @@ export class Train {
   dispose(): void {
     this.group.removeFromParent();
     this.wheelMesh.dispose();
-    this.windowMesh.dispose();
+    this.frameMesh.dispose();
     this.rollSignTexture.dispose();
     this.rollSignMaterial.dispose();
+    this.sideSignTexture.dispose();
+    this.sideSignMaterial.dispose();
+    this.numberFlagTexture.dispose();
+    this.numberFlagMaterial.dispose();
+    for (const g of this.numberDecalGeos) g.dispose();
   }
 }

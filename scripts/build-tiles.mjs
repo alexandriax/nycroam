@@ -587,6 +587,10 @@ async function main() {
     ['castle-clinton', 40.7033, -74.017, 38], ['fraunces-tavern', 40.7034, -74.0113, 18],
     ['whitehall-terminal', 40.7013, -74.0131, 45], ['city-hall', 40.7128, -74.006, 50],
     ['st-patricks', 40.7586, -73.9758, 62], ['guggenheim', 40.783, -73.959, 40],
+    // Times Square's bowtie is our billboard-stack canyon; drop the generic
+    // brick OSM massing in the core so the spectaculars stand free instead of
+    // spearing through buildings (the district's real towers beyond r remain).
+    ['times-square', 40.758, -73.9855, 55],
     ['un-secretariat', 40.749, -73.9687, 55], ['un-ga', 40.7497, -73.9674, 45],
     ['dakota', 40.7765, -73.9761, 42], ['carnegie-hall', 40.7651, -73.9799, 35],
     ['whitney', 40.7397, -74.0089, 35], ['vessel', 40.7538, -74.0022, 40],
@@ -1065,12 +1069,38 @@ async function main() {
     return false;
   }
 
+  // Half-widths (m) of the drawn road ribbons, per class — a real OSM tree whose
+  // node falls INSIDE a vehicular ribbon is standing in the street (Times Sq medians,
+  // plaza edges the road ribbon overruns) and is culled. Footways/paths/crossings
+  // are intentionally absent: trees belong on sidewalks and in pedestrian plazas.
+  const ROAD_HALF = {
+    motorway: 11, trunk: 10, primary: 8.5, secondary: 7, tertiary: 6,
+    unclassified: 5, residential: 5, living_street: 4, service: 2.75,
+    motorway_link: 4.5, trunk_link: 4.5, primary_link: 4.5, secondary_link: 4.5, tertiary_link: 4.5,
+  };
+  function inRoadway(x, z, key) {
+    const pieces = tileRoadPiecesWorld.get(key);
+    if (!pieces) return false;
+    for (const piece of pieces) {
+      const hw = ROAD_HALF[piece.cls];
+      if (hw === undefined) continue; // sidewalks/plazas keep their trees
+      if (pointToPolylinesDist([x, z], [piece.pts]) < hw + 0.5) return true;
+    }
+    return false;
+  }
+
   const realTreesByTile = new Map(); // key -> array of [x,z] world meters, capped at 800 (unchanged from v1)
   let treeTilesSampled = 0;
-  let realCulledAtEntrances = 0;
+  let realCulledAtEntrances = 0, realCulledInRoad = 0, realCulledInBuilding = 0;
   for (const [key, rawList] of treesByTile) {
+    const buildings = tileBuildingFootprints.get(key) || [];
     const list = rawList.filter(([x, z]) => {
       if (nearEntrance(x, z)) { realCulledAtEntrances++; return false; }
+      if (inRoadway(x, z, key)) { realCulledInRoad++; return false; }
+      // a tree node inside a building footprint would spear the building
+      for (const bpoly of buildings) {
+        if (pointInPolygonWithHoles([x, z], bpoly)) { realCulledInBuilding++; return false; }
+      }
       return true;
     });
     const sampled = sampleEveryNth(list, 800);
@@ -1079,6 +1109,7 @@ async function main() {
   }
   console.log(`  real OSM trees: ${treeCount} nodes across ${treesByTile.size} tiles (${treeTilesSampled} tiles capped at 800)`);
   if (realCulledAtEntrances) console.log(`  real OSM trees: ${realCulledAtEntrances} culled at subway entrances`);
+  if (realCulledInRoad || realCulledInBuilding) console.log(`  real OSM trees: ${realCulledInRoad} culled in roadway, ${realCulledInBuilding} culled inside buildings`);
 
   // ---- PROCEDURAL VEGETATION -------------------------------------------------------------
   // Scattered inside wood/park/grass/cemetery polygons (deterministic hex/grid lattice +
