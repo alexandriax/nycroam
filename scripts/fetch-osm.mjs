@@ -205,7 +205,7 @@ async function fetchChunkLayer(layer, row, col) {
         method: 'POST',
         headers: {
           'Content-Type': 'application/x-www-form-urlencoded',
-          'User-Agent': 'nycworld-tile-builder/1.0',
+          'User-Agent': 'nycroam-tile-builder/1.0',
         },
         body,
       });

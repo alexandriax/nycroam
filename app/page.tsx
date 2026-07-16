@@ -2,7 +2,7 @@
 
 import dynamic from 'next/dynamic';
 
-const NYCWorld = dynamic(() => import('../src/ui/NYCWorld'), {
+const NYCRoam = dynamic(() => import('../src/ui/NYCRoam'), {
   ssr: false,
   loading: () => (
     <div style={{
@@ -10,11 +10,11 @@ const NYCWorld = dynamic(() => import('../src/ui/NYCWorld'), {
       justifyContent: 'center', background: '#0b0e12', color: '#e8eaed',
       fontSize: 18, letterSpacing: 2,
     }}>
-      NYC WORLD
+      NYC ROAM
     </div>
   ),
 });
 
 export default function Page() {
-  return <NYCWorld />;
+  return <NYCRoam />;
 }

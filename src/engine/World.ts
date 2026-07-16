@@ -16,6 +16,9 @@ import { routeColor } from './subway/types';
 import { lonLatToXZ } from './geo';
 import { loadTerrain, heightAt } from './terrain';
 
+const SAVE_KEY = 'nycroam';
+const LEGACY_SAVE_KEY = 'nycworld'; // read-only: keeps positions saved before the rename
+
 export interface HudState {
   mode: 'street' | 'station' | 'ride';
   fly: boolean;
@@ -614,7 +617,7 @@ export class World {
 
   private save() {
     try {
-      localStorage.setItem('nycworld', JSON.stringify({
+      localStorage.setItem(SAVE_KEY, JSON.stringify({
         x: this.pos.x, z: this.pos.z, yaw: this.controls.yaw, mode: this.mode === 'station' ? 'street' : this.mode,
       }));
     } catch { /* private mode */ }
@@ -622,7 +625,8 @@ export class World {
 
   private restore() {
     try {
-      const raw = localStorage.getItem('nycworld');
+      // fall back to the pre-rename key so an existing saved position survives
+      const raw = localStorage.getItem(SAVE_KEY) ?? localStorage.getItem(LEGACY_SAVE_KEY);
       if (!raw) return;
       const s = JSON.parse(raw);
       if (typeof s.x === 'number' && typeof s.z === 'number') this.pos.set(s.x, 0, s.z);

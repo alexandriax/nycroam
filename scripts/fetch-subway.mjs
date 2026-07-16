@@ -82,7 +82,7 @@ async function getStationsCSV() {
     console.log('[stations] using cached CSV (data/cache/stations.csv)');
     return { text: fs.readFileSync(STATIONS_CACHE, 'utf8'), source: 'cache', fallbackUsed: false };
   }
-  const headers = { 'User-Agent': 'nycworld-subway-fetch/1.0 (+data pipeline script)' };
+  const headers = { 'User-Agent': 'nycroam-subway-fetch/1.0 (+data pipeline script)' };
   try {
     console.log('[stations] fetching primary: data.ny.gov');
     const text = await fetchWithRetry(STATIONS_PRIMARY, { headers });
@@ -119,7 +119,7 @@ async function getEntrancesJSON() {
   // without a distinguishing User-Agent (Node's fetch default UA gets
   // blocked) -- always identify ourselves.
   const headers = {
-    'User-Agent': 'nycworld-subway-fetch/1.0 (+data pipeline script)',
+    'User-Agent': 'nycroam-subway-fetch/1.0 (+data pipeline script)',
     'Content-Type': 'application/x-www-form-urlencoded',
   };
   try {

@@ -1,8 +1,8 @@
 <div align="center">
 
-<img src="assets/mascot-512.png" alt="NYC World mascot: a red apple wearing purple high-top sneakers" width="150">
+<img src="assets/mascot-512.png" alt="NYC Roam mascot: a red apple wearing purple high-top sneakers" width="150">
 
-# NYC World — Manhattan
+# NYC Roam — Manhattan
 
 **[www.nycroam.com](https://www.nycroam.com)**
 

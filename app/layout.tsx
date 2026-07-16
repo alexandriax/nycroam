@@ -10,7 +10,7 @@ const siteUrl =
   (process.env.VERCEL_URL && `https://${process.env.VERCEL_URL}`) ||
   'http://localhost:3000';
 
-const title = 'NYC World — Manhattan at 1:1';
+const title = 'NYC Roam — Manhattan at 1:1';
 const description =
   'Walk a full-scale 3D Manhattan in your browser. Every street and building from OpenStreetMap, ' +
   'real terrain and trees, and subway entrances you can walk down into — then board a train and ride the line.';
@@ -19,14 +19,14 @@ export const metadata: Metadata = {
   metadataBase: new URL(siteUrl),
   title,
   description,
-  applicationName: 'NYC World',
+  applicationName: 'NYC Roam',
   keywords: [
     'Manhattan', 'New York City', '3D city', 'OpenStreetMap', 'Three.js',
     'WebGL', 'subway', 'MTA', 'first person', 'browser',
   ],
   openGraph: {
     type: 'website',
-    siteName: 'NYC World',
+    siteName: 'NYC Roam',
     title,
     description,
     url: siteUrl,

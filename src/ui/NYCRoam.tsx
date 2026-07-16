@@ -97,7 +97,7 @@ function TouchControls({ world }: { world: World }) {
   );
 }
 
-export default function NYCWorld() {
+export default function NYCRoam() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const worldRef = useRef<World | null>(null);
   const [hud, setHud] = useState<HudState | null>(null);
@@ -136,7 +136,7 @@ export default function NYCWorld() {
         display: 'flex', alignItems: 'center', gap: 10,
         maxWidth: 'calc(100vw - 268px)', overflow: 'hidden', whiteSpace: 'nowrap',
       }}>
-        <strong className="wordmark" style={{ letterSpacing: 1.5, fontSize: 14 }}>NYC WORLD</strong>
+        <strong className="wordmark" style={{ letterSpacing: 1.5, fontSize: 14 }}>NYC ROAM</strong>
         <span style={{ opacity: 0.65, fontSize: 12, overflow: 'hidden', textOverflow: 'ellipsis' }}>
           {hud?.mode === 'station'
             ? <>{hud.stationName} <Bullets routes={hud.stationRoutes} size={16} /></>
@@ -265,7 +265,7 @@ export default function NYCWorld() {
           position: 'absolute', inset: 0, background: '#0b0e12', display: 'flex',
           flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 16,
         }}>
-          <div style={{ fontSize: 26, letterSpacing: 6, fontWeight: 700 }}>NYC WORLD</div>
+          <div style={{ fontSize: 26, letterSpacing: 6, fontWeight: 700 }}>NYC ROAM</div>
           <div style={{ display: 'flex', gap: 4 }}>
             {['1', 'A', 'N', '4', 'B', '7', 'L'].map((r) => (
               <span key={r} className="bullet pulse" style={{ background: routeColor(r), color: bulletTextColor(r) }}>{r}</span>

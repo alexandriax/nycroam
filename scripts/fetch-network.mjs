@@ -33,7 +33,7 @@ const SUBWAY_JSON = path.join(ROOT, 'public', 'subway', 'subway.json');
 const OUT_FILE = path.join(ROOT, 'public', 'subway', 'network.json');
 
 const REFRESH = process.argv.includes('--refresh');
-const UA = 'nycworld-network-fetch/1.0 (+data pipeline script)';
+const UA = 'nycroam-network-fetch/1.0 (+data pipeline script)';
 
 // ---------------------------------------------------------------------------
 // Coordinate system (duplicated from src/engine/geo.ts -- keep in exact sync)
