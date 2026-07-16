@@ -3,6 +3,7 @@
 // arrive -> dwell -> depart loop along the local +x axis.
 import * as THREE from 'three';
 import { routeColor, bulletTextColor } from './types';
+import { SANS } from '../fonts';
 
 export interface TrainOpts {
   division: string;
@@ -97,7 +98,7 @@ function drawRouteBullet(ctx: CanvasRenderingContext2D, size: number, route: str
   ctx.fillStyle = routeColor(route);
   ctx.fill();
   ctx.fillStyle = bulletTextColor(route);
-  ctx.font = `bold ${Math.round(r * 1.15)}px 'Helvetica Neue', Arial, sans-serif`;
+  ctx.font = `bold ${Math.round(r * 1.15)}px ${SANS}`;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   ctx.fillText(route, cx, cy + r * 0.05);

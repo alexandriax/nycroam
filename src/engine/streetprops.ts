@@ -16,6 +16,7 @@
 // while another still-visible kit depends on it.
 import * as THREE from 'three';
 import { routeColor, bulletTextColor } from './subway/types';
+import { SANS } from './fonts';
 
 // ---------------------------------------------------------------------------
 // Geometry helpers (duplicated from props.ts's pattern since this file may
@@ -107,7 +108,7 @@ function drawBullet(ctx: CanvasRenderingContext2D, x: number, y: number, r: numb
   ctx.fillStyle = routeColor(route);
   ctx.fill();
   ctx.fillStyle = bulletTextColor(route);
-  ctx.font = `bold ${Math.round(r * 1.15)}px 'Helvetica Neue', Arial, sans-serif`;
+  ctx.font = `bold ${Math.round(r * 1.15)}px ${SANS}`;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   ctx.fillText(route, x, y + r * 0.05);
@@ -132,7 +133,7 @@ function makeEntranceSignTexture(routes: string[]): THREE.CanvasTexture {
   ctx.fillRect(0, 0, w, h);
 
   ctx.fillStyle = '#ffffff';
-  ctx.font = `bold 108px 'Helvetica Neue', Arial, sans-serif`;
+  ctx.font = `bold 108px ${SANS}`;
   ctx.textAlign = 'left';
   ctx.textBaseline = 'middle';
   ctx.fillText('SUBWAY', 30, h / 2);

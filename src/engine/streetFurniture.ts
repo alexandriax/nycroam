@@ -3,6 +3,7 @@
 // blades) = a single draw call per tile.
 import * as THREE from 'three';
 import { hash01 } from './palette';
+import { SANS } from './fonts';
 
 export interface WorldSign {
   x: number;
@@ -47,11 +48,11 @@ function drawBlade(ctx: CanvasRenderingContext2D, cx: number, cy: number, text: 
   ctx.translate(cx, cy);
   // fit text: shrink font until it fits the cell minus padding
   let font = 52;
-  ctx.font = `bold ${font}px 'Helvetica Neue', Helvetica, Arial, sans-serif`;
+  ctx.font = `bold ${font}px ${SANS}`;
   let tw = ctx.measureText(text).width;
   while (tw > CELL_W - 90 && font > 26) {
     font -= 3;
-    ctx.font = `bold ${font}px 'Helvetica Neue', Helvetica, Arial, sans-serif`;
+    ctx.font = `bold ${font}px ${SANS}`;
     tw = ctx.measureText(text).width;
   }
   const bw = Math.min(CELL_W, tw + 64);

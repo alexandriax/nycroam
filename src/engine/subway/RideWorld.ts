@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import type { NetworkData, StationSpec } from './types';
 import { routeColor, bulletTextColor } from './types';
 import { makeWallTexture, makeNameMosaicTexture, drawBullet } from './signage';
+import { SANS } from '../fonts';
 
 export interface RideHud {
   route: string;
@@ -45,7 +46,7 @@ function makeStripMap(routeId: string, stops: string[], names: Map<string, strin
     ctx.save();
     ctx.translate(x, y + 24);
     ctx.rotate(0.5);
-    ctx.font = i === currentIdx ? 'bold 21px Helvetica, Arial' : '19px Helvetica, Arial';
+    ctx.font = i === currentIdx ? `bold 21px ${SANS}` : `19px ${SANS}`;
     ctx.fillStyle = '#222';
     ctx.textAlign = 'left';
     ctx.fillText(name.length > 20 ? name.slice(0, 19) + '…' : name, 0, 0);

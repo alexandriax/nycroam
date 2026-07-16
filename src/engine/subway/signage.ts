@@ -1,12 +1,10 @@
-// CanvasTexture factories for NYC subway signage: Helvetica black-and-white
-// direction signs, serif mosaic name tablets, and glossy tile wall bands.
+// CanvasTexture factories for NYC subway signage: black-and-white direction
+// signs, serif mosaic name tablets, and glossy tile wall bands.
 // All canvases are client-side (document.createElement('canvas')) and are
 // meant to be consumed as THREE.Texture maps by props.ts / train.ts / streetprops.ts.
 import * as THREE from 'three';
 import { routeColor, bulletTextColor } from './types';
-
-const HELVETICA = `'Helvetica Neue', Arial, sans-serif`;
-const GEORGIA = `'Georgia', 'Times New Roman', serif`;
+import { SANS, SERIF } from '../fonts';
 
 function createCanvas(w: number, h: number): { canvas: HTMLCanvasElement; ctx: CanvasRenderingContext2D } {
   const canvas = document.createElement('canvas');
@@ -111,7 +109,7 @@ export function drawBullet(ctx: CanvasRenderingContext2D, x: number, y: number, 
   ctx.fillStyle = routeColor(route);
   ctx.fill();
   ctx.fillStyle = bulletTextColor(route);
-  ctx.font = `bold ${Math.round(r * 1.15)}px ${HELVETICA}`;
+  ctx.font = `bold ${Math.round(r * 1.15)}px ${SANS}`;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   ctx.fillText(route, x, y + r * 0.05);
@@ -189,8 +187,8 @@ export function makeNameMosaicTexture(name: string, bandColor: string): { textur
 
   const text = name.toUpperCase();
   const maxWidth = w - borderPx * 2 - 60;
-  const size = fitFontSize(ctx, text, maxWidth, GEORGIA, 120);
-  ctx.font = `bold ${size}px ${GEORGIA}`;
+  const size = fitFontSize(ctx, text, maxWidth, SERIF, 120);
+  ctx.font = `bold ${size}px ${SERIF}`;
   ctx.fillStyle = '#ffffff';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
@@ -200,7 +198,7 @@ export function makeNameMosaicTexture(name: string, bandColor: string): { textur
   return { texture, aspect: w / h };
 }
 
-/** Black hanging direction sign: route bullets, Helvetica text, optional arrow. */
+/** Black hanging direction sign: route bullets, text, optional arrow. */
 export function makeHangingSignTexture(opts: { routes: string[]; text: string; arrow?: 'left' | 'right' | 'none' }): { texture: THREE.Texture; aspect: number } {
   const w = 2048;
   const h = 256;
@@ -228,7 +226,7 @@ export function makeHangingSignTexture(opts: { routes: string[]; text: string; a
   x += 24;
 
   ctx.fillStyle = '#ffffff';
-  ctx.font = `bold 90px ${HELVETICA}`;
+  ctx.font = `bold 90px ${SANS}`;
   ctx.textAlign = 'left';
   ctx.textBaseline = 'middle';
   ctx.fillText(opts.text, x, cy);
@@ -254,8 +252,8 @@ export function makeColumnSignTexture(name: string): { texture: THREE.Texture; a
   ctx.strokeRect(6, 6, w - 12, h - 12);
 
   const text = name.toUpperCase();
-  const size = fitFontSize(ctx, text, w - 48, HELVETICA, 56);
-  ctx.font = `bold ${size}px ${HELVETICA}`;
+  const size = fitFontSize(ctx, text, w - 48, SANS, 56);
+  ctx.font = `bold ${size}px ${SANS}`;
   ctx.fillStyle = '#ffffff';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
@@ -278,7 +276,7 @@ export function makeExitSignTexture(withArrow: boolean): { texture: THREE.Textur
   ctx.strokeRect(5, 5, w - 10, h - 10);
 
   ctx.fillStyle = '#ffffff';
-  ctx.font = `bold 84px ${HELVETICA}`;
+  ctx.font = `bold 84px ${SANS}`;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   const tx = withArrow ? w / 2 + 40 : w / 2;

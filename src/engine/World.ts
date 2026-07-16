@@ -8,6 +8,8 @@ import { quality } from './quality';
 import { makeSkylineMaterial, makeFlatMaterial, makeWaterMaterial } from './materials';
 import { EntranceManager } from './EntranceManager';
 import { BikeManager } from './bikes';
+import { BikeView } from './bikeview';
+import { loadSans } from './fonts';
 import { StationWorld } from './subway/StationWorld';
 import { ElevatedStationWorld } from './subway/ElevatedStationWorld';
 import { TrainScheduler } from './subway/scheduler';
@@ -19,6 +21,7 @@ import { loadTerrain, heightAt } from './terrain';
 
 const SAVE_KEY = 'nycroam';
 const LEGACY_SAVE_KEY = 'nycworld'; // read-only: keeps positions saved before the rename
+const WALK_EYE = 1.7; // standing; BikeView.eyeHeight is the seated one
 
 export interface HudState {
   mode: 'street' | 'station' | 'ride';
@@ -64,6 +67,7 @@ export class World {
   private hoods: { n: string; rings: number[][]; bbox: [number, number, number, number] }[] | null = null;
   private hoodTimer = 0;
   private riding = false; // on a bike (street mode only)
+  private bikeView: BikeView | null = null; // built on the first ride, kept after
   private controls: PlayerControls;
   private station: StationWorld | ElevatedStationWorld | null = null;
   private scheduler: TrainScheduler | null = null;
@@ -72,7 +76,7 @@ export class World {
   private mode: 'street' | 'station' | 'ride' = 'street';
   private pos = new THREE.Vector3(0, 0, 40); // feet position
   private returnPos = new THREE.Vector3();
-  private eyeHeight = 1.7;
+  private eyeHeight = WALK_EYE;
   private isMobile: boolean;
   private clock = new THREE.Clock();
   private raf = 0;
@@ -175,6 +179,9 @@ export class World {
       this.loadHoods(),
       this.loadGround(),
       this.loadSkyline(),
+      // must settle before the first step(): sign textures bake lazily from
+      // update() and a canvas drawn pre-webfont keeps the fallback for good
+      loadSans(),
     ]);
     results.shift(); results.shift(); // terrain/network optional; index 0 = tiles below
     const tileFail = results[0].status === 'rejected';
@@ -364,11 +371,7 @@ export class World {
       const nearDock = this.bikes.nearest(this.pos.x, this.pos.z, 4.5);
       if (this.riding) {
         // the only street action on a bike: dock it
-        if (nearDock?.canDock && this.bikes.dockBike(nearDock.dock)) {
-          this.riding = false;
-          this.hud.riding = false;
-          this.pushHud();
-        }
+        if (nearDock?.canDock && this.bikes.dockBike(nearDock.dock)) this.setRiding(false);
         return;
       }
       const near = this.entrances.nearest(this.pos.x, this.pos.z, 4.5);
@@ -376,10 +379,8 @@ export class World {
       if (near && dE <= (nearDock?.d ?? Infinity)) {
         this.enterStation(near.station, near.pos);
       } else if (nearDock?.canGrab && this.bikes.grab(nearDock.dock)) {
-        this.riding = true;
-        this.hud.riding = true;
+        this.setRiding(true);
         this.controls.fly = false;
-        this.pushHud();
       }
     } else if (this.mode === 'ride') {
       if (this.ride?.canExit) this.exitRide();
@@ -398,6 +399,20 @@ export class World {
         if (b && this.network.routes[b.route]) this.beginRide(b.route, b.dirSign);
       }
     }
+  }
+
+  /** Mount / dismount: the view model, the seated eye height, and the HUD flag. */
+  private setRiding(on: boolean) {
+    this.riding = on;
+    this.hud.riding = on;
+    this.eyeHeight = on ? BikeView.eyeHeight : WALK_EYE;
+    if (on) {
+      this.bikeView ??= new BikeView();
+      this.bikeView.attach(this.streetScene);
+    } else {
+      this.bikeView?.detach();
+    }
+    this.pushHud();
   }
 
   private async beginRide(route: string, dirSign: 1 | -1) {
@@ -537,6 +552,7 @@ export class World {
     let dz = (fwd.z * input.forward + right.z * input.strafe) * speed * dt;
 
     if (this.mode === 'street') {
+      const prevX = this.pos.x, prevZ = this.pos.z;
       if (this.controls.fly) {
         // helicopter: momentum-smoothed velocity incl. vertical
         this.flyTarget.set(
@@ -574,6 +590,15 @@ export class World {
       this.tiles.update(this.pos.x, this.pos.z);
       this.entrances.update(this.pos.x, this.pos.z, dt);
       this.bikes.update(this.pos.x, this.pos.z, dt);
+
+      if (this.riding && this.bikeView) {
+        // ground speed, not input: ride into a wall and the pedals stop too
+        const moved = Math.hypot(this.pos.x - prevX, this.pos.z - prevZ);
+        this.bikeView.update(
+          dt, moved / Math.max(dt, 1e-4), this.controls.yaw,
+          this.pos.x, this.pos.y, this.pos.z, input.strafe,
+        );
+      }
 
       this.hoodTimer -= dt;
       if (this.hoodTimer <= 0) {
@@ -775,6 +800,7 @@ export class World {
     this.tiles.destroy();
     this.entrances.destroy();
     this.bikes.destroy();
+    this.bikeView?.dispose();
     this.scheduler?.dispose();
     this.station?.dispose();
     this.ride?.dispose();
