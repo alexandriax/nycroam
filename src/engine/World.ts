@@ -8,6 +8,7 @@ import { quality } from './quality';
 import { makeSkylineMaterial, makeFlatMaterial, makeWaterMaterial } from './materials';
 import { EntranceManager } from './EntranceManager';
 import { BikeManager } from './bikes';
+import { LandmarkManager } from './landmarks/LandmarkManager';
 import { BikeView } from './bikeview';
 import { loadSans } from './fonts';
 import { StationWorld } from './subway/StationWorld';
@@ -64,6 +65,7 @@ export class World {
   private tiles: TileManager;
   private entrances: EntranceManager;
   private bikes: BikeManager;
+  private landmarks: LandmarkManager;
   private hoods: { n: string; rings: number[][]; bbox: [number, number, number, number] }[] | null = null;
   private hoodTimer = 0;
   private riding = false; // on a bike (street mode only)
@@ -138,6 +140,7 @@ export class World {
       },
       (x, z) => nearestWallDir(x, z, 15, this.tiles.collisionNear(x, z)),
     );
+    this.landmarks = new LandmarkManager(this.streetScene);
     this.bikes = new BikeManager(
       this.streetScene,
       (x, z) => {
@@ -590,6 +593,7 @@ export class World {
       this.tiles.update(this.pos.x, this.pos.z);
       this.entrances.update(this.pos.x, this.pos.z, dt);
       this.bikes.update(this.pos.x, this.pos.z, dt);
+      this.landmarks.update(this.pos.x, this.pos.z, dt);
 
       if (this.riding && this.bikeView) {
         // ground speed, not input: ride into a wall and the pedals stop too
@@ -800,6 +804,7 @@ export class World {
     this.tiles.destroy();
     this.entrances.destroy();
     this.bikes.destroy();
+    this.landmarks.destroy();
     this.bikeView?.dispose();
     this.scheduler?.dispose();
     this.station?.dispose();

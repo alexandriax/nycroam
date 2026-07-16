@@ -63,6 +63,12 @@ resumable. Generated world data lands in `public/tiles/`, `public/geo/`, `public
   benches, fare control with turnstiles and booth, and animated arriving trains
   with the correct route bullets. Exit stairs return you to the sidewalk entrance
   you came from.
+- **Landmarks** (`src/engine/landmarks/`) — 101 premium landmarks (Chrysler crown,
+  Brooklyn Bridge cables, the Oculus, Bethesda Terrace, the Statue of Liberty on the
+  harbor horizon...) built procedurally in themed modules that dynamic-import and
+  construct only when approached, then dispose on leaving — distant districts cost
+  zero bytes and zero triangles. The tile pipeline suppresses generic OSM massing
+  where a bespoke build replaces it.
 - **Performance** — fog-matched draw distance, mobile-specific pixel ratio/radius,
   frustum culling, merged geometry (~2 draw calls per tile + instancing), and
   localStorage position persistence.

@@ -483,11 +483,39 @@ async function main() {
       `${suppressedCount} plain buildings suppressed by parts, ${keptBuildings.length} kept polygons`
   );
 
+  // Premium landmark builds (src/engine/landmarks) REPLACE the generic OSM
+  // massing at these spots — a bespoke Oculus/Guggenheim/cathedral built at a
+  // point that OSM also maps as a building would be swallowed inside it.
+  // Buildings whose centroid falls within r of a point are dropped; layered
+  // landmarks (crowns, marquees, facades) keep their massing and are NOT here.
+  const LANDMARK_CLEAR = [
+    ['oculus', 40.7115, -74.0113, 55], ['sept11-museum', 40.7115, -74.0125, 28],
+    ['trinity-church', 40.7081, -74.0121, 40], ['federal-hall', 40.7074, -74.0102, 30],
+    ['castle-clinton', 40.7033, -74.017, 38], ['fraunces-tavern', 40.7034, -74.0113, 18],
+    ['whitehall-terminal', 40.7013, -74.0131, 45], ['city-hall', 40.7128, -74.006, 50],
+    ['st-patricks', 40.7586, -73.9758, 62], ['guggenheim', 40.783, -73.959, 40],
+    ['un-secretariat', 40.749, -73.9687, 55], ['un-ga', 40.7497, -73.9674, 45],
+    ['dakota', 40.7765, -73.9761, 42], ['carnegie-hall', 40.7651, -73.9799, 35],
+    ['whitney', 40.7397, -74.0089, 35], ['vessel', 40.7538, -74.0022, 40],
+    ['little-island', 40.742, -74.01, 70], ['belvedere', 40.7794, -73.9692, 28],
+    ['grants-tomb', 40.8134, -73.963, 32], ['riverside-church', 40.8119, -73.9633, 42],
+    ['columbia-low', 40.8081, -73.9619, 42], ['st-john-divine', 40.8038, -73.9619, 55],
+    ['cloisters', 40.8649, -73.9317, 55], ['hamilton-grange', 40.8214, -73.9469, 18],
+    ['morris-jumel', 40.834, -73.9354, 20], ['dyckman-farmhouse', 40.8672, -73.9339, 18],
+  ].map(([id, lat, lon, r]) => { const [x, z] = lonLatToXZ(lon, lat); return { id, x, z, r }; });
+  let landmarkCleared = 0;
+
   // bin into tiles + collect skyline candidates
   const tileBuildings = new Map(); // key -> array of output objs
   const tileBuildingFootprints = new Map(); // key -> array of {outer,holes} world-meter rings (for tree placement filters)
   const skylineCandidates = [];
   for (const b of keptBuildings) {
+    let cleared = false;
+    for (const lc of LANDMARK_CLEAR) {
+      const dx = b.centroid[0] - lc.x, dz = b.centroid[1] - lc.z;
+      if (dx * dx + dz * dz < lc.r * lc.r) { cleared = true; break; }
+    }
+    if (cleared) { landmarkCleared++; continue; }
     const [tx, tz] = tileOf(b.centroid);
     const key = tileKeyOf(tx, tz);
     const p = [toTileLocalDecimeters(b.outer, tx, tz), ...b.holes.map((h) => toTileLocalDecimeters(h, tx, tz))];
@@ -502,6 +530,8 @@ async function main() {
 
     if (b.height >= 70) skylineCandidates.push(b);
   }
+
+  console.log(`  landmark clearing: ${landmarkCleared} buildings dropped at ${LANDMARK_CLEAR.length} premium-landmark sites`);
 
   // ---- ROADS ----------------------------------------------------------------------------
   console.log('Processing roads...');
