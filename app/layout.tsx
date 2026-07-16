@@ -48,6 +48,19 @@ export const viewport: Viewport = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">
+      <head>
+        {/* Questrial is on the critical path twice over: the HUD, and every sign
+            texture we bake (World.init blocks on it). @font-face alone wouldn't
+            request it until first paint. latin-ext stays lazy — accented street
+            names are rare enough not to spend a preload on. */}
+        <link
+          rel="preload"
+          href="/fonts/questrial-latin.woff2"
+          as="font"
+          type="font/woff2"
+          crossOrigin="anonymous"
+        />
+      </head>
       <body>{children}</body>
     </html>
   );

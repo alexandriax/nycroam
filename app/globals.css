@@ -1,3 +1,30 @@
+/* Questrial (SIL OFL, public/fonts/OFL.txt) — served from our own origin, never
+   from fonts.googleapis.com. The family ships ONE weight (400), so anything
+   asking for 700 gets the browser's synthetic bold; that's the intent on signs
+   and bullets, and everything else stays at 400. Subsets and unicode-ranges are
+   Google's own latin / latin-ext split. Glyphs outside them (▲ ▼ 🚁) fall
+   through to the rest of the stack, which is why it keeps a fallback. */
+@font-face {
+  font-family: 'Questrial';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('/fonts/questrial-latin-ext.woff2') format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF,
+    U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020,
+    U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: 'Questrial';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('/fonts/questrial-latin.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA,
+    U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193,
+    U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
 * { margin: 0; padding: 0; box-sizing: border-box; }
 
 html, body {
@@ -6,7 +33,7 @@ html, body {
   overflow: hidden;
   background: #0b0e12;
   color: #e8eaed;
-  font-family: 'Helvetica Neue', Helvetica, Arial, system-ui, sans-serif;
+  font-family: 'Questrial', 'Helvetica Neue', Helvetica, Arial, system-ui, sans-serif;
   overscroll-behavior: none;
   -webkit-user-select: none;
   user-select: none;
@@ -44,8 +71,10 @@ kbd {
   padding: 0 5px;
   font-family: inherit;
   font-size: 10px;
-  font-weight: 600;
-  letter-spacing: 0.3px;
+  /* Questrial has no bolder face, so 600 here would only buy a mushy synthetic
+     bold at 10px. The keycap shape carries the emphasis instead. */
+  font-weight: 400;
+  letter-spacing: 0.5px;
   color: rgba(255, 255, 255, 0.92);
   background: rgba(255, 255, 255, 0.09);
   border: 1px solid rgba(255, 255, 255, 0.14);
@@ -54,7 +83,7 @@ kbd {
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.09);
 }
 
-/* ---- controls legend (top-right column, under the heli button) ---- */
+/* ---- controls legend (top-right column, above the heli button) ---- */
 .legend {
   padding: 10px 12px;
   display: flex;

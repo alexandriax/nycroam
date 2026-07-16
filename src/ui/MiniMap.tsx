@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import type { World } from '../engine/World';
+import { SANS } from '../engine/fonts';
 
 // meters from center to edge. The old 9500m island-wide view is gone.
 const ZOOMS = [220, 650, 2600];
@@ -204,7 +205,7 @@ export default function MiniMap({ world, size = 208, layer = 'transit' }: { worl
       ctx.lineWidth = 1.5;
       ctx.stroke();
       ctx.fillStyle = 'rgba(255,255,255,0.75)';
-      ctx.font = `bold ${compact ? 8 : 10}px Helvetica, Arial`;
+      ctx.font = `bold ${compact ? 8 : 10}px ${SANS}`;
       ctx.textAlign = 'center';
       ctx.fillText('N', cx, cy - R + (compact ? 9 : 11));
     };

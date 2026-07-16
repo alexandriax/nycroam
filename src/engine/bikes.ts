@@ -27,9 +27,10 @@ export interface PlacedDock {
   rotY: number;
 }
 
-const FRAME_BLUE = new THREE.MeshLambertMaterial({ color: '#1e63c8' });
-const RUBBER = new THREE.MeshLambertMaterial({ color: '#1a1b1f' });
-const STEEL = new THREE.MeshLambertMaterial({ color: '#8f959b' });
+// shared with bikeview.ts so the bike you ride is the bike you took off the dock
+export const FRAME_BLUE = new THREE.MeshLambertMaterial({ color: '#1e63c8' });
+export const RUBBER = new THREE.MeshLambertMaterial({ color: '#1a1b1f' });
+export const STEEL = new THREE.MeshLambertMaterial({ color: '#8f959b' });
 const PLATFORM = new THREE.MeshLambertMaterial({ color: '#63676c' });
 const POST = new THREE.MeshLambertMaterial({ color: '#43474c' });
 
@@ -37,7 +38,7 @@ const SLOT_PITCH = 0.78;
 const MAX_VISUAL_SLOTS = 18;
 
 /** Cylinder stretched between two points (frame tubes, forks, stays). */
-function tube(unit: THREE.CylinderGeometry, mat: THREE.Material, a: THREE.Vector3, b: THREE.Vector3, r: number): THREE.Mesh {
+export function tube(unit: THREE.CylinderGeometry, mat: THREE.Material, a: THREE.Vector3, b: THREE.Vector3, r: number): THREE.Mesh {
   const m = new THREE.Mesh(unit, mat);
   const len = a.distanceTo(b);
   m.scale.set(r, len, r);

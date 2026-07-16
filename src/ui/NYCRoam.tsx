@@ -166,7 +166,18 @@ export default function NYCRoam() {
           {hud ? `${hud.fps} fps · ${hud.tilesLoaded} tiles${hud.tilesPending ? ` (+${hud.tilesPending})` : ''}${hud.fly ? ' · HELI' : ''}${hud.riding ? ' · BIKE' : ''}` : '—'}
         </div>
 
-        {/* helicopter + its altitude pair live with the other chrome, not over the map */}
+        {/* controls legend */}
+        {!isTouch && showHelp && !loading && !error && (
+          <div className="hud-panel legend" onClick={() => setShowHelp(false)} title="Click to hide">
+            <div className="legend-row"><kbd>Click</kbd><span>Look</span></div>
+            <div className="legend-row"><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd><span>Move</span></div>
+            <div className="legend-row"><kbd>Shift</kbd><span>Run</span></div>
+            <div className="legend-row"><kbd>Space</kbd><kbd>C</kbd><span>Fly up / down</span></div>
+            <div className="legend-row"><kbd>E</kbd><span>Enter subway · board · step off</span></div>
+          </div>
+        )}
+
+        {/* helicopter + its altitude pair sit under the legend, not over the map */}
         {hud && !hud.loading && !hud.error && hud.mode === 'street' && !hud.riding && (
           <button
             onClick={() => { const c = worldRef.current?.controlsRef; if (c) c.fly = !c.fly; }}
@@ -193,17 +204,6 @@ export default function NYCRoam() {
               onPointerLeave={() => worldRef.current?.controlsRef.setTouchVertical(0)}
               aria-label="Descend"
             >▼</button>
-          </div>
-        )}
-
-        {/* controls legend */}
-        {!isTouch && showHelp && !loading && !error && (
-          <div className="hud-panel legend" onClick={() => setShowHelp(false)} title="Click to hide">
-            <div className="legend-row"><kbd>Click</kbd><span>Look</span></div>
-            <div className="legend-row"><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd><span>Move</span></div>
-            <div className="legend-row"><kbd>Shift</kbd><span>Run</span></div>
-            <div className="legend-row"><kbd>Space</kbd><kbd>C</kbd><span>Fly up / down</span></div>
-            <div className="legend-row"><kbd>E</kbd><span>Enter subway · board · step off</span></div>
           </div>
         )}
       </div>
