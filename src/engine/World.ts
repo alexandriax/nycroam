@@ -27,6 +27,7 @@ export interface HudState {
   promptRoutes: string[];
   promptHint: string | null; // action verb ("grab a bike"); null = subway walk-in default
   riding: boolean; // on a bike
+  area: string | null; // current neighborhood (street mode)
   stationName: string | null;
   stationRoutes: string[];
   ride: RideHud | null;
@@ -60,6 +61,8 @@ export class World {
   private tiles: TileManager;
   private entrances: EntranceManager;
   private bikes: BikeManager;
+  private hoods: { n: string; rings: number[][]; bbox: [number, number, number, number] }[] | null = null;
+  private hoodTimer = 0;
   private riding = false; // on a bike (street mode only)
   private controls: PlayerControls;
   private station: StationWorld | ElevatedStationWorld | null = null;
@@ -90,7 +93,7 @@ export class World {
   private flyVel = new THREE.Vector3();
   private flyTarget = new THREE.Vector3();
   hud: HudState = {
-    mode: 'street', fly: false, prompt: null, promptRoutes: [], promptHint: null, riding: false, stationName: null,
+    mode: 'street', fly: false, prompt: null, promptRoutes: [], promptHint: null, riding: false, area: null, stationName: null,
     stationRoutes: [], ride: null, tilesLoaded: 0, tilesPending: 0, fps: 0, loading: true, error: null,
   };
   onHud: ((h: HudState) => void) | null = null;
@@ -169,6 +172,7 @@ export class World {
       this.tiles.init(),
       this.entrances.init(),
       this.bikes.init(),
+      this.loadHoods(),
       this.loadGround(),
       this.loadSkyline(),
     ]);
@@ -205,6 +209,46 @@ export class World {
       const res = await fetch('/subway/network.json');
       if (res.ok) this.network = (await res.json()) as NetworkData;
     } catch { /* riding disabled without network data */ }
+  }
+
+  private async loadHoods() {
+    try {
+      const res = await fetch('/geo/hoods.json');
+      if (!res.ok) return;
+      const json = await res.json();
+      this.hoods = (json.hoods as { n: string; rings: number[][] }[]).map((h) => {
+        let minX = Infinity, minZ = Infinity, maxX = -Infinity, maxZ = -Infinity;
+        for (const ring of h.rings) {
+          for (let i = 0; i < ring.length; i += 2) {
+            if (ring[i] < minX) minX = ring[i];
+            if (ring[i] > maxX) maxX = ring[i];
+            if (ring[i + 1] < minZ) minZ = ring[i + 1];
+            if (ring[i + 1] > maxZ) maxZ = ring[i + 1];
+          }
+        }
+        return { ...h, bbox: [minX, minZ, maxX, maxZ] as [number, number, number, number] };
+      });
+    } catch { /* label falls back to "Manhattan" */ }
+  }
+
+  /** Neighborhood containing (x,z) — even-odd over all rings, so holes work. */
+  private hoodAt(x: number, z: number): string | null {
+    if (!this.hoods) return null;
+    for (const h of this.hoods) {
+      const [minX, minZ, maxX, maxZ] = h.bbox;
+      if (x < minX || x > maxX || z < minZ || z > maxZ) continue;
+      let inside = false;
+      for (const ring of h.rings) {
+        const n = ring.length / 2;
+        for (let i = 0, j = n - 1; i < n; j = i++) {
+          const xi = ring[i * 2], zi = ring[i * 2 + 1];
+          const xj = ring[j * 2], zj = ring[j * 2 + 1];
+          if ((zi > z) !== (zj > z) && x < ((xj - xi) * (z - zi)) / (zj - zi) + xi) inside = !inside;
+        }
+      }
+      if (inside) return h.n;
+    }
+    return null;
   }
 
   private async loadGround() {
@@ -485,8 +529,9 @@ export class World {
     const input = this.controls.consumeInput();
     const { fwd, right } = this.controls.basis();
 
-    // bike (13 m/s) beats even a full sprint (10.9); no sprint modifier on wheels
-    const baseSpeed = this.mode === 'station' ? 3.6 : this.controls.fly ? 42 : this.riding ? 13 : 5.2;
+    // bike = 2x a full run (run = 5.2 walk x 2.1 sprint = 10.9 -> bike 21.8);
+    // no sprint modifier on wheels
+    const baseSpeed = this.mode === 'station' ? 3.6 : this.controls.fly ? 42 : this.riding ? 21.8 : 5.2;
     const speed = baseSpeed * (input.sprint && !this.riding ? (this.controls.fly ? 3.2 : 2.1) : 1);
     let dx = (fwd.x * input.forward + right.x * input.strafe) * speed * dt;
     let dz = (fwd.z * input.forward + right.z * input.strafe) * speed * dt;
@@ -529,6 +574,12 @@ export class World {
       this.tiles.update(this.pos.x, this.pos.z);
       this.entrances.update(this.pos.x, this.pos.z, dt);
       this.bikes.update(this.pos.x, this.pos.z, dt);
+
+      this.hoodTimer -= dt;
+      if (this.hoodTimer <= 0) {
+        this.hoodTimer = 1.0;
+        this.hud.area = this.hoodAt(this.pos.x, this.pos.z);
+      }
 
       // proximity prompts. On a bike the subway is out of reach (dock first),
       // so only dock prompts show; on foot the closer of entrance/dock wins.

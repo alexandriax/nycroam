@@ -209,7 +209,14 @@ export class BikeManager {
     let best: PlacedDock | null = null;
     let bestD2 = dist * dist;
     for (const p of this.placed.values()) {
-      const dx = p.pos[0] - x, dz = p.pos[1] - z;
+      // distance to the platform SEGMENT, not its center — an 18-slot dock is
+      // ~14.5m long and its ends would otherwise sit outside the interaction
+      // radius. rotation.y = th maps local +x to world (cos th, -sin th).
+      const half = (p.slots * SLOT_PITCH + 0.5) / 2;
+      const dirX = Math.cos(p.rotY), dirZ = -Math.sin(p.rotY);
+      const rx = x - p.pos[0], rz = z - p.pos[1];
+      const t = Math.max(-half, Math.min(half, rx * dirX + rz * dirZ));
+      const dx = rx - dirX * t, dz = rz - dirZ * t;
       const d2 = dx * dx + dz * dz;
       if (d2 < bestD2) { bestD2 = d2; best = p; }
     }

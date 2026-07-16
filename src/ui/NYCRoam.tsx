@@ -144,7 +144,7 @@ export default function NYCRoam() {
         <span style={{ opacity: 0.62, fontSize: 12, overflow: 'hidden', textOverflow: 'ellipsis', letterSpacing: 0.2 }}>
           {hud?.mode === 'station'
             ? <>{hud.stationName} <Bullets routes={hud.stationRoutes} size={16} /></>
-            : 'Manhattan'}
+            : (hud?.area ?? 'Manhattan')}
         </span>
       </div>
 
