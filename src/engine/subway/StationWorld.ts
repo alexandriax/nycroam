@@ -90,6 +90,300 @@ export interface ExitZone {
   minX: number; maxX: number; minZ: number; maxZ: number; y: number;
 }
 
+/** Registers a geometry/material/texture for later disposal. Lets the shared
+ *  PlatformCountdown hang boards into any world without knowing its internals. */
+export type ResourceTracker = (r: THREE.BufferGeometry | THREE.Material | THREE.Texture) => void;
+
+/** Pick `count` evenly-spread board x-positions along a platform of half-length
+ *  `half`, nudging each off any `blocked(x)` span (pillar lines, stair holes,
+ *  fixed signs) and keeping |x| ≤ `maxX`. Shared by both station worlds. */
+export function pickBoardPositions(
+  half: number, count: number, blocked: (x: number) => boolean, maxX: number,
+): number[] {
+  const margin = 12;
+  const usable = Math.max(0, 2 * half - 2 * margin);
+  const xs: number[] = [];
+  for (let k = 0; k < count; k++) {
+    const base = -half + margin + (usable * (k + 0.5)) / Math.max(1, count);
+    let x = Math.max(-maxX, Math.min(maxX, base));
+    for (const off of [0, 1.4, -1.4, 2.8, -2.8, 4.2, -4.2, 5.6, -5.6, 7, -7]) {
+      const cand = base + off;
+      if (Math.abs(cand) <= maxX && !blocked(cand)) { x = cand; break; }
+    }
+    xs.push(x);
+  }
+  return xs;
+}
+
+/**
+ * MTA-style countdown boards for one station world. A platform gets ONE shared
+ * canvas/texture/material and N identical board meshes reusing it (cheap). Each
+ * board lists the next trains for the directions that platform serves as
+ * per-LINE rows (# · route bullet · destination · MIN), 2 rows per page, paging
+ * up to 3 pages (6 trains) and auto-rotating every ~4s. The owning world sets
+ * `arrivalsFn` and forwards `update(dt)`; the design matches the real display.
+ */
+export class PlatformCountdown {
+  private panels: {
+    dirs: (1 | -1)[];
+    routes: string[];
+    canvas: HTMLCanvasElement;
+    ctx: CanvasRenderingContext2D;
+    texture: THREE.CanvasTexture;
+    lastText: string; // redraw guard: signature of the page currently drawn
+    page: number;
+  }[] = [];
+  private clockTimer = 0;
+  private pageTimer = 0;
+  private readonly stationName: string;
+  /** Set by the owning world each update() from its own arrivalsFn. */
+  arrivalsFn?: () => Arrival[];
+
+  constructor(stationName: string) {
+    this.stationName = stationName;
+  }
+
+  get count(): number { return this.panels.length; }
+
+  /** Build ONE shared board texture for a platform and hang a two-quad board at
+   *  every x in `xs`, all reusing the same material (unlit MeshBasic). */
+  addPlatform(
+    track: ResourceTracker, parent: THREE.Object3D,
+    routes: string[], dirs: (1 | -1)[], xs: number[], y: number, z: number,
+    boardW = 3.2,
+  ) {
+    const cw = 1536, ch = 480; // 3.2 : 1.0 aspect (matches the board's meters)
+    const canvas = document.createElement('canvas');
+    canvas.width = cw; canvas.height = ch;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return; // no 2D context (non-browser); skip boards, station still builds
+    const texture = new THREE.CanvasTexture(canvas); track(texture);
+    texture.colorSpace = THREE.SRGBColorSpace;
+    texture.anisotropy = 4;
+    texture.magFilter = THREE.LinearFilter;
+    texture.minFilter = THREE.LinearMipmapLinearFilter;
+    // signage is UNLIT: MeshBasic, two back-to-back front-facing quads (never a
+    // single DoubleSide plane, which would mirror the text on its far face)
+    const mat = new THREE.MeshBasicMaterial({ map: texture }); track(mat);
+    const pw = boardW, ph = pw * (ch / cw);
+    const geo = new THREE.PlaneGeometry(pw, ph); track(geo);
+    for (const x of xs) {
+      const g = new THREE.Group();
+      const a = new THREE.Mesh(geo, mat);
+      const b = new THREE.Mesh(geo, mat);
+      a.rotation.y = Math.PI / 2; a.position.x = 0.014;   // board spans z, read walking along x
+      b.rotation.y = -Math.PI / 2; b.position.x = -0.014;
+      g.add(a, b);
+      g.position.set(x, y, z);
+      g.traverse((o) => { o.matrixAutoUpdate = false; o.updateMatrix(); });
+      parent.add(g);
+    }
+    const panel = { dirs, routes, canvas, ctx, texture, lastText: ' ', page: 0 };
+    this.panels.push(panel);
+    // initial placeholder rows (one per served direction) until arrivalsFn() ticks
+    this.draw(panel, dirs.map((d) => ({ dirSign: d, routes, seconds: Infinity })), 1);
+  }
+
+  /** Poll arrivalsFn() ~2x/sec (minutes tick) and flip pages every ~4s; redraw
+   *  only the panels whose content or page changed (canvas + texture reused). */
+  update(dt: number) {
+    if (this.panels.length === 0) return;
+    this.clockTimer += dt;
+    this.pageTimer += dt;
+    let flip = false;
+    if (this.pageTimer >= 4) { this.pageTimer = 0; flip = true; }
+    const tick = this.clockTimer >= 0.5;
+    if (!tick && !flip) return;
+    if (tick) this.clockTimer = 0;
+    const arrivals = this.arrivalsFn?.() ?? [];
+    for (const panel of this.panels) {
+      // one row per upcoming TRAIN for this platform's directions, soonest first,
+      // capped at 6 (3 pages of 2). No trains -> a "—" placeholder per direction.
+      let rows = arrivals.filter((a) => panel.dirs.includes(a.dirSign));
+      rows.sort((a, b) => a.seconds - b.seconds);
+      rows = rows.slice(0, 6);
+      if (rows.length === 0) {
+        rows = panel.dirs.map((d) => ({ dirSign: d, routes: panel.routes, seconds: Infinity }));
+      }
+      const pageCount = Math.max(1, Math.ceil(rows.length / 2));
+      if (flip) panel.page = (panel.page + 1) % pageCount;
+      else if (panel.page >= pageCount) panel.page = 0;
+      this.draw(panel, rows, pageCount);
+    }
+  }
+
+  /** Minutes readout for a row: "—" (no train), "Now" (<45s), else the rounded
+   *  minutes as a big number with a "MIN" unit. */
+  private minsInfo(seconds: number): { big: string; unit: string } {
+    if (!Number.isFinite(seconds)) return { big: '—', unit: '' };
+    if (seconds < 45) return { big: 'Now', unit: '' };
+    return { big: String(Math.round(seconds / 60)), unit: 'MIN' };
+  }
+
+  private roundRectPath(
+    ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number,
+  ) {
+    const rr = Math.min(r, w / 2, h / 2);
+    ctx.beginPath();
+    ctx.moveTo(x + rr, y);
+    ctx.arcTo(x + w, y, x + w, y + h, rr);
+    ctx.arcTo(x + w, y + h, x, y + h, rr);
+    ctx.arcTo(x, y + h, x, y, rr);
+    ctx.arcTo(x, y, x + w, y, rr);
+    ctx.closePath();
+  }
+
+  /** Largest font size (stepping down from `start` by 2) at which `text` fits in
+   *  `maxW`, floored at `min`. Sets ctx.font as a side effect. */
+  private fitFont(
+    ctx: CanvasRenderingContext2D, text: string, family: string,
+    start: number, maxW: number, min: number,
+  ): number {
+    let s = start;
+    ctx.font = `${s}px ${family}`;
+    while (s > min && ctx.measureText(text).width > maxW) {
+      s -= 2;
+      ctx.font = `${s}px ${family}`;
+    }
+    return s;
+  }
+
+  /** (Re)draw one board's current PAGE as an MTA-style numbered list. Always a
+   *  2-row layout; the page is chosen by `panel.page`. Guarded by a text
+   *  signature (page-aware) so the canvas/texture are only touched on change. */
+  private draw(panel: PlatformCountdown['panels'][number], allRows: Arrival[], pageCount: number) {
+    const ROWS = 2;
+    const page = Math.max(0, Math.min(panel.page, pageCount - 1));
+    const start = page * ROWS;
+    const pageRows = allRows.slice(start, start + ROWS);
+
+    // redraw guard: signature of everything shown, including which page
+    let sig = `${page + 1}/${pageCount}#`;
+    for (let i = 0; i < pageRows.length; i++) {
+      const r = pageRows[i];
+      const label = directionLabel(r.routes, r.dirSign, this.stationName);
+      const m = this.minsInfo(r.seconds);
+      sig += `${start + i + 1}:${r.routes.join('/')}|${label}|${m.big}${m.unit};`;
+    }
+    if (sig === panel.lastText) return;
+    panel.lastText = sig;
+
+    const { ctx, canvas } = panel;
+    const W = canvas.width, H = canvas.height;
+    const PAD = 40;
+
+    // ---- background: near-black rounded panel with a faint gloss ----
+    ctx.fillStyle = '#0b0d10';
+    ctx.fillRect(0, 0, W, H);
+    const gloss = ctx.createLinearGradient(0, 0, 0, H);
+    gloss.addColorStop(0, 'rgba(255,255,255,0.055)');
+    gloss.addColorStop(0.5, 'rgba(255,255,255,0)');
+    gloss.addColorStop(1, 'rgba(0,0,0,0.18)');
+    ctx.fillStyle = gloss;
+    ctx.fillRect(0, 0, W, H);
+    ctx.strokeStyle = '#22262e';
+    ctx.lineWidth = 4;
+    this.roundRectPath(ctx, 6, 6, W - 12, H - 12, 26);
+    ctx.stroke();
+
+    const rowH = H / ROWS; // fixed 2-row layout so a 1-row last page never stretches
+    const numSize = Math.min(rowH * 0.30, 54);
+    const bulletR = Math.min(rowH * 0.26, 44);
+    const bigSize = Math.min(rowH * 0.34, 60);
+    const smallSize = Math.min(rowH * 0.20, 34);
+    const minNumSize = Math.min(rowH * 0.44, 82);
+    const minUnitSize = Math.min(rowH * 0.17, 30);
+    const numColW = 46;
+
+    for (let i = 0; i < pageRows.length; i++) {
+      const row = pageRows[i];
+      const top = i * rowH;
+      const mid = top + rowH / 2;
+      const rowNum = start + i + 1;
+
+      // thin separator above each row after the first
+      if (i > 0) {
+        ctx.strokeStyle = '#191c22';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(PAD, top);
+        ctx.lineTo(W - PAD, top);
+        ctx.stroke();
+      }
+
+      // ---- row number (small, light grey) ----
+      ctx.font = `${numSize}px ${SANS}`;
+      ctx.fillStyle = '#8b929b';
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(String(rowNum), PAD, mid);
+
+      // ---- route bullet(s) ----
+      let bx = PAD + numColW + 6;
+      for (const route of row.routes.slice(0, 3)) {
+        drawBullet(ctx, bx + bulletR, mid, bulletR, route);
+        bx += bulletR * 2 + 10;
+      }
+      const destX = bx + 18;
+
+      // ---- minutes (far right): big white number + small "MIN" ----
+      const { big, unit } = this.minsInfo(row.seconds);
+      let cursor = W - PAD;
+      ctx.textBaseline = 'middle';
+      if (unit) {
+        ctx.font = `${minUnitSize}px ${SANS}`;
+        ctx.fillStyle = '#9aa1aa';
+        ctx.textAlign = 'right';
+        ctx.fillText(unit, cursor, mid);
+        cursor -= ctx.measureText(unit).width + 12;
+      }
+      ctx.font = `${minNumSize}px ${BLACK}`;
+      ctx.fillStyle = '#ffffff';
+      ctx.textAlign = 'right';
+      ctx.fillText(big, cursor, mid);
+      const minLeft = cursor - ctx.measureText(big).width - 22;
+
+      // ---- destination: big bold white, optional light-grey secondary line ----
+      // directionLabel returns "A & B"; render "A" big + "B" small when split.
+      const label = directionLabel(row.routes, row.dirSign, this.stationName);
+      const parts = label.split(' & ');
+      const bigLine = parts.length === 2 ? parts[0] : label;
+      const smallLine = parts.length === 2 ? parts[1] : '';
+      const maxW = Math.max(60, minLeft - destX);
+      ctx.textAlign = 'left';
+      if (smallLine) {
+        const bs = this.fitFont(ctx, bigLine, BLACK, bigSize, maxW, 22);
+        ctx.font = `${bs}px ${BLACK}`;
+        ctx.fillStyle = '#ffffff';
+        ctx.textBaseline = 'alphabetic';
+        ctx.fillText(bigLine, destX, mid - 4);
+        const ss = this.fitFont(ctx, smallLine, SANS, smallSize, maxW, 16);
+        ctx.font = `${ss}px ${SANS}`;
+        ctx.fillStyle = '#aab0b8';
+        ctx.textBaseline = 'top';
+        ctx.fillText(smallLine, destX, mid + 8);
+      } else {
+        const bs = this.fitFont(ctx, bigLine, BLACK, bigSize, maxW, 18);
+        ctx.font = `${bs}px ${BLACK}`;
+        ctx.fillStyle = '#ffffff';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(bigLine, destX, mid);
+      }
+    }
+
+    // ---- tiny page indicator in the bottom-right corner (e.g. "1/3") ----
+    if (pageCount > 1) {
+      ctx.font = `${Math.round(rowH * 0.12)}px ${SANS}`;
+      ctx.fillStyle = '#5a616b';
+      ctx.textAlign = 'right';
+      ctx.textBaseline = 'alphabetic';
+      ctx.fillText(`${page + 1}/${pageCount}`, W - 18, H - 16);
+    }
+
+    panel.texture.needsUpdate = true;
+  }
+}
+
 export class StationWorld {
   readonly scene: THREE.Scene;
   readonly walkBoxes: WalkBox[] = [];
@@ -102,17 +396,10 @@ export class StationWorld {
    *  platform countdown clocks can tick. Consumed in update(); never set here. */
   arrivalsFn?: () => Arrival[];
   private disposables: (THREE.BufferGeometry | THREE.Material | THREE.Texture)[] = [];
-  // One redrawable LED countdown panel per served direction (built in build()).
-  private countdownClocks: {
-    dir: 1 | -1;
-    routes: string[];
-    label: string;
-    canvas: HTMLCanvasElement;
-    ctx: CanvasRenderingContext2D;
-    texture: THREE.CanvasTexture;
-    lastText: string;
-  }[] = [];
-  private clockTimer = 0;
+  // Several MTA-style countdown boards per PLATFORM sharing ONE canvas/texture.
+  // Each lists the next trains for the directions that platform serves as
+  // per-line paged rows, redrawn from arrivalsFn() on a timer in update().
+  private countdown!: PlatformCountdown;
 
   constructor(spec: StationSpec, env: THREE.Texture | null = null) {
     this.name = spec.name;
@@ -155,6 +442,7 @@ export class StationWorld {
   }
 
   private build(spec: StationSpec) {
+    this.countdown = new PlatformCountdown(spec.name);
     const L = spec.layout.platformLength;
     const cs = crossSection(spec);
     const W = cs.width;
@@ -443,23 +731,33 @@ export class StationWorld {
       });
     }
 
-    // ---- platform countdown clocks (one per served direction) ----
-    // An MTA-style black LED panel hangs over the platform edge that a
-    // direction's trains stop at — right beside that direction's hanging sign,
-    // offset in x so the two don't coincide — reading "Next <dir> train: M:SS".
-    // Each owns a redrawable CanvasTexture ticked from arrivalsFn() in update().
-    const clockDone = new Set<1 | -1>();
+    // ---- platform countdown boards (SEVERAL per platform, shared texture) ----
+    // MTA-style boards hang across each platform every ~33m (≥2), each listing
+    // the next trains for the directions that platform serves as per-line paged
+    // rows (# · bullet · destination · MIN). All boards on a platform share ONE
+    // canvas/texture/material, so N meshes are cheap. Two back-to-back quads make
+    // each readable walking either way. Boards hang below the ceiling, clear of
+    // the pillar lines (pillars at -half+6, step 4.6, along the platform-center
+    // line the boards cross) and the stair openings. z = platform center, y =
+    // board height; faces are ticked from arrivalsFn() in update().
+    const PANEL_Y = 2.6; // board center ~1.0m under the 3.6m ceiling; ~2.1m floor clearance
+    const pillarBlocked = (x: number) => {
+      const nearestPillar = -half + 6 + Math.round((x - (-half + 6)) / 4.6) * 4.6;
+      return Math.abs(x - nearestPillar) < 0.6;
+    };
+    const stairBlocked = (x: number) =>
+      stairHoles.some((h) => x > h.minX - 0.5 && x < h.maxX + 0.5);
+    const boardCount = Math.max(2, Math.round(L / 33));
+    const boardXs = pickBoardPositions(
+      half, boardCount, (x) => pillarBlocked(x) || stairBlocked(x), half - 4,
+    );
     for (const p of cs.platforms) {
-      stoppingZs.forEach((tz, i) => {
-        const dir = trackDirs[i];
-        if (clockDone.has(dir)) return;
-        const nearMin = Math.abs(tz - p.zMin) < TRACK_W * 0.8;
-        const nearMax = Math.abs(tz - p.zMax) < TRACK_W * 0.8;
-        if (!nearMin && !nearMax) return;
-        clockDone.add(dir);
-        const edgeZ = nearMin ? p.zMin + 0.55 : p.zMax - 0.55;
-        this.buildCountdownClock(root, spec.routes, dir, dirLabel(dir), 4, CEIL - 0.55, edgeZ);
-      });
+      const dirs = platformDirs(p);
+      if (dirs.length === 0) continue;
+      const cz = (p.zMin + p.zMax) / 2;
+      this.countdown.addPlatform(
+        (r) => this.track(r), root, spec.routes, dirs, boardXs, PANEL_Y, cz,
+      );
     }
 
     // ---- platform furniture ----
@@ -740,118 +1038,11 @@ export class StationWorld {
     this.platformSpawn.set(4, 0, (p0.zMin + p0.zMax) / 2);
   }
 
-  /** Build one redrawable LED countdown panel and register it for ticking. */
-  private buildCountdownClock(
-    parent: THREE.Object3D, routes: string[], dir: 1 | -1, label: string,
-    x: number, y: number, z: number,
-  ) {
-    const cw = 1024, ch = 256;
-    const canvas = document.createElement('canvas');
-    canvas.width = cw; canvas.height = ch;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return; // no 2D context (non-browser); skip the clock, station still builds
-    const texture = this.track(new THREE.CanvasTexture(canvas));
-    texture.colorSpace = THREE.SRGBColorSpace;
-    texture.anisotropy = 4;
-    texture.magFilter = THREE.LinearFilter;
-    texture.minFilter = THREE.LinearMipmapLinearFilter;
-    // signage is UNLIT: MeshBasic, two back-to-back front-facing quads (never a
-    // single DoubleSide plane, which would mirror the text on its far face)
-    const mat = this.track(new THREE.MeshBasicMaterial({ map: texture }));
-    const ph = 0.6, pw = ph * (cw / ch); // ~2.4 m LED panel
-    const geo = this.track(new THREE.PlaneGeometry(pw, ph));
-    const g = new THREE.Group();
-    const a = new THREE.Mesh(geo, mat);
-    const b = new THREE.Mesh(geo, mat);
-    a.rotation.y = Math.PI / 2; a.position.x = 0.012;   // panel spans z, read walking along x
-    b.rotation.y = -Math.PI / 2; b.position.x = -0.012;
-    g.add(a, b);
-    g.position.set(x, y, z);
-    g.traverse((o) => { o.matrixAutoUpdate = false; o.updateMatrix(); });
-    parent.add(g);
-    const clock = { dir, routes, label, canvas, ctx, texture, lastText: '' };
-    this.countdownClocks.push(clock);
-    this.drawCountdownFace(clock, '—');
-  }
-
-  /** Re-fill one clock's canvas with its bullets/label and the given time. The
-   *  bullets and label are static, so only redraw when the time text changed. */
-  private drawCountdownFace(clock: StationWorld['countdownClocks'][number], timeStr: string) {
-    if (timeStr === clock.lastText) return;
-    clock.lastText = timeStr;
-    const { ctx, canvas } = clock;
-    const w = canvas.width, h = canvas.height;
-    const midY = h * 0.46;
-
-    ctx.fillStyle = '#050506';
-    ctx.fillRect(0, 0, w, h);
-    ctx.strokeStyle = '#242629';
-    ctx.lineWidth = 6;
-    ctx.strokeRect(6, 6, w - 12, h - 12);
-
-    // route bullets on the left
-    let x = 34;
-    const r = clock.routes.length > 3 ? 40 : 50;
-    for (const route of clock.routes.slice(0, 4)) {
-      drawBullet(ctx, x + r, midY, r, route);
-      x += r * 2 + 14;
-    }
-    x += 16;
-
-    // bright amber time on the right ("Now" / "M:SS" / "—")
-    const timeRight = w - 34;
-    ctx.font = `64px ${BLACK}`;
-    ctx.textAlign = 'right';
-    ctx.textBaseline = 'middle';
-    ctx.fillStyle = '#ffb020';
-    ctx.fillText(timeStr, timeRight, midY);
-    const timeLeft = timeRight - ctx.measureText(timeStr).width;
-
-    // "Next <direction> train" fit between the bullets and the time
-    const head = `Next ${clock.label} train`;
-    const maxW = Math.max(40, timeLeft - 22 - x);
-    let size = 46;
-    ctx.textAlign = 'left';
-    ctx.font = `${size}px ${SANS}`;
-    while (ctx.measureText(head).width > maxW && size > 16) {
-      size -= 2;
-      ctx.font = `${size}px ${SANS}`;
-    }
-    ctx.fillStyle = '#f4f4ec';
-    ctx.fillText(head, x, midY);
-
-    // amber "min" tag under a real countdown (not under "Now"/"—")
-    if (timeStr !== 'Now' && timeStr !== '—') {
-      ctx.font = `26px ${SANS}`;
-      ctx.textAlign = 'right';
-      ctx.fillStyle = '#c07a10';
-      ctx.fillText('min', timeRight, h * 0.82);
-    }
-
-    clock.texture.needsUpdate = true;
-  }
-
-  /** "M:SS", or "Now" at ≤0, or "—" when the arrival is missing/non-finite. */
-  private formatArrival(a: Arrival | undefined): string {
-    if (!a || !Number.isFinite(a.seconds)) return '—';
-    const s = Math.max(0, Math.round(a.seconds));
-    if (s <= 0) return 'Now';
-    return `${Math.floor(s / 60)}:${(s % 60).toString().padStart(2, '0')}`;
-  }
-
   update(dt: number) {
-    // Structure is static; the only live thing is the countdown clocks. Poll
-    // arrivalsFn() ~2x/sec and redraw only the panels whose time changed (canvas
-    // and texture are reused — no per-frame allocation).
-    if (this.countdownClocks.length === 0) return;
-    this.clockTimer += dt;
-    if (this.clockTimer < 0.5) return;
-    this.clockTimer = 0;
-    const arrivals = this.arrivalsFn?.();
-    for (const clock of this.countdownClocks) {
-      const a = arrivals?.find((ar) => ar.dirSign === clock.dir);
-      this.drawCountdownFace(clock, this.formatArrival(a));
-    }
+    // Structure is static; the only live thing is the countdown boards. Forward
+    // the orchestrator-set arrivalsFn and let the shared board manager tick/page.
+    this.countdown.arrivalsFn = this.arrivalsFn;
+    this.countdown.update(dt);
   }
 
   dispose() {

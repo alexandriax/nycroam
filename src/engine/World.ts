@@ -459,6 +459,8 @@ export class World {
       this.mode = 'ride';
       this.pos.set(0, 0, 0);
       this.controls.fly = false;
+      // block the walk-OFF check while the player is still holding the walk-IN key
+      this.lastEnterGuard = performance.now();
       this.hud.mode = 'ride';
       this.pushHud();
       await wait(80);
@@ -667,6 +669,12 @@ export class World {
       this.pos.x = Math.max(-6.8, Math.min(6.8, this.pos.x + dx));
       this.pos.z = Math.max(-1.05, Math.min(1.05, this.pos.z + dz));
       this.pos.y = 0;
+      // walk-off: while dwelling, stepping into the open platform-side (+z)
+      // doors steps you off — same affordance as walking in (E still works).
+      if (this.ride.canExit && this.pos.z > 0.92
+        && performance.now() - this.lastEnterGuard > 2500 && !this.transitioning) {
+        this.exitRide();
+      }
       this.ride.update(dt);
       this.hud.ride = this.ride.hudInfo;
       this.hud.prompt = null;

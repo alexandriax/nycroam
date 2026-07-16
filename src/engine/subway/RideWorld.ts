@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import type { NetworkData, StationSpec } from './types';
 import { routeColor, bulletTextColor } from './types';
 import { makeWallTexture, makeNameMosaicTexture } from './signage';
-import { SANS, BLACK } from '../fonts';
+import { SANS, BLACK, LED } from '../fonts';
 
 export interface RideHud {
   route: string;
@@ -14,6 +14,14 @@ export interface RideHud {
 }
 
 const CAR_INTERIOR_H = 2.15;
+
+// Arrival/departure choreography. The platform backdrop slides along world-x so
+// the station rolls in through the windows instead of popping on at dwell. ROLLX
+// is how far ahead (+x) / behind (-x) the platform sits at the ends of the slide;
+// the roll-in occupies the last (1-RIN) of `moving`, the roll-out the first ROUT.
+const RIDE_ROLLX = 60;
+const RIDE_RIN = 0.75;
+const RIDE_ROUT = 0.2;
 
 /** Heavy route bullet for the strip map (Archivo Black glyph on a colored disc). */
 function drawHeavyBullet(ctx: CanvasRenderingContext2D, x: number, y: number, r: number, routeId: string): void {
@@ -134,6 +142,7 @@ export class RideWorld {
   private t = 0;
   private stateLen = 6;
   private doorOpenAmt = 1;
+  private rollInStarted = false;             // one-shot guard: set backdrop content when the roll-in begins
 
   private doorPanels: { mesh: THREE.Object3D; home: number; dir: 1 | -1; side: 1 | -1 }[] = [];
   private streaks!: THREE.InstancedMesh;
@@ -144,6 +153,7 @@ export class RideWorld {
   private stripMat!: THREE.MeshBasicMaterial;
   private nextSign = new THREE.Group();      // center hanging next-stop announcement sign
   private nextSignMat!: THREE.MeshBasicMaterial;
+  private ledCv?: HTMLCanvasElement;         // reused canvas for the red-on-black LED sign bake
   private disposables: (THREE.BufferGeometry | THREE.Material | THREE.Texture)[] = [];
   private carHalf: number;
 
@@ -274,6 +284,10 @@ export class RideWorld {
           const stile = 0.09;
           this.box(stile, 0.77, 0.06, doorM, -pw / 2 + stile / 2, 1.435, 0, panel);
           this.box(stile, 0.77, 0.06, doorM, pw / 2 - stile / 2, 1.435, 0, panel);
+          // opaque near-black "dark glass" pane filling the window opening so a
+          // shut door reads as shut (no see-through hole). Slightly inset toward
+          // the interior; it slides away with the panel when the door opens.
+          this.box(pw - 2 * stile, 0.77, 0.04, cabWinM, 0, 1.435, -side * 0.012, panel);
           this.doorPanels.push({ mesh: panel, home: homeX, dir: d, side });
         }
       }
@@ -299,18 +313,22 @@ export class RideWorld {
       this.scene.add(sm);
     }
 
-    // center hanging next-stop sign: two back-to-back quads facing ±x so it
-    // reads from either end of the car (like the LED sign on real rolling stock).
+    // center hanging NEXT-STOP sign: a WIDE, THIN red dot-matrix LED strip (like
+    // the ones on real rolling stock), built from two back-to-back single-sided
+    // quads facing ±x so it reads from either end of the car. The sign width runs
+    // along z (across the car), so a literal ~4.2 m strip would punch through the
+    // ~2.5–3 m-wide walls into the tunnel; it's sized to span the interior instead
+    // while keeping the wide/thin LED aspect (matches the 2048×280 bake canvas).
     this.nextSignMat = this.track(new THREE.MeshBasicMaterial({ color: 0xffffff }));
-    const signGeo = this.track(new THREE.PlaneGeometry(1.7, 0.42));
+    const signGeo = this.track(new THREE.PlaneGeometry(2.5, 0.34));
     for (const ry of [Math.PI / 2, -Math.PI / 2]) {
       const s = new THREE.Mesh(signGeo, this.nextSignMat);
       s.rotation.y = ry;
       this.nextSign.add(s);
     }
-    this.nextSign.position.set(0, CAR_INTERIOR_H - 0.32, 0);
+    this.nextSign.position.set(0, CAR_INTERIOR_H - 0.20, 0); // just under the ceiling
     this.scene.add(this.nextSign);
-    this.box(0.06, 0.16, 0.06, steel, 0, CAR_INTERIOR_H - 0.13, 0); // mount bracket to ceiling
+    this.box(0.06, 0.12, 0.06, steel, 0, CAR_INTERIOR_H - 0.05, 0); // mount bracket to ceiling
   }
 
   private buildOutside() {
@@ -513,27 +531,43 @@ export class RideWorld {
     }
   }
 
-  /** Bake the center announcement sign (MTA black panel, heavy white text). */
+  /**
+   * Bake the center announcement sign as bright MTA-red ALL-CAPS text on a black
+   * panel in the VT323 LED face — the classic NYC car interior next-stop strip.
+   * The caps message is auto-fit to the strip width and drawn WITHOUT synthetic
+   * bold (the pixel face smears) with a soft same-color glow so it reads as a lit
+   * LED display. One reusable canvas backs it; the CanvasTexture is remade and
+   * the old map disposed on each redraw.
+   */
   private setNextSign(text: string) {
-    const cv = document.createElement('canvas');
-    cv.width = 1024; cv.height = 256;
-    const ctx = cv.getContext('2d')!;
-    ctx.fillStyle = '#0a0a0a';
-    ctx.fillRect(0, 0, cv.width, cv.height);
-    ctx.strokeStyle = '#2b2b2b';
-    ctx.lineWidth = 10;
-    ctx.strokeRect(6, 6, cv.width - 12, cv.height - 12);
-    ctx.fillStyle = '#ffffff';
+    const W = 2048, H = 280;
+    if (!this.ledCv) { this.ledCv = document.createElement('canvas'); this.ledCv.width = W; this.ledCv.height = H; }
+    const ctx = this.ledCv.getContext('2d')!;
+    const caps = text.toUpperCase();
+
+    // black panel
+    ctx.fillStyle = '#080609';
+    ctx.fillRect(0, 0, W, H);
+
+    // auto-fit the caps line to the strip width (VT323, no bold keyword)
+    let fs = Math.round(H * 0.82);
+    const maxW = W * 0.94;
+    ctx.font = `${fs}px ${LED}`;
+    while (ctx.measureText(caps).width > maxW && fs > 40) {
+      fs -= 4;
+      ctx.font = `${fs}px ${LED}`;
+    }
+
+    // bright red glyphs with a slight same-color glow for the lit-LED feel
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    let fs = 92;
-    ctx.font = `${fs}px ${BLACK}`;
-    while (ctx.measureText(text).width > cv.width - 80 && fs > 28) {
-      fs -= 4;
-      ctx.font = `${fs}px ${BLACK}`;
-    }
-    ctx.fillText(text, cv.width / 2, cv.height / 2 + 4);
-    const tex = new THREE.CanvasTexture(cv);
+    ctx.shadowColor = '#ff2d3a';
+    ctx.shadowBlur = 10;
+    ctx.fillStyle = '#ff2d3a';                 // MTA red-pink, in #ff2d20..#ff2d4b
+    ctx.fillText(caps, W / 2, H / 2);
+    ctx.shadowBlur = 0;
+
+    const tex = new THREE.CanvasTexture(this.ledCv);
     tex.colorSpace = THREE.SRGBColorSpace;
     tex.anisotropy = 4;
     if (this.nextSignMat.map) this.nextSignMat.map.dispose();
@@ -560,7 +594,11 @@ export class RideWorld {
     this.state = 'dwell';
     this.t = 0;
     this.stateLen = len;
+    this.rollInStarted = false;
     this.setBackdrop(this.stops[this.idx]);
+    // finalize the roll-in: platform parked at x=0, tunnel hidden — no visual pop
+    this.backdrop.position.x = 0;
+    this.backdropNeg.position.x = 0;
     this.backdrop.visible = true;      // +z platform
     this.backdropNeg.visible = true;   // -z platform (mirror) — no black side
     this.sidePos.visible = false;      // both sides show the platform, not the tunnel
@@ -570,7 +608,7 @@ export class RideWorld {
     if (this.streaks) this.streaks.visible = false;
     this.setStrip();
     const thisName = this.names.get(this.stops[this.idx]) ?? '';
-    this.setNextSign(this.atEnd ? `Last stop — ${thisName}` : `This is ${thisName}`);
+    this.setNextSign(this.atEnd ? `(${this.route}) LAST STOP — ${thisName}` : `(${this.route}) THIS IS ${thisName}`);
   }
 
   get currentStationId() { return this.stops[this.idx]; }
@@ -602,7 +640,7 @@ export class RideWorld {
         this.state = 'closing';
         this.t = 0;
         this.stateLen = 1.4;
-        this.setNextSign('Stand clear of the closing doors');
+        this.setNextSign(`(${this.route}) STAND CLEAR OF THE CLOSING DOORS`);
       }
     } else if (this.state === 'closing') {
       this.doorOpenAmt = Math.max(0, this.doorOpenAmt - dt * 1.1);
@@ -613,13 +651,18 @@ export class RideWorld {
         this.state = 'moving';
         this.t = 0;
         this.stateLen = Math.max(8, Math.min(38, secs / 2.2));
-        // departure: reveal the tunnel on both sides, hide both platform backdrops
-        this.backdrop.visible = false;
-        this.backdropNeg.visible = false;
-        this.sidePos.visible = true;
-        this.sideNeg.visible = true;
-        this.streaks.visible = true;
-        this.setNextSign(`Next stop: ${this.names.get(this.stops[this.idx]) ?? ''}`);
+        // departure: keep the platform we're leaving on-screen (the backdrop still
+        // holds the previous station's content) so it rolls OUT through the windows
+        // during the first ROUT of `moving`; the tunnel stays hidden until it clears.
+        this.rollInStarted = false;
+        this.backdrop.position.x = 0;
+        this.backdropNeg.position.x = 0;
+        this.backdrop.visible = true;
+        this.backdropNeg.visible = true;
+        this.sidePos.visible = false;
+        this.sideNeg.visible = false;
+        this.streaks.visible = false;
+        this.setNextSign(`(${this.route}) THE NEXT STOP IS ${this.names.get(this.stops[this.idx]) ?? ''}`);
         // schedule an express fly-by for long (express) segments
         this.expressActive = this.stateLen >= 15;
         if (this.expressActive) this.setExpressName(this.pickExpressName());
@@ -631,16 +674,68 @@ export class RideWorld {
       const speed = 24 * Math.pow(Math.sin(Math.PI * p), 0.7);
       this.scrollOffset += speed * dt; // world slides backward past the windows
       this.updateScroll();
-      // express platform sweeps past the +z windows around mid-segment
-      if (this.expressActive) {
-        const w0 = 0.32, w1 = 0.68;
-        if (p > w0 && p < w1) {
-          this.expressStation.visible = true;
-          this.expressStation.position.x = (0.5 - (p - w0) / (w1 - w0)) * 80;
-        } else {
-          this.expressStation.visible = false;
+
+      const BW = 32;                       // backdrop wall half-width (PlaneGeometry(64,..))
+      const coverX = BW - this.carHalf;    // |x| below which the wall fully backs every window
+      const clearX = -(BW + this.carHalf); // x below which the wall is fully past the -x windows
+
+      if (p < RIDE_ROUT) {
+        // DEPARTURE roll-out: the station we just left accelerates off toward -x;
+        // the tunnel takes over the instant the platform has fully cleared.
+        const v = p / RIDE_ROUT;
+        const x = -RIDE_ROLLX * v * v;     // ease-in (accelerate away): 0 -> -ROLLX
+        const cleared = x <= clearX;
+        this.backdrop.position.x = x;
+        this.backdropNeg.position.x = x;
+        this.backdrop.visible = !cleared;
+        this.backdropNeg.visible = !cleared;
+        this.sidePos.visible = cleared;
+        this.sideNeg.visible = cleared;
+        this.streaks.visible = cleared;
+      } else if (p < RIDE_RIN) {
+        // MID-SEGMENT: pure scrolling tunnel on both sides.
+        if (this.backdrop.visible) {
+          this.backdrop.visible = false;
+          this.backdropNeg.visible = false;
+          this.backdrop.position.x = 0;
+          this.backdropNeg.position.x = 0;
         }
+        if (!this.sidePos.visible) {
+          this.sidePos.visible = true;
+          this.sideNeg.visible = true;
+          this.streaks.visible = true;
+        }
+        // express platform sweeps past the +z windows around mid-segment
+        if (this.expressActive) {
+          const w0 = 0.32, w1 = 0.68;
+          if (p > w0 && p < w1) {
+            this.expressStation.visible = true;
+            this.expressStation.position.x = (0.5 - (p - w0) / (w1 - w0)) * 80;
+          } else {
+            this.expressStation.visible = false;
+          }
+        }
+      } else {
+        // ARRIVAL roll-in: the approaching station (idx already points at it)
+        // glides in from +x and decelerates to a stop at x=0 as p->1. The tunnel
+        // is cut the moment the wall fully backs the windows, so no double-image.
+        if (!this.rollInStarted) {
+          this.rollInStarted = true;
+          this.expressStation.visible = false;
+          this.setBackdrop(this.stops[this.idx]);
+        }
+        const u = (p - RIDE_RIN) / (1 - RIDE_RIN);
+        const x = RIDE_ROLLX * (1 - u) * (1 - u); // ease-out (decelerate): ROLLX -> 0
+        const covered = x <= coverX;
+        this.backdrop.position.x = x;
+        this.backdropNeg.position.x = x;
+        this.backdrop.visible = true;
+        this.backdropNeg.visible = true;
+        this.sidePos.visible = !covered;
+        this.sideNeg.visible = !covered;
+        this.streaks.visible = !covered;
       }
+
       if (this.t >= this.stateLen) this.enterDwell(12);
     }
 

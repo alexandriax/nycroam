@@ -16,6 +16,13 @@ export const SANS = `'Questrial', 'Helvetica Neue', Arial, sans-serif`;
  */
 export const BLACK = `'Archivo Black', 'Helvetica Neue', Arial, sans-serif`;
 
+/**
+ * VT323 (self-hosted, public/fonts): squared-off digital/terminal face for
+ * LED-style displays — the red in-car next-stop strip and countdown digits.
+ * Single 400 weight; draw WITHOUT `bold` (pixel faces smear under synthetic bold).
+ */
+export const LED = `'VT323', 'Courier New', monospace`;
+
 /** Mosaic name tablets stay serif: they copy the real 1900s IRT tablets. */
 export const SERIF = `'Georgia', 'Times New Roman', serif`;
 
@@ -32,6 +39,7 @@ export async function loadSans(): Promise<void> {
       document.fonts.load(`400 100px 'Questrial'`),
       document.fonts.load(`bold 100px 'Questrial'`),
       document.fonts.load(`400 100px 'Archivo Black'`),
+      document.fonts.load(`400 100px 'VT323'`),
     ]);
   } catch {
     /* face unavailable: the fallback stack renders, nothing else breaks */

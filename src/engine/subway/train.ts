@@ -16,6 +16,13 @@ export interface TrainOpts {
    * never see straight through the car to the tunnel. Default +1.
    */
   platformSide?: 1 | -1;
+  /**
+   * Where the train is headed, e.g. "Uptown & The Bronx" or
+   * "Grand Central–42 St". Baked (once per train) into the exterior side
+   * signs next to the route bullet, and — space permitting — under the front
+   * cab's roll sign. Signs show the bullet alone when omitted.
+   */
+  dirLabel?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -125,6 +132,34 @@ const LIGHT_SPHERE_GEO = new THREE.SphereGeometry(0.06, 6, 4);
 const UNIT_SCALE = new THREE.Vector3(1, 1, 1);
 const IDENTITY_QUAT = new THREE.Quaternion();
 
+// Exterior side sign: a square route-bullet backing plus a black destination
+// strip baked side-by-side into one canvas (see makeSideSignTexture), mapped
+// onto one compact single-sided panel shared by every sign mesh on the train
+// (one PlaneGeometry, positioned/rotated per instance — never DoubleSide, so
+// each panel only renders from the side it's meant to face).
+const SIDE_SIGN_TEX_H = 128;
+const SIDE_SIGN_TEX_W = SIDE_SIGN_TEX_H * 4; // 512: matches the panel's 4:1 aspect
+const SIDE_SIGN_BULLET_FRAC = SIDE_SIGN_TEX_H / SIDE_SIGN_TEX_W; // fraction of canvas width the bullet square occupies
+const SIDE_SIGN_WIDTH = 1.0; // meters (spec: ~0.8-1.2m wide)
+const SIDE_SIGN_HEIGHT = 0.25; // meters (spec: ~0.25m tall)
+const SIDE_SIGN_GEO = new THREE.PlaneGeometry(SIDE_SIGN_WIDTH, SIDE_SIGN_HEIGHT);
+
+// Small front-cab destination crop: same texture as the side signs, but a
+// separate (module-scope, shared) plane whose UVs sample only the
+// destination-text portion of that canvas, so the front cab can show
+// "bullet (existing roll sign) + destination" without baking a second
+// texture per train.
+const FRONT_DEST_WIDTH = 0.34;
+const FRONT_DEST_HEIGHT = 0.09;
+const FRONT_DEST_GEO = new THREE.PlaneGeometry(FRONT_DEST_WIDTH, FRONT_DEST_HEIGHT);
+{
+  const uv = FRONT_DEST_GEO.attributes.uv;
+  for (let i = 0; i < uv.count; i++) {
+    uv.setX(i, SIDE_SIGN_BULLET_FRAC + uv.getX(i) * (1 - SIDE_SIGN_BULLET_FRAC));
+  }
+  uv.needsUpdate = true;
+}
+
 interface CarGeometrySet {
   roof: THREE.BoxGeometry;
   undercarriage: THREE.BoxGeometry;
@@ -215,6 +250,53 @@ function makeRollSignTexture(route: string): THREE.CanvasTexture {
   return texture;
 }
 
+// Shrink `text` until it fits `maxWidth`, mirroring signage.ts's fitFontSize
+// (train.ts can't import that module, so this is a small local duplicate).
+// BLACK (Archivo Black) is already a heavy face, so no synthetic-bold prefix.
+function fitDestFontSize(ctx: CanvasRenderingContext2D, text: string, maxWidth: number, startPx: number): number {
+  let size = startPx;
+  ctx.font = `${size}px ${BLACK}`;
+  while (ctx.measureText(text).width > maxWidth && size > 14) {
+    size -= 2;
+    ctx.font = `${size}px ${BLACK}`;
+  }
+  return size;
+}
+
+/**
+ * The exterior side-sign texture: the route bullet (reusing drawRouteBullet)
+ * filling the leading SIDE_SIGN_TEX_H x SIDE_SIGN_TEX_H square, plus the
+ * destination text in white caps on the black strip to its right. One of
+ * these is baked per TRAIN (every car + both sides share it, since they all
+ * carry the same route and direction).
+ */
+function makeSideSignTexture(route: string, dirLabel: string): THREE.CanvasTexture {
+  const h = SIDE_SIGN_TEX_H;
+  const w = SIDE_SIGN_TEX_W;
+  const canvas = document.createElement('canvas');
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) throw new Error('2D canvas context unavailable');
+  ctx.fillStyle = '#000000';
+  ctx.fillRect(0, 0, w, h);
+  drawRouteBullet(ctx, h, route); // bullet fills the leading h x h square
+  const label = dirLabel.trim().toUpperCase();
+  if (label) {
+    const textX = h + h * 0.14;
+    const maxWidth = w - textX - h * 0.1;
+    const size = fitDestFontSize(ctx, label, maxWidth, Math.round(h * 0.4));
+    ctx.font = `${size}px ${BLACK}`;
+    ctx.fillStyle = '#ffffff';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(label, textX, h / 2 + h * 0.02);
+  }
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  return texture;
+}
+
 // ---------------------------------------------------------------------------
 // State machine timing
 // ---------------------------------------------------------------------------
@@ -264,6 +346,8 @@ export class Train {
   private readonly platformSide: 1 | -1; // local z-sign facing the platform
   private readonly rollSignTexture: THREE.CanvasTexture;
   private readonly rollSignMaterial: THREE.MeshLambertMaterial;
+  private readonly sideSignTexture: THREE.CanvasTexture; // exterior side signs + front-cab dest crop share this
+  private readonly sideSignMaterial: THREE.MeshLambertMaterial;
 
   private fromX = 0;
   private stopX = 0;
@@ -300,11 +384,19 @@ export class Train {
     this.group.add(this.frameMesh);
 
     const route = opts.routes[0] ?? 'S';
+    const dirLabel = (opts.dirLabel ?? '').trim();
     this.rollSignTexture = makeRollSignTexture(route);
     this.rollSignMaterial = new THREE.MeshLambertMaterial({
       map: this.rollSignTexture,
       color: '#ffffff',
       side: THREE.DoubleSide,
+    });
+    // Exterior side signs: single-sided (never DoubleSide) so each panel only
+    // renders from the face it's rotated to point at.
+    this.sideSignTexture = makeSideSignTexture(route, dirLabel);
+    this.sideSignMaterial = new THREE.MeshLambertMaterial({
+      map: this.sideSignTexture,
+      color: '#ffffff',
     });
 
     let wheelIndex = 0;
@@ -324,6 +416,7 @@ export class Train {
       const isRear = i === 0;
 
       this.addBodyShell(localX, dims, geo, segs);
+      this.addSideSigns(localX, dims, segs);
 
       // Window framing on the PLATFORM-side wall only (the far side is solid),
       // mounted flush with the wall skin.
@@ -386,8 +479,8 @@ export class Train {
         }
       }
 
-      if (isFront) this.addCarEnd(localX, dims, geo, 1);
-      if (isRear) this.addCarEnd(localX, dims, geo, -1);
+      if (isFront) this.addCarEnd(localX, dims, geo, 1, dirLabel);
+      if (isRear) this.addCarEnd(localX, dims, geo, -1, dirLabel);
     }
 
     this.wheelMesh.instanceMatrix.needsUpdate = true;
@@ -487,6 +580,29 @@ export class Train {
   }
 
   /**
+   * Exterior route-bullet + destination side signs, one per side of the car.
+   * Mounted in the header band (the continuous solid stainless spanning the
+   * FULL car length above the doors, on BOTH sides — see addBodyShell) so
+   * they never land on a window or door bay. The x offset additionally uses a
+   * `segs` end-segment center, keeping the sign over solid wall even if the
+   * mount height is ever lowered into the window-band solid segments. Each
+   * panel is a single-sided plane rotated to face outward on its own side
+   * only (never DoubleSide, per repo convention), sitting ~0.01m proud of the
+   * wall skin.
+   */
+  private addSideSigns(localX: number, dims: CarDims, segs: { cx: number; w: number; mid: boolean }[]): void {
+    const { width: W, height: H } = dims;
+    const signX = localX + segs[0].cx; // solid end segment, same x on both sides
+    const signY = FLOOR_Y + DOOR_TOP_H + (H - DOOR_TOP_H) / 2; // header band center
+    for (const sideZ of [-1, 1] as const) {
+      const sign = new THREE.Mesh(SIDE_SIGN_GEO, this.sideSignMaterial);
+      sign.position.set(signX, signY, sideZ * (W / 2 + 0.01));
+      if (sideZ === -1) sign.rotation.y = Math.PI; // flip the single-sided plane to face -z
+      this.group.add(sign);
+    }
+  }
+
+  /**
    * A car end. `dir` = +1 builds the lead-car FRONT (flat R-series cab: black
    * window band with a center storm-door window flanked by two operator
    * windows, a lit route sign up top, low white headlights + red taillights,
@@ -494,7 +610,7 @@ export class Train {
    * trailing REAR: the same cab face + storm/flank windows so it isn't an open
    * hole, the existing red marker pair up high, and a low red taillight pair.
    */
-  private addCarEnd(localX: number, dims: CarDims, geo: CarGeometrySet, dir: 1 | -1): void {
+  private addCarEnd(localX: number, dims: CarDims, geo: CarGeometrySet, dir: 1 | -1, dirLabel: string): void {
     const { width: W, height: H } = dims;
     const faceX = localX + dir * (dims.length / 2 + 0.01);
     const outX = (d: number) => faceX + dir * d; // proud toward the car end
@@ -538,6 +654,15 @@ export class Train {
       sign.rotation.y = Math.PI / 2;
       sign.position.set(outX(0.06), FLOOR_Y + H * 0.86, 0);
       this.group.add(sign);
+      // destination text under the roll sign, cropped from the same side-sign
+      // texture used for the exterior panels (no extra bake) — skipped when
+      // there's no dirLabel to show.
+      if (dirLabel) {
+        const dest = new THREE.Mesh(FRONT_DEST_GEO, this.sideSignMaterial);
+        dest.rotation.y = Math.PI / 2;
+        dest.position.set(outX(0.06), FLOOR_Y + H * 0.86 - 0.16, 0);
+        this.group.add(dest);
+      }
       // low white headlights + red taillights, in corner clusters
       for (const lz of [-1, 1]) {
         const head = new THREE.Mesh(LIGHT_SPHERE_GEO, HEADLIGHT_MATERIAL);
@@ -663,5 +788,7 @@ export class Train {
     this.frameMesh.dispose();
     this.rollSignTexture.dispose();
     this.rollSignMaterial.dispose();
+    this.sideSignTexture.dispose();
+    this.sideSignMaterial.dispose();
   }
 }

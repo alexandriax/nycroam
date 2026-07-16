@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { Train } from './train';
+import { directionLabel } from './directions';
 import type { StationSpec, TrackInfo, NetworkData, Arrival } from './types';
 
 /** Express partner shown blasting through local stations' center tracks. */
@@ -126,7 +127,12 @@ export class TrainScheduler {
   private spawn(s: Slot) {
     const route = s.routes[s.routeIdx % s.routes.length];
     s.routeIdx++;
-    const train = new Train({ division: this.spec.division, routes: [route], platformSide: s.platformSide });
+    const train = new Train({
+      division: this.spec.division,
+      routes: [route],
+      platformSide: s.platformSide,
+      dirLabel: directionLabel([route], s.dirSign, this.spec.name),
+    });
     train.group.position.set(0, this.info.railY, s.trackZ);
     if (s.dirSign === -1) train.group.rotation.y = Math.PI;
     const bb = new THREE.Box3().setFromObject(train.group);
@@ -168,28 +174,35 @@ export class TrainScheduler {
   }
 
   /**
-   * Soonest next train per DIRECTION, for the platform countdown clocks. A slot
-   * with a train uses the train's own time-to-dwell (internal seconds ÷ the
-   * slot's timeScale → real seconds); an empty slot uses its cooldown plus a
-   * fresh train's spawn→dwell time. Returns one entry per direction (the min).
+   * Upcoming trains for the platform countdown displays, ONE ENTRY PER TRAIN
+   * (each with a single route) so the boards can list "N … 2 MIN" and
+   * "R … 12 MIN" as separate rows instead of mashing "N/R". Per slot: the
+   * inbound train (if any) leads with its live time-to-dwell, then the route
+   * ROTATION is projected forward at ~headway spacing — so the same order the
+   * scheduler will actually spawn. Up to 3 per slot, sorted by the consumer.
    */
   arrivals(): Arrival[] {
-    const best = new Map<1 | -1, Arrival>();
+    const out: Arrival[] = [];
     for (const s of this.slots) {
       if (s.passThrough) continue;
-      let seconds: number;
+      const len = s.routes.length;
+      let base: number; // seconds until the FIRST of the projected spawns dwells
       if (s.train) {
-        const internal = s.train.secondsToArrival;
-        seconds = internal === Infinity ? Math.max(0, s.cooldown) + SPAWN_TO_DWELL : internal / s.timeScale;
+        const eta = s.train.secondsToArrival;
+        if (eta !== Infinity) {
+          // inbound/dwelling train: it is routes[routeIdx-1] (spawn incremented)
+          out.push({ dirSign: s.dirSign, routes: [s.routes[(s.routeIdx - 1 + len) % len]], seconds: eta / s.timeScale });
+        }
+        // next spawn comes after this train's remaining cycle + recycle cooldown
+        base = (eta === Infinity ? 0 : eta / s.timeScale) + this.headway;
       } else {
-        seconds = Math.max(0, s.cooldown) + SPAWN_TO_DWELL / s.timeScale;
+        base = Math.max(0, s.cooldown) + SPAWN_TO_DWELL / s.timeScale;
       }
-      const prev = best.get(s.dirSign);
-      if (!prev || seconds < prev.seconds) {
-        best.set(s.dirSign, { dirSign: s.dirSign, routes: s.routes, seconds });
+      for (let k = 0; out.length < 64 && k < 3; k++) {
+        out.push({ dirSign: s.dirSign, routes: [s.routes[(s.routeIdx + k) % len]], seconds: base + k * this.headway });
       }
     }
-    return [...best.values()];
+    return out;
   }
 
   dispose() {

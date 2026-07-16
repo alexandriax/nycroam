@@ -1,6 +1,6 @@
 import * as THREE from 'three';
-import type { StationSpec, TrackInfo } from './types';
-import { crossSection, rectSubtract } from './StationWorld';
+import type { StationSpec, TrackInfo, Arrival } from './types';
+import { crossSection, rectSubtract, TRACK_W, PlatformCountdown, pickBoardPositions } from './StationWorld';
 import type { ExitZone } from './StationWorld';
 import { makeHangingSignTexture, makeColumnSignTexture, makeExitSignTexture } from './signage';
 import { buildBench, buildTrashCan, buildRailing, buildStairs, buildTurnstileRow, buildBooth } from './props';
@@ -24,7 +24,13 @@ export class ElevatedStationWorld {
   readonly exitZones: ExitZone[] = [];
   readonly name: string;
   trackInfo!: TrackInfo;
+  /** Set by the orchestrator (same field the underground world exposes): returns
+   *  the next arrivals so the platform countdown boards can tick. */
+  arrivalsFn?: () => Arrival[];
   private disposables: (THREE.BufferGeometry | THREE.Material | THREE.Texture)[] = [];
+  // Several MTA-style countdown boards per platform sharing ONE canvas/texture,
+  // hung under the canopy; redrawn from arrivalsFn() on a timer in update().
+  private countdown!: PlatformCountdown;
 
   constructor(spec: StationSpec, env: THREE.Texture | null = null) {
     this.name = spec.name;
@@ -72,6 +78,7 @@ export class ElevatedStationWorld {
   }
 
   private build(spec: StationSpec) {
+    this.countdown = new PlatformCountdown(spec.name);
     const L = spec.layout.platformLength;
     const half = L / 2;
     const cs = crossSection(spec);
@@ -246,9 +253,72 @@ export class ElevatedStationWorld {
     if (spec.layout.type === 'dual-island' && cs.tracks.length === 4) {
       this.trackInfo.trackZs = [...cs.tracks];
     }
+    // Which z-side each stopping track's platform sits on (nearest platform
+    // center vs the track z). Derived from the same geometry StationWorld uses,
+    // aligned with the FINAL trackZs so doors open on the platform side only.
+    this.trackInfo.platformSides = this.trackInfo.trackZs.map((tz) => {
+      let bestC = tz, bestD = Infinity;
+      for (const p of cs.platforms) {
+        const pc = (p.zMin + p.zMax) / 2;
+        const d = Math.abs(pc - tz);
+        if (d < bestD) { bestD = d; bestC = pc; }
+      }
+      const s = Math.sign(bestC - tz);
+      return (s === 0 ? 1 : s) as 1 | -1;
+    });
+
+    // ---- platform countdown boards (under the canopy, shared texture) ----
+    // Same MTA-style per-line paged boards as the underground stations. They hang
+    // under the canopy near center at head height, spread ~33m apart (≥2), each
+    // clearing the canopy posts (multiples of 4.6 from the canopy end), the stair
+    // openings, and the two hanging destination signs. All boards on a platform
+    // share ONE canvas/texture; faces tick from arrivalsFn() in update().
+    const canLen = L * 0.55;
+    const canHalf = canLen / 2;
+    // stopping tracks + their directions, matched to StationWorld's convention so
+    // each platform's served directions come out identical (board content only —
+    // trackInfo above is untouched).
+    const stoppingZsB = spec.layout.type === 'dual-island' && cs.tracks.length === 4
+      ? [...cs.tracks]
+      : cs.tracks.length > 1 ? [cs.tracks[0], cs.tracks[cs.tracks.length - 1]] : [...cs.tracks];
+    const trackDirsB: (1 | -1)[] = stoppingZsB.map((_, i) =>
+      spec.layout.type === 'dual-island' && stoppingZsB.length === 4 ? (i < 2 ? 1 : -1) : (i % 2 === 0 ? 1 : -1));
+    const platformDirsB = (p: { zMin: number; zMax: number }): (1 | -1)[] => {
+      const dirs = new Set<1 | -1>();
+      stoppingZsB.forEach((tz, i) => {
+        if (Math.abs(tz - p.zMin) < TRACK_W * 0.8 || Math.abs(tz - p.zMax) < TRACK_W * 0.8) dirs.add(trackDirsB[i]);
+      });
+      return [...dirs];
+    };
+    const postBlocked = (x: number) => {
+      const nearest = -canHalf + Math.round((x + canHalf) / 4.6) * 4.6;
+      return Math.abs(x - nearest) < 0.5;
+    };
+    const stairBlockedB = (x: number) => stairXs.some((sx) => x > sx - 0.95 && x < sx + stairRun + 0.5);
+    const signBlockedB = (x: number) => [-L / 5, L / 5].some((sx) => Math.abs(x - sx) < 1.5);
+    const boardCountB = Math.max(2, Math.round(canLen / 33));
+    const boardXsB = pickBoardPositions(
+      canHalf, boardCountB,
+      (x) => postBlocked(x) || stairBlockedB(x) || signBlockedB(x),
+      canHalf - 2,
+    );
+    const BOARD_Y = PLAT_Y + 2.35; // under the gabled roof (~PLAT_Y+3.15), above head height
+    for (const p of cs.platforms) {
+      const dirs = platformDirsB(p);
+      if (dirs.length === 0) continue;
+      const pc = (p.zMin + p.zMax) / 2;
+      this.countdown.addPlatform(
+        (r) => this.track(r), this.scene, spec.routes, dirs, boardXsB, BOARD_Y, pc,
+      );
+    }
   }
 
-  update(_dt: number) { /* structure only */ }
+  update(dt: number) {
+    // Structure is static; only the countdown boards are live. Forward the
+    // orchestrator-set arrivalsFn and let the shared board manager tick/page.
+    this.countdown.arrivalsFn = this.arrivalsFn;
+    this.countdown.update(dt);
+  }
 
   dispose() {
     this.scene.traverse((o) => {
