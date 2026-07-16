@@ -5,14 +5,15 @@ import type { World } from '../engine/World';
 
 const SIZE = 208;
 const R = SIZE / 2 - 6;
-// meters from center to edge. Index 0 is the closest zoom (street level, where
-// road centerlines are drawn); the old 9500m island-wide view is gone.
+// meters from center to edge. The old 9500m island-wide view is gone.
 const ZOOMS = [220, 650, 2600];
-const STREET_ZOOM_IDX = 0;
+// street centerlines are drawn at the two closest zooms; at 2.6km they'd be a
+// grey smear, and the tiles that far out aren't loaded anyway
+const STREET_MAX_ZOOM_IDX = 1;
 
 /**
- * Corner minimap: island silhouette, streets at the closest zoom, subway
- * stations (trunk-colored, ringed), entrance dots, and a heading arrow.
+ * Corner minimap: island silhouette, streets at the two closest zooms, subway
+ * stations (trunk-colored, ringed), and a heading arrow.
  */
 export default function MiniMap({ world }: { world: World }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -20,7 +21,6 @@ export default function MiniMap({ world }: { world: World }) {
   const dataRef = useRef<{
     rings: number[][];
     stations: { x: number; z: number; color: string }[];
-    entrances: [number, number][];
   } | null>(null);
 
   useEffect(() => {
@@ -31,8 +31,8 @@ export default function MiniMap({ world }: { world: World }) {
         const res = await fetch('/geo/outline.json');
         if (res.ok) rings = (await res.json()).rings ?? [];
       } catch { /* silhouette optional */ }
-      const md = world.mapData();
-      if (alive) dataRef.current = { rings, ...md };
+      const { stations } = world.mapData();
+      if (alive) dataRef.current = { rings, stations };
     })();
     return () => { alive = false; };
   }, [world]);
@@ -83,39 +83,42 @@ export default function MiniMap({ world }: { world: World }) {
         ctx.stroke();
       }
 
-      // streets, closest zoom only — centerlines stream in with the tiles, so
-      // they exist exactly where the world is loaded
-      if (zoomIdx === STREET_ZOOM_IDX) {
+      // streets — centerlines stream in with the tiles, so they exist exactly
+      // where the world is loaded. Cover the full visible circle: the player
+      // sits anywhere within their own tile, so radius + one tile of slack.
+      if (zoomIdx <= STREET_MAX_ZOOM_IDX) {
         ctx.lineCap = 'round';
         ctx.lineJoin = 'round';
         // OPAQUE on purpose: roads arrive as many pieces (split at tile edges and
         // intersections), so translucent strokes double up where their round caps
         // overlap and freckle every junction with bright blobs.
         ctx.strokeStyle = '#93a1ae';
-        for (const rp of world.roadPathsNear(p.x, p.z, 2)) {
+        const tileR = Math.ceil(radius / 256) + 1;
+        // bucket by stroke width so the whole grid is a handful of stroke calls
+        // instead of thousands — safe precisely because the strokes are opaque
+        const buckets = new Map<number, Path2D>();
+        for (const rp of world.roadPathsNear(p.x, p.z, tileR)) {
           const count = rp.start.length - 1;
           for (let i = 0; i < count; i++) {
             const a = rp.start[i], b = rp.start[i + 1];
             // width in meters -> screen px, floored so alleys stay hairlines
-            ctx.lineWidth = Math.max(0.7, rp.width[i] * s * 0.75);
-            ctx.beginPath();
-            ctx.moveTo(sx(rp.pts[a * 2]), sy(rp.pts[a * 2 + 1]));
-            for (let j = a + 1; j < b; j++) ctx.lineTo(sx(rp.pts[j * 2]), sy(rp.pts[j * 2 + 1]));
-            ctx.stroke();
+            const lw = Math.max(0.7, Math.round(rp.width[i] * s * 0.75 * 4) / 4);
+            let path = buckets.get(lw);
+            if (!path) { path = new Path2D(); buckets.set(lw, path); }
+            path.moveTo(sx(rp.pts[a * 2]), sy(rp.pts[a * 2 + 1]));
+            for (let j = a + 1; j < b; j++) path.lineTo(sx(rp.pts[j * 2]), sy(rp.pts[j * 2 + 1]));
           }
+        }
+        // widest first so major avenues sit under the side streets they meet
+        for (const lw of [...buckets.keys()].sort((x, y) => y - x)) {
+          ctx.lineWidth = lw;
+          ctx.stroke(buckets.get(lw)!);
         }
       }
 
       if (d) {
-        // subway entrances (the green dots you actually walk into)
-        ctx.fillStyle = '#37e874';
-        for (const [ex, ez] of d.entrances) {
-          const X = sx(ex), Y = sy(ez);
-          if (X < -4 || X > SIZE + 4 || Y < -4 || Y > SIZE + 4) continue;
-          ctx.fillRect(X - 1, Y - 1, 2, 2);
-        }
-
-        // stations: trunk-colored, white-ringed
+        // stations: trunk-colored, white-ringed. (Per-entrance dots used to be
+        // scattered here too — 835 green specks that read as visual noise.)
         for (const st of d.stations) {
           const X = sx(st.x), Y = sy(st.z);
           if (X < -6 || X > SIZE + 6 || Y < -6 || Y > SIZE + 6) continue;
