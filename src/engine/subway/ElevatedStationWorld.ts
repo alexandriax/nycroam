@@ -234,8 +234,10 @@ export class ElevatedStationWorld {
     this.platformSpawn.set(4, PLAT_Y, (p0.zMin + p0.zMax) / 2);
 
     const isSidePass = spec.layout.type === 'side' && spec.layout.passTracks > 0 && cs.tracks.length > 2;
+    const elevStopping = cs.tracks.length > 1 ? [cs.tracks[0], cs.tracks[cs.tracks.length - 1]] : [...cs.tracks];
     this.trackInfo = {
-      trackZs: cs.tracks.length > 1 ? [cs.tracks[0], cs.tracks[cs.tracks.length - 1]] : [...cs.tracks],
+      trackZs: elevStopping,
+      trackDirs: elevStopping.map((_, i) => (i % 2 === 0 ? 1 : -1)) as (1 | -1)[],
       passTrackZs: isSidePass ? cs.tracks.slice(1, -1) : undefined,
       railY: RAIL_Y,
       half,

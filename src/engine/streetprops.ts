@@ -113,8 +113,14 @@ function drawBullet(ctx: CanvasRenderingContext2D, x: number, y: number, r: numb
   ctx.fillText(route, x, y + r * 0.05);
 }
 
+/** Sign panel width in meters — grows with the route count so 4+ bullets fit. */
+export function entranceSignWidth(routeCount: number): number {
+  return routeCount <= 3 ? 2.0 : 2.0 + 0.3 * (routeCount - 3);
+}
+
 function makeEntranceSignTexture(routes: string[]): THREE.CanvasTexture {
-  const w = 1024;
+  // canvas width tracks the panel width so bullets stay circular
+  const w = Math.round(512 * entranceSignWidth(routes.length));
   const h = 215;
   const canvas = document.createElement('canvas');
   canvas.width = w;
@@ -290,24 +296,28 @@ export function buildEntranceKit(routes: string[], kind: string, name: string): 
   const signZ = -0.3;
   const signCenterY = 2.3;
   const postH = signCenterY - 0.21;
+  const postX = entranceSignWidth(routes.length) / 2 - 0.12;
   const postLeft = cylMesh(unitCyl, DARK_STEEL, 0.025, postH);
-  postLeft.position.set(-0.9, postH / 2, signZ);
+  postLeft.position.set(-postX, postH / 2, signZ);
   group.add(postLeft);
   const postRight = cylMesh(unitCyl, DARK_STEEL, 0.025, postH);
-  postRight.position.set(0.9, postH / 2, signZ);
+  postRight.position.set(postX, postH / 2, signZ);
   group.add(postRight);
 
   const signTexture = makeEntranceSignTexture(routes);
+  const signW = entranceSignWidth(routes.length);
   // two front-facing panels back-to-back: the text reads correctly (not
-  // mirrored) from either approach direction
-  const signMaterial = new THREE.MeshLambertMaterial({
+  // mirrored) from either approach direction. Unlit material: a lit panel
+  // under the 2.7x warm sun + ACES tonemapping clips red and turns the
+  // orange B/D/F/M bullets visibly red.
+  const signMaterial = new THREE.MeshBasicMaterial({
     map: signTexture,
     color: '#ffffff',
   });
-  const signPanel = new THREE.Mesh(new THREE.PlaneGeometry(2.0, 0.42), signMaterial);
+  const signPanel = new THREE.Mesh(new THREE.PlaneGeometry(signW, 0.42), signMaterial);
   signPanel.position.set(0, signCenterY, signZ + 0.012);
   group.add(signPanel);
-  const signBack = new THREE.Mesh(new THREE.PlaneGeometry(2.0, 0.42), signMaterial);
+  const signBack = new THREE.Mesh(new THREE.PlaneGeometry(signW, 0.42), signMaterial);
   signBack.position.set(0, signCenterY, signZ - 0.012);
   signBack.rotation.y = Math.PI;
   group.add(signBack);

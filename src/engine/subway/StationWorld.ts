@@ -260,6 +260,28 @@ export class StationWorld {
       }
     }
 
+    // ---- stopping tracks + the direction each serves ----
+    // Single source of truth: the scheduler runs trains by these, and every
+    // directional sign below reads from the same arrays. Dual-island stations
+    // give each island ONE direction (local + express side by side); all other
+    // layouts alternate uptown/downtown across the stopping tracks.
+    const stoppingZs = spec.layout.type === 'dual-island' && cs.tracks.length === 4
+      ? [...cs.tracks]
+      : cs.tracks.length > 1 ? [cs.tracks[0], cs.tracks[cs.tracks.length - 1]] : [...cs.tracks];
+    const trackDirs: (1 | -1)[] = stoppingZs.map((_, i) =>
+      spec.layout.type === 'dual-island' && stoppingZs.length === 4
+        ? (i < 2 ? 1 : -1)
+        : (i % 2 === 0 ? 1 : -1));
+    const dirLabel = (d: 1 | -1) => (d === 1 ? 'Uptown & The Bronx' : 'Downtown & Brooklyn');
+    // directions boardable from a platform = dirs of stopping tracks adjacent to it
+    const platformDirs = (pl: { zMin: number; zMax: number }): (1 | -1)[] => {
+      const dirs = new Set<1 | -1>();
+      stoppingZs.forEach((tz, i) => {
+        if (Math.abs(tz - pl.zMin) < TRACK_W * 0.8 || Math.abs(tz - pl.zMax) < TRACK_W * 0.8) dirs.add(trackDirs[i]);
+      });
+      return [...dirs];
+    };
+
     // ---- stair layout (shared by ceiling openings + mezzanine) ----
     const mezzLen = Math.min(60, L / 2.4);
     const mezzHalf = mezzLen / 2;
@@ -353,24 +375,51 @@ export class StationWorld {
       }
     }
 
-    // ---- hanging directional signs ----
-    const upSign = makeHangingSignTexture({ routes: spec.routes, text: 'Uptown & The Bronx', arrow: 'left' });
-    const dnSign = makeHangingSignTexture({ routes: spec.routes, text: 'Downtown & Brooklyn', arrow: 'right' });
-    this.track(upSign.texture); this.track(dnSign.texture);
-    const upMat = this.track(new THREE.MeshLambertMaterial({ map: upSign.texture, side: THREE.DoubleSide }));
-    const dnMat = this.track(new THREE.MeshLambertMaterial({ map: dnSign.texture, side: THREE.DoubleSide }));
-    for (const p of cs.platforms) {
-      const cz = (p.zMin + p.zMax) / 2;
-      for (const sx of [-L / 5, L / 5]) {
-        const tex = sx < 0 ? upMat : dnMat;
-        const asp = sx < 0 ? upSign.aspect : dnSign.aspect;
-        const h = 0.5, w = h * asp;
-        const sign = new THREE.Mesh(this.track(new THREE.PlaneGeometry(w, h)), tex);
-        sign.position.set(sx, CEIL - 0.6, cz);
-        sign.matrixAutoUpdate = false;
-        sign.updateMatrix();
-        root.add(sign);
+    // ---- hanging directional signs (per TRACK, not per position) ----
+    // A direction belongs to a track: signs hang over each platform EDGE naming
+    // where trains on that side go, readable from both directions of approach
+    // (two front-facing quads — a single DoubleSide plane mirrors its text).
+    const signMats = new Map<string, { mat: THREE.Material; aspect: number }>();
+    const signMatFor = (routes: string[], text: string) => {
+      const key = routes.join('') + '|' + text;
+      let entry = signMats.get(key);
+      if (!entry) {
+        const t = makeHangingSignTexture({ routes, text, arrow: 'none' });
+        this.track(t.texture);
+        entry = { mat: this.track(new THREE.MeshBasicMaterial({ map: t.texture })), aspect: t.aspect };
+        signMats.set(key, entry);
       }
+      return entry;
+    };
+    const hangSign = (routes: string[], text: string, x: number, y: number, z: number, alongX: boolean) => {
+      const { mat, aspect } = signMatFor(routes, text);
+      const h = 0.5, w = Math.min(h * aspect, 5.2);
+      const geo = this.track(new THREE.PlaneGeometry(w, h));
+      const g = new THREE.Group();
+      const a = new THREE.Mesh(geo, mat);
+      const b = new THREE.Mesh(geo, mat);
+      if (alongX) { // panel spans z, readable walking along x
+        a.rotation.y = Math.PI / 2; a.position.x = 0.012;
+        b.rotation.y = -Math.PI / 2; b.position.x = -0.012;
+      } else { // panel spans x, readable walking along z
+        a.position.z = 0.012;
+        b.rotation.y = Math.PI; b.position.z = -0.012;
+      }
+      g.add(a, b);
+      g.position.set(x, y, z);
+      g.traverse((o) => { o.matrixAutoUpdate = false; o.updateMatrix(); });
+      root.add(g);
+    };
+    for (const p of cs.platforms) {
+      stoppingZs.forEach((tz, i) => {
+        const nearMin = Math.abs(tz - p.zMin) < TRACK_W * 0.8;
+        const nearMax = Math.abs(tz - p.zMax) < TRACK_W * 0.8;
+        if (!nearMin && !nearMax) return;
+        const edgeZ = nearMin ? p.zMin + 0.55 : p.zMax - 0.55;
+        for (const sx of [-L / 4, 0, L / 4]) {
+          hangSign(spec.routes, dirLabel(trackDirs[i]), sx, CEIL - 0.55, edgeZ, true);
+        }
+      });
     }
 
     // ---- platform furniture ----
@@ -485,6 +534,13 @@ export class StationWorld {
         y: 0,
         ramp: { axis: 'x', y0: MEZZ_Y, y1: 0 },
       });
+      // mezzanine sign over the stair head: which trains this stair reaches
+      {
+        const pl = cs.platforms.find((pp) => Math.abs((pp.zMin + pp.zMax) / 2 - s.z) < 0.5);
+        const dirs = pl ? platformDirs(pl) : [];
+        const text = dirs.length === 1 ? dirLabel(dirs[0]) : 'Uptown & Downtown';
+        hangSign(spec.routes, text, s.x + stairRun / 2, MEZZ_Y + 2.25, s.z, true);
+      }
     }
 
     // ---- fare control on mezzanine ----
@@ -559,16 +615,13 @@ export class StationWorld {
     // ---- track info for the train scheduler ----
     const isSidePass = spec.layout.type === 'side' && spec.layout.passTracks > 0 && cs.tracks.length > 2;
     this.trackInfo = {
-      trackZs: cs.tracks.length > 1 ? [cs.tracks[0], cs.tracks[cs.tracks.length - 1]] : [...cs.tracks],
+      trackZs: stoppingZs,
+      trackDirs,
       passTrackZs: isSidePass ? cs.tracks.slice(1, -1) : undefined,
       railY: -1.1,
       half,
       portal: half + 45,
     };
-    // dual-island: inner tracks also stop (4 stopping tracks)
-    if (spec.layout.type === 'dual-island' && cs.tracks.length === 4) {
-      this.trackInfo.trackZs = [...cs.tracks];
-    }
     const p0 = cs.platforms[0];
     this.platformSpawn.set(4, 0, (p0.zMin + p0.zMax) / 2);
   }

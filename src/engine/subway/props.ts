@@ -189,19 +189,27 @@ const BENCH_SLAT_WIDTH = (BENCH_DEPTH - BENCH_SLAT_GAP * (BENCH_SLAT_COUNT - 1))
 export function buildBench(): THREE.Group {
   const group = new THREE.Group();
 
-  const legGeo = new THREE.BoxGeometry(0.05, BENCH_SEAT_Y, BENCH_DEPTH);
-  const armGeo = new THREE.BoxGeometry(0.05, 0.12, 0.05);
+  // legs stop BELOW the slats: a full-height leg pokes black steel through
+  // the slat gaps and reads as holes in the wood from above
+  const legH = BENCH_SEAT_Y - 0.03;
+  const legGeo = new THREE.BoxGeometry(0.05, legH, BENCH_DEPTH - 0.06);
+  const armGeo = new THREE.BoxGeometry(0.04, 0.04, BENCH_DEPTH);
+  const armPostGeo = new THREE.BoxGeometry(0.04, 0.14, 0.04);
   const slatGeo = new THREE.BoxGeometry(BENCH_LENGTH, 0.03, BENCH_SLAT_WIDTH);
   const backGeo = new THREE.BoxGeometry(BENCH_LENGTH, 0.12, 0.03);
 
   const dividerXs = [-BENCH_LENGTH / 2, -BENCH_LENGTH / 6, BENCH_LENGTH / 6, BENCH_LENGTH / 2];
   for (const x of dividerXs) {
     const leg = new THREE.Mesh(legGeo, BLACK_STEEL);
-    leg.position.set(x, BENCH_SEAT_Y / 2, 0);
+    leg.position.set(x, legH / 2, 0);
     group.add(leg);
+    // armrest: a slim rail over the seat on a short post, not a block on it
     const arm = new THREE.Mesh(armGeo, BLACK_STEEL);
-    arm.position.set(x, BENCH_SEAT_Y + 0.16, BENCH_DEPTH / 2 - 0.05);
+    arm.position.set(x, BENCH_SEAT_Y + 0.19, 0);
     group.add(arm);
+    const post = new THREE.Mesh(armPostGeo, BLACK_STEEL);
+    post.position.set(x, BENCH_SEAT_Y + 0.1, BENCH_DEPTH / 2 - 0.06);
+    group.add(post);
   }
 
   for (let i = 0; i < BENCH_SLAT_COUNT; i++) {

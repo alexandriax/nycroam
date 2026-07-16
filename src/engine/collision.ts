@@ -109,3 +109,43 @@ export function floorAtAny(boxes: WalkBox[], x: number, z: number): number | nul
   }
   return best;
 }
+
+/**
+ * Unit direction ALONG the nearest building wall segment within maxDist of
+ * (x,z), or null. Used to align street furniture with building frontages.
+ */
+export function nearestWallDir(
+  x: number,
+  z: number,
+  maxDist: number,
+  sets: CollisionData[]
+): [number, number] | null {
+  let bestD2 = maxDist * maxDist;
+  let dir: [number, number] | null = null;
+  for (const set of sets) {
+    const ringCount = set.ringStart.length - 1;
+    for (let ri = 0; ri < ringCount; ri++) {
+      const minX = set.aabb[ri * 4], minZ = set.aabb[ri * 4 + 1];
+      const maxX = set.aabb[ri * 4 + 2], maxZ = set.aabb[ri * 4 + 3];
+      if (x < minX - maxDist || x > maxX + maxDist || z < minZ - maxDist || z > maxZ + maxDist) continue;
+      const start = set.ringStart[ri], end = set.ringStart[ri + 1];
+      for (let i = start, j = end - 1; i < end; j = i++) {
+        const x1 = set.points[j * 2], z1 = set.points[j * 2 + 1];
+        const x2 = set.points[i * 2], z2 = set.points[i * 2 + 1];
+        const dx = x2 - x1, dz = z2 - z1;
+        const l2 = dx * dx + dz * dz;
+        if (l2 < 1e-6) continue;
+        let t = ((x - x1) * dx + (z - z1) * dz) / l2;
+        t = Math.max(0, Math.min(1, t));
+        const qx = x1 + t * dx, qz = z1 + t * dz;
+        const d2 = (x - qx) * (x - qx) + (z - qz) * (z - qz);
+        if (d2 < bestD2) {
+          bestD2 = d2;
+          const l = Math.sqrt(l2);
+          dir = [dx / l, dz / l];
+        }
+      }
+    }
+  }
+  return dir;
+}

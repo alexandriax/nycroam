@@ -877,14 +877,53 @@ async function main() {
     treesByTile.get(key).push(pt);
     treeCount++;
   }
+  // Subway entrance stair kits are placed at runtime around these points (with
+  // a few meters of ejection slack) — keep trees out of them. subway.json is
+  // produced by fetch-subway.mjs; when absent (partial pipeline runs) trees
+  // simply skip this filter.
+  const entrancesByTile = new Map(); // key -> array of [x,z]
+  try {
+    const subwayPath = path.join(GEO_DIR, '..', 'subway', 'subway.json');
+    const subwayData = JSON.parse(fs.readFileSync(subwayPath, 'utf8'));
+    for (const en of subwayData.entrances || []) {
+      const [tx, tz] = tileOf(en.pos);
+      const key = tileKeyOf(tx, tz);
+      if (!entrancesByTile.has(key)) entrancesByTile.set(key, []);
+      entrancesByTile.get(key).push(en.pos);
+    }
+    console.log(`  tree clearance: ${(subwayData.entrances || []).length} subway entrances loaded`);
+  } catch {
+    console.warn('  tree clearance: public/subway/subway.json missing — entrance clearance skipped');
+  }
+  const ENTRANCE_CLEAR = 7; // covers the kit footprint + runtime ejection slack
+  function nearEntrance(x, z) {
+    const [tx, tz] = tileOf([x, z]);
+    for (let dx = -1; dx <= 1; dx++) {
+      for (let dz = -1; dz <= 1; dz++) {
+        const list = entrancesByTile.get(tileKeyOf(tx + dx, tz + dz));
+        if (!list) continue;
+        for (const [ex, ez] of list) {
+          if ((x - ex) * (x - ex) + (z - ez) * (z - ez) < ENTRANCE_CLEAR * ENTRANCE_CLEAR) return true;
+        }
+      }
+    }
+    return false;
+  }
+
   const realTreesByTile = new Map(); // key -> array of [x,z] world meters, capped at 800 (unchanged from v1)
   let treeTilesSampled = 0;
-  for (const [key, list] of treesByTile) {
+  let realCulledAtEntrances = 0;
+  for (const [key, rawList] of treesByTile) {
+    const list = rawList.filter(([x, z]) => {
+      if (nearEntrance(x, z)) { realCulledAtEntrances++; return false; }
+      return true;
+    });
     const sampled = sampleEveryNth(list, 800);
     if (sampled.length < list.length) treeTilesSampled++;
     realTreesByTile.set(key, sampled);
   }
   console.log(`  real OSM trees: ${treeCount} nodes across ${treesByTile.size} tiles (${treeTilesSampled} tiles capped at 800)`);
+  if (realCulledAtEntrances) console.log(`  real OSM trees: ${realCulledAtEntrances} culled at subway entrances`);
 
   // ---- PROCEDURAL VEGETATION -------------------------------------------------------------
   // Scattered inside wood/park/grass/cemetery polygons (deterministic hex/grid lattice +
@@ -977,6 +1016,7 @@ async function main() {
       const kept = [];
       for (const [x, z, clearance] of list) {
         if (pointToPolylinesDist([x, z], roadPolylines) < clearance) continue;
+        if (nearEntrance(x, z)) continue;
         let insideBuilding = false;
         for (const bpoly of buildings) {
           if (pointInPolygonWithHoles([x, z], bpoly)) { insideBuilding = true; break; }

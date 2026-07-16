@@ -52,7 +52,9 @@ export interface NetworkData {
 
 /** Geometry a station world exposes so the scheduler can attach trains. */
 export interface TrackInfo {
-  trackZs: number[]; // stopping tracks (z centers, station-local)
+  trackZs: number[];
+  /** Direction each stopping track serves, aligned with trackZs (+1 = uptown). */
+  trackDirs?: (1 | -1)[]; // stopping tracks (z centers, station-local)
   passTrackZs?: number[]; // express pass-through tracks (no platform)
   railY: number; // rail-top y (train group y)
   half: number; // platformLength / 2

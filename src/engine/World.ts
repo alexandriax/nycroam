@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import { TileManager } from './TileManager';
 import { PlayerControls } from './controls';
-import { resolveBuildingCollision, floorAt, floorAtAny } from './collision';
+import { resolveBuildingCollision, nearestWallDir, floorAt, floorAtAny } from './collision';
 import { setupSky, setupLights, followSun, SKY } from './sky';
 import { quality } from './quality';
 import { makeSkylineMaterial, makeFlatMaterial, makeWaterMaterial } from './materials';
@@ -118,10 +118,14 @@ export class World {
     this.tiles = new TileManager(this.streetScene, this.isMobile ? 2 : 3);
     this.tiles.loadRadius = loadRadius;
     this.tiles.unloadRadius = this.tiles.loadRadius + 300;
-    this.entrances = new EntranceManager(this.streetScene, (x, z) => {
-      if (!this.tiles.readyAround(x, z)) return null; // wait for building collision before placing
-      return resolveBuildingCollision(x, z, 4.2, this.tiles.collisionNear(x, z));
-    });
+    this.entrances = new EntranceManager(
+      this.streetScene,
+      (x, z) => {
+        if (!this.tiles.readyAround(x, z)) return null; // wait for building collision before placing
+        return resolveBuildingCollision(x, z, 4.2, this.tiles.collisionNear(x, z));
+      },
+      (x, z) => nearestWallDir(x, z, 15, this.tiles.collisionNear(x, z)),
+    );
 
     this.controls = new PlayerControls(canvas);
     this.controls.onToggleFly = () => {

@@ -2,7 +2,6 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import type { SubwayData, StationSpec, EntranceSpec } from './subway/types';
 import { buildEntranceKit } from './streetprops';
-import { hash01 } from './palette';
 import { heightAt } from './terrain';
 
 /**
@@ -108,8 +107,14 @@ export class EntranceManager {
   private placeRadius = 420;
   private timer = 0;
   private eject: ((x: number, z: number) => [number, number] | null) | null;
+  private wallDir: ((x: number, z: number) => [number, number] | null) | null;
 
-  constructor(scene: THREE.Scene, eject: ((x: number, z: number) => [number, number] | null) | null = null) {
+  constructor(
+    scene: THREE.Scene,
+    eject: ((x: number, z: number) => [number, number] | null) | null = null,
+    wallDir: ((x: number, z: number) => [number, number] | null) | null = null,
+  ) {
+    this.wallDir = wallDir;
     this.scene = scene;
     this.eject = eject;
   }
@@ -189,19 +194,30 @@ export class EntranceManager {
           }
           if (deferred) continue;
         }
+        // OSM maps several entrances per corner; once ejected onto the
+        // sidewalk they can converge. Two stairheads of the same station
+        // within a few meters reads as a glitch — keep the first, skip the rest.
+        let tooClose = false;
+        for (const other of this.placed.values()) {
+          if (other.spec.stationId !== e.stationId) continue;
+          if (Math.hypot(other.pos[0] - pos[0], other.pos[1] - pos[1]) < 12) { tooClose = true; break; }
+        }
+        if (tooClose) continue;
         const group = mergeByMaterial(buildEntranceKit(station.routes, kind, station.name));
         // sink slightly so the flat base tucks into sloping sidewalks
         group.position.set(pos[0], heightAt(pos[0], pos[1]) - 0.12, pos[1]);
-        // if the kit was ejected out of a building, run the stairs PARALLEL
-        // to that building line (perpendicular to the ejection direction) so
-        // no part of the kit swings back into the facade; otherwise vary
-        // orientation by hash
-        const ejx = pos[0] - e.pos[0], ejz = pos[1] - e.pos[1];
-        if (Math.hypot(ejx, ejz) > 0.05) {
-          const toward = Math.atan2(ejx, ejz); // rotation.y aligning local +z with ejection dir
-          group.rotation.y = toward + (hash01(i * 31 + 7) < 0.5 ? Math.PI / 2 : -Math.PI / 2);
+        // Orientation, the way real corner stairs sit: the stair run lies
+        // ALONG the nearest building frontage, descending AWAY from the
+        // station (you enter from the corner side). With no wall nearby
+        // (plazas, parks) the stair simply descends away from the station.
+        const away = Math.atan2(pos[0] - station.pos[0], pos[1] - station.pos[1]);
+        const w = this.wallDir ? this.wallDir(pos[0], pos[1]) : null;
+        if (w) {
+          const a1 = Math.atan2(w[0], w[1]);
+          const angDiff = (a: number) => Math.abs(Math.atan2(Math.sin(a - away), Math.cos(a - away)));
+          group.rotation.y = angDiff(a1) <= angDiff(a1 + Math.PI) ? a1 : a1 + Math.PI;
         } else {
-          group.rotation.y = Math.floor(hash01(i * 31 + 7) * 4) * (Math.PI / 2);
+          group.rotation.y = away;
         }
         const beacon = makeBeacon();
         beacon.position.set(0, 3.1, 0);

@@ -50,7 +50,7 @@ export class TrainScheduler {
 
     const stopping = info.trackZs;
     stopping.forEach((tz, i) => {
-      const dirSign: 1 | -1 = i % 2 === 0 ? 1 : -1;
+      const dirSign: 1 | -1 = info.trackDirs?.[i] ?? (i % 2 === 0 ? 1 : -1);
       // ≤2 stopping tracks: all routes rotate on each. 4 tracks: first route on
       // the outer pair, the rest on the inner pair (locals out, express in).
       let assigned = routes;
