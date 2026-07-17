@@ -20,8 +20,11 @@ interface Fit {
  * no triangles — and a landmark's cost while inactive is one distance check
  * per second.
  */
+type RoadEject = (x: number, z: number, clearance: number) => [number, number] | null;
+
 export class LandmarkManager {
   private scene: THREE.Scene;
+  private roadEject: RoadEject | null;
   private placed = new Map<string, THREE.Group>();
   private building = new Set<string>();
   private sets = new Map<string, Promise<BuilderMap | null>>();
@@ -30,8 +33,9 @@ export class LandmarkManager {
   private fits: Record<string, Fit> | null = null;
   private fitsLoading: Promise<void> | null = null;
 
-  constructor(scene: THREE.Scene) {
+  constructor(scene: THREE.Scene, roadEject: RoadEject | null = null) {
     this.scene = scene;
+    this.roadEject = roadEject;
   }
 
   private loadSet(name: string): Promise<BuilderMap | null> {
@@ -71,10 +75,21 @@ export class LandmarkManager {
       const pz = fit ? fit.cz : lm.z;
       const rot = fit ? fit.rot : (lm.rot ?? 0);
       const cos = Math.cos(rot), sin = Math.sin(rot);
+      // road-sensitive landmarks wait for their tiles so clearRoad has data
+      if (lm.needsRoads && this.roadEject && this.roadEject(px, pz, 0) === null) return;
       const ctx: LandmarkCtx = {
         // local offset -> world, so builders can terrace onto real terrain
         groundAt: (dx, dz) => heightAt(px + dx * cos + dz * sin, pz - dx * sin + dz * cos),
         fit: fit ? { w: fit.w, d: fit.d, roofH: fit.roofH, keptH: fit.keptH, topW: fit.topW, topD: fit.topD } : undefined,
+        clearRoad: (dx, dz, clearance = 1.6) => {
+          if (!this.roadEject) return [dx, dz];
+          const wx = px + dx * cos + dz * sin;
+          const wz = pz - dx * sin + dz * cos;
+          const out = this.roadEject(wx, wz, clearance);
+          if (!out) return [dx, dz];
+          const ex = out[0] - px, ez = out[1] - pz;
+          return [ex * cos - ez * sin, ex * sin + ez * cos];
+        },
       };
       const group = mergeByMaterial(make(ctx));
       group.position.set(px, heightAt(px, pz), pz);

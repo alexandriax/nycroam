@@ -205,7 +205,7 @@ export const builders: Record<string, (ctx: LandmarkCtx) => THREE.Group> = {
   },
 
   // Times Square: billboard-stack canyon, a curved wrap screen, the red TKTS steps
-  'times-square': () => {
+  'times-square': (ctx) => {
     const g = new THREE.Group();
     const DARK_STEEL = new THREE.MeshStandardMaterial({ color: '#26292d', metalness: 0.6, roughness: 0.5 });
     const TKTS_RED = new THREE.MeshStandardMaterial({ color: '#c1121f', roughness: 0.15, emissive: '#6b0000', transparent: true, opacity: 0.55 });
@@ -240,7 +240,8 @@ export const builders: Record<string, (ctx: LandmarkCtx) => THREE.Group> = {
         const panelW = 10 + ((k * 5) % 7);   // 10..16 m
         const n = 2 + (k % 3);               // 2..4 stacked panels
         const depth = (k % 2) * 2.4;         // stagger so planes don't co-merge
-        g.add(signStack(wallX + side * depth, z, side, panelW, top, n));
+        const [cx, cz] = ctx.clearRoad(wallX + side * depth, z, 1.6);
+        g.add(signStack(cx, cz, side, panelW, top, n));
       }
     }
     for (const side of [1, -1] as const) {
@@ -250,7 +251,8 @@ export const builders: Record<string, (ctx: LandmarkCtx) => THREE.Group> = {
         const pw = 7 + ((k * 3) % 5);
         const ph = 4 + (k % 3);
         const panel = new THREE.Mesh(new THREE.PlaneGeometry(pw, ph), billboardMaterial(seed++));
-        panel.position.set(wallX, 4 + (k % 2) * 3.6, z);
+        const [px2, pz2] = ctx.clearRoad(wallX, z, 1.2);
+        panel.position.set(px2, 4 + (k % 2) * 3.6, pz2);
         panel.rotation.y = side === 1 ? Math.PI / 2 : -Math.PI / 2;
         g.add(panel);
       }

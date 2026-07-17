@@ -78,6 +78,40 @@ function buildBike(unit: THREE.CylinderGeometry, wheelGeo: THREE.TorusGeometry):
   return g;
 }
 
+/**
+ * A single bike clamped to a bus's front bike rack: the low-poly bike laid
+ * across the bus front on a fold-down tray with a retaining hoop over the front
+ * wheel, exactly the way a Sportworks front rack carries one. Returned merged;
+ * the caller parents it to the bus model group and positions it at the front
+ * bumper (bus local +x). The bike's length runs along the bus z axis, so its
+ * side profile faces forward — what you see out the windshield while riding.
+ */
+export function buildMountedBike(): THREE.Group {
+  const unit = new THREE.CylinderGeometry(1, 1, 1, 6);
+  const wheelGeo = new THREE.TorusGeometry(0.31, 0.036, 6, 14);
+  wheelGeo.rotateY(Math.PI / 2);
+  const g = new THREE.Group();
+  const TRAY = 0.42; // fold-down tray height off the ground
+
+  const bike = buildBike(unit, wheelGeo);
+  bike.position.y = TRAY + 0.31 - 0.34; // drop the wheels (r 0.31) onto the tray
+  g.add(bike);
+
+  // tray the tyres sit in, runs along z (the bus width)
+  const tray = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.05, 1.5), POST);
+  tray.position.set(0, TRAY - 0.02, 0);
+  g.add(tray);
+  // two arms folding back to the bumper (−z-ish; the bus body is behind at −x)
+  for (const zc of [-0.5, 0.5]) {
+    g.add(tube(unit, POST, new THREE.Vector3(-0.18, 0.12, zc), new THREE.Vector3(0.02, TRAY, zc), 0.03));
+  }
+  // retaining hoop swung up over the front tyre (front wheel at z = +0.55)
+  g.add(tube(unit, STEEL, new THREE.Vector3(0, TRAY, 0.55), new THREE.Vector3(0, TRAY + 0.42, 0.55), 0.018));
+  g.add(tube(unit, STEEL, new THREE.Vector3(0, TRAY + 0.42, 0.4), new THREE.Vector3(0, TRAY + 0.42, 0.7), 0.018));
+
+  return mergeByMaterial(g);
+}
+
 /** One dock station: platform, per-slot posts, and `bikes` docked bikes. */
 function buildDockKit(slots: number, bikes: number, seed: number): THREE.Group {
   const g = new THREE.Group();

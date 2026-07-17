@@ -6,8 +6,8 @@ import { resolveBuildingCollision, nearestWallDir, floorAt, floorAtAny, pointInB
 import { setupSky, setupLights, followSun, SKY } from './sky';
 import { quality } from './quality';
 import { makeSkylineMaterial, makeFlatMaterial, makeWaterMaterial } from './materials';
-import { EntranceManager } from './EntranceManager';
-import { BikeManager } from './bikes';
+import { EntranceManager, disposeGroup } from './EntranceManager';
+import { BikeManager, buildMountedBike } from './bikes';
 import { LandmarkManager } from './landmarks/LandmarkManager';
 import { LANDMARKS_REG } from './landmarks/registry';
 import { BikeView } from './bikeview';
@@ -29,6 +29,7 @@ import { loadTerrain, heightAt } from './terrain';
 const SAVE_KEY = 'nycroam';
 const LEGACY_SAVE_KEY = 'nycworld'; // read-only: keeps positions saved before the rename
 const WALK_EYE = 1.7; // standing; BikeView.eyeHeight is the seated one
+const START = { lat: 40.7681, lon: -73.9819 }; // Columbus Circle — first-visit spawn
 
 export interface HudState {
   mode: 'street' | 'station' | 'ride' | 'bus';
@@ -88,6 +89,8 @@ export class World {
   private busLocal = new THREE.Vector3(3.0, 0, 0.2); // rider offset inside the cabin
   private prevBusYaw = 0;
   private busEndSince = 0;
+  private busBike: THREE.Group | null = null; // bike mounted on the bus front while riding
+  private broughtBike = false; // boarded this bus on a bike — remount it on exit
   private mode: 'street' | 'station' | 'ride' | 'bus' = 'street';
   private pos = new THREE.Vector3(0, 0, 40); // feet position
   private returnPos = new THREE.Vector3();
@@ -154,7 +157,13 @@ export class World {
       },
       (x, z) => nearestWallDir(x, z, 15, this.tiles.collisionNear(x, z)),
     );
-    this.landmarks = new LandmarkManager(this.streetScene);
+    // road-clearance callback: landmark props (Times Square billboard masts)
+    // that bake into a roadbed get nudged onto the sidewalk; null defers a
+    // road-sensitive landmark until its tiles load
+    this.landmarks = new LandmarkManager(
+      this.streetScene,
+      (x, z, clearance) => this.ejectFromRoads(x, z, clearance),
+    );
     this.bikes = new BikeManager(
       this.streetScene,
       (x, z) => {
@@ -436,18 +445,30 @@ export class World {
    * pass on the street side, so the pole belongs a couple meters curbward.
    */
   private resolveBusStop(x: number, z: number): [number, number] | null {
+    const off = this.ejectFromRoads(x, z, 1.6);
+    if (!off) return null; // tiles not ready yet — defer
+    return resolveBuildingCollision(off[0], off[1], 0.8, this.tiles.collisionNear(off[0], off[1]));
+  }
+
+  /**
+   * Push a world point out of every nearby vehicular roadway onto the sidewalk,
+   * `clearance` metres past the curb. Iterates on the deepest-penetrating ribbon
+   * so a point in a two-street intersection converges to the corner. Returns
+   * null when the road tiles here aren't loaded yet (caller should defer/retry).
+   * Shared by bus-stop placement and the landmark road-clearance callback.
+   */
+  ejectFromRoads(x: number, z: number, clearance: number): [number, number] | null {
     if (!this.tiles.readyAround(x, z)) return null;
     // 2-tile radius so a wide avenue whose centerline sits in the neighbouring
     // tile still counts (a 1-tile lookup left edge stops half in the roadbed)
     const paths = this.tiles.roadPathsNear(x, z, 2);
     let px = x, pz = z;
-    const SIDEWALK = 1.6;
     for (let iter = 0; iter < 6; iter++) {
       let worst = 0, wx = 0, wz = 0;
       for (const rp of paths) {
         const roadCount = rp.start.length - 1;
         for (let r = 0; r < roadCount; r++) {
-          const target = rp.width[r] * 0.5 + SIDEWALK;
+          const target = rp.width[r] * 0.5 + clearance;
           const a = rp.start[r], b = rp.start[r + 1];
           for (let j = a; j < b - 1; j++) {
             const x1 = rp.pts[j * 2], z1 = rp.pts[j * 2 + 1];
@@ -466,7 +487,7 @@ export class World {
       const d = Math.hypot(wx, wz);
       if (d > 1e-3) { px += (wx / d) * worst; pz += (wz / d) * worst; } else px += worst;
     }
-    return resolveBuildingCollision(px, pz, 0.8, this.tiles.collisionNear(px, pz));
+    return [px, pz];
   }
 
   private tryAction() {
@@ -478,7 +499,9 @@ export class World {
     if (this.mode === 'street') {
       const nearDock = this.bikes.nearest(this.pos.x, this.pos.z, 4.5);
       if (this.riding) {
-        // the only street action on a bike: dock it
+        // roll up to an open bus and it carries you AND the bike; else dock
+        const bb = this.buses.boardable(this.pos.x, this.pos.z);
+        if (bb) { this.boardBus(bb.key); return; }
         if (nearDock?.canDock && this.bikes.dockBike(nearDock.dock)) this.setRiding(false);
         return;
       }
@@ -526,19 +549,29 @@ export class World {
     this.pushHud();
   }
 
-  /** Step through the open doors of a dwelling bus. Street mode only. */
+  /** Step through the open doors of a dwelling bus. Street mode only. On a
+   * bike, the bike rides mounted on the front rack and you get it back on exit. */
   private async boardBus(key: string) {
-    if (this.transitioning || this.riding) return;
+    if (this.transitioning) return;
     const h = this.buses.board(key);
     if (!h) return;
+    const broughtBike = this.riding;
     this.transitioning = true;
     try {
       this.onFade?.(true);
       await wait(280);
+      if (broughtBike) this.setRiding(false); // stow the viewmodel; the rack carries it
+      this.broughtBike = broughtBike;
       this.busRide = h;
       this.mode = 'bus';
       this.hud.mode = 'bus';
       this.controls.fly = false;
+      if (broughtBike) {
+        // clamp the bike to the front rack (bus local +x, just past the bumper)
+        this.busBike = buildMountedBike();
+        this.busBike.position.set(6.35, 0, 0);
+        h.model.group.add(this.busBike);
+      }
       // start mid-cabin in the aisle, facing whatever way you were looking
       this.busLocal.set(0.6, 0, 0.1);
       this.prevBusYaw = h.pos.yaw;
@@ -571,6 +604,7 @@ export class World {
       // narrow sidewalks: never step off INTO a building face
       [ex, ez] = resolveBuildingCollision(ex, ez, 0.42, this.tiles.collisionNear(ex, ez));
       this.pos.set(ex, heightAt(ex, ez), ez);
+      this.dismountBusBike(); // back on the bike if you brought one aboard
       this.spawnResolve = true; // re-eject once tiles here are fully loaded
       this.busEndSince = 0;
       this.lastEnterGuard = performance.now();
@@ -590,9 +624,23 @@ export class World {
     this.hud.mode = 'street';
     this.hud.bus = null;
     this.pos.set(h.pos.x, heightAt(h.pos.x, h.pos.z), h.pos.z);
+    this.dismountBusBike();
     this.busEndSince = 0;
     this.lastEnterGuard = performance.now();
     this.pushHud();
+  }
+
+  /** Pull the bike off the front rack and put the rider back on it. */
+  private dismountBusBike() {
+    if (this.busBike) {
+      this.busBike.removeFromParent();
+      disposeGroup(this.busBike);
+      this.busBike = null;
+    }
+    if (this.broughtBike) {
+      this.broughtBike = false;
+      this.setRiding(true); // remount: viewmodel + seated eye height return
+    }
   }
 
   private async beginRide(route: string, dirSign: 1 | -1) {
@@ -818,12 +866,12 @@ export class World {
       }
 
       // proximity prompts. On a bike the subway is out of reach (dock first),
-      // so only dock prompts show; on foot an OPEN bus at the curb wins (it's
-      // leaving; everything else keeps), then the closer of entrance/dock, then
-      // a waiting-at-the-stop readout with live arrival estimates.
+      // but an OPEN bus at the curb still takes you — the bike rides the front
+      // rack. On foot an OPEN bus wins (it's leaving; everything else keeps),
+      // then the closer of entrance/dock, then a waiting-at-the-stop readout.
       const near = this.riding ? null : this.entrances.nearest(this.pos.x, this.pos.z, 5);
       const nearDock = this.bikes.nearest(this.pos.x, this.pos.z, 4.5);
-      const boardBus = this.riding || this.controls.fly ? null : this.buses.boardable(this.pos.x, this.pos.z);
+      const boardBus = this.controls.fly ? null : this.buses.boardable(this.pos.x, this.pos.z);
       const dE = near ? Math.hypot(near.pos[0] - this.pos.x, near.pos[1] - this.pos.z) : Infinity;
       this.hud.prompt = null;
       this.hud.promptRoutes = [];
@@ -832,7 +880,7 @@ export class World {
       if (boardBus) {
         this.hud.prompt = `to ${boardBus.dest}`;
         this.hud.promptBus = [{ id: boardBus.route, color: boardBus.color, sbs: boardBus.sbs }];
-        this.hud.promptHint = 'board the bus';
+        this.hud.promptHint = this.riding ? 'board — bike rides up front' : 'board the bus';
         const dDoor = Math.hypot(boardBus.door[0] - this.pos.x, boardBus.door[1] - this.pos.z);
         if (dDoor < 1.7 && performance.now() - this.lastEnterGuard > 2500 && !this.transitioning) {
           this.boardBus(boardBus.key);
@@ -1058,6 +1106,9 @@ export class World {
   }
 
   private restore() {
+    // first-visit default: Columbus Circle (a saved position overrides it below)
+    const [sx, sz] = lonLatToXZ(START.lon, START.lat);
+    this.pos.set(sx, 0, sz);
     try {
       // fall back to the pre-rename key so an existing saved position survives
       const raw = localStorage.getItem(SAVE_KEY) ?? localStorage.getItem(LEGACY_SAVE_KEY);

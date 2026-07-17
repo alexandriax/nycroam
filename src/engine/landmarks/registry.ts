@@ -29,6 +29,7 @@ export interface LandmarkEntry {
   rot?: number;
   aliasOf?: string;
   alwaysOn?: boolean;
+  needsRoads?: boolean; // defer build until road tiles load, then nudge props out of roadbeds (Times Square masts)
 }
 
 const GRID = 0.507; // Manhattan street-grid rotation (radians)
@@ -85,7 +86,7 @@ export const LANDMARKS_REG: LandmarkEntry[] = [
   { id: 'nypl', name: 'New York Public Library', lat: 40.7531, lon: -73.9815, set: 'midtown-south', r: 500, rot: GRID },
   { id: 'bryant-park', name: 'Bryant Park', lat: 40.7536, lon: -73.9832, set: 'midtown-south', r: 450, rot: GRID },
   { id: 'msg', name: 'Madison Square Garden', lat: 40.7505, lon: -73.9934, set: 'midtown-south', r: 600, rot: GRID },
-  { id: 'times-square', name: 'Times Square', lat: 40.758, lon: -73.9855, set: 'midtown-south', r: 650, rot: GRID },
+  { id: 'times-square', name: 'Times Square', lat: 40.758, lon: -73.9855, set: 'midtown-south', r: 650, rot: GRID, needsRoads: true },
   { id: 'broadway-theaters', name: 'Broadway Theater District', lat: 40.759, lon: -73.9845, set: 'midtown-south', r: 500, rot: GRID },
 
   // ---- midtown core (rockefeller / fifth ave) ----
