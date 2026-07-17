@@ -12,6 +12,7 @@ import { LandmarkManager } from './landmarks/LandmarkManager';
 import { LANDMARKS_REG } from './landmarks/registry';
 import { BikeView } from './bikeview';
 import { BusSystem, type BusRideHandle } from './bus/BusSystem';
+import { TramSystem, type TramRideHandle } from './tram';
 import { BusModel } from './bus/model';
 import { buildBusStop } from './bus/stops';
 import { BUS, type BusHud, type BusRouteBadge } from './bus/types';
@@ -30,6 +31,14 @@ const SAVE_KEY = 'nycroam';
 const LEGACY_SAVE_KEY = 'nycworld'; // read-only: keeps positions saved before the rename
 const WALK_EYE = 1.7; // standing; BikeView.eyeHeight is the seated one
 const START = { lat: 40.7681, lon: -73.9819 }; // Columbus Circle — first-visit spawn
+
+/** Anything the rider can be aboard in mode 'bus': an MTA bus or the tram.
+ * The tram handle carries its own cabin geometry (interior box, floor, eye,
+ * both-side doors); buses fall back to the BUS constants. */
+type TransitHandle = BusRideHandle | TramRideHandle;
+const rideInterior = (h: TransitHandle) => ('interior' in h ? h.interior : BUS.interior);
+const rideFloorY = (h: TransitHandle) => ('floorY' in h ? h.floorY : BUS.floorY);
+const rideEye = (h: TransitHandle) => ('eye' in h ? h.eye : BUS.eye);
 
 export interface HudState {
   mode: 'street' | 'station' | 'ride' | 'bus';
@@ -85,7 +94,9 @@ export class World {
   private ride: RideWorld | null = null;
   private network: NetworkData | null = null;
   private buses: BusSystem;
-  private busRide: BusRideHandle | null = null;
+  private tram: TramSystem;
+  private busRide: TransitHandle | null = null;
+  private ridingTram = false; // busRide came from the tram (grade-level cabin, both-side doors)
   private busLocal = new THREE.Vector3(3.0, 0, 0.2); // rider offset inside the cabin
   private prevBusYaw = 0;
   private busEndSince = 0;
@@ -182,6 +193,9 @@ export class World {
     );
     // pull each stop kit off the roadway onto the sidewalk once its tiles load
     this.buses.resolvePlacement = (x, z) => this.resolveBusStop(x, z);
+
+    // Roosevelt Island Tramway: always-simulated shuttle, rideable both ways
+    this.tram = new TramSystem(this.streetScene);
 
     this.controls = new PlayerControls(canvas);
     this.controls.onToggleFly = () => {
@@ -499,15 +513,19 @@ export class World {
     if (this.mode === 'street') {
       const nearDock = this.bikes.nearest(this.pos.x, this.pos.z, 4.5);
       if (this.riding) {
-        // roll up to an open bus and it carries you AND the bike; else dock
+        // roll up to an open bus/tram and it carries you AND the bike; else dock
         const bb = this.buses.boardable(this.pos.x, this.pos.z);
         if (bb) { this.boardBus(bb.key); return; }
+        const tb = this.tram.boardable(this.pos.x, this.pos.z);
+        if (tb) { this.boardTram(tb.key); return; }
         if (nearDock?.canDock && this.bikes.dockBike(nearDock.dock)) this.setRiding(false);
         return;
       }
       // an open bus at the curb wins: you walked to the stop for it
       const bb = this.controls.fly ? null : this.buses.boardable(this.pos.x, this.pos.z);
       if (bb) { this.boardBus(bb.key); return; }
+      const tb = this.controls.fly ? null : this.tram.boardable(this.pos.x, this.pos.z);
+      if (tb) { this.boardTram(tb.key); return; }
       const near = this.entrances.nearest(this.pos.x, this.pos.z, 4.5);
       const dE = near ? Math.hypot(near.pos[0] - this.pos.x, near.pos[1] - this.pos.z) : Infinity;
       if (near && dE <= (nearDock?.d ?? Infinity)) {
@@ -554,26 +572,38 @@ export class World {
   private async boardBus(key: string) {
     if (this.transitioning) return;
     const h = this.buses.board(key);
-    if (!h) return;
+    if (h) await this.enterTransit(h, false);
+  }
+
+  /** Step aboard a dwelling tram cabin (grade-level door, both sides). */
+  private async boardTram(key: string) {
+    if (this.transitioning) return;
+    const h = this.tram.board(key);
+    if (h) await this.enterTransit(h, true);
+  }
+
+  private async enterTransit(h: TransitHandle, tram: boolean) {
     const broughtBike = this.riding;
     this.transitioning = true;
     try {
       this.onFade?.(true);
       await wait(280);
-      if (broughtBike) this.setRiding(false); // stow the viewmodel; the rack carries it
+      if (broughtBike) this.setRiding(false); // stow the viewmodel; remounts on exit
       this.broughtBike = broughtBike;
       this.busRide = h;
+      this.ridingTram = tram;
       this.mode = 'bus';
       this.hud.mode = 'bus';
       this.controls.fly = false;
-      if (broughtBike) {
-        // clamp the bike to the front rack (bus local +x, just past the bumper)
+      if (broughtBike && !tram) {
+        // clamp the bike to the front rack (bus local +x, just past the bumper);
+        // the tram has no rack — the bike rides "walked on" and reappears on exit
         this.busBike = buildMountedBike();
         this.busBike.position.set(6.35, 0, 0);
         h.model.group.add(this.busBike);
       }
       // start mid-cabin in the aisle, facing whatever way you were looking
-      this.busLocal.set(0.6, 0, 0.1);
+      this.busLocal.set(tram ? 0.3 : 0.6, 0, 0.1);
       this.prevBusYaw = h.pos.yaw;
       this.busEndSince = 0;
       this.lastEnterGuard = performance.now();
@@ -598,6 +628,7 @@ export class World {
       let [ex, ez] = this.busRide.exitPos();
       this.busRide.end();
       this.busRide = null;
+      this.ridingTram = false;
       this.mode = 'street';
       this.hud.mode = 'street';
       this.hud.bus = null;
@@ -617,9 +648,10 @@ export class World {
   }
 
   /** Sync fallback when a ridden run ends unexpectedly: stand up where the bus was. */
-  private exitBusStranded(h: BusRideHandle) {
+  private exitBusStranded(h: TransitHandle) {
     h.end();
     this.busRide = null;
+    this.ridingTram = false;
     this.mode = 'street';
     this.hud.mode = 'street';
     this.hud.bus = null;
@@ -848,6 +880,7 @@ export class World {
       this.entrances.update(this.pos.x, this.pos.z, dt);
       this.bikes.update(this.pos.x, this.pos.z, dt);
       this.buses.update(this.pos.x, this.pos.z, dt);
+      this.tram.update(this.pos.x, this.pos.z, dt);
       this.landmarks.update(this.pos.x, this.pos.z, dt);
 
       if (this.riding && this.bikeView) {
@@ -872,6 +905,7 @@ export class World {
       const near = this.riding ? null : this.entrances.nearest(this.pos.x, this.pos.z, 5);
       const nearDock = this.bikes.nearest(this.pos.x, this.pos.z, 4.5);
       const boardBus = this.controls.fly ? null : this.buses.boardable(this.pos.x, this.pos.z);
+      const boardTram = this.controls.fly ? null : this.tram.boardable(this.pos.x, this.pos.z);
       const dE = near ? Math.hypot(near.pos[0] - this.pos.x, near.pos[1] - this.pos.z) : Infinity;
       this.hud.prompt = null;
       this.hud.promptRoutes = [];
@@ -885,6 +919,14 @@ export class World {
         if (dDoor < 1.7 && performance.now() - this.lastEnterGuard > 2500 && !this.transitioning) {
           this.boardBus(boardBus.key);
         }
+      } else if (boardTram) {
+        this.hud.prompt = `to ${boardTram.dest}`;
+        this.hud.promptBus = [{ id: 'TRAM', color: '#c8102e', sbs: false }];
+        this.hud.promptHint = 'board the tram';
+        const dDoor = Math.hypot(boardTram.door[0] - this.pos.x, boardTram.door[1] - this.pos.z);
+        if (dDoor < 1.7 && performance.now() - this.lastEnterGuard > 2500 && !this.transitioning) {
+          this.boardTram(boardTram.key);
+        }
       } else if (near && !this.controls.fly && dE <= (nearDock?.d ?? Infinity)) {
         this.hud.prompt = `${near.station.name}`;
         this.hud.promptRoutes = near.station.routes;
@@ -896,6 +938,7 @@ export class World {
         this.hud.promptHint = this.riding ? 'dock your bike' : 'grab a bike';
       } else if (!this.riding && !this.controls.fly) {
         const stop = this.buses.nearestStop(this.pos.x, this.pos.z, 5);
+        const tstn = this.tram.nearestStation(this.pos.x, this.pos.z, 8);
         if (stop) {
           this.hud.prompt = stop.name;
           this.hud.promptBus = stop.badges;
@@ -903,6 +946,10 @@ export class World {
           this.hud.promptHint = a
             ? `${a.route} ${a.seconds < 45 ? 'due' : `${Math.round(a.seconds / 60)} min`}`
             : 'bus stop';
+        } else if (tstn) {
+          this.hud.prompt = tstn.name;
+          this.hud.promptBus = [{ id: 'TRAM', color: '#c8102e', sbs: false }];
+          this.hud.promptHint = tstn.seconds < 20 ? 'tram due' : `tram in ${Math.round(tstn.seconds)}s`;
         }
       }
     } else if (this.mode === 'ride' && this.ride) {
@@ -941,19 +988,21 @@ export class World {
         const dyaw = shortAngle(h.pos.yaw - this.prevBusYaw);
         this.controls.yaw += dyaw;
         this.prevBusYaw = h.pos.yaw;
-        // walk the aisle: camera-space input mapped into bus-local axes
+        // walk the aisle: camera-space input mapped into cabin-local axes
         const th = h.pos.yaw;
+        const box = rideInterior(h);
         const lx = dx * Math.cos(th) - dz * Math.sin(th);
         const lz = dx * Math.sin(th) + dz * Math.cos(th);
-        this.busLocal.x = Math.max(BUS.interior.minX, Math.min(BUS.interior.maxX, this.busLocal.x + lx));
-        this.busLocal.z = Math.max(BUS.interior.minZ, Math.min(BUS.interior.maxZ, this.busLocal.z + lz));
-        // keep the player anchored to the bus for tiles/minimap/save
+        this.busLocal.x = Math.max(box.minX, Math.min(box.maxX, this.busLocal.x + lx));
+        this.busLocal.z = Math.max(box.minZ, Math.min(box.maxZ, this.busLocal.z + lz));
+        // keep the player anchored to the vehicle for tiles/minimap/save
         this.pos.set(h.pos.x, heightAt(h.pos.x, h.pos.z), h.pos.z);
         if (this.sun) followSun(this.sun, this.pos.x, this.pos.z);
         this.waterUpdate?.(dt);
         this.tiles.update(this.pos.x, this.pos.z);
         this.entrances.update(this.pos.x, this.pos.z, dt);
         this.bikes.update(this.pos.x, this.pos.z, dt);
+        this.tram.update(this.pos.x, this.pos.z, dt);
         this.landmarks.update(this.pos.x, this.pos.z, dt);
         this.hoodTimer -= dt;
         if (this.hoodTimer <= 0) {
@@ -966,10 +1015,14 @@ export class World {
         this.hud.promptBus = [];
         this.hud.promptHint = null;
         // walk-off: while dwelling, stepping into an open door bay steps you
-        // off — the same affordance as walking on (E still works)
-        const nearDoor = Math.abs(this.busLocal.x - BUS.doorX.front) < 1.1
-          || Math.abs(this.busLocal.x - BUS.doorX.rear) < 1.2;
-        if (h.canExit && nearDoor && this.busLocal.z > BUS.interior.maxZ - 0.08
+        // off — the same affordance as walking on (E still works). The tram's
+        // doors span the cabin on BOTH sides; the bus has curb-side bays.
+        const walkOff = this.ridingTram
+          ? Math.abs(this.busLocal.z) > box.maxZ - 0.08
+          : (Math.abs(this.busLocal.x - BUS.doorX.front) < 1.1
+            || Math.abs(this.busLocal.x - BUS.doorX.rear) < 1.2)
+            && this.busLocal.z > box.maxZ - 0.08;
+        if (h.canExit && walkOff
           && performance.now() - this.lastEnterGuard > 2500 && !this.transitioning) {
           this.exitBus();
         }
@@ -1065,7 +1118,9 @@ export class World {
       // camera rides the cabin: local aisle offset through the bus transform
       const g = this.busRide.model.group;
       g.updateMatrixWorld();
-      eye = g.localToWorld(new THREE.Vector3(this.busLocal.x, BUS.floorY + BUS.eye, this.busLocal.z));
+      eye = g.localToWorld(new THREE.Vector3(
+        this.busLocal.x, rideFloorY(this.busRide) + rideEye(this.busRide), this.busLocal.z,
+      ));
     } else {
       eye = new THREE.Vector3(this.pos.x, this.pos.y + this.eyeHeight, this.pos.z);
     }
@@ -1169,6 +1224,7 @@ export class World {
     this.entrances.destroy();
     this.bikes.destroy();
     this.buses.dispose();
+    this.tram.destroy();
     this.landmarks.destroy();
     this.bikeView?.dispose();
     this.scheduler?.dispose();

@@ -1,25 +1,33 @@
 import * as THREE from 'three';
 import {
   type LandmarkCtx,
-  LIMESTONE, GRANITE, DARKSTONE, MARBLE, GOLD, STEEL_LM, GLASS_LM, WHITE_LM,
+  LIMESTONE, GRANITE, DARKSTONE, MARBLE, GOLD, STEEL_LM, GLASS_LM, WHITE_LM, BRONZE, GREEN_PATINA,
   box, cyl, strut, lathe, archWall, figure, canvasTexture,
 } from '../kit';
 
 /**
  * Midtown East set — Grand Central's Beaux-Arts front, the Chrysler crown, the
- * One Vanderbilt spire, the UN Secretariat, the Roosevelt Island Tram and the
+ * One Vanderbilt spire, the UN Secretariat, 270 Park (Chase HQ) and the
  * Queensboro cantilever. Each builder returns a group whose origin sits at
  * ground level; the manager rotates/positions/merges it. The Chrysler and One
  * Vanderbilt shafts already exist from OSM — those builders add only the
- * signature crown that OSM lacks.
+ * signature crown that OSM lacks. Chase HQ is a full replacement (the
+ * pipeline clears the OSM massing at the site) — that builder owns everything
+ * from the plaza up.
  */
 
-// Set-local materials (justified: the brief mandates a specific tram red and a
-// warm-tinted steel, neither of which is in the shared kit).
-const RED_TRAM = new THREE.MeshStandardMaterial({ color: '#b3231f', metalness: 0.3, roughness: 0.5 });
+// Set-local materials (justified: a warm-tinted steel for the Queensboro's
+// ironwork, and JPMorganChase's signature bronze-tinted curtain glass, neither
+// of which is in the shared kit).
 const WARM_STEEL = new THREE.MeshStandardMaterial({ color: '#9a9184', metalness: 0.72, roughness: 0.42 });
+// low metalness on purpose: the street scene has no environment map, and
+// metalness > ~0.5 without one renders near-black (same lesson as the trains).
+// The slight emissive keeps shaded faces reading warm bronze, not chocolate.
+const BRONZE_GLASS = new THREE.MeshStandardMaterial({
+  color: '#96805f', metalness: 0.35, roughness: 0.34, emissive: '#221a11',
+});
 
-// Tapered 4-leg lattice tower (X-braced), origin at ground; reused by tram + bridge.
+// Tapered 4-leg lattice tower (X-braced), origin at ground; reused by the bridge towers.
 function latticeTower(h: number, baseHalf: number, topHalf: number, mat: THREE.Material, legR: number, levels: number): THREE.Group {
   const t = new THREE.Group();
   const base = [[baseHalf, baseHalf], [-baseHalf, baseHalf], [-baseHalf, -baseHalf], [baseHalf, -baseHalf]]
@@ -50,18 +58,6 @@ function chryslerEagle(): THREE.Group {
   beak.rotation.z = -Math.PI / 2;
   e.add(beak);
   return e;
-}
-
-// Rounded red tram cabin with a wrap-around glass band and roof grip.
-function tramCabin(): THREE.Group {
-  const c = new THREE.Group();
-  c.add(box(5.4, 3.2, 3.2, RED_TRAM, 0, 0, 0)); // body
-  for (const [sx, sz] of [[2.7, 1.6], [-2.7, 1.6], [2.7, -1.6], [-2.7, -1.6]] as const)
-    c.add(cyl(0.5, 0.5, 3.2, RED_TRAM, sx, 0, sz, 8)); // rounded vertical corners
-  c.add(box(5.5, 1.3, 3.3, GLASS_LM, 0, 0.4, 0)); // window band
-  c.add(box(5.6, 0.3, 3.4, STEEL_LM, 0, 1.75, 0)); // roof cap
-  c.add(box(1.2, 0.7, 0.9, STEEL_LM, 0, 2.15, 0)); // grip bogie
-  return c;
 }
 
 export const builders: Record<string, (ctx: LandmarkCtx) => THREE.Group> = {
@@ -259,40 +255,91 @@ export const builders: Record<string, (ctx: LandmarkCtx) => THREE.Group> = {
     return g;
   },
 
-  // Roosevelt Island Tram: two red lattice pylons, cable pairs, a hanging red cabin, ground canopy
-  'roosevelt-tram': () => {
+  // Chase HQ (270 Park Ave): full replacement, plaza to spire — vertical corner
+  // megacolumns plus two angled bronze fan/V arrangements per Park-Ave face
+  // lift the tower off an open plaza; a dark transfer-truss band hands off to
+  // a three-volume bronze-glass shaft with fin ribs and floor bands; an open
+  // fin crown with a beacon tops it at 423m.
+  'chase-hq': () => {
     const g = new THREE.Group();
-    const p1 = latticeTower(25, 2.4, 1.4, RED_TRAM, 0.22, 4);
-    p1.position.set(8, 0, 0);
-    g.add(p1);
-    const p2 = latticeTower(40, 3.0, 1.6, RED_TRAM, 0.26, 6);
-    p2.position.set(26, 0, 0);
-    g.add(p2);
-    // two cable pairs: terminal -> pylon1 top -> pylon2 top -> up toward the +x (river) edge
-    const anchors = [
-      new THREE.Vector3(-3, 7, 0),
-      new THREE.Vector3(8, 25, 0),
-      new THREE.Vector3(26, 40, 0),
-      new THREE.Vector3(48, 56, 0),
-    ];
-    for (const dz of [-1.2, -0.7, 0.7, 1.2]) {
-      for (let i = 0; i < anchors.length - 1; i++) {
-        const a = anchors[i].clone(); a.z += dz;
-        const b = anchors[i + 1].clone(); b.z += dz;
-        g.add(strut(a, b, 0.07, STEEL_LM));
+    const HX = 30, HZ = 37.5; // footprint half-extents: 60m (cross-street x) x 75m (Park Ave z)
+    const BASE_H = 24; // colonnade height
+
+    // plaza: paved slab, low step/planter blocks, open beneath the tower
+    g.add(box(70, 0.3, 88, GRANITE, 0, 0.15, 0)); // paving, proud of the footprint on all sides
+    for (const [px, pz] of [[-22, 30], [22, 30], [-22, -30], [22, -30]] as const) {
+      g.add(box(3, 1.2, 3, GRANITE, px, 0.6, pz)); // low step/planter wall
+      g.add(box(2.4, 0.9, 2.4, GREEN_PATINA, px, 1.65, pz)); // planting
+    }
+
+    // lift-off base: vertical corner megacolumns + two fan/V arrangements per Park-Ave face
+    for (const cx of [-HX, HX]) for (const cz of [-HZ, HZ]) {
+      g.add(cyl(1.7, 1.7, BASE_H, BRONZE, cx, BASE_H / 2, cz, 10)); // corner megacolumn
+    }
+    for (const sx of [-1, 1]) { // the two Park-Ave-facing long faces
+      const faceX = sx * HX;
+      for (const fz of [-20, 20]) { // two fans per face
+        const apex = new THREE.Vector3(faceX - sx * 7, 22, fz); // common node ~22m up, inset ~7m
+        for (const dz of [-7, 7]) {
+          g.add(strut(new THREE.Vector3(faceX, 0, fz + dz), apex, 1.6, BRONZE)); // angled mega-column
+        }
       }
     }
-    const cabin = tramCabin();
-    cabin.position.set(16, 26, 0); // hanging between the pylons
-    g.add(cabin);
-    g.add(strut(new THREE.Vector3(16, 31.7, 0), new THREE.Vector3(16, 28, 0), 0.12, STEEL_LM)); // hanger to cable
-    // terminal canopy at the -x (Manhattan) ground end
-    const term = new THREE.Group();
-    term.add(box(8, 0.4, 6, STEEL_LM, 0, 5.5, 0));
-    for (const [cx, cz] of [[-3.4, -2.4], [3.4, -2.4], [-3.4, 2.4], [3.4, 2.4]] as const)
-      term.add(cyl(0.16, 0.16, 5.5, GRANITE, cx, 2.75, cz, 6));
-    term.position.set(-3, 0, 0);
-    g.add(term);
+
+    // transfer-truss band y24..30: dark steel box + diagonal lattice on all four faces
+    const TT0 = 24, TT1 = 30;
+    g.add(box(HX * 2, TT1 - TT0, HZ * 2, DARKSTONE, 0, (TT0 + TT1) / 2, 0));
+    for (const [a, b] of [
+      [new THREE.Vector3(HX, TT0, -HZ), new THREE.Vector3(HX, TT1, HZ)],
+      [new THREE.Vector3(HX, TT0, HZ), new THREE.Vector3(HX, TT1, -HZ)],
+      [new THREE.Vector3(-HX, TT0, -HZ), new THREE.Vector3(-HX, TT1, HZ)],
+      [new THREE.Vector3(-HX, TT0, HZ), new THREE.Vector3(-HX, TT1, -HZ)],
+      [new THREE.Vector3(-HX, TT0, HZ), new THREE.Vector3(HX, TT1, HZ)],
+      [new THREE.Vector3(HX, TT0, HZ), new THREE.Vector3(-HX, TT1, HZ)],
+      [new THREE.Vector3(-HX, TT0, -HZ), new THREE.Vector3(HX, TT1, -HZ)],
+      [new THREE.Vector3(HX, TT0, -HZ), new THREE.Vector3(-HX, TT1, -HZ)],
+    ]) g.add(strut(a, b, 0.25, STEEL_LM)); // X-brace per face
+
+    // ground detail: double-height lobby core inside the colonnade + avenue entrance canopies
+    g.add(box(30, 18, 40, GLASS_LM, 0, 9, 0)); // lobby core
+    for (const sx of [-1, 1]) g.add(box(6, 0.6, 14, STEEL_LM, sx * (HX + 3), 5, 0)); // entrance canopy
+
+    // shaft: three bronze-glass volumes with two setbacks, fin ribs + floor bands
+    const volumes = [
+      { y0: 30, y1: 210, hx: HX, hz: HZ }, // volume A: full footprint
+      { y0: 210, y1: 330, hx: HX - 6, hz: HZ - 6 }, // volume B: inset 6m each side
+      { y0: 330, y1: 410, hx: HX - 7, hz: HZ - 7 }, // volume C: inset ~14m total
+    ];
+    for (const v of volumes) {
+      const cy = (v.y0 + v.y1) / 2, h = v.y1 - v.y0;
+      g.add(box(v.hx * 2, h, v.hz * 2, BRONZE_GLASS, 0, cy, 0));
+      const finN = Math.round((v.hz * 2) / 7);
+      for (let i = 0; i <= finN; i++) {
+        const fz = -v.hz + (i * v.hz * 2) / finN;
+        for (const sx of [-1, 1]) g.add(box(0.5, h, 0.6, BRONZE, sx * (v.hx + 0.25), cy, fz)); // fin rib
+      }
+    }
+    for (let y = 54; y < 410; y += 24) {
+      const v = y < 210 ? volumes[0] : y < 330 ? volumes[1] : volumes[2];
+      g.add(box(v.hx * 2 + 0.4, 1.2, v.hz * 2 + 0.4, STEEL_LM, 0, y, 0)); // floor band
+    }
+
+    // crown y410..423: open frame + tapering fins past the roofline + beacon
+    const vC = volumes[2], C0 = 410, C1 = 423;
+    for (const cx of [-1, 1]) for (const cz of [-1, 1]) {
+      g.add(box(0.8, C1 - C0, 0.8, BRONZE, cx * vC.hx, (C0 + C1) / 2, cz * vC.hz)); // corner post
+    }
+    for (const cz of [-1, 1]) g.add(box(vC.hx * 2 + 0.8, 0.6, 0.8, BRONZE, 0, C1, cz * vC.hz)); // ring beam +-z
+    for (const cx of [-1, 1]) g.add(box(0.8, 0.6, vC.hz * 2 + 0.8, BRONZE, cx * vC.hx, C1, 0)); // ring beam +-x
+    const finNC = Math.round((vC.hz * 2) / 7);
+    for (let i = 0; i <= finNC; i++) {
+      const fz = -vC.hz + (i * vC.hz * 2) / finNC;
+      for (const sx of [-1, 1]) g.add(cyl(0.05, 0.3, C1 - C0, BRONZE, sx * (vC.hx + 0.25), (C0 + C1) / 2, fz, 6)); // tapering fin
+    }
+    const beacon = new THREE.Mesh(new THREE.SphereGeometry(0.6, 8, 6), new THREE.MeshBasicMaterial({ color: '#ffffff' }));
+    beacon.position.set(0, 423, 0);
+    g.add(beacon); // subtle beacon
+
     return g;
   },
 
