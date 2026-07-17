@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { World, LANDMARKS, type HudState } from '../engine/World';
 import { routeColor, bulletTextColor } from '../engine/subway/types';
 import { LANDMARKS_REG } from '../engine/landmarks/registry';
+import { abbreviateStreet } from '../engine/streetFurniture';
 import MiniMap from './MiniMap';
 
 // Every premium landmark (skip alias entries — they resolve to another's build),
@@ -162,16 +163,22 @@ export default function NYCRoam() {
       {/* top bar */}
       <div className="hud-panel" style={{
         position: 'absolute', top: 12, left: 12, padding: '7px 12px',
-        display: 'flex', alignItems: 'center', gap: 9,
+        display: 'flex', flexDirection: 'column', gap: 5,
         maxWidth: 'calc(100vw - 268px)', overflow: 'hidden', whiteSpace: 'nowrap',
       }}>
-        {/* the mascot IS the wordmark — sized to the text it replaces */}
-        <img src="/mark.png" alt="NYC Roam" width={18} height={18} className="mark" draggable={false} />
-        <span style={{ opacity: 0.62, fontSize: 12, overflow: 'hidden', textOverflow: 'ellipsis', letterSpacing: 0.2 }}>
-          {hud?.mode === 'station'
-            ? <>{hud.stationName} <Bullets routes={hud.stationRoutes} size={16} /></>
-            : (hud?.area ?? 'Manhattan')}
-        </span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
+          {/* the mascot IS the wordmark — sized to the text it replaces */}
+          <img src="/mark.png" alt="NYC Roam" width={18} height={18} className="mark" draggable={false} />
+          <span style={{ opacity: 0.62, fontSize: 12, overflow: 'hidden', textOverflow: 'ellipsis', letterSpacing: 0.2 }}>
+            {hud?.mode === 'station'
+              ? <>{hud.stationName} <Bullets routes={hud.stationRoutes} size={16} /></>
+              : (hud?.area ?? 'Manhattan')}
+          </span>
+        </div>
+        {/* current street, styled like the blade signs on the corners */}
+        {(hud?.mode === 'street' || hud?.mode === 'bus') && hud?.street && (
+          <span className="street-blade">{abbreviateStreet(hud.street)}</span>
+        )}
       </div>
 
       {/* stats + teleport */}

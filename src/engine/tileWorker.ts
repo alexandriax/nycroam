@@ -1,9 +1,42 @@
 // Web worker: fetch tile JSON -> build merged geometry buffers (transferable).
 import earcut from 'earcut';
 import type { BuildRequest, BuildResponse, MeshPayload, TileJson, CollisionData } from './tileTypes';
-import { ROAD_STYLE, AREA_STYLE, CONCRETE_CLASSES } from './tileTypes';
+import { ROAD_STYLE, AREA_STYLE, CONCRETE_CLASSES, PATH_KIND_ROAD, PATH_KIND_BIKE } from './tileTypes';
 import { buildingColor, hash01 } from './palette';
 import { TILE_SIZE } from './geo';
+
+// NYC DOT bike-lane green (thermoplastic paint) + white edge stripes
+const BIKE_GREEN: [number, number, number] = [0.02, 0.3, 0.13];
+
+/**
+ * Manhattan's signature protected on-street bike lanes. The OSM snapshot maps
+ * greenways/bridge paths as separate `cycleway` ways (rendered directly), but
+ * the avenue lanes live as `cycleway:*` tags on the avenue way itself — tags
+ * the tile pipeline never kept. This curated set paints them back: matched by
+ * street NAME at build time (via the tile's corner-sign data), on the real
+ * curb side (NYC DOT places them on the LEFT of one-way avenues), bounded to
+ * their real extents. side: world side of the centerline (w/e/n/s).
+ */
+const CURATED_LANES: Record<string, { side: 'w' | 'e' | 'n' | 's'; zMin: number; zMax: number }> = {
+  // Extent along the avenue as world z (+z south, origin Times Sq). The grid's
+  // 29° tilt sweeps an avenue across kilometers of x, so x never constrains —
+  // the sign-name match already pins WHICH street this is.
+  '1st Avenue': { side: 'w', zMin: -5600, zMax: 3700 }, // 125th → Houston
+  '2nd Avenue': { side: 'e', zMin: -5600, zMax: 3700 }, // 125th → Houston
+  '3rd Avenue': { side: 'w', zMin: -3150, zMax: -450 }, // 96th → 59th
+  '6th Avenue': { side: 'w', zMin: -500, zMax: 4050 }, // 57th → Lispenard
+  '8th Avenue': { side: 'w', zMin: -650, zMax: 2350 }, // Columbus Circle → Abingdon Sq
+  '9th Avenue': { side: 'e', zMin: -650, zMax: 2500 }, // 59th → Gansevoort
+  '10th Avenue': { side: 'w', zMin: -850, zMax: 2550 }, // 52nd → 14th
+  'Amsterdam Avenue': { side: 'w', zMin: -4600, zMax: -1400 }, // 110th → 72nd
+  'Columbus Avenue': { side: 'e', zMin: -4600, zMax: -500 }, // 110th → 59th
+  'Lafayette Street': { side: 'w', zMin: 2950, zMax: 4050 }, // Astor Pl → Spring
+  'Hudson Street': { side: 'w', zMin: 2400, zMax: 4800 }, // 14th → Chambers
+  'Chrystie Street': { side: 'e', zMin: 3650, zMax: 4800 }, // Houston → Canal
+};
+
+// road classes that can carry a curated painted lane
+const LANE_CLASSES = new Set(['primary', 'secondary', 'tertiary', 'unclassified', 'residential']);
 
 // Vehicular road classes (a sign inside one of these ribbons is standing in the
 // street). Footways/paths/crossings are excluded — signs belong on sidewalks.
@@ -53,6 +86,101 @@ function nudgeSignOutOfRoads(
   const tdx = x - sx, tdz = z - sz, td = Math.hypot(tdx, tdz);
   if (td > MAX_TRAVEL) { x = sx + (tdx / td) * MAX_TRAVEL; z = sz + (tdz / td) * MAX_TRAVEL; }
   return [x, z];
+}
+
+/**
+ * Which curated lane (if any) runs down this road way: a corner-sign blade
+ * whose name is curated, whose bearing runs parallel to the way, and whose
+ * pole sits beside it (perpendicular distance within the roadbed + sidewalk)
+ * names the street. Signs live on every named intersection, so any avenue
+ * stretch long enough to paint has one nearby.
+ */
+function matchCuratedLane(
+  pts: number[],
+  blades: { x: number; z: number; ang: number; name: string }[],
+  halfW: number,
+): string | null {
+  let best = 18; // meters: max perpendicular distance sign→way
+  let name: string | null = null;
+  for (const bl of blades) {
+    for (let i = 0; i + 3 < pts.length; i += 2) {
+      const x1 = pts[i], z1 = pts[i + 1], x2 = pts[i + 2], z2 = pts[i + 3];
+      const dx = x2 - x1, dz = z2 - z1;
+      const l2 = dx * dx + dz * dz;
+      if (l2 < 1e-6) continue;
+      let dAng = Math.abs(Math.atan2(dz, dx) - bl.ang) % Math.PI;
+      if (dAng > Math.PI / 2) dAng = Math.PI - dAng;
+      if (dAng > 0.26) continue; // ~15°: blade not parallel to this way
+      let t = ((bl.x - x1) * dx + (bl.z - z1) * dz) / l2;
+      t = t < 0 ? 0 : t > 1 ? 1 : t;
+      const d = Math.hypot(bl.x - (x1 + t * dx), bl.z - (z1 + t * dz));
+      const lim = Math.min(best, halfW + 9);
+      if (d < lim) { best = d; name = bl.name; }
+    }
+  }
+  return name;
+}
+
+/**
+ * Push polyline points out of ground-level building rings (plus `clearance`).
+ * Elevated parts (base well above the local surface) are skipped — a lane may
+ * legitimately run under an arcade or skybridge. Movement is capped so a data
+ * glitch can't drag a lane across the block.
+ */
+function nudgePolylineOutOfBuildings(
+  pts: number[], ys: number[],
+  rings: number[][], aabb: number[], bases: number[],
+  clearance: number,
+) {
+  const MAX_TRAVEL = 7;
+  for (let pi = 0; pi < pts.length / 2; pi++) {
+    const sx = pts[pi * 2], sz = pts[pi * 2 + 1];
+    let x = sx, z = sz;
+    for (let iter = 0; iter < 3; iter++) {
+      let moved = false;
+      for (let ri = 0; ri < rings.length; ri++) {
+        if (bases[ri] > ys[pi] + 2) continue; // overhead part — lane passes under
+        if (x < aabb[ri * 4] - clearance || z < aabb[ri * 4 + 1] - clearance
+          || x > aabb[ri * 4 + 2] + clearance || z > aabb[ri * 4 + 3] + clearance) continue;
+        const ring = rings[ri];
+        const rn = ring.length / 2;
+        let inside = false;
+        for (let i = 0, j = rn - 1; i < rn; j = i++) {
+          const xi = ring[i * 2], zi = ring[i * 2 + 1];
+          const xj = ring[j * 2], zj = ring[j * 2 + 1];
+          if ((zi > z) !== (zj > z) && x < ((xj - xi) * (z - zi)) / (zj - zi) + xi) inside = !inside;
+        }
+        // nearest boundary point
+        let bestD2 = Infinity, bx = 0, bz = 0;
+        for (let i = 0, j = rn - 1; i < rn; j = i++) {
+          const x1 = ring[j * 2], z1 = ring[j * 2 + 1];
+          const x2 = ring[i * 2], z2 = ring[i * 2 + 1];
+          const dx = x2 - x1, dz = z2 - z1;
+          const l2 = dx * dx + dz * dz;
+          if (l2 < 1e-9) continue;
+          let t = ((x - x1) * dx + (z - z1) * dz) / l2;
+          t = t < 0 ? 0 : t > 1 ? 1 : t;
+          const qx = x1 + t * dx, qz = z1 + t * dz;
+          const d2 = (x - qx) * (x - qx) + (z - qz) * (z - qz);
+          if (d2 < bestD2) { bestD2 = d2; bx = qx; bz = qz; }
+        }
+        const d = Math.sqrt(bestD2);
+        if (inside) {
+          const nx = d > 1e-6 ? (bx - x) / d : 1, nz = d > 1e-6 ? (bz - z) / d : 0;
+          x = bx + nx * clearance; z = bz + nz * clearance;
+          moved = true;
+        } else if (d < clearance && d > 1e-6) {
+          const nx = (x - bx) / d, nz = (z - bz) / d;
+          x = bx + nx * clearance; z = bz + nz * clearance;
+          moved = true;
+        }
+      }
+      if (!moved) break;
+    }
+    const td = Math.hypot(x - sx, z - sz);
+    if (td > MAX_TRAVEL) { x = sx + ((x - sx) / td) * MAX_TRAVEL; z = sz + ((z - sz) / td) * MAX_TRAVEL; }
+    pts[pi * 2] = x; pts[pi * 2 + 1] = z;
+  }
 }
 
 class MeshAcc {
@@ -382,6 +510,8 @@ function buildTile(tile: TileJson): BuildResponse {
   const bAcc = new MeshAcc(false, true);
   const colRings: number[][] = [];
   const colAabb: number[] = [];
+  const colTop: number[] = [];
+  const colBase: number[] = [];
   let seedBase = (tile.x * 73856093) ^ (tile.z * 19349663);
 
   if (tile.buildings) {
@@ -405,8 +535,10 @@ function buildTile(tile: TileJson): BuildResponse {
       // elevated parts get a sealed underside
       extrude(bAcc, rings, base + minH - (minH > 0 ? 0 : 2.5), base + h, bc.col, minH > 0);
 
-      // collision only for ground-level buildings
-      if (minH < 1 && rings[0].length >= 6) {
+      // collision for every solid part: ground-level buildings push the player
+      // out; elevated parts (setback towers, skybridges) carry base+top so the
+      // player can land on / collide with them only at their own altitude
+      if (rings[0].length >= 6) {
         colRings.push(rings[0]);
         let minX = 1e9, minZ = 1e9, maxX = -1e9, maxZ = -1e9;
         for (let i = 0; i < rings[0].length; i += 2) {
@@ -414,6 +546,8 @@ function buildTile(tile: TileJson): BuildResponse {
           minZ = Math.min(minZ, rings[0][i + 1]); maxZ = Math.max(maxZ, rings[0][i + 1]);
         }
         colAabb.push(minX, minZ, maxX, maxZ);
+        colTop.push(base + h);
+        colBase.push(base + minH);
       }
 
       // water towers on mid-rise flat roofs
@@ -454,18 +588,35 @@ function buildTile(tile: TileJson): BuildResponse {
     }
   }
 
-  // minimap centerlines: real streets only — footways/steps/crossings would
-  // turn the closest zoom into hairball noise
-  const MINIMAP_SKIP = new Set(['footway', 'path', 'steps', 'crossing', 'cycleway', 'service']);
+  // minimap/eject centerlines: real streets + bike lanes — footways/steps/
+  // crossings would turn the closest zoom into hairball noise
+  const MINIMAP_SKIP = new Set(['footway', 'path', 'steps', 'crossing', 'service']);
   const mmStart: number[] = [0];
   const mmPts: number[] = [];
   const mmWidth: number[] = [];
-  // vehicular centerlines (world coords) for pushing signs off the roadbed
+  const mmKind: number[] = [];
+  // vehicular centerlines (world coords) for pushing signs off the roadbed;
+  // bike lanes count too — a street sign planted mid-lane is an obstruction
   const vroads: { pts: number[]; half: number }[] = [];
+  // bike-lane ribbons (world coords) so trees/hydrants stay out of them
+  const bikePaths: { pts: number[]; half: number }[] = [];
+
+  // corner-sign blades naming curated protected-lane streets, in world coords
+  const signBlades: { x: number; z: number; ang: number; name: string }[] = [];
+  for (const s of tile.signs ?? []) {
+    for (let b = 0; b < s.n.length; b++) {
+      if (!CURATED_LANES[s.n[b]]) continue;
+      signBlades.push({
+        x: toWorld(s.p[0], ox), z: toWorld(s.p[1], oz),
+        ang: ((s.a[b] ?? 0) * Math.PI) / 180, name: s.n[b],
+      });
+    }
+  }
 
   if (tile.roads) {
     for (const r of tile.roads) {
       const style = ROAD_STYLE[r.c] ?? ROAD_STYLE.residential;
+      const bike = r.c === 'cycleway';
       const n = r.p.length / 2;
       const pts: number[] = new Array(r.p.length);
       const ys: number[] = new Array(n);
@@ -474,11 +625,16 @@ function buildTile(tile: TileJson): BuildResponse {
         pts[i * 2 + 1] = toWorld(r.p[i * 2 + 1], oz);
         ys[i] = (r.e ? r.e[i] : r.b ? 7 : 0) + style.y;
       }
-      if (n >= 2 && VEHICULAR_ROADS.has(r.c)) vroads.push({ pts, half: style.w / 2 });
+      // OSM lane alignments occasionally graze a building footprint — walk
+      // those points back out so the painted lane never runs through a wall
+      if (bike) nudgePolylineOutOfBuildings(pts, ys, colRings, colAabb, colBase, style.w / 2 + 0.3);
+      if (n >= 2 && (VEHICULAR_ROADS.has(r.c) || bike)) vroads.push({ pts, half: style.w / 2 });
+      if (bike && n >= 2) bikePaths.push({ pts, half: style.w / 2 });
       if (!MINIMAP_SKIP.has(r.c) && n >= 2) {
         for (const v of pts) mmPts.push(v);
         mmStart.push(mmPts.length / 2);
         mmWidth.push(style.w);
+        mmKind.push(bike ? PATH_KIND_BIKE : PATH_KIND_ROAD);
       }
       const concrete = CONCRETE_CLASSES.has(r.c);
       const acc = concrete ? wAcc : rAcc;
@@ -494,7 +650,14 @@ function buildTile(tile: TileJson): BuildResponse {
 
       // ---- markings ----
       const mys = ys.map((y) => y + 0.02);
-      if (r.c === 'crossing') {
+      if (bike) {
+        // NYC-style painted lane: solid green fill with white edge stripes,
+        // kept just below crosswalk bars so crossings still paint over the lane
+        const bys = ys.map((y) => y + 0.016);
+        buildRibbon(mAcc, pts, style.w - 0.55, bys, BIKE_GREEN, 0, 0);
+        buildRibbon(mAcc, pts, 0.1, bys, WHITE, style.w / 2 - 0.14);
+        buildRibbon(mAcc, pts, 0.1, bys, WHITE, -(style.w / 2 - 0.14));
+      } else if (r.c === 'crossing') {
         // continental crosswalk: thick bars perpendicular to the walking line
         const total = polyLength(pts);
         for (let d = 0.5; d < total - 0.3; d += 0.95) {
@@ -518,8 +681,56 @@ function buildTile(tile: TileJson): BuildResponse {
       } else if (['tertiary', 'unclassified'].includes(r.c)) {
         buildRibbon(mAcc, pts, 0.12, mys, WHITE, 0, 0, [2.6, 4.2]);
       }
+
+      // curated protected lane riding this street? paint it curbside
+      if (!r.b && signBlades.length && LANE_CLASSES.has(r.c) && polyLength(pts) > 25) {
+        const laneName = matchCuratedLane(pts, signBlades, style.w / 2);
+        const lane = laneName ? CURATED_LANES[laneName] : null;
+        if (lane) {
+          // way must actually be inside this lane's real extent
+          const mz = pts[Math.floor(n / 2) * 2 + 1];
+          if (mz >= lane.zMin && mz <= lane.zMax) {
+            // overall way bearing decides which lateral sign is the wanted
+            // world side (ways are digitized in arbitrary directions)
+            let sdx = 0, sdz = 0;
+            for (let i = 2; i < pts.length; i += 2) { sdx += pts[i] - pts[i - 2]; sdz += pts[i + 1] - pts[i - 1]; }
+            const latX = -sdz, latZ = sdx; // right-of-way lateral, world frame
+            const sign = lane.side === 'w' ? (latX < 0 ? 1 : -1)
+              : lane.side === 'e' ? (latX > 0 ? 1 : -1)
+              : lane.side === 'n' ? (latZ < 0 ? 1 : -1)
+              : (latZ > 0 ? 1 : -1);
+            const off = sign * (style.w / 2 - 1.45);
+            const lys = ys.map((y) => y + 0.016);
+            buildRibbon(mAcc, pts, 1.8, lys, BIKE_GREEN, off);
+            buildRibbon(mAcc, pts, 0.1, lys, WHITE, off + 1.0);
+            buildRibbon(mAcc, pts, 0.1, lys, WHITE, off - 1.0);
+          }
+        }
+      }
     }
   }
+
+  // deepest bike-lane penetration at (x,z): [penetration, awayX, awayZ]
+  const bikePen = (x: number, z: number, extra: number): [number, number, number] => {
+    let worst = 0, wx = 0, wz = 1;
+    for (const bp of bikePaths) {
+      const target = bp.half + extra;
+      const p = bp.pts;
+      for (let i = 0; i + 3 < p.length; i += 2) {
+        const x1 = p[i], z1 = p[i + 1], x2 = p[i + 2], z2 = p[i + 3];
+        const dx = x2 - x1, dz = z2 - z1;
+        const l2 = dx * dx + dz * dz;
+        if (l2 < 1e-6) continue;
+        let t = ((x - x1) * dx + (z - z1) * dz) / l2;
+        t = t < 0 ? 0 : t > 1 ? 1 : t;
+        const ox2 = x - (x1 + t * dx), oz2 = z - (z1 + t * dz);
+        const d = Math.hypot(ox2, oz2);
+        const pen = target - d;
+        if (pen > worst) { worst = pen; if (d > 1e-3) { wx = ox2 / d; wz = oz2 / d; } }
+      }
+    }
+    return [worst, wx, wz];
+  };
 
   // ---- trees ----
   let trees: Float32Array | null = null;
@@ -528,17 +739,18 @@ function buildTile(tile: TileJson): BuildResponse {
     const total = Math.floor(tile.trees.length / stride);
     const count = Math.min(1400, total);
     const step = total / count;
-    trees = new Float32Array(count * 5);
+    const kept: number[] = [];
     for (let i = 0; i < count; i++) {
       const si = Math.floor(i * step) * stride;
       const x = toWorld(tile.trees[si], ox);
       const z = toWorld(tile.trees[si + 1], oz);
+      // a trunk in the middle of a painted lane is an obstruction — skip it
+      if (bikePaths.length && bikePen(x, z, 0.45)[0] > 0) continue;
       const ey = v2 ? tile.trees[si + 2] / 10 : 0;
       const s = 0.75 + hash01(seedBase + i) * 0.7;
-      trees[i * 5] = x; trees[i * 5 + 1] = ey; trees[i * 5 + 2] = z;
-      trees[i * 5 + 3] = s;
-      trees[i * 5 + 4] = hash01(seedBase + i + 99);
+      kept.push(x, ey, z, s, hash01(seedBase + i + 99));
     }
+    trees = kept.length ? new Float32Array(kept) : null;
   }
 
   // ---- collision pack ----
@@ -551,7 +763,10 @@ function buildTile(tile: TileJson): BuildResponse {
     const pts = new Float32Array(total * 2);
     let o = 0;
     for (const ring of colRings) { pts.set(ring, o); o += ring.length; }
-    collision = { ringStart: starts, points: pts, aabb: new Float32Array(colAabb) };
+    collision = {
+      ringStart: starts, points: pts, aabb: new Float32Array(colAabb),
+      top: new Float32Array(colTop), base: new Float32Array(colBase),
+    };
   }
 
   // ---- hydrants: world transforms for instancing ----
@@ -560,9 +775,16 @@ function buildTile(tile: TileJson): BuildResponse {
     const n = Math.floor(tile.hyd.length / 3);
     hydrants = new Float32Array(n * 4);
     for (let i = 0; i < n; i++) {
-      hydrants[i * 4] = toWorld(tile.hyd[i * 3], ox);
+      let hx = toWorld(tile.hyd[i * 3], ox);
+      let hz = toWorld(tile.hyd[i * 3 + 1], oz);
+      // curbside hydrants that baked into a painted lane slide to its edge
+      if (bikePaths.length) {
+        const [pen, awayX, awayZ] = bikePen(hx, hz, 0.35);
+        if (pen > 0 && pen < 4) { hx += awayX * pen; hz += awayZ * pen; }
+      }
+      hydrants[i * 4] = hx;
       hydrants[i * 4 + 1] = tile.hyd[i * 3 + 2] / 10;
-      hydrants[i * 4 + 2] = toWorld(tile.hyd[i * 3 + 1], oz);
+      hydrants[i * 4 + 2] = hz;
       hydrants[i * 4 + 3] = hash01(seedBase + i * 61) * Math.PI * 2;
     }
   }
@@ -591,6 +813,7 @@ function buildTile(tile: TileJson): BuildResponse {
           start: new Uint32Array(mmStart),
           pts: new Float32Array(mmPts),
           width: new Float32Array(mmWidth),
+          kind: new Uint8Array(mmKind),
         }
       : null,
   };
@@ -614,8 +837,18 @@ self.onmessage = async (ev: MessageEvent<BuildRequest>) => {
     }
     if (out.trees) transfer.push(out.trees.buffer);
     if (out.hydrants) transfer.push(out.hydrants.buffer);
-    if (out.collision) transfer.push(out.collision.ringStart.buffer, out.collision.points.buffer, out.collision.aabb.buffer);
-    if (out.roadPaths) transfer.push(out.roadPaths.start.buffer, out.roadPaths.pts.buffer, out.roadPaths.width.buffer);
+    if (out.collision) {
+      transfer.push(
+        out.collision.ringStart.buffer, out.collision.points.buffer, out.collision.aabb.buffer,
+        out.collision.top.buffer, out.collision.base.buffer,
+      );
+    }
+    if (out.roadPaths) {
+      transfer.push(
+        out.roadPaths.start.buffer, out.roadPaths.pts.buffer,
+        out.roadPaths.width.buffer, out.roadPaths.kind.buffer,
+      );
+    }
     (self as unknown as Worker).postMessage(out, transfer);
   } catch (e) {
     (self as unknown as Worker).postMessage({

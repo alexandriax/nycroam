@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import type { World } from '../engine/World';
+import { PATH_KIND_BIKE } from '../engine/tileTypes';
 import { SANS } from '../engine/fonts';
 
 // meters from center to edge. The widest shows most of the island at once.
@@ -147,17 +148,27 @@ export default function MiniMap({ world, size = 208, layer = 'transit' }: { worl
         // radius + one tile. (When panned far this is empty — tiles only stream
         // near the player — but the outline + POIs still draw.)
         const tileR = Math.ceil(radius / 256) + 1;
+        // bike lanes stroke separately (green, on top of the street grid)
+        const bikePath = new Path2D();
+        let hasBike = false;
         strokeBuckets((bucket) => {
           for (const rp of world.roadPathsNear(c.x, c.z, tileR)) {
             const count = rp.start.length - 1;
             for (let i = 0; i < count; i++) {
               const a = rp.start[i], b = rp.start[i + 1];
-              const path = bucket(rp.width[i] * s * 0.75);
+              const isBike = rp.kind[i] === PATH_KIND_BIKE;
+              const path = isBike ? bikePath : bucket(rp.width[i] * s * 0.75);
+              if (isBike) hasBike = true;
               path.moveTo(sx(rp.pts[a * 2]), sy(rp.pts[a * 2 + 1]));
               for (let j = a + 1; j < b; j++) path.lineTo(sx(rp.pts[j * 2]), sy(rp.pts[j * 2 + 1]));
             }
           }
         }, 0.7);
+        if (hasBike) {
+          ctx.strokeStyle = '#2da05a';
+          ctx.lineWidth = Math.max(0.8, 2.4 * s * 0.75);
+          ctx.stroke(bikePath);
+        }
       } else if (zoomIdx >= MAJORS_ZOOM_IDX && d?.majors.length) {
         // avenues + highways only, island-wide, with a viewport cull
         const lim = radius * 1.05;

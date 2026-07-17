@@ -55,6 +55,12 @@ const BUS_TICK = 0.35;
 const SEG_DWELL = 0;
 const SEG_DRIVE = 1;
 
+// Persistent right-of-travel lane offset (m) from the GTFS shape. The shapes
+// are street centerlines and opposite directions often share the SAME line,
+// so without this buses run head-on down the middle of two-way streets —
+// keeping right puts each direction in its own lane, US-style.
+const BASE_LAT = 3.0;
+
 // ---- per-direction runtime (a timetable + geometry) ----
 interface DirRT {
   routeIdx: number;
@@ -358,7 +364,10 @@ export class BusSystem {
 
     // curb pull-in per stop: lateral (right-of-travel) distance from the shape
     // to the pole, minus the door offset and a sidewalk gap. Clamped: never
-    // steer left (a wrong-side pole) and never lunge more than 5 m.
+    // steer left (a wrong-side pole) and never lunge more than 5 m. Floored at
+    // the running-lane offset when the pole is far enough out that holding the
+    // lane still leaves door clearance — the bus shouldn't swing back toward
+    // the centerline just to serve a stop.
     const curbPull = new Float64Array(nStops);
     for (let i = 0; i < nStops; i++) {
       const info = data.stops[stopIds[i]];
@@ -376,7 +385,10 @@ export class BusSystem {
       if (len < 1e-6) continue;
       // right-of-travel normal = (-tz, tx); lateral component of pole - shapePt
       const lat = (info.p[0] - sx) * (-dzs / len) + (info.p[1] - sz) * (dxs / len);
-      curbPull[i] = Math.max(0, Math.min(5, lat - 3.1));
+      curbPull[i] = Math.max(
+        Math.max(0, Math.min(5, lat - 3.1)),
+        Math.min(BASE_LAT, lat - 1.8),
+      );
     }
 
     return {
@@ -433,15 +445,18 @@ export class BusSystem {
       const e = u * u * (3 - 2 * u);
       o.s = dir.segSStart[si] + e * (dir.segSEnd[si] - dir.segSStart[si]);
       // ease off the previous stop's curb over the first 15% of the drive,
-      // pull in toward the next stop's curb over the last 20%
+      // pull in toward the next stop's curb over the last 20% — and hold the
+      // right-hand running lane (BASE_LAT) for the rest of the block
       if (u < 0.15) {
         const b = 1 - u / 0.15;
-        o.lat = dir.curbPull[o.stopIdx - 1] * b * b * (3 - 2 * b);
+        const w = b * b * (3 - 2 * b);
+        o.lat = BASE_LAT + (dir.curbPull[o.stopIdx - 1] - BASE_LAT) * w;
       } else if (u > 0.8) {
         const c = (u - 0.8) / 0.2;
-        o.lat = dir.curbPull[o.stopIdx] * c * c * (3 - 2 * c);
+        const w = c * c * (3 - 2 * c);
+        o.lat = BASE_LAT + (dir.curbPull[o.stopIdx] - BASE_LAT) * w;
       } else {
-        o.lat = 0;
+        o.lat = BASE_LAT;
       }
       o.doorT = 0;
       o.state = 'moving';
@@ -665,16 +680,27 @@ export class BusSystem {
       const rt = this.routesById.get(rid);
       if (rt) badges.push({ id: rt.id, color: rt.color, sbs: rt.sbs });
     }
-    // orient +x along the street, +z toward the curb (= right-of-travel of a
-    // serving direction). GTFS stop point sits on the curb; buses pass streetside.
+    // orient the kit so its open face (+z: bench, opening) looks AT the
+    // roadway: local +z maps to world (sin yaw, cos yaw), aimed at the point
+    // on the serving route's shape where the bus actually pulls in. Deriving
+    // the facing from the resolved kit position (rather than assuming the kit
+    // sits right-of-travel) keeps it correct no matter which side the sidewalk
+    // ejection landed on.
     let yaw = hash01(st.seed * 31 + 7) * Math.PI * 2;
     const serving = this.stopIndex.get(st.id);
     if (serving && serving.length) {
       const s0 = serving[0];
       const dir = this.routes[s0.r].dirs.find((d) => d.dirIdx === s0.d);
       if (dir) {
-        this.tangentAt(dir, dir.stopS[s0.si], _tan);
-        yaw = Math.atan2(-_tan.z, _tan.x);
+        this.pointAt(dir, dir.stopS[s0.si], _pt);
+        const toStreetX = _pt.x - sx, toStreetZ = _pt.z - sz;
+        if (Math.hypot(toStreetX, toStreetZ) > 0.5) {
+          yaw = Math.atan2(toStreetX, toStreetZ);
+        } else {
+          // kit landed on the shape itself — fall back to the travel tangent
+          this.tangentAt(dir, dir.stopS[s0.si], _tan);
+          yaw = Math.atan2(-_tan.z, _tan.x) + Math.PI;
+        }
       }
     }
     const shelter = badges.length >= 2 && hash01(st.seed * 13 + 2) < 0.45;

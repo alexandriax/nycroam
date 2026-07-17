@@ -17,6 +17,7 @@ interface TileRecord {
   group: THREE.Group | null;
   collision: CollisionData | null;
   roadPaths: RoadPaths | null;
+  signs: BuildResponse['signs']; // kept for the "current street" HUD lookup
   geometries: THREE.BufferGeometry[];
   textures: THREE.Texture[];
 }
@@ -136,6 +137,19 @@ export class TileManager {
     return out;
   }
 
+  /** Street-sign assemblies (names + blade bearings) around (x,z) — 3×3 tiles. */
+  signsNear(x: number, z: number): NonNullable<BuildResponse['signs']> {
+    const tx = Math.floor(x / TILE_SIZE), tz = Math.floor(z / TILE_SIZE);
+    const out: NonNullable<BuildResponse['signs']> = [];
+    for (let dx = -1; dx <= 1; dx++) {
+      for (let dz = -1; dz <= 1; dz++) {
+        const r = this.records.get(tileKey(tx + dx, tz + dz));
+        if (r?.signs) out.push(...r.signs);
+      }
+    }
+    return out;
+  }
+
   update(camX: number, camZ: number) {
     if (!this.ready) return;
     const ctx = Math.floor(camX / TILE_SIZE), ctz = Math.floor(camZ / TILE_SIZE);
@@ -150,7 +164,7 @@ export class TileManager {
         const cx = (tx + 0.5) * TILE_SIZE, cz = (tz + 0.5) * TILE_SIZE;
         const d = Math.hypot(cx - camX, cz - camZ);
         if (d > this.loadRadius) continue;
-        this.records.set(key, { key, tx, tz, state: 'queued', group: null, collision: null, roadPaths: null, geometries: [], textures: [] });
+        this.records.set(key, { key, tx, tz, state: 'queued', group: null, collision: null, roadPaths: null, signs: null, geometries: [], textures: [] });
         this.queue.push(key);
       }
     }
@@ -277,6 +291,7 @@ export class TileManager {
     rec.group = group;
     rec.collision = res.collision;
     rec.roadPaths = res.roadPaths;
+    rec.signs = res.signs;
     rec.state = 'ready';
     this.scene.add(group);
   }

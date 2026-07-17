@@ -2,7 +2,8 @@ import * as THREE from 'three';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import { TileManager } from './TileManager';
 import { PlayerControls } from './controls';
-import { resolveBuildingCollision, nearestWallDir, floorAt, floorAtAny, pointInBuildings } from './collision';
+import { resolveBuildingCollision, nearestWallDir, floorAt, floorAtAny, pointInBuildings, roofBelow } from './collision';
+import { PATH_KIND_ROAD } from './tileTypes';
 import { setupSky, setupLights, followSun, SKY } from './sky';
 import { quality } from './quality';
 import { makeSkylineMaterial, makeFlatMaterial, makeWaterMaterial } from './materials';
@@ -49,6 +50,7 @@ export interface HudState {
   promptHint: string | null; // action verb ("grab a bike"); null = subway walk-in default
   riding: boolean; // on a bike
   area: string | null; // current neighborhood (street mode)
+  street: string | null; // street the player is standing on (street/bus mode)
   stationName: string | null;
   stationRoutes: string[];
   ride: RideHud | null;
@@ -127,7 +129,7 @@ export class World {
   private flyVel = new THREE.Vector3();
   private flyTarget = new THREE.Vector3();
   hud: HudState = {
-    mode: 'street', fly: false, prompt: null, promptRoutes: [], promptBus: [], promptHint: null, riding: false, area: null, stationName: null,
+    mode: 'street', fly: false, prompt: null, promptRoutes: [], promptBus: [], promptHint: null, riding: false, area: null, street: null, stationName: null,
     stationRoutes: [], ride: null, bus: null, tilesLoaded: 0, tilesPending: 0, fps: 0, loading: true, error: null,
   };
   onHud: ((h: HudState) => void) | null = null;
@@ -164,7 +166,7 @@ export class World {
       this.streetScene,
       (x, z) => {
         if (!this.tiles.readyAround(x, z)) return null; // wait for building collision before placing
-        return resolveBuildingCollision(x, z, 4.2, this.tiles.collisionNear(x, z));
+        return resolveBuildingCollision(x, z, 4.2, this.tiles.collisionNear(x, z), heightAt(x, z));
       },
       (x, z) => nearestWallDir(x, z, 15, this.tiles.collisionNear(x, z)),
     );
@@ -179,7 +181,7 @@ export class World {
       this.streetScene,
       (x, z) => {
         if (!this.tiles.readyAround(x, z)) return null;
-        return resolveBuildingCollision(x, z, 2.6, this.tiles.collisionNear(x, z));
+        return resolveBuildingCollision(x, z, 2.6, this.tiles.collisionNear(x, z), heightAt(x, z));
       },
       (x, z) => nearestWallDir(x, z, 15, this.tiles.collisionNear(x, z)),
     );
@@ -302,6 +304,58 @@ export class World {
         return { ...h, bbox: [minX, minZ, maxX, maxZ] as [number, number, number, number] };
       });
     } catch { /* label falls back to "Manhattan" */ }
+  }
+
+  /**
+   * Name of the street at (x,z): nearest street centerline within its ribbon
+   * (+ a sidewalk margin), named by the surrounding corner signs — each sign
+   * blade carries a street name and that street's bearing, so the blade whose
+   * line best passes through the player, running parallel to the road they're
+   * on, is the street they're standing on.
+   */
+  private streetAt(x: number, z: number): string | null {
+    const paths = this.tiles.roadPathsNear(x, z, 1);
+    let best = Infinity; // distance beyond acceptance, for tie-breaks
+    let tanX = 0, tanZ = 0;
+    for (const rp of paths) {
+      const roadCount = rp.start.length - 1;
+      for (let r = 0; r < roadCount; r++) {
+        if (rp.kind[r] !== PATH_KIND_ROAD) continue; // bike lanes don't name streets
+        const allow = rp.width[r] * 0.5 + 6; // ribbon + sidewalk margin
+        const a = rp.start[r], b = rp.start[r + 1];
+        for (let j = a; j < b - 1; j++) {
+          const x1 = rp.pts[j * 2], z1 = rp.pts[j * 2 + 1];
+          const x2 = rp.pts[(j + 1) * 2], z2 = rp.pts[(j + 1) * 2 + 1];
+          const dx = x2 - x1, dz = z2 - z1, l2 = dx * dx + dz * dz;
+          if (l2 < 1e-6) continue;
+          let t = ((x - x1) * dx + (z - z1) * dz) / l2;
+          t = t < 0 ? 0 : t > 1 ? 1 : t;
+          const d = Math.hypot(x - (x1 + t * dx), z - (z1 + t * dz)) - allow;
+          if (d < best) { best = d; tanX = dx; tanZ = dz; }
+        }
+      }
+    }
+    if (best > 0) return null; // not on/near any street
+    const roadAng = Math.atan2(tanZ, tanX);
+    let bestScore = Infinity;
+    let name: string | null = null;
+    for (const s of this.tiles.signsNear(x, z)) {
+      const dSign = Math.hypot(s.x - x, s.z - z);
+      if (dSign > 170) continue;
+      for (let b = 0; b < s.names.length; b++) {
+        const blade = ((s.angles[b] ?? 0) * Math.PI) / 180;
+        // parallel-ness to the road under the player (mod 180°)
+        let dAng = Math.abs(roadAng - blade) % Math.PI;
+        if (dAng > Math.PI / 2) dAng = Math.PI - dAng;
+        if (dAng > 0.55) continue; // ~31°: not this street's direction
+        // perpendicular distance from the player to the blade's street line
+        const px = x - s.x, pz = z - s.z;
+        const perp = Math.abs(px * -Math.sin(blade) + pz * Math.cos(blade));
+        const score = perp + dSign * 0.18 + dAng * 12;
+        if (score < bestScore) { bestScore = score; name = s.names[b]; }
+      }
+    }
+    return name;
   }
 
   /** Neighborhood containing (x,z) — even-odd over all rings, so holes work. */
@@ -440,13 +494,15 @@ export class World {
    */
   private freeSpawn(x: number, z: number): [number, number] {
     const near0 = this.tiles.collisionNear(x, z);
-    if (!pointInBuildings(x, z, near0)) return resolveBuildingCollision(x, z, 0.5, near0);
+    const y0 = heightAt(x, z);
+    if (!pointInBuildings(x, z, near0, y0)) return resolveBuildingCollision(x, z, 0.5, near0, y0);
     for (let ring = 2.5; ring <= 26; ring += 2.5) {
       for (let a = 0; a < 16; a++) {
         const ang = (a / 16) * Math.PI * 2;
         const tx = x + Math.cos(ang) * ring, tz = z + Math.sin(ang) * ring;
         const near = this.tiles.collisionNear(tx, tz);
-        if (!pointInBuildings(tx, tz, near)) return resolveBuildingCollision(tx, tz, 0.5, near);
+        const ty = heightAt(tx, tz);
+        if (!pointInBuildings(tx, tz, near, ty)) return resolveBuildingCollision(tx, tz, 0.5, near, ty);
       }
     }
     return [x, z]; // fully enclosed (shouldn't happen in Manhattan) — leave as-is
@@ -459,9 +515,14 @@ export class World {
    * pass on the street side, so the pole belongs a couple meters curbward.
    */
   private resolveBusStop(x: number, z: number): [number, number] | null {
-    const off = this.ejectFromRoads(x, z, 1.6);
+    // 2.4m clearance so the shelter's canopy (not just the pole) clears the
+    // roadway and any painted bike lane beside it
+    const off = this.ejectFromRoads(x, z, 2.4);
     if (!off) return null; // tiles not ready yet — defer
-    return resolveBuildingCollision(off[0], off[1], 0.8, this.tiles.collisionNear(off[0], off[1]));
+    const [bx, bz] = resolveBuildingCollision(off[0], off[1], 0.8, this.tiles.collisionNear(off[0], off[1]), heightAt(off[0], off[1]));
+    // building push-back can re-enter the roadbed on narrow sidewalks — one
+    // lighter second pass settles between the two
+    return this.ejectFromRoads(bx, bz, 1.2) ?? [bx, bz];
   }
 
   /**
@@ -633,7 +694,7 @@ export class World {
       this.hud.mode = 'street';
       this.hud.bus = null;
       // narrow sidewalks: never step off INTO a building face
-      [ex, ez] = resolveBuildingCollision(ex, ez, 0.42, this.tiles.collisionNear(ex, ez));
+      [ex, ez] = resolveBuildingCollision(ex, ez, 0.42, this.tiles.collisionNear(ex, ez), heightAt(ex, ez));
       this.pos.set(ex, heightAt(ex, ez), ez);
       this.dismountBusBike(); // back on the bike if you brought one aboard
       this.spawnResolve = true; // re-eject once tiles here are fully loaded
@@ -655,7 +716,11 @@ export class World {
     this.mode = 'street';
     this.hud.mode = 'street';
     this.hud.bus = null;
-    this.pos.set(h.pos.x, heightAt(h.pos.x, h.pos.z), h.pos.z);
+    const [ex, ez] = resolveBuildingCollision(
+      h.pos.x, h.pos.z, 0.42, this.tiles.collisionNear(h.pos.x, h.pos.z), heightAt(h.pos.x, h.pos.z),
+    );
+    this.pos.set(ex, heightAt(ex, ez), ez);
+    this.spawnResolve = true; // full free-spawn pass once tiles are ready
     this.dismountBusBike();
     this.busEndSince = 0;
     this.lastEnterGuard = performance.now();
@@ -847,17 +912,25 @@ export class World {
           (fwd.z * input.forward + right.z * input.strafe) * speed,
         );
         this.flyVel.lerp(this.flyTarget, 1 - Math.exp(-dt * 2.4));
-        this.pos.x += this.flyVel.x * dt;
-        this.pos.z += this.flyVel.z * dt;
-        // never descend below the ground under you: clamp to terrain + clearance
-        // (Manhattan hills rise ~80m, so a fixed floor let you sink underground)
-        const floorY = heightAt(this.pos.x, this.pos.z) + 1.3;
+        let fx = this.pos.x + this.flyVel.x * dt, fz = this.pos.z + this.flyVel.z * dt;
+        // walls stop you at your altitude; rings you're above don't
+        const nearFly = this.tiles.collisionNear(fx, fz);
+        [fx, fz] = resolveBuildingCollision(fx, fz, 0.42, nearFly, this.pos.y);
+        this.pos.x = fx; this.pos.z = fz;
+        // never descend below the ground under you — terrain, or the roof of
+        // whatever building you're over, so dropping out of the sky lands you
+        // on top instead of falling through into the interior
+        const roofFly = roofBelow(fx, fz, this.pos.y, nearFly);
+        const floorY = Math.max(heightAt(fx, fz) + 1.3, roofFly ?? -Infinity);
         this.pos.y = Math.max(floorY, Math.min(1200, this.pos.y + this.flyVel.y * dt));
       } else {
         this.flyVel.set(0, 0, 0);
         let nx = this.pos.x + dx, nz = this.pos.z + dz;
-        [nx, nz] = resolveBuildingCollision(nx, nz, 0.42, this.tiles.collisionNear(nx, nz));
-        const g = heightAt(nx, nz);
+        const nearWalk = this.tiles.collisionNear(nx, nz);
+        [nx, nz] = resolveBuildingCollision(nx, nz, 0.42, nearWalk, this.pos.y);
+        // ground = terrain, or the rooftop you're standing on / dropping onto
+        const roof = roofBelow(nx, nz, this.pos.y, nearWalk);
+        const g = Math.max(heightAt(nx, nz), roof ?? -Infinity);
         // follow terrain smoothly (streets are graded, not stepped)
         this.pos.y += (g - this.pos.y) * Math.min(1, dt * 10);
         if (Math.abs(g - this.pos.y) < 0.02) this.pos.y = g;
@@ -896,6 +969,11 @@ export class World {
       if (this.hoodTimer <= 0) {
         this.hoodTimer = 1.0;
         this.hud.area = this.hoodAt(this.pos.x, this.pos.z);
+        // street readout only while actually down on the street grid — not
+        // flying, not standing on a rooftop
+        const grounded = !this.controls.fly
+          && this.pos.y - heightAt(this.pos.x, this.pos.z) < 3;
+        this.hud.street = grounded ? this.streetAt(this.pos.x, this.pos.z) : null;
       }
 
       // proximity prompts. On a bike the subway is out of reach (dock first),
@@ -1008,6 +1086,7 @@ export class World {
         if (this.hoodTimer <= 0) {
           this.hoodTimer = 1.0;
           this.hud.area = this.hoodAt(this.pos.x, this.pos.z);
+          this.hud.street = this.streetAt(this.pos.x, this.pos.z); // the street the bus is on
         }
         this.hud.bus = h.hud;
         this.hud.prompt = null;
@@ -1164,6 +1243,9 @@ export class World {
     // first-visit default: Columbus Circle (a saved position overrides it below)
     const [sx, sz] = lonLatToXZ(START.lon, START.lat);
     this.pos.set(sx, 0, sz);
+    // initial spawn gets the same building ejection as teleports — a saved (or
+    // default) point can sit inside a footprint that streams in around it
+    this.spawnResolve = true;
     try {
       // fall back to the pre-rename key so an existing saved position survives
       const raw = localStorage.getItem(SAVE_KEY) ?? localStorage.getItem(LEGACY_SAVE_KEY);
