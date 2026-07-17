@@ -59,7 +59,22 @@ export interface TrackInfo {
    *  trackZs (+1 = platform toward +z, -1 = toward -z). Doors/windows on a
    *  platform train open on this side only; the far side stays solid. */
   platformSides?: (1 | -1)[];
+  /** Route rotation per stopping track, aligned with trackZs. When present it
+   *  overrides the scheduler's local/express split heuristic — this is how
+   *  complex specs pin each service to its REAL track. */
+  trackRoutes?: string[][];
+  /** Per stopping track: trains physically travel opposite to dirSign-along-+x
+   *  (see TrackSpec.flip). Aligned with trackZs. */
+  trackFlips?: boolean[];
   passTrackZs?: number[]; // express pass-through tracks (no platform)
+  /** Routes blasting through each pass track, aligned with passTrackZs
+   *  (fallback: the express partner of the station's first route). */
+  passTrackRoutes?: string[][];
+  /** Direction of each pass track, aligned with passTrackZs. */
+  passTrackDirs?: (1 | -1)[];
+  /** Terminal group: tracks end (bumpers) at this local x sign; trains arrive
+   *  from the opposite portal, dwell, and reverse back out the way they came. */
+  stubEnd?: 1 | -1;
   railY: number; // rail-top y (train group y)
   half: number; // platformLength / 2
   portal: number; // |x| where tunnel/viaduct swallows trains

@@ -20,6 +20,8 @@ import { BUS, type BusHud, type BusRouteBadge } from './bus/types';
 import { loadSans } from './fonts';
 import { StationWorld } from './subway/StationWorld';
 import { ElevatedStationWorld } from './subway/ElevatedStationWorld';
+import { ComplexStationWorld } from './subway/ComplexStationWorld';
+import { complexFor } from './subway/complexes';
 import { TrainScheduler } from './subway/scheduler';
 import { RideWorld, type RideHud } from './subway/RideWorld';
 import type { StationSpec, NetworkData, Arrival } from './subway/types';
@@ -91,7 +93,7 @@ export class World {
   private riding = false; // on a bike (street mode only)
   private bikeView: BikeView | null = null; // built on the first ride, kept after
   private controls: PlayerControls;
-  private station: StationWorld | ElevatedStationWorld | null = null;
+  private station: StationWorld | ElevatedStationWorld | ComplexStationWorld | null = null;
   private scheduler: TrainScheduler | null = null;
   private ride: RideWorld | null = null;
   private network: NetworkData | null = null;
@@ -608,18 +610,20 @@ export class World {
     } else if (this.mode === 'ride') {
       if (this.ride?.canExit) this.exitRide();
     } else if (this.station) {
-      // action near an exit zone exits
+      // action near an exit zone exits (y-guarded: complexes stack levels, so
+      // a zone's rect may sit right above a deeper platform)
       const p = this.pos;
       for (const zn of this.station.exitZones) {
-        if (p.x >= zn.minX - 2 && p.x <= zn.maxX + 2 && p.z >= zn.minZ - 2 && p.z <= zn.maxZ + 2) {
+        if (p.x >= zn.minX - 2 && p.x <= zn.maxX + 2 && p.z >= zn.minZ - 2 && p.z <= zn.maxZ + 2
+          && Math.abs(p.y - zn.y) < 2.4) {
           this.exitStation();
           return;
         }
       }
       // otherwise: board a dwelling train if one is open next to us
-      if (this.scheduler && this.network) {
-        const b = this.scheduler.boardable(this.pos.x, this.pos.z);
-        if (b && this.network.routes[b.route]) this.beginRide(b.route, b.dirSign);
+      if (this.network) {
+        const b = this.stationBoardable();
+        if (b && this.network.routes[b.route]) this.beginRide(b.route, b.dirSign, b.startId);
       }
     }
   }
@@ -750,13 +754,16 @@ export class World {
     }
   }
 
-  private async beginRide(route: string, dirSign: 1 | -1) {
+  private async beginRide(route: string, dirSign: 1 | -1, startIdOverride?: string) {
     if (this.transitioning || !this.network || !this.currentStationSpec) return;
     this.transitioning = true;
     try {
       this.onFade?.(true);
       await wait(420);
-      const startId = this.currentStationSpec.id;
+      // In a complex the ride starts from the GROUP the player boarded at
+      // (e.g. the [7] platforms inside Times Sq), not the member station whose
+      // entrance they happened to walk in through.
+      const startId = startIdOverride ?? this.currentStationSpec.id;
       // The 42nd St shuttle is a terminal at BOTH ends (only Times Sq <-> Grand
       // Central): whichever platform you board, the sole destination is the other
       // stop. Force the direction toward it so a 2-stop line never boards you into
@@ -797,14 +804,17 @@ export class World {
       const spec = this.entrances.stationsMap.get(stationId);
       if (spec) {
         this.buildStation(spec);
-        this.pos.copy(this.station!.platformSpawn);
+        // in a complex, step off onto the platform of the group we rode into
+        this.pos.copy(this.station instanceof ComplexStationWorld
+          ? this.station.platformSpawnFor(stationId)
+          : this.station!.platformSpawn);
         // exiting the subway drops you back on the street at this station's entrance
         const ent = this.entrances.entranceFor(spec);
         this.returnPos.set(ent[0] + 2.2, 0, ent[1] + 2.2);
         this.mode = 'station';
         this.hud.mode = 'station';
-        this.hud.stationName = spec.name;
-        this.hud.stationRoutes = spec.routes;
+        this.hud.stationName = this.station instanceof ComplexStationWorld ? this.station.name : spec.name;
+        this.hud.stationRoutes = this.station instanceof ComplexStationWorld ? this.station.routesUnion : spec.routes;
       } else {
         this.mode = 'street';
         this.hud.mode = 'street';
@@ -822,6 +832,18 @@ export class World {
   }
 
   private buildStation(spec: StationSpec) {
+    // Station complexes with a bespoke layout (authored from the Project Subway
+    // NYC drawings) build the whole multi-line complex — every member's trains
+    // run on their own tracks and transfers happen inside one world.
+    const cx = complexFor(spec.id);
+    if (cx) {
+      const world = new ComplexStationWorld(cx, this.envTex);
+      world.attachTrains(this.network);
+      this.station = world;
+      this.scheduler = null; // the complex owns one scheduler per track group
+      this.currentStationSpec = spec;
+      return;
+    }
     const elevated = /elev|viaduct/i.test(spec.structure);
     this.station = elevated
       ? new ElevatedStationWorld(spec, this.envTex)
@@ -831,6 +853,31 @@ export class World {
     // its own timer (reads the live scheduler each call, so it survives rebuilds).
     (this.station as { arrivalsFn?: () => Arrival[] }).arrivalsFn = () => this.scheduler?.arrivals() ?? [];
     this.currentStationSpec = spec;
+  }
+
+  /**
+   * The boardable dwelling train nearest the player, unified across the two
+   * station kinds: the classic single-line scheduler (track z in station
+   * coords) or a complex's per-group schedulers (which report the door
+   * distance and the GROUP's GTFS id — the ride must start from the group the
+   * player actually boarded at, not the entrance's member station).
+   */
+  private stationBoardable(): { route: string; dirSign: 1 | -1; doorDist: number; startId: string } | null {
+    if (this.scheduler) {
+      const b = this.scheduler.boardable(this.pos.x, this.pos.z);
+      if (!b || !this.currentStationSpec) return null;
+      return {
+        route: b.route, dirSign: b.dirSign,
+        doorDist: Math.abs(this.pos.z - b.trackZ),
+        startId: this.currentStationSpec.id,
+      };
+    }
+    if (this.station instanceof ComplexStationWorld) {
+      const b = this.station.boardable(this.pos.x, this.pos.y, this.pos.z);
+      if (!b) return null;
+      return { route: b.route, dirSign: b.dirSign, doorDist: b.doorDist, startId: b.stationId };
+    }
+    return null;
   }
 
   private async enterStation(spec: StationSpec, entrancePos: [number, number]) {
@@ -843,10 +890,14 @@ export class World {
       this.buildStation(spec);
       this.mode = 'station';
       this.controls.fly = false;
-      this.pos.copy(this.station!.spawn);
+      // in a complex, spawn at the fare mezzanine nearest the member station
+      // whose entrance we walked in through
+      this.pos.copy(this.station instanceof ComplexStationWorld
+        ? this.station.spawnFor(spec.id)
+        : this.station!.spawn);
       this.hud.mode = 'station';
-      this.hud.stationName = spec.name;
-      this.hud.stationRoutes = spec.routes;
+      this.hud.stationName = this.station instanceof ComplexStationWorld ? this.station.name : spec.name;
+      this.hud.stationRoutes = this.station instanceof ComplexStationWorld ? this.station.routesUnion : spec.routes;
       this.lastEnterGuard = performance.now();
       this.pushHud();
       await wait(80);
@@ -1169,15 +1220,17 @@ export class World {
       st.update(dt);
       this.scheduler?.update(dt);
 
-      // exit zones: auto-exit at top of street stairs
+      // exit zones: auto-exit at top of street stairs (y-guarded — complexes
+      // stack levels, so a zone rect can sit directly above a deeper platform)
       let inExit = false;
       for (const zn of st.exitZones) {
-        if (this.pos.x >= zn.minX && this.pos.x <= zn.maxX && this.pos.z >= zn.minZ && this.pos.z <= zn.maxZ) {
+        if (this.pos.x >= zn.minX && this.pos.x <= zn.maxX && this.pos.z >= zn.minZ && this.pos.z <= zn.maxZ
+          && Math.abs(this.pos.y - zn.y) < 2.4) {
           inExit = true;
           if (performance.now() - this.lastEnterGuard > 2500 && !this.transitioning) this.exitStation();
         }
       }
-      const b = !inExit && this.network ? this.scheduler?.boardable(this.pos.x, this.pos.z) : null;
+      const b = !inExit && this.network ? this.stationBoardable() : null;
       this.hud.promptBus = [];
       if (inExit) {
         this.hud.prompt = 'Exit to street';
@@ -1190,11 +1243,11 @@ export class World {
         // still works via tryAction). The guard blocks an instant re-board right
         // after stepping off, and the ~3m band means you must reach the platform
         // edge, not just stand on the platform.
-        if (Math.abs(this.pos.z - b.trackZ) < 3.0
+        if (b.doorDist < 3.0
           && performance.now() - this.lastEnterGuard > 2500
           && !this.transitioning
           && this.network?.routes[b.route]) {
-          this.beginRide(b.route, b.dirSign);
+          this.beginRide(b.route, b.dirSign, b.startId);
         }
       } else {
         this.hud.prompt = null;
@@ -1302,12 +1355,17 @@ export class World {
   getBuses() { return this.buses.busPositions(); }
   /** Road centerlines near the player, for the minimap's closest zoom. */
   roadPathsNear(x: number, z: number, tileR = 2) { return this.tiles.roadPathsNear(x, z, tileR); }
-  getTrains() { return this.scheduler?.trainStates ?? []; }
+  getTrains() {
+    if (this.scheduler) return this.scheduler.trainStates;
+    if (this.station instanceof ComplexStationWorld) return this.station.trainStates;
+    return [];
+  }
   getRide() { return this.ride?.hudInfo ?? null; }
   /** Debug: advance the station/ride sim by `s` seconds in fixed steps. */
   ffStation(s: number) {
     for (let t = 0; t < s; t += 0.05) {
       this.scheduler?.update(0.05);
+      if (this.station instanceof ComplexStationWorld) this.station.update(0.05);
       this.ride?.update(0.05);
     }
   }

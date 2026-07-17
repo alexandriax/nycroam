@@ -201,11 +201,29 @@ export function makeNameMosaicTexture(name: string, bandColor: string): { textur
   return { texture, aspect: w / h };
 }
 
-/** Black hanging direction sign: route bullets, text, optional arrow. */
-export function makeHangingSignTexture(opts: { routes: string[]; text: string; arrow?: 'left' | 'right' | 'none' }): { texture: THREE.Texture; aspect: number } {
-  const w = 2048;
+function drawDownArrow(ctx: CanvasRenderingContext2D, cx: number, cy: number, size: number): void {
+  ctx.fillStyle = '#ffffff';
+  ctx.beginPath();
+  ctx.moveTo(cx, cy + size);
+  ctx.lineTo(cx + size * 0.6, cy - size * 0.5);
+  ctx.lineTo(cx - size * 0.6, cy - size * 0.5);
+  ctx.closePath();
+  ctx.fill();
+}
+
+export type SignArrow = 'left' | 'right' | 'up' | 'down' | 'none';
+
+/** Black hanging direction sign: route bullets, text, optional arrow
+ *  (left/right for corridor turns, up = straight ahead, down = stairs down).
+ *  `scale` < 1 bakes a proportionally smaller canvas (complexes hang dozens of
+ *  signs — full-size canvases would burn tens of MB of texture memory). */
+export function makeHangingSignTexture(opts: { routes: string[]; text: string; arrow?: SignArrow; scale?: number }): { texture: THREE.Texture; aspect: number } {
+  // bullet-only signs (junction pointers) get a compact panel — a full-width
+  // canvas would render as a long empty black bar
+  const w = opts.text ? 2048 : Math.max(700, 320 + opts.routes.length * 190);
   const h = 256;
-  const { canvas, ctx } = createCanvas(w, h);
+  const { canvas, ctx } = createCanvas(Math.round(w * (opts.scale ?? 1)), Math.round(h * (opts.scale ?? 1)));
+  if (opts.scale && opts.scale !== 1) ctx.scale(opts.scale, opts.scale);
 
   const margin = 8;
   roundRectPath(ctx, margin, margin, w - margin * 2, h - margin * 2, 28);
@@ -222,6 +240,11 @@ export function makeHangingSignTexture(opts: { routes: string[]; text: string; a
   let x = 44;
   const cy = h / 2 - 8;
   const bulletR = 76;
+  // a left arrow LEADS the sign (MTA convention); all other arrows trail
+  if (opts.arrow === 'left') {
+    drawArrowTriangle(ctx, x + 50, cy, 40, 'left');
+    x += 130;
+  }
   for (const route of opts.routes) {
     drawBullet(ctx, x + bulletR, cy, bulletR, route);
     x += bulletR * 2 + 22;
@@ -234,9 +257,9 @@ export function makeHangingSignTexture(opts: { routes: string[]; text: string; a
   ctx.textBaseline = 'middle';
   ctx.fillText(opts.text, x, cy);
 
-  if (opts.arrow && opts.arrow !== 'none') {
-    drawArrowTriangle(ctx, w - 110, cy, 40, opts.arrow);
-  }
+  if (opts.arrow === 'right') drawArrowTriangle(ctx, w - 110, cy, 40, 'right');
+  else if (opts.arrow === 'up') drawUpArrow(ctx, w - 110, cy, 40);
+  else if (opts.arrow === 'down') drawDownArrow(ctx, w - 110, cy, 40);
 
   const texture = finalizeTexture(canvas);
   return { texture, aspect: w / h };
