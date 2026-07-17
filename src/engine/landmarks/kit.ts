@@ -26,6 +26,13 @@ export interface LandmarkCtx {
    * pipeline cleared for replacement.
    */
   fit?: { w: number; d: number; roofH: number; keptH: number; topW: number; topD: number };
+  /**
+   * Pushes a LOCAL prop position (dx, dz, pre-rotation meters) out of any
+   * roadway onto the sidewalk, `clearance` meters past the curb, and returns
+   * the adjusted LOCAL position. Identity when the landmark isn't
+   * road-sensitive or road data isn't available yet.
+   */
+  clearRoad: (dx: number, dz: number, clearance?: number) => [number, number];
 }
 
 // ---- shared materials (module scope: one instance across all landmarks) ----
