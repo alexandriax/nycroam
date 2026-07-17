@@ -141,12 +141,15 @@ export const COMPLEXES: ComplexSpec[] = [
         fare: { cross: 'x', at: -20, paidSign: 1 },
         exits: [{ at: [-23, -6], dir: 'x-' }],
       },
-      // lower BMT mezzanine (fare at 41/Broadway east corners)
+      // lower BMT mezzanine (fare at 41/Broadway east corners), reaching west
+      // over the 7's box to the head of the 7 stairs
       {
-        rect: [-30, 20, 6, 48], y: 1,
+        rect: [-40, 20, 6, 48], y: 1,
         fare: { cross: 'z', at: 42, paidSign: -1 },
         exits: [{ at: [-20, 45], dir: 'z+' }, { at: [-6, 45], dir: 'z+' }],
       },
+      // the 7's own mezzanine over its island, north of the BMT box
+      { rect: [-42, 50, -28, 78], y: -7 },
     ],
     stairs: [
       // IRT islands from the three mezzanines
@@ -154,9 +157,6 @@ export const COMPLEXES: ComplexSpec[] = [
       { top: [40, 7.15], topY: 6, drop: 6, dir: 'x+' },
       { top: [-15, -7.15], topY: 6, drop: 6, dir: 'x-' },
       { top: [-15, 7.15], topY: 6, drop: 6, dir: 'x-' },
-      // the 7 escalator: dives from the central mezzanine down the canyon
-      // between the IRT and BMT boxes onto the 7's island
-      { top: [-1.5, 15.4], topY: 6, drop: 19, dir: 'x-', kind: 'escalator' },
       // central mezz -> BMT mezz cascade
       { top: [3, 13.5], topY: 6, drop: 5, dir: 'z+' },
       // BMT mezz -> BMT islands
@@ -164,6 +164,11 @@ export const COMPLEXES: ComplexSpec[] = [
       { top: [-15, 39.15], topY: 1, drop: 6, dir: 'x-' },
       { top: [-5, 24.85], topY: 1, drop: 6, dir: 'x+' },
       { top: [-5, 39.15], topY: 1, drop: 6, dir: 'x+' },
+      // BMT mezz -> 7 mezz: drops just past the BMT's outer track, then the
+      // 7 mezz reaches the island inside its own platform band
+      { top: [-35, 46.4], topY: 1, drop: 8, dir: 'z+' },
+      { top: [-35, 62], topY: -7, drop: 6, dir: 'z+' },
+      { top: [-35, 74], topY: -7, drop: 6, dir: 'z+' },
       // shuttle wing -> shuttle island
       { top: [35, 12], topY: 6, drop: 6, dir: 'z+' },
     ],
@@ -382,10 +387,12 @@ export const COMPLEXES: ComplexSpec[] = [
         fare: { cross: 'x', at: 0, paidSign: -1 },
         exits: [{ at: [2, 10], dir: 'x+' }, { at: [2, 30], dir: 'x+' }],
       },
-      // 14 St connector between the two, with a west arm reaching over the L
-      // (the L escalator banks drop from the arm, inside the island's band)
+      // 14 St connector between the two, with a west arm toward the L
       { rect: [-16, -6, 10, 6], y: 6 },
       { rect: [-42, -6, -16, 6], y: 6 },
+      // the L's own mezzanine over its island, in the clear lane between the
+      // two big boxes — its stairs duck UNDER the Lex and BMT stations
+      { rect: [-46, -5, -30, 5], y: -2 },
     ],
     stairs: [
       // BMT islands (pairs descend AWAY from each other)
@@ -398,10 +405,12 @@ export const COMPLEXES: ComplexSpec[] = [
       { top: [-15, 27.15], topY: 6, drop: 6, dir: 'x+' },
       { top: [-22, 12.85], topY: 6, drop: 6, dir: 'x-' },
       { top: [-22, 27.15], topY: 6, drop: 6, dir: 'x-' },
-      // L island: paired banks north and south from the west arm, descending
-      // within the island's own band (never over the L tracks)
-      { top: [-40, 4], topY: 6, drop: 14, dir: 'z+', kind: 'escalator' },
-      { top: [-40, -4.6], topY: 6, drop: 14, dir: 'z-', kind: 'escalator' },
+      // west arm -> L mezzanine (stays high while over the L's tracks)
+      { top: [-30.5, 0], topY: 6, drop: 8, dir: 'x-' },
+      // L mezz -> island: flights passing UNDER the Lex / BMT boxes inside
+      // the island's own band
+      { top: [-40, 2], topY: -2, drop: 6, dir: 'z+' },
+      { top: [-40, -2], topY: -2, drop: 6, dir: 'z-' },
     ],
   },
 
@@ -474,8 +483,10 @@ export const COMPLEXES: ComplexSpec[] = [
       // A/C mezz -> A/C island
       { top: [25, -45], topY: -6, drop: 6, dir: 'z+' },
       { top: [25, -12], topY: -6, drop: 6, dir: 'z-' },
-      // east arm -> both 2/3 side platforms
-      { top: [42, -49.4], topY: -6, drop: 12, dir: 'z+' },
+      // east arm -> both 2/3 side platforms. The near platform is approached
+      // ALONG its own band (a z-run would skim train roofs on the William St
+      // tracks); the far one descends past the tracks at full depth.
+      { top: [44, -28.35], topY: -6, drop: 12, dir: 'x+' },
       { top: [38, -60.4], topY: -6, drop: 12, dir: 'z+' },
     ],
   },
@@ -800,6 +811,8 @@ export const COMPLEXES: ComplexSpec[] = [
         fare: { cross: 'z', at: 56, paidSign: -1 },
         exits: [{ at: [-8, 57.5], dir: 'z+' }, { at: [8, 57.5], dir: 'z+' }],
       },
+      // the F's own landing east of the J/M/Z box, above its platforms
+      { rect: [13, -34, 27, -16], y: -2 },
     ],
     stairs: [
       // crossing mezz -> J/M/Z islands
@@ -808,8 +821,12 @@ export const COMPLEXES: ComplexSpec[] = [
       // Norfolk mezz -> islands
       { top: [4.95, 46], topY: 6, drop: 6, dir: 'z-' },
       { top: [-4.95, 46], topY: 6, drop: 6, dir: 'z-' },
-      // long flights beside the BMT box down to each F side platform
-      { top: [14, -10], topY: 6, drop: 14, dir: 'z-' },
+      // F access: crossing mezz -> the F landing (stays above the F's trains),
+      // then down each side platform's own band; the west flight descends
+      // beside the BMT box directly to the far platform
+      { top: [14, -11.5], topY: 6, drop: 8, dir: 'z-' },
+      { top: [18, -31.65], topY: -2, drop: 6, dir: 'x+' },
+      { top: [18, -18.35], topY: -2, drop: 6, dir: 'x+' },
       { top: [-14.2, 4.4], topY: 6, drop: 14, dir: 'z-' },
     ],
   },
@@ -1326,10 +1343,13 @@ export const COMPLEXES: ComplexSpec[] = [
     name: '59 St-Columbus Circle',
     members: ['125', 'A24'],
     groups: [
+      // the 1's island sits clear south of the IND box — its track bed must
+      // never share plan with the IND mezzanine level (rails through a
+      // concourse is exactly the bug this arrangement prevents)
       {
         id: '125', name: '59 St-Columbus Circle', routes: ['1'],
         division: 'IRT', bandColor: RED, type: 'island', length: 156,
-        y: 0, rot: 0, at: [15, -8],
+        y: 0, rot: 0, at: [15, -30],
         tracks: [{ routes: ['1'], dir: -1 }, { routes: ['1'], dir: 1 }],
       },
       {
@@ -1345,25 +1365,26 @@ export const COMPLEXES: ComplexSpec[] = [
       },
     ],
     mezzes: [
-      // rotunda mezzanine under the Circle
+      // rotunda mezzanine under the Circle, spanning both lines high above;
+      // generous unpaid hall before the fare line
       {
-        rect: [0, -16, 35, 10], y: 6,
-        fare: { cross: 'x', at: 28, paidSign: -1 },
-        exits: [{ at: [31, -12], dir: 'x+' }, { at: [31, 4], dir: 'x+' }],
+        rect: [0, -38, 35, 10], y: 6,
+        fare: { cross: 'x', at: 24, paidSign: -1 },
+        exits: [{ at: [28, -12], dir: 'x+' }, { at: [28, 4], dir: 'x+' }],
       },
       // 58 St mezzanine over the IND
       {
-        rect: [-30, -10, -2, 16], y: -1,
-        fare: { cross: 'z', at: 12, paidSign: -1 },
-        exits: [{ at: [-8, 14], dir: 'z+' }, { at: [-24, 14], dir: 'z+' }],
+        rect: [-34, -6, -2, 20], y: -1,
+        fare: { cross: 'x', at: -28, paidSign: 1 },
+        exits: [{ at: [-31, 15.4], dir: 'z+' }],
       },
     ],
     stairs: [
       // rotunda -> 1 island
-      { top: [8, -8], topY: 6, drop: 6, dir: 'x-' },
-      { top: [26, -8], topY: 6, drop: 6, dir: 'x+' },
-      // rotunda -> IND mezzanine (the transfer bank, clear of the 1's box)
-      { top: [2, 4], topY: 6, drop: 7, dir: 'x-' },
+      { top: [8, -30], topY: 6, drop: 6, dir: 'x-' },
+      { top: [26, -30], topY: 6, drop: 6, dir: 'x+' },
+      // rotunda -> IND mezzanine (the transfer bank)
+      { top: [2, 2], topY: 6, drop: 7, dir: 'x-' },
       // IND mezzanine -> its islands (pairs descend away from each other)
       { top: [-20, -1.15], topY: -1, drop: 6, dir: 'x-' },
       { top: [-20, 13.15], topY: -1, drop: 6, dir: 'x-' },

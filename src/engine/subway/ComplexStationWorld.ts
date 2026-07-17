@@ -1389,14 +1389,28 @@ export class ComplexStationWorld {
           this.hangSign(this.root, routes, 'Downstairs', sx, st.topY + 2.25, sz, span, 'down');
         }
       }
-      // 2) stair-foot signs on platforms: exit & transfers UP this stair
+      // 2) stair-foot signs: on platforms, exit & transfers UP this stair; on
+      // mezzanines/landings, the specific lines (and exit) whose route from
+      // down here climbs THIS stair — without these, a line reached via an
+      // upper level is invisible from below (the Columbus Circle 1 problem)
       if (bn.kind === 'plat') {
         const g = this.groups[bn.groupIdx!];
-        const others = this.groups.filter((og) => og !== g);
+        const others = this.groups.filter((og) => og.spec.id !== g.spec.id);
         const routes = [...new Set(others.flatMap((og) => og.spec.routes))].slice(0, 6);
         const text = others.length ? 'Transfer & Exit' : 'Exit';
         this.hangSign(this.root, routes, text,
           st.bottom[0] + dx * 1.4, st.bottomY + 2.25, st.bottom[1] + dz * 1.4, span, 'up');
+      } else {
+        const upRoutes: string[] = [];
+        this.groups.forEach((g, gi) => {
+          if (groupPaths[gi].get(bIdx)?.stair === st) upRoutes.push(...g.spec.routes);
+        });
+        const exitUp = exitPaths.get(bIdx)?.stair === st;
+        const routes = [...new Set(upRoutes)].slice(0, 6);
+        if (routes.length || exitUp) {
+          this.hangSign(this.root, routes, exitUp && !routes.length ? 'Exit' : exitUp ? '& Exit' : '',
+            st.bottom[0] + dx * 1.4, st.bottomY + 2.25, st.bottom[1] + dz * 1.4, span, 'up');
+        }
       }
     }
 
