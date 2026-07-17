@@ -19,9 +19,25 @@ import type { BusHud } from './bus/types';
  * floorY, eye, doorBothSides) describe the cabin instead of the bus.
  */
 
-const M_TERM = { x: 1792, z: -394.5, name: '59 ST & 2 AV' };
+const M_TERM = { x: 1786, z: -380, name: '59 ST & 2 AV' };
 const RI_TERM = { x: 2707, z: 72, name: 'ROOSEVELT ISLAND' };
 const TRAM_COLOR = '#c8102e';
+
+/**
+ * The route is a WAYPOINT polyline, not a straight terminal-to-terminal line:
+ * a straight line threads THROUGH the 117-128m river-front towers (measured
+ * footprint-edge distances of 0.2-0.9m). Instead the cable flies down the
+ * 59th/60th St corridor (building-free by construction, same heading as the
+ * Queensboro), bends at a waterfront pylon in the gap north of the bridge,
+ * and crosses the channel clear of every tall footprint. Pylon heights keep
+ * the cabin above everything under each span (tallest under-span roof: 26m).
+ * Every coordinate below was verified against the baked tile footprints.
+ */
+const PYLONS: { x: number; z: number; h: number; wide?: boolean }[] = [
+  { x: 1900, z: -318, h: 46, wide: true }, // mid-corridor, legs straddling the street
+  { x: 2140, z: -155, h: 76 },             // waterfront bend, north of the bridge
+  { x: 2610, z: 28, h: 38 },               // Roosevelt Island approach
+];
 
 const DWELL = 22; // s at each terminal
 const TRAVEL = 75; // s per crossing
@@ -105,27 +121,28 @@ export class TramSystem {
     this.scene = scene;
   }
 
-  /** Path depends on terrain height at the terminals — build lazily on the
-   * first update, after loadTerrain has resolved. */
+  /** Path depends on terrain height at the terminals/pylons — build lazily,
+   * and NOT before the terrain has actually streamed in: the first World
+   * update can run pre-terrain, and baking hang heights against heightAt()=0
+   * left the cabins floating 11m below the real plaza grade. */
   private ensurePath() {
     if (this.ready) return;
+    if (heightAt(M_TERM.x, M_TERM.z) <= 0.01 && heightAt(RI_TERM.x, RI_TERM.z) <= 0.01) return;
     this.ready = true;
-    const dx = RI_TERM.x - M_TERM.x, dz = RI_TERM.z - M_TERM.z;
-    const len = Math.hypot(dx, dz);
-    const gM = heightAt(M_TERM.x, M_TERM.z), gRI = heightAt(RI_TERM.x, RI_TERM.z);
-    // hang points: cable dips to ground+5.7 at the terminals (grade boarding),
-    // rises over the pylons and the shipping channel
-    const hang: [number, number][] = [
-      [0, gM + 5.7], [0.16, 48], [0.42, 78], [0.86, 36], [1, gRI + 5.7],
+    // hang points: terminal grade hangs + the verified pylon saddles
+    const hang: [number, number, number][] = [
+      [M_TERM.x, M_TERM.z, heightAt(M_TERM.x, M_TERM.z) + 5.7],
+      ...PYLONS.map((p) => [p.x, p.z, heightAt(p.x, p.z) + p.h] as [number, number, number]),
+      [RI_TERM.x, RI_TERM.z, heightAt(RI_TERM.x, RI_TERM.z) + 5.7],
     ];
     for (let i = 0; i + 1 < hang.length; i++) {
-      const [tA, yA] = hang[i], [tB, yB] = hang[i + 1];
-      const spanLen = (tB - tA) * len;
+      const [xA, zA, yA] = hang[i], [xB, zB, yB] = hang[i + 1];
+      const spanLen = Math.hypot(xB - xA, zB - zA);
       const sag = Math.min(8, spanLen * 0.05);
       const steps = Math.max(4, Math.round(spanLen / 4));
       for (let k = i === 0 ? 0 : 1; k <= steps; k++) {
-        const u = k / steps, t = tA + (tB - tA) * u;
-        this.pathXZ.push([M_TERM.x + dx * t, M_TERM.z + dz * t]);
+        const u = k / steps;
+        this.pathXZ.push([xA + (xB - xA) * u, zA + (zB - zA) * u]);
         this.pathY.push(yA + (yB - yA) * u - sag * 4 * u * (1 - u));
       }
     }
@@ -182,6 +199,7 @@ export class TramSystem {
 
   update(x: number, z: number, dt: number) {
     this.ensurePath();
+    if (!this.ready) return; // terrain not streamed yet — no path to simulate
     this.clockS += dt;
     for (const c of this.cabins) this.stepCabin(c);
     if (this.ride && this.ride.cabin.state === 'moving') this.rideMoved = true;
@@ -243,15 +261,16 @@ export class TramSystem {
     return { group: g, leaves };
   }
 
-  private buildPylon(x: number, z: number, top: number, yaw: number): THREE.Group {
+  private buildPylon(x: number, z: number, top: number, yaw: number, wide = false): THREE.Group {
     const g = new THREE.Group();
     const ground = heightAt(x, z);
     const h = top - ground;
-    const baseHalf = 3.4, topHalf = 1.6;
+    // wide pylons straddle a street: legs land at the curbs, not in the lanes
+    const baseHalf = wide ? 3.0 : 3.4, baseSpread = wide ? 11 : baseHalf * 0.7, topHalf = 1.6;
     const base = [[1, 1], [-1, 1], [-1, -1], [1, -1]];
     for (const [ux, uz] of base) {
       g.add(tube(
-        new THREE.Vector3(ux * baseHalf, 0, uz * baseHalf * 0.7),
+        new THREE.Vector3(ux * baseHalf, 0, uz * baseSpread),
         new THREE.Vector3(ux * topHalf, h, uz * topHalf * 0.7), 0.24, STEEL));
     }
     const levels = Math.max(3, Math.round(h / 12));
@@ -265,34 +284,49 @@ export class TramSystem {
     return g;
   }
 
+  /** Horizontal unit normal of the path at sample i (for cable track offsets). */
+  private sampleNormal(i: number): { x: number; z: number } {
+    const a = this.pathXZ[Math.max(0, i - 1)], b = this.pathXZ[Math.min(this.pathXZ.length - 1, i + 1)];
+    const dx = b[0] - a[0], dz = b[1] - a[1];
+    const l = Math.hypot(dx, dz) || 1;
+    return { x: -dz / l, z: dx / l };
+  }
+
   private build() {
     this.built = true;
     const statics = new THREE.Group();
-    const dx = RI_TERM.x - M_TERM.x, dz = RI_TERM.z - M_TERM.z;
-    const len = Math.hypot(dx, dz);
-    const yawLine = Math.atan2(-dz, dx);
-    const perp = { x: -dz / len, z: dx / len }; // horizontal normal to the line
 
-    // pylons at the hang fractions (skip terminals)
-    for (const [t, top] of [[0.16, 48], [0.42, 78], [0.86, 36]] as const) {
-      statics.add(this.buildPylon(M_TERM.x + dx * t, M_TERM.z + dz * t, top, yawLine));
+    // pylons at their verified spots, each aligned to the local path direction
+    for (const p of PYLONS) {
+      // local heading: nearest path sample tangent
+      let bi = 0, bd = 1e9;
+      for (let i = 0; i < this.pathXZ.length; i++) {
+        const d = Math.hypot(this.pathXZ[i][0] - p.x, this.pathXZ[i][1] - p.z);
+        if (d < bd) { bd = d; bi = i; }
+      }
+      const n = this.sampleNormal(bi);
+      const yaw = Math.atan2(n.x, n.z); // legs across the track
+      statics.add(this.buildPylon(p.x, p.z, heightAt(p.x, p.z) + p.h, yaw, p.wide ?? false));
     }
-    // two cable tracks offset either side of the line, cylinders every ~25m
+    // two cable tracks offset by the LOCAL normal (the path bends at pylons)
     for (const off of [-2.6, 2.6]) {
       let prev: THREE.Vector3 | null = null;
       for (let i = 0; i < this.pathXZ.length; i += 6) {
         const [px, pz] = this.pathXZ[i];
-        const v = new THREE.Vector3(px + perp.x * off, this.pathY[i], pz + perp.z * off);
+        const n = this.sampleNormal(i);
+        const v = new THREE.Vector3(px + n.x * off, this.pathY[i], pz + n.z * off);
         if (prev) statics.add(tube(prev, v, 0.07, DARK));
         prev = v;
       }
-      const [ex, ez] = this.pathXZ[this.pathXZ.length - 1];
-      const end = new THREE.Vector3(ex + perp.x * off, this.pathY[this.pathY.length - 1], ez + perp.z * off);
+      const last = this.pathXZ.length - 1;
+      const n = this.sampleNormal(last);
+      const end = new THREE.Vector3(this.pathXZ[last][0] + n.x * off, this.pathY[last], this.pathXZ[last][1] + n.z * off);
       if (prev && !prev.equals(end)) statics.add(tube(prev, end, 0.07, DARK));
     }
-    // grade-level terminal pads + canopies + boards
-    for (const term of [M_TERM, RI_TERM]) {
+    // grade-level terminal pads + canopies + boards, aligned to their end spans
+    for (const [term, si] of [[M_TERM, 1], [RI_TERM, this.pathXZ.length - 2]] as const) {
       const g = heightAt(term.x, term.z);
+      const n = this.sampleNormal(si);
       const pad = new THREE.Group();
       pad.add(bx(16, 0.15, 8, PAVE, 0, 0.075, 0));
       for (const [cx, cz] of [[-6.5, -3], [6.5, -3], [-6.5, 3], [6.5, 3]] as const)
@@ -300,7 +334,7 @@ export class TramSystem {
       pad.add(bx(15, 0.3, 7.4, RED_DARK, 0, 6.7, 0)); // canopy
       pad.add(bx(6.5, 1.0, 0.15, DARK, 0, 5.9, -3.4)); // name board (blank plate)
       pad.position.set(term.x, g, term.z);
-      pad.rotation.y = yawLine;
+      pad.rotation.y = Math.atan2(n.x, n.z) + Math.PI / 2; // long side along the span
       statics.add(pad);
     }
     this.statics = mergeByMaterial(statics);
@@ -388,11 +422,14 @@ export class TramSystem {
       eye: 1.58,
       doorBothSides: true,
       exitPos(): [number, number] {
-        // step onto the terminal pad, biased inland (away from the river)
+        // step onto the terminal pad, biased inland along the END SPAN's
+        // tangent (the path bends — the global line points the wrong way)
         const t = cabin.atTerm ?? cabin.toTerm;
+        const i = t === 0 ? 1 : sys.pathXZ.length - 2;
+        const a = sys.pathXZ[Math.max(0, i - 1)], b = sys.pathXZ[i + 1] ?? sys.pathXZ[i];
+        const dx = b[0] - a[0], dz = b[1] - a[1];
+        const len = Math.hypot(dx, dz) || 1;
         const inland = t === 0 ? -1 : 1;
-        const dx = RI_TERM.x - M_TERM.x, dz = RI_TERM.z - M_TERM.z;
-        const len = Math.hypot(dx, dz);
         return [cabin.x + (dx / len) * inland * 3.2, cabin.z + (dz / len) * inland * 3.2];
       },
       end() { sys.ride = null; },

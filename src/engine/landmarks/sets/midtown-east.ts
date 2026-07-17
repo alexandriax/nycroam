@@ -316,7 +316,32 @@ export const builders: Record<string, (ctx: LandmarkCtx) => THREE.Group> = {
       const finN = Math.round((v.hz * 2) / 7);
       for (let i = 0; i <= finN; i++) {
         const fz = -v.hz + (i * v.hz * 2) / finN;
-        for (const sx of [-1, 1]) g.add(box(0.5, h, 0.6, BRONZE, sx * (v.hx + 0.25), cy, fz)); // fin rib
+        for (const sx of [-1, 1]) g.add(box(0.35, h, 0.45, BRONZE, sx * (v.hx + 0.2), cy, fz)); // slim fin rib
+      }
+      // Foster's signature EXPRESSED DIAGRID: big bronze diamonds across both
+      // Park Ave faces (and the ends), proud of the glass so they read from
+      // the street — the fan base visually continues up the shaft
+      const rows = Math.max(1, Math.round(h / 60));
+      const rh = h / rows;
+      const facets: [number, number, 'x' | 'z'][] = [
+        [v.hx + 0.7, v.hz, 'x'], [-(v.hx + 0.7), v.hz, 'x'], // long faces
+        [v.hz + 0.7, v.hx, 'z'], [-(v.hz + 0.7), v.hx, 'z'], // end faces
+      ];
+      for (const [off, half, axis] of facets) {
+        const cols = Math.max(2, Math.round((half * 2) / 32));
+        const cw = (half * 2) / cols;
+        const P = (u: number, y: number) =>
+          axis === 'x' ? new THREE.Vector3(off, y, u) : new THREE.Vector3(u, y, off);
+        for (let r = 0; r < rows; r++) {
+          const yb = v.y0 + r * rh, yt = yb + rh, ym = (yb + yt) / 2;
+          for (let c = 0; c < cols; c++) {
+            const u0 = -half + c * cw, u1 = u0 + cw, um = (u0 + u1) / 2;
+            g.add(strut(P(um, yb), P(u1, ym), 0.85, BRONZE, 5)); // diamond: 4 legs
+            g.add(strut(P(u1, ym), P(um, yt), 0.85, BRONZE, 5));
+            g.add(strut(P(um, yt), P(u0, ym), 0.85, BRONZE, 5));
+            g.add(strut(P(u0, ym), P(um, yb), 0.85, BRONZE, 5));
+          }
+        }
       }
     }
     for (let y = 54; y < 410; y += 24) {
@@ -344,11 +369,16 @@ export const builders: Record<string, (ctx: LandmarkCtx) => THREE.Group> = {
   },
 
   // Queensboro (Ed Koch) cantilever: twin riveted masts + humped outline truss, spanning +x (no deck)
-  'queensboro-bridge': () => {
+  // Full crossing (the old build was one short hump that stopped at the west
+  // channel): Manhattan approach ramp -> cantilever hump over the west channel
+  // -> low connector over Roosevelt Island -> second hump over the east channel
+  // -> exit deck fading toward the data edge (fog swallows it). Local +x runs
+  // along the measured bridge axis; anchor is the Manhattan waterfront.
+  'queensboro-bridge': (ctx) => {
     const g = new THREE.Group();
-    const zc = 13, xT1 = 0, xT2 = 180, MH = 106;
-    // two cantilever towers, each a pair of X-braced masts joined by portal bracing + finials
-    for (const tx of [xT1, xT2]) {
+    const zc = 13, MH = 106, DECK = 40;
+    const TOWERS = [60, 500, 850, 1230]; // Manhattan-side, RI west, RI east, far shore
+    const towerPair = (tx: number) => {
       for (const sz of [-zc, zc]) {
         const m = latticeTower(MH, 3.4, 1.6, WARM_STEEL, 0.32, 6);
         m.position.set(tx, 0, sz);
@@ -363,24 +393,46 @@ export const builders: Record<string, (ctx: LandmarkCtx) => THREE.Group> = {
         g.add(strut(new THREE.Vector3(tx, y0, -zc), new THREE.Vector3(tx, y1, zc), 0.2, WARM_STEEL));
         g.add(strut(new THREE.Vector3(tx, y0, zc), new THREE.Vector3(tx, y1, -zc), 0.2, WARM_STEEL));
       }
-    }
-    // humped cantilever truss: upper chord peaks at the towers (106) and dips mid-span (72)
-    const X = [-30, 0, 30, 60, 90, 120, 150, 180, 215, 250];
-    const TOP = [52, 106, 92, 78, 72, 78, 92, 106, 74, 52];
-    const BOT = [44, 40, 40, 40, 40, 40, 40, 40, 42, 46];
-    for (const sz of [-zc, zc]) {
-      for (let i = 0; i < X.length; i++) {
-        g.add(strut(new THREE.Vector3(X[i], TOP[i], sz), new THREE.Vector3(X[i], BOT[i], sz), 0.24, WARM_STEEL)); // vertical
-        if (i < X.length - 1) {
-          g.add(strut(new THREE.Vector3(X[i], TOP[i], sz), new THREE.Vector3(X[i + 1], TOP[i + 1], sz), 0.26, WARM_STEEL)); // top chord
-          g.add(strut(new THREE.Vector3(X[i], BOT[i], sz), new THREE.Vector3(X[i + 1], BOT[i + 1], sz), 0.26, WARM_STEEL)); // bottom chord
-          g.add(strut(new THREE.Vector3(X[i], BOT[i], sz), new THREE.Vector3(X[i + 1], TOP[i + 1], sz), 0.16, WARM_STEEL)); // diagonal
+    };
+    for (const tx of TOWERS) towerPair(tx);
+    // one truss panel run between xa..xb; humped (106 at ends -> 72 mid) or low
+    const truss = (xa: number, xb: number, humped: boolean) => {
+      const n = Math.max(4, Math.round((xb - xa) / 45));
+      const X: number[] = [], TOP: number[] = [], BOT: number[] = [];
+      for (let i = 0; i <= n; i++) {
+        const u = i / n;
+        X.push(xa + (xb - xa) * u);
+        TOP.push(humped ? MH - (MH - 72) * 4 * u * (1 - u) : 54);
+        BOT.push(DECK);
+      }
+      for (const sz of [-zc, zc]) {
+        for (let i = 0; i < X.length; i++) {
+          g.add(strut(new THREE.Vector3(X[i], TOP[i], sz), new THREE.Vector3(X[i], BOT[i], sz), 0.24, WARM_STEEL));
+          if (i < X.length - 1) {
+            g.add(strut(new THREE.Vector3(X[i], TOP[i], sz), new THREE.Vector3(X[i + 1], TOP[i + 1], sz), 0.26, WARM_STEEL));
+            g.add(strut(new THREE.Vector3(X[i], BOT[i], sz), new THREE.Vector3(X[i + 1], BOT[i + 1], sz), 0.26, WARM_STEEL));
+            g.add(strut(new THREE.Vector3(X[i], BOT[i], sz), new THREE.Vector3(X[i + 1], TOP[i + 1], sz), 0.16, WARM_STEEL));
+          }
         }
       }
-    }
-    // lateral bracing between the two truss planes along the top chord
-    for (let i = 1; i < X.length - 1; i++) {
-      g.add(strut(new THREE.Vector3(X[i], TOP[i], -zc), new THREE.Vector3(X[i], TOP[i], zc), 0.16, WARM_STEEL));
+      for (let i = 1; i < X.length - 1; i++) {
+        g.add(strut(new THREE.Vector3(X[i], TOP[i], -zc), new THREE.Vector3(X[i], TOP[i], zc), 0.16, WARM_STEEL));
+      }
+    };
+    truss(TOWERS[0], TOWERS[1], true);  // west channel cantilever
+    truss(TOWERS[1], TOWERS[2], false); // low run across Roosevelt Island
+    truss(TOWERS[2], TOWERS[3], true);  // east channel cantilever
+    // continuous roadway deck: approach ramp, full crossing, exit stub
+    g.add(box(220, 1.2, 2 * zc + 2, DARKSTONE, -50, DECK - 3.4, 0)); // approach at ramp top
+    const ramp = box(150, 1.2, 2 * zc + 2, DARKSTONE, -220, DECK - 9, 0);
+    ramp.rotation.z = -0.075; // descends toward 2nd Ave
+    g.add(ramp);
+    g.add(box(TOWERS[3] - TOWERS[0] + 40, 1.2, 2 * zc + 2, DARKSTONE, (TOWERS[0] + TOWERS[3]) / 2, DECK - 0.6, 0));
+    g.add(box(90, 1.2, 2 * zc + 2, DARKSTONE, TOWERS[3] + 65, DECK - 0.6, 0)); // fades into the fog
+    // masonry piers under the approach + the Roosevelt Island run
+    for (const px of [-140, -60, 10, 560, 640, 720, 790]) {
+      const gy = ctx.groundAt(px, 0);
+      g.add(box(6, DECK - 1 - gy, 10, DARKSTONE, px, (DECK - 1 + gy) / 2, 0));
     }
     return g;
   },
