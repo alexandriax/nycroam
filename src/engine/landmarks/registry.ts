@@ -18,6 +18,12 @@ import { lonLatToXZ } from '../geo';
  *   never built twice.
  * - `alwaysOn` places once at init and never disposes (the Statue of
  *   Liberty must hold the harbor horizon from The Battery).
+ * - `clear` suppresses baked tile buildings whose footprint centroid falls
+ *   within that many meters of the anchor: OSM maps some monuments (the
+ *   Columbus column, the Washington Arch) as building rings, and the tile
+ *   pipeline shipped them as generic massing — without this the procedural
+ *   monument stands beside a duplicate windowed tower of itself. Applied by
+ *   the tile worker at build time, so collision disappears with the mesh.
  */
 export interface LandmarkEntry {
   id: string;
@@ -30,6 +36,7 @@ export interface LandmarkEntry {
   aliasOf?: string;
   alwaysOn?: boolean;
   needsRoads?: boolean; // defer build until road tiles load, then nudge props out of roadbeds (Times Square masts)
+  clear?: number; // meters: suppress baked OSM massing of the monument itself
 }
 
 // Manhattan street-grid rotation. NEGATIVE: rotation.y = -0.507 maps local +x
@@ -76,7 +83,9 @@ export const LANDMARKS_REG: LandmarkEntry[] = [
   { id: 'williamsburg-bridge', name: 'Williamsburg Bridge', lat: 40.7143, lon: -73.9745, set: 'civic', r: 1600, rot: -1.35 },
 
   // ---- village / chelsea / hudson yards ----
-  { id: 'washington-arch', name: 'Washington Square Arch', lat: 40.7314, lon: -73.9971, set: 'village', r: 500, rot: 0.05 },
+  // anchored on the arch's own OSM footprint centroid; OSM also maps the arch
+  // as a 20m building, which `clear` suppresses so the replica stands alone
+  { id: 'washington-arch', name: 'Washington Square Arch', lat: 40.731235, lon: -73.997102, set: 'village', r: 500, rot: 0.05, clear: 13 },
   { id: 'stonewall', name: 'Stonewall National Monument', lat: 40.7338, lon: -74.0021, set: 'village', r: 350, rot: 1.0 },
   // bespoke anchor/rot measured from the baked triangle itself (apex-north axis
   // from the OSM footprint); the obb fit was dropped — a triangle's longest-edge
@@ -131,7 +140,9 @@ export const LANDMARKS_REG: LandmarkEntry[] = [
   { id: 'queensboro-bridge', name: 'Ed Koch Queensboro Bridge', lat: 40.7595, lon: -73.9605, set: 'midtown-east', r: 1500, rot: GRID },
 
   // ---- uptown west (columbus circle -> UWS) + UES museums ----
-  { id: 'columbus-circle', name: 'Columbus Circle', lat: 40.768, lon: -73.9819, set: 'uptown', r: 550, rot: GRID },
+  // anchored on the monument's OSM footprint centroid (circle center island);
+  // OSM maps the column as a stack of building rings — `clear` suppresses them
+  { id: 'columbus-circle', name: 'Columbus Circle', lat: 40.768069, lon: -73.981897, set: 'uptown', r: 550, rot: GRID, clear: 16 },
   { id: 'hearst-tower', name: 'Hearst Tower', lat: 40.7666, lon: -73.9836, set: 'uptown', r: 900, rot: GRID },
   { id: 'plaza-hotel', name: 'The Plaza Hotel', lat: 40.7644, lon: -73.9745, set: 'uptown', r: 550, rot: GRID },
   { id: 'pulitzer-fountain', name: 'Pulitzer Fountain', lat: 40.764, lon: -73.9737, set: 'uptown', r: 400, rot: GRID },
@@ -149,7 +160,9 @@ export const LANDMARKS_REG: LandmarkEntry[] = [
   { id: 'intrepid', name: 'Intrepid Museum', lat: 40.76551, lon: -74.00377, set: 'uptown', r: 900, rot: 2.639 },
 
   // ---- central park ----
-  { id: 'central-park', name: 'Central Park (Merchants Gate)', lat: 40.7677, lon: -73.9812, set: 'park', r: 450, rot: GRID },
+  // USS Maine monument: on the Merchants Gate plaza just inside the park
+  // corner (the old anchor sat in the Columbus Circle roadway itself)
+  { id: 'central-park', name: 'Central Park (Merchants Gate)', lat: 40.768446, lon: -73.981304, set: 'park', r: 450, rot: GRID },
   { id: 'bethesda', name: 'Bethesda Terrace & Fountain', lat: 40.774, lon: -73.9708, set: 'park', r: 500, rot: GRID },
   { id: 'bow-bridge', name: 'Bow Bridge', lat: 40.7757, lon: -73.9718, set: 'park', r: 450, rot: 1.1 },
   { id: 'belvedere', name: 'Belvedere Castle', lat: 40.7794, lon: -73.9692, set: 'park', r: 600, rot: GRID },

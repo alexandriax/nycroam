@@ -166,7 +166,7 @@ export class World {
       this.streetScene,
       (x, z) => {
         if (!this.tiles.readyAround(x, z)) return null; // wait for building collision before placing
-        return resolveBuildingCollision(x, z, 4.2, this.tiles.collisionNear(x, z), heightAt(x, z));
+        return resolveBuildingCollision(x, z, 4.2, this.colNear(x, z), heightAt(x, z));
       },
       (x, z) => nearestWallDir(x, z, 15, this.tiles.collisionNear(x, z)),
     );
@@ -181,7 +181,7 @@ export class World {
       this.streetScene,
       (x, z) => {
         if (!this.tiles.readyAround(x, z)) return null;
-        return resolveBuildingCollision(x, z, 2.6, this.tiles.collisionNear(x, z), heightAt(x, z));
+        return resolveBuildingCollision(x, z, 2.6, this.colNear(x, z), heightAt(x, z));
       },
       (x, z) => nearestWallDir(x, z, 15, this.tiles.collisionNear(x, z)),
     );
@@ -304,6 +304,16 @@ export class World {
         return { ...h, bbox: [minX, minZ, maxX, maxZ] as [number, number, number, number] };
       });
     } catch { /* label falls back to "Manhattan" */ }
+  }
+
+  /**
+   * Building collision around (x,z): baked tile footprints plus the coarse
+   * packs of any active premium landmarks (which replace cleared massing).
+   */
+  private colNear(x: number, z: number) {
+    const sets = this.tiles.collisionNear(x, z);
+    const lm = this.landmarks.collisionNear(x, z);
+    return lm.length ? sets.concat(lm) : sets;
   }
 
   /**
@@ -493,14 +503,14 @@ export class World {
    * player embedded in a building (where they could then walk out through walls).
    */
   private freeSpawn(x: number, z: number): [number, number] {
-    const near0 = this.tiles.collisionNear(x, z);
+    const near0 = this.colNear(x, z);
     const y0 = heightAt(x, z);
     if (!pointInBuildings(x, z, near0, y0)) return resolveBuildingCollision(x, z, 0.5, near0, y0);
     for (let ring = 2.5; ring <= 26; ring += 2.5) {
       for (let a = 0; a < 16; a++) {
         const ang = (a / 16) * Math.PI * 2;
         const tx = x + Math.cos(ang) * ring, tz = z + Math.sin(ang) * ring;
-        const near = this.tiles.collisionNear(tx, tz);
+        const near = this.colNear(tx, tz);
         const ty = heightAt(tx, tz);
         if (!pointInBuildings(tx, tz, near, ty)) return resolveBuildingCollision(tx, tz, 0.5, near, ty);
       }
@@ -519,7 +529,7 @@ export class World {
     // roadway and any painted bike lane beside it
     const off = this.ejectFromRoads(x, z, 2.4);
     if (!off) return null; // tiles not ready yet — defer
-    const [bx, bz] = resolveBuildingCollision(off[0], off[1], 0.8, this.tiles.collisionNear(off[0], off[1]), heightAt(off[0], off[1]));
+    const [bx, bz] = resolveBuildingCollision(off[0], off[1], 0.8, this.colNear(off[0], off[1]), heightAt(off[0], off[1]));
     // building push-back can re-enter the roadbed on narrow sidewalks — one
     // lighter second pass settles between the two
     return this.ejectFromRoads(bx, bz, 1.2) ?? [bx, bz];
@@ -694,7 +704,7 @@ export class World {
       this.hud.mode = 'street';
       this.hud.bus = null;
       // narrow sidewalks: never step off INTO a building face
-      [ex, ez] = resolveBuildingCollision(ex, ez, 0.42, this.tiles.collisionNear(ex, ez), heightAt(ex, ez));
+      [ex, ez] = resolveBuildingCollision(ex, ez, 0.42, this.colNear(ex, ez), heightAt(ex, ez));
       this.pos.set(ex, heightAt(ex, ez), ez);
       this.dismountBusBike(); // back on the bike if you brought one aboard
       this.spawnResolve = true; // re-eject once tiles here are fully loaded
@@ -717,7 +727,7 @@ export class World {
     this.hud.mode = 'street';
     this.hud.bus = null;
     const [ex, ez] = resolveBuildingCollision(
-      h.pos.x, h.pos.z, 0.42, this.tiles.collisionNear(h.pos.x, h.pos.z), heightAt(h.pos.x, h.pos.z),
+      h.pos.x, h.pos.z, 0.42, this.colNear(h.pos.x, h.pos.z), heightAt(h.pos.x, h.pos.z),
     );
     this.pos.set(ex, heightAt(ex, ez), ez);
     this.spawnResolve = true; // full free-spawn pass once tiles are ready
@@ -914,7 +924,7 @@ export class World {
         this.flyVel.lerp(this.flyTarget, 1 - Math.exp(-dt * 2.4));
         let fx = this.pos.x + this.flyVel.x * dt, fz = this.pos.z + this.flyVel.z * dt;
         // walls stop you at your altitude; rings you're above don't
-        const nearFly = this.tiles.collisionNear(fx, fz);
+        const nearFly = this.colNear(fx, fz);
         [fx, fz] = resolveBuildingCollision(fx, fz, 0.42, nearFly, this.pos.y);
         this.pos.x = fx; this.pos.z = fz;
         // never descend below the ground under you — terrain, or the roof of
@@ -926,7 +936,7 @@ export class World {
       } else {
         this.flyVel.set(0, 0, 0);
         let nx = this.pos.x + dx, nz = this.pos.z + dz;
-        const nearWalk = this.tiles.collisionNear(nx, nz);
+        const nearWalk = this.colNear(nx, nz);
         [nx, nz] = resolveBuildingCollision(nx, nz, 0.42, nearWalk, this.pos.y);
         // ground = terrain, or the rooftop you're standing on / dropping onto
         const roof = roofBelow(nx, nz, this.pos.y, nearWalk);

@@ -4,6 +4,14 @@ import type { BuildRequest, BuildResponse, MeshPayload, TileJson, CollisionData 
 import { ROAD_STYLE, AREA_STYLE, CONCRETE_CLASSES, PATH_KIND_ROAD, PATH_KIND_BIKE } from './tileTypes';
 import { buildingColor, hash01 } from './palette';
 import { TILE_SIZE } from './geo';
+import { LANDMARKS_PLACED } from './landmarks/registry';
+
+// Monument sites where OSM maps the monument itself as building rings that the
+// tile pipeline shipped as generic massing — suppressed here so the bespoke
+// landmark build doesn't stand beside a windowed duplicate of itself.
+const CLEAR_ZONES = LANDMARKS_PLACED
+  .filter((l) => l.clear)
+  .map((l) => ({ x: l.x, z: l.z, r2: l.clear! * l.clear! }));
 
 // NYC DOT bike-lane green (thermoplastic paint) + white edge stripes
 const BIKE_GREEN: [number, number, number] = [0.02, 0.3, 0.13];
@@ -526,6 +534,21 @@ function buildTile(tile: TileJson): BuildResponse {
         }
         return out;
       });
+      // baked OSM massing of a monument the landmark system rebuilds? skip it
+      // (height guard: never suppress a real tower that merely stands close)
+      if (CLEAR_ZONES.length && b.h < 80) {
+        const r0 = rings[0];
+        let cx = 0, cz = 0;
+        const rn = r0.length / 2;
+        for (let i = 0; i < r0.length; i += 2) { cx += r0[i]; cz += r0[i + 1]; }
+        cx /= rn; cz /= rn;
+        let cleared = false;
+        for (const zn of CLEAR_ZONES) {
+          const dx = cx - zn.x, dz = cz - zn.z;
+          if (dx * dx + dz * dz < zn.r2) { cleared = true; break; }
+        }
+        if (cleared) continue;
+      }
       const h = Math.max(3, b.h);
       const minH = b.m ?? 0;
       const base = b.b ?? 0;

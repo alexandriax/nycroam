@@ -562,8 +562,8 @@ export class BusSystem {
     for (const mb of this.meshed.values()) if (mb.model.group.visible) vis.push(mb);
     vis.sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
     const TRIGGER2 = 12.5 * 12.5; // bus length + margin: closer than this can overlap
-    const SEP_LAT = 3.0;          // desired lateral gap between two buses
-    const MAX_OFF = 3.2;          // never slide more than ~one lane off the line
+    const SEP_LAT = 3.6;          // center-to-center lateral clearance (1m of daylight)
+    const MAX_OFF = 3.6;          // never slide more than ~one lane off the line
     // Sequential in priority order: each bus's target clears it of every
     // higher-priority bus at that bus's ALREADY-DECIDED offset, so a chain of
     // overlaps resolves into distinct lanes instead of all piling into one.
@@ -580,7 +580,11 @@ export class BusSystem {
         if (d2 >= TRIGGER2 || d2 < 1e-8) continue;
         const lat = dx * b.rnx + dz * b.rnz;
         const need = SEP_LAT - Math.abs(lat);
-        if (need > 0) target += (lat >= 0 ? 1 : -1) * need;
+        // dead abreast (two routes dwelling at a shared stop, coincident
+        // shapes) there's no meaningful side — overtake on the LEFT, street
+        // side, like a real bus pulling around; otherwise widen whichever
+        // side the conflict is already on
+        if (need > 0) target += (Math.abs(lat) < 0.8 ? -1 : lat >= 0 ? 1 : -1) * need;
       }
       b.sepT = target > MAX_OFF ? MAX_OFF : target < -MAX_OFF ? -MAX_OFF : target;
     }
