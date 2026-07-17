@@ -32,16 +32,21 @@ export interface LandmarkEntry {
   needsRoads?: boolean; // defer build until road tiles load, then nudge props out of roadbeds (Times Square masts)
 }
 
-const GRID = 0.507; // Manhattan street-grid rotation (radians)
+// Manhattan street-grid rotation. NEGATIVE: rotation.y = -0.507 maps local +x
+// onto the crosstown-street direction (0.874, 0.486) and +z down the avenue —
+// matching every obb the tile pipeline measures (fits report rot ~= -0.507).
+// The old +0.507 aligned with NOTHING (58 deg slant on every GRID landmark:
+// slanted NYPL, rotated Flatiron trim, Times Sq masts across the roadway).
+const GRID = -0.507;
 
 export const LANDMARKS_REG: LandmarkEntry[] = [
   // ---- financial district / battery ----
   { id: 'one-wtc', name: 'One World Trade Center', lat: 40.7127, lon: -74.0134, set: 'fidi', r: 1400 },
   { id: 'sept11-museum', name: '9/11 Memorial Museum', lat: 40.7115, lon: -74.0125, set: 'fidi', r: 450 },
   // anchored at the midpoint of the two BAKED memorial pools (54.2m water squares
-  // in the tile areas); -GRID aligns local x with their edges — the builder places
+  // in the tile areas); GRID aligns local x with their edges — the builder places
   // its parapet frames at the pools' exact measured local offsets
-  { id: 'sept11-pools', name: 'September 11 Memorial Pools', lat: 40.71158, lon: -74.01313, set: 'fidi', r: 500, rot: -GRID },
+  { id: 'sept11-pools', name: 'September 11 Memorial Pools', lat: 40.71158, lon: -74.01313, set: 'fidi', r: 500, rot: GRID },
   { id: 'oculus', name: 'Oculus', lat: 40.7115, lon: -74.0113, set: 'fidi', r: 600 },
   { id: 'nyse', name: 'New York Stock Exchange', lat: 40.7069, lon: -74.0113, set: 'fidi', r: 450, rot: 0.35 },
   { id: 'nyse-facade', name: 'NYSE Facade', lat: 40.7069, lon: -74.0113, set: 'fidi', r: 450, aliasOf: 'nyse' },
@@ -73,7 +78,10 @@ export const LANDMARKS_REG: LandmarkEntry[] = [
   // ---- village / chelsea / hudson yards ----
   { id: 'washington-arch', name: 'Washington Square Arch', lat: 40.7314, lon: -73.9971, set: 'village', r: 500, rot: 0.05 },
   { id: 'stonewall', name: 'Stonewall National Monument', lat: 40.7338, lon: -74.0021, set: 'village', r: 350, rot: 1.0 },
-  { id: 'flatiron', name: 'Flatiron Building', lat: 40.7411, lon: -73.9897, set: 'village', r: 800, rot: GRID },
+  // bespoke anchor/rot measured from the baked triangle itself (apex-north axis
+  // from the OSM footprint); the obb fit was dropped — a triangle's longest-edge
+  // obb centers and rotates the cornice trim wrong (it floated rotated mid-air)
+  { id: 'flatiron', name: 'Flatiron Building', lat: 40.74107, lon: -73.98964, set: 'village', r: 800, rot: 2.847 },
   { id: 'union-square', name: 'Union Square', lat: 40.7359, lon: -73.9906, set: 'village', r: 450, rot: GRID },
   { id: 'madison-sq-park', name: 'Madison Square Park', lat: 40.742, lon: -73.988, set: 'village', r: 400, rot: GRID },
   { id: 'high-line', name: 'The High Line', lat: 40.7391, lon: -74.008, set: 'village', r: 500, rot: GRID },
@@ -86,7 +94,9 @@ export const LANDMARKS_REG: LandmarkEntry[] = [
 
   // ---- midtown south ----
   { id: 'empire-state', name: 'Empire State Building', lat: 40.7484, lon: -73.9857, set: 'midtown-south', r: 1500, rot: GRID },
-  { id: 'nypl', name: 'New York Public Library', lat: 40.7531, lon: -73.9815, set: 'midtown-south', r: 500, rot: GRID },
+  // facade replica fronts 5th Ave: +z (steps/lions) must face ESE = GRID + 90deg;
+  // anchor mid-block on the avenue front of the real massing, not the 42nd corner
+  { id: 'nypl', name: 'New York Public Library', lat: 40.75290, lon: -73.98165, set: 'midtown-south', r: 500, rot: GRID + Math.PI / 2 },
   { id: 'bryant-park', name: 'Bryant Park', lat: 40.7536, lon: -73.9832, set: 'midtown-south', r: 450, rot: GRID },
   { id: 'msg', name: 'Madison Square Garden', lat: 40.7505, lon: -73.9934, set: 'midtown-south', r: 600, rot: GRID },
   { id: 'times-square', name: 'Times Square', lat: 40.758, lon: -73.9855, set: 'midtown-south', r: 650, rot: GRID, needsRoads: true },
@@ -97,7 +107,8 @@ export const LANDMARKS_REG: LandmarkEntry[] = [
   { id: 'prometheus', name: 'Prometheus Statue', lat: 40.7587, lon: -73.9787, set: 'midtown-core', r: 550, aliasOf: 'rockefeller-plaza' },
   { id: 'atlas', name: 'Atlas Statue', lat: 40.7588, lon: -73.9776, set: 'midtown-core', r: 400, rot: GRID },
   { id: 'top-of-the-rock', name: 'Top of the Rock', lat: 40.7591, lon: -73.9794, set: 'midtown-core', r: 1300, rot: GRID },
-  { id: 'st-patricks', name: "St. Patrick's Cathedral", lat: 40.7585, lon: -73.976, set: 'midtown-core', r: 700, rot: GRID },
+  // portals (+z) face WNW toward 5th Ave — the cathedral sits on the avenue's east side
+  { id: 'st-patricks', name: "St. Patrick's Cathedral", lat: 40.7585, lon: -73.976, set: 'midtown-core', r: 700, rot: GRID - Math.PI / 2 },
   { id: 'radio-city', name: 'Radio City Music Hall', lat: 40.7599, lon: -73.9801, set: 'midtown-core', r: 500, rot: GRID },
   { id: 'moma', name: 'Museum of Modern Art', lat: 40.7616, lon: -73.9774, set: 'midtown-core', r: 400, rot: GRID },
   { id: 'love-sculpture', name: 'LOVE Sculpture Site', lat: 40.7629, lon: -73.9779, set: 'midtown-core', r: 350, rot: GRID },
@@ -113,7 +124,10 @@ export const LANDMARKS_REG: LandmarkEntry[] = [
   // measured OSM massing (long axis along the 1st Ave grid); the GA hall offset
   // in the builder matches the real hall's centroid NNE of the slab
   { id: 'united-nations', name: 'United Nations Headquarters', lat: 40.7489, lon: -73.9681, set: 'midtown-east', r: 800, rot: -2.072 },
-  { id: 'roosevelt-tram', name: 'Roosevelt Island Tramway', lat: 40.7615, lon: -73.9642, set: 'midtown-east', r: 700, rot: GRID },
+  // the tramway is a RIDEABLE World system now (src/engine/tram.ts), not a landmark
+  // 270 Park (Foster + Partners JPMorganChase HQ): FULL replacement — the OSM
+  // extract predates completion (h=250 stale massing, cleared by the pipeline)
+  { id: 'chase-hq', name: '270 Park Ave — JPMorganChase', lat: 40.7558, lon: -73.9755, set: 'midtown-east', r: 1400, rot: GRID },
   { id: 'queensboro-bridge', name: 'Ed Koch Queensboro Bridge', lat: 40.7595, lon: -73.9605, set: 'midtown-east', r: 1500, rot: GRID },
 
   // ---- uptown west (columbus circle -> UWS) + UES museums ----

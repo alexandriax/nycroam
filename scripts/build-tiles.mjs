@@ -508,11 +508,14 @@ async function main() {
     { id: 'chrysler', lat: 40.7516, lon: -73.9755, r: 45, clearAboveMin: 184, clearAboveH: 270 },
     { id: 'empire-state', lat: 40.7484, lon: -73.9857, r: 40, clearAboveMin: 325 },
     { id: 'one-vanderbilt', lat: 40.7529, lon: -73.9787, r: 40 },
-    { id: 'woolworth', lat: 40.7124, lon: -74.0083, r: 40 },
+    // minH: the 120m base obb centered the crown 13m off the tower shaft — the
+    // verdigris crown floated beside the top (the "topper near City Hall" bug)
+    { id: 'woolworth', lat: 40.7124, lon: -74.0083, r: 40, minH: 150 },
     // minH: obb only over the tall slab — low wings shifted the center 34m off
     // the shaft and the summit crown hung off the roof edge
     { id: 'top-of-the-rock', lat: 40.7591, lon: -73.9794, r: 40, minH: 120 },
-    { id: 'flatiron', lat: 40.7411, lon: -73.9897, r: 40 },
+    // (flatiron was dropped from the fit list: a triangle's longest-edge obb
+    // rotated and offset the cornice trim — it uses a measured registry rot now)
     { id: 'msg', lat: 40.7505, lon: -73.9934, r: 80 },
     { id: 'edge-deck', lat: 40.7539, lon: -74.0006, r: 45 },
   ].map((e) => { const [x, z] = lonLatToXZ(e.lon, e.lat); return { ...e, x, z }; });
@@ -599,6 +602,10 @@ async function main() {
     // recentered on the measured OSM centroids: the old circles sat 50-90m off
     // and left the real 156m Secretariat slab + GA hall standing through the build
     ['un-secretariat', 40.7489, -73.9681, 60], ['un-ga', 40.7501, -73.9677, 50],
+    // 270 Park: OSM predates the finished Foster tower (stale 250m massing);
+    // the bespoke chase-hq landmark owns the whole site. r=50 stays clear of
+    // 277 Park's parts ~88m northeast.
+    ['chase-hq', 40.7558, -73.9755, 50],
     ['dakota', 40.7765, -73.9761, 42], ['carnegie-hall', 40.7651, -73.9799, 35],
     ['whitney', 40.7397, -74.0089, 35], ['vessel', 40.7538, -74.0022, 40],
     ['little-island', 40.742, -74.01, 70], ['belvedere', 40.7794, -73.9692, 28],

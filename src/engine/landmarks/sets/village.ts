@@ -120,11 +120,13 @@ export const builders: Record<string, (ctx: LandmarkCtx) => THREE.Group> = {
     return g;
   },
 
-  // Flatiron crown: heavy projecting cornice + parapet on the triangular wedge at y=86
+  // Flatiron crown: heavy projecting cornice + parapet on the triangular wedge at y=86.
+  // Dims/orientation measured from the baked OSM footprint (apex north, base 27.2m,
+  // length 54.4m); the registry rot points local +z at the real apex.
   flatiron: () => {
     const g = new THREE.Group();
     const yC = 86;
-    const V = [[-13, -31], [13, -31], [0, 31]] as const; // back-left, back-right, sharp nose (+z)
+    const V = [[-13.6, -27], [13.6, -27], [0, 27.2]] as const; // back-left, back-right, sharp nose (+z)
     const edges = [[V[0], V[1]], [V[0], V[2]], [V[1], V[2]]] as const;
     for (const [a, b] of edges) {
       g.add(edgeBar(a[0], a[1], b[0], b[1], yC, 2.6, 2.4, LIMESTONE)); // projecting cornice ring
