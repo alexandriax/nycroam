@@ -1194,6 +1194,11 @@ export class World {
     const stations = [...this.entrances.stationsMap.values()].map((s) => ({
       x: s.pos[0], z: s.pos[1], color: routeColor(s.routes[0]), name: s.name,
     }));
+    // tram terminals show as named dots too — otherwise the line is invisible
+    // on the map and riders can't find where to board
+    for (const [x, z] of this.tram.stationPositions()) {
+      stations.push({ x, z, color: '#c8102e', name: 'Roosevelt Island Tram' });
+    }
     return {
       stations,
       entrances: this.entrances.entrancePositions(),

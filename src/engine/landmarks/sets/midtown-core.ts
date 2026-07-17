@@ -21,6 +21,8 @@ const LOVE_RED = new THREE.MeshStandardMaterial({ color: '#d1202a', roughness: 0
 const RADIO_RED = new THREE.MeshStandardMaterial({ color: '#7d1620', roughness: 0.45, metalness: 0.1 });
 // lightened warm terracotta brick for Carnegie Hall
 const TERRACOTTA = new THREE.MeshLambertMaterial({ color: '#b06a4f' });
+// ice-white rink surface (Rockefeller Plaza)
+const ICE_WHITE = new THREE.MeshLambertMaterial({ color: '#e8edf2' });
 
 /** Thin two-sided solid-colour flag jutting +x from a vertical pole. */
 function flagpole(h: number, flagMat: THREE.Material): THREE.Group {
@@ -93,41 +95,64 @@ function neonTexture(): THREE.CanvasTexture {
 }
 
 export const builders: Record<string, (ctx: LandmarkCtx) => THREE.Group> = {
-  // Sunken plaza: granite court, gilt Prometheus + zodiac hoop, flags, channel gardens
+  // Sunken rink court (ice floor), gilt Prometheus against the west wall, Channel Gardens running to 5th Ave (+x)
   'rockefeller-plaza': () => {
     const g = new THREE.Group();
-    // sunken court floor (3.5m below grade) with granite retaining walls, open top
-    g.add(box(26, 0.3, 16, GRANITE, 0, -3.65, 0));
-    g.add(box(26, 3.5, 0.6, GRANITE, 0, -1.75, 8)); // +z wall
-    g.add(box(26, 3.5, 0.6, GRANITE, 0, -1.75, -8)); // -z fountain wall
-    g.add(box(0.6, 3.5, 16, GRANITE, 13, -1.75, 0)); // +x wall
-    g.add(box(0.6, 3.5, 16, GRANITE, -13, -1.75, 0)); // -x wall
-    // waterfall down the fountain wall + pool on the court floor
-    g.add(box(24, 3.2, 0.1, WATER_LM, 0, -1.9, -7.62));
-    g.add(box(24, 0.2, 5, WATER_LM, 0, -3.4, -5));
-    // gilt Prometheus reclining before the wall, thin gold zodiac hoop behind
-    const prom = figure(3.4, GOLD);
-    prom.rotation.x = Math.PI / 2;
-    prom.rotation.z = 0.15;
-    prom.position.set(0, -1.2, -4.6);
-    g.add(prom);
+    // 1. sunken rink court (26 x 18, floor 3.5m below grade) — granite retaining walls, ice-white floor
+    g.add(box(26, 0.3, 18, ICE_WHITE, 0, -3.65, 0));
+    g.add(box(0.6, 3.5, 18, GRANITE, -13, -1.75, 0)); // west wall (Prometheus side)
+    g.add(box(0.6, 3.5, 18, GRANITE, 13, -1.75, 0)); // east wall
+    g.add(box(26, 3.5, 0.6, GRANITE, 0, -1.75, 9)); // south wall (toward W 49th St)
+    g.add(box(26, 3.5, 0.6, GRANITE, 0, -1.75, -9)); // north wall (toward W 50th St)
+    // thin gold rim rail ringing the rink edge at grade
+    g.add(box(26.3, 0.15, 0.15, GOLD, 0, 0.08, 9));
+    g.add(box(26.3, 0.15, 0.15, GOLD, 0, 0.08, -9));
+    g.add(box(0.15, 0.15, 18.3, GOLD, 13, 0.08, 0));
+    g.add(box(0.15, 0.15, 18.3, GOLD, -13, 0.08, 0));
+
+    // 2. gilt Prometheus reclining against the west (-x) waterfall wall, facing +x toward 5th Ave
+    g.add(box(0.1, 3.2, 16, WATER_LM, -12.6, -1.9, 0)); // waterfall sheet down the west retaining wall
+    g.add(box(5, 0.2, 16, WATER_LM, -10.5, -3.4, 0)); // small pool at his base, on the court floor
     const zodiac = new THREE.Mesh(new THREE.TorusGeometry(3.4, 0.13, 6, 22), GOLD);
-    zodiac.position.set(0, -1.2, -6.7);
+    zodiac.rotation.y = Math.PI / 2; // hoop faces +x, behind the figure
+    zodiac.position.set(-11.7, -1.2, 0);
     g.add(zodiac);
-    // upper-plaza paving frame around the rim
-    for (const [w, d, x, z] of [[28, 3, 0, 9.5], [28, 3, 0, -9.5], [3, 22, 14.5, 0], [3, 22, -14.5, 0]] as const)
-      g.add(box(w, 0.1, d, GRANITE, x, 0.02, z));
-    // ~14 flagpoles ringing the plaza with varied solid-colour flags
+    g.add(box(5.6, 0.3, 3, DARKSTONE, -9.8, -1.4, 0)); // dark plinth
+    const prom = figure(3.4, GOLD);
+    prom.rotation.z = -Math.PI / 2; // lay flat, head-to-foot along +x (facing 5th Ave)
+    prom.rotation.y = 0.12; // slight reclining twist
+    prom.position.set(-9.6, -1.2, 0);
+    g.add(prom);
+
+    // 4. flag ring around the rink rim — 16 poles, varied solid-colour flags
     let fi = 0;
-    for (const x of [-12, -6, 0, 6, 12]) { const p = flagpole(7.5, FLAG_COLORS[fi++ % FLAG_COLORS.length]); p.position.set(x, 0, 9.4); g.add(p); }
-    for (const x of [-12, -6, 0, 6, 12]) { const p = flagpole(7.5, FLAG_COLORS[fi++ % FLAG_COLORS.length]); p.position.set(x, 0, -9.4); g.add(p); }
-    for (const [x, z] of [[-14.6, -3], [-14.6, 3], [14.6, -3], [14.6, 3]] as const) { const p = flagpole(7.5, FLAG_COLORS[fi++ % FLAG_COLORS.length]); p.position.set(x, 0, z); g.add(p); }
-    // channel gardens toward +z: two low planter rows + a central water runnel
-    for (const sx of [-4, 4]) {
-      g.add(box(2, 0.6, 12, GRANITE, sx, 0.3, 16));
-      g.add(box(1.8, 0.25, 11.8, GREEN_PATINA, sx, 0.72, 16));
+    for (const x of [-12, -6, 0, 6, 12]) { const p = flagpole(7.5, FLAG_COLORS[fi++ % FLAG_COLORS.length]); p.position.set(x, 0, 10.5); g.add(p); }
+    for (const x of [-12, -6, 0, 6, 12]) { const p = flagpole(7.5, FLAG_COLORS[fi++ % FLAG_COLORS.length]); p.position.set(x, 0, -10.5); g.add(p); }
+    for (const z of [-6, 0, 6]) { const p = flagpole(7.5, FLAG_COLORS[fi++ % FLAG_COLORS.length]); p.position.set(14.5, 0, z); g.add(p); }
+    for (const z of [-6, 0, 6]) { const p = flagpole(7.5, FLAG_COLORS[fi++ % FLAG_COLORS.length]); p.position.set(-14.5, 0, z); g.add(p); }
+
+    // 5. upper-plaza paving frame around the rim + a wide apron connecting the rink to the gardens
+    g.add(box(29, 0.1, 3, GRANITE, 0, 0.02, 10.5));
+    g.add(box(29, 0.1, 3, GRANITE, 0, 0.02, -10.5));
+    g.add(box(2.8, 0.1, 21, GRANITE, -14.4, 0.02, 0));
+    g.add(box(2, 0.1, 21, GRANITE, 14, 0.02, 0)); // apron, rink rim (x=13) to the gardens (x=15)
+
+    // 3. Channel Gardens toward +x (5th Ave): six fountain basins between two continuous planters
+    g.add(box(37, 0.08, 14, GRANITE, 33.5, 0.04, 0)); // paved band under the whole strip
+    for (const pz of [-6, 6]) {
+      g.add(box(37, 0.5, 1.7, GRANITE, 33.5, 0.25, pz)); // planter curb
+      g.add(box(36.6, 0.22, 1.4, GREEN_PATINA, 33.5, 0.61, pz)); // planting
     }
-    g.add(box(1.6, 0.15, 12, WATER_LM, 0, 0.1, 16));
+    for (let i = 0; i < 6; i++) {
+      const bx = 18 + i * 6.2;
+      g.add(box(3.5, 0.35, 2.4, GRANITE, bx, 0.175, 0)); // fountain basin
+      g.add(box(3.2, 0.06, 2.1, WATER_LM, bx, 0.36, 0)); // water top
+    }
+    // 6. small bronze fountainhead tridents at the garden's 5th Ave end
+    for (const tz of [-2.2, 2.2]) {
+      g.add(cyl(0.05, 0.06, 1.0, BRONZE, 51, 0.5, tz, 6));
+      g.add(strut(new THREE.Vector3(51 - 0.35, 1.0, tz), new THREE.Vector3(51 + 0.35, 1.0, tz), 0.04, BRONZE));
+    }
     return g;
   },
 
