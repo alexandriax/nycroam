@@ -231,7 +231,10 @@ export const builders: Record<string, (ctx: LandmarkCtx) => THREE.Group> = {
       g.add(pane);
     }
     for (const sx of [-1, 1]) g.add(box(2.5, H, D + 0.6, MARBLE, sx * (W / 2), H / 2, 0)); // marble end walls
-    // General Assembly hall in front (+z): low sweeping form with a shallow dome
+    // General Assembly hall: the real hall sits off the slab's NORTH end (the
+    // registry anchors this group on the measured Secretariat center with local
+    // -x pointing up-campus), at the measured OSM centroid offset — not "in
+    // front" of the slab as the old +z layout had it
     const ga = new THREE.Group();
     ga.add(box(58, 20, 34, WHITE_LM, 0, 10, 0));
     ga.add(box(60, 5, 40, WHITE_LM, 0, 20.5, 0)); // flared cornice
@@ -243,15 +246,15 @@ export const builders: Record<string, (ctx: LandmarkCtx) => THREE.Group> = {
     const dome = lathe([[11, 0], [10.4, 1.6], [8, 3.2], [4.6, 4.2], [0, 4.6]], MARBLE, 16);
     dome.position.set(0, 22.8, 0);
     ga.add(dome);
-    ga.position.set(0, 0, 42);
+    ga.position.set(-129, 0, 36);
     g.add(ga);
-    // 30-flag row along the avenue edge, each a plain solid-color flag (no emblems)
-    const N = 30, span = 84;
+    // flag row along the 1st Ave (west) edge of the whole campus — slab AND hall
+    const N = 30, x0 = -135, span = 180;
     for (let i = 0; i < N; i++) {
-      const x = -span / 2 + (i * span) / (N - 1);
-      g.add(cyl(0.09, 0.11, 13, WHITE_LM, x, 6.5, 62, 6));
+      const x = x0 + (i * span) / (N - 1);
+      g.add(cyl(0.09, 0.11, 13, WHITE_LM, x, 6.5, 55, 6));
       const flagMat = new THREE.MeshLambertMaterial({ color: `hsl(${Math.floor((i / N) * 360)}, 68%, 55%)` });
-      g.add(box(2.4, 1.5, 0.06, flagMat, x + 1.3, 11.8, 62));
+      g.add(box(2.4, 1.5, 0.06, flagMat, x + 1.3, 11.8, 55));
     }
     return g;
   },

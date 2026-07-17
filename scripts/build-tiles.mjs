@@ -502,12 +502,16 @@ async function main() {
   // drops the parts our build replaces (e.g. Hearst's tower above its 1928
   // base) while keeping the rest of the building.
   const LANDMARK_FIT = [
-    { id: 'hearst-tower', lat: 40.7666, lon: -73.9836, r: 45, clearAboveH: 5 },
+    // r 55 (was 45): two ~150m Hearst tower parts have centroids 45.2m out and
+    // survived the clear, interpenetrating the diagrid build
+    { id: 'hearst-tower', lat: 40.7666, lon: -73.9836, r: 55, clearAboveH: 5 },
     { id: 'chrysler', lat: 40.7516, lon: -73.9755, r: 45, clearAboveMin: 184, clearAboveH: 270 },
     { id: 'empire-state', lat: 40.7484, lon: -73.9857, r: 40, clearAboveMin: 325 },
     { id: 'one-vanderbilt', lat: 40.7529, lon: -73.9787, r: 40 },
     { id: 'woolworth', lat: 40.7124, lon: -74.0083, r: 40 },
-    { id: 'top-of-the-rock', lat: 40.7591, lon: -73.9794, r: 40 },
+    // minH: obb only over the tall slab — low wings shifted the center 34m off
+    // the shaft and the summit crown hung off the roof edge
+    { id: 'top-of-the-rock', lat: 40.7591, lon: -73.9794, r: 40, minH: 120 },
     { id: 'flatiron', lat: 40.7411, lon: -73.9897, r: 40 },
     { id: 'msg', lat: 40.7505, lon: -73.9934, r: 80 },
     { id: 'edge-deck', lat: 40.7539, lon: -74.0006, r: 45 },
@@ -518,6 +522,7 @@ async function main() {
   const fitCleared = new Set(); // building object refs to drop
   for (const lf of LANDMARK_FIT) {
     const cands = keptBuildings.filter((b) => {
+      if (lf.minH !== undefined && b.height < lf.minH) return false; // obb of the tall shaft only
       const dx = b.centroid[0] - lf.x, dz = b.centroid[1] - lf.z;
       return dx * dx + dz * dz < lf.r * lf.r;
     });
@@ -591,14 +596,18 @@ async function main() {
     // brick OSM massing in the core so the spectaculars stand free instead of
     // spearing through buildings (the district's real towers beyond r remain).
     ['times-square', 40.758, -73.9855, 55],
-    ['un-secretariat', 40.749, -73.9687, 55], ['un-ga', 40.7497, -73.9674, 45],
+    // recentered on the measured OSM centroids: the old circles sat 50-90m off
+    // and left the real 156m Secretariat slab + GA hall standing through the build
+    ['un-secretariat', 40.7489, -73.9681, 60], ['un-ga', 40.7501, -73.9677, 50],
     ['dakota', 40.7765, -73.9761, 42], ['carnegie-hall', 40.7651, -73.9799, 35],
     ['whitney', 40.7397, -74.0089, 35], ['vessel', 40.7538, -74.0022, 40],
     ['little-island', 40.742, -74.01, 70], ['belvedere', 40.7794, -73.9692, 28],
     ['grants-tomb', 40.8134, -73.963, 32], ['riverside-church', 40.8119, -73.9633, 42],
     ['columbia-low', 40.8081, -73.9619, 42], ['st-john-divine', 40.8038, -73.9619, 55],
     ['cloisters', 40.8649, -73.9317, 55], ['hamilton-grange', 40.8214, -73.9469, 18],
-    ['morris-jumel', 40.834, -73.9354, 20], ['dyckman-farmhouse', 40.8672, -73.9339, 18],
+    // both aligned to the registry anchors — the old points were 276m / 929m off,
+    // clearing innocent blocks while the real sites kept their OSM massing
+    ['morris-jumel', 40.8345, -73.9386, 20], ['dyckman-farmhouse', 40.8668, -73.9229, 18],
   ].map(([id, lat, lon, r]) => { const [x, z] = lonLatToXZ(lon, lat); return { id, x, z, r }; });
   let landmarkCleared = 0;
 

@@ -15,7 +15,6 @@ import {
 
 // ---- local materials (a few tints the shared kit doesn't carry) ------------
 const DAKOTA_BRICK = new THREE.MeshLambertMaterial({ color: '#b08d6a' }); // pale tan brick
-const WOOD = new THREE.MeshLambertMaterial({ color: '#6f5334' });          // pier timber
 const WARM_GLOW = new THREE.MeshBasicMaterial({ color: '#f6c98a' });       // lit interiors (unlit = glows)
 const BANNER_A = new THREE.MeshLambertMaterial({ color: '#9c2b2b' });      // museum banners
 const BANNER_B = new THREE.MeshLambertMaterial({ color: '#2b4a7c' });
@@ -385,9 +384,15 @@ export const builders: Record<string, (ctx: LandmarkCtx) => THREE.Group> = {
     return g;
   },
 
-  // Intrepid: 270m carrier hull with angled bow + flight deck, island + radar masts, deck aircraft, timber pier
-  'intrepid': () => {
+  // Intrepid: 270m carrier hull with angled bow + flight deck, island + radar masts, deck aircraft
+  'intrepid': (ctx) => {
+    const outer = new THREE.Group();
     const g = new THREE.Group();
+    // FLOAT, don't sit on terrain: the manager lifts every landmark group to
+    // heightAt(anchor), but a moored ship rides the water plane (y -0.7) no
+    // matter what the shore berm under the anchor measures
+    g.position.y = -(ctx.groundAt(0, 0)) - 0.7;
+    outer.add(g);
     // hull (dark sides) from y=-4 to the flight deck at y=15, with an angled bow wedge at +x
     g.add(box(250, 19, 26, DARKSTONE, -10, 5.5, 0));
     g.add(hullPlate(115, 13, 140, 0, 19, 5.5, DARKSTONE));  // port bow plate
@@ -405,9 +410,8 @@ export const builders: Record<string, (ctx: LandmarkCtx) => THREE.Group> = {
     const planeMats = [WHITE_LM, GRANITE, DARKSTONE, WHITE_LM, GRANITE, DARKSTONE];
     const spots: [number, number, number][] = [[-90, 6, 0.2], [-60, -6, -0.3], [-30, 5, 0.1], [5, -7, 2.9], [-110, -4, 3.0], [-45, 8, -0.2]];
     for (let i = 0; i < spots.length; i++) { const [px, pz, ry] = spots[i]; const p = warplane(planeMats[i]); p.position.set(px, 15.3, pz); p.rotation.y = ry; g.add(p); }
-    // timber pier alongside +z on piles, ~100m long
-    g.add(box(100, 0.5, 10, WOOD, -20, 2.2, 26));
-    for (let x = -65; x <= 35; x += 8) for (const z of [21.5, 30.5]) g.add(cyl(0.4, 0.4, 7, WOOD, x, -0.5, z, 6));
-    return g;
+    // no built pier: the ship rides in the river off the REAL Pier 86 OSM
+    // building, stern toward the bank
+    return outer;
   },
 };
