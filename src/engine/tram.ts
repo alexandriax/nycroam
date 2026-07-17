@@ -19,7 +19,13 @@ import type { BusHud } from './bus/types';
  * floorY, eye, doorBothSides) describe the cabin instead of the bus.
  */
 
-const M_TERM = { x: 1786, z: -380, name: '59 ST & 2 AV' };
+// Manhattan terminal = the REAL Roosevelt Island Tramway station footprint
+// (OSM way 32946753, "254 E 60 St", centroid ~1794,-356). The 19.6m station
+// roof there is dropped in build-tiles.mjs (LANDMARK_CLEAR 'tram-manhattan')
+// so our pad/cabin aren't occluded by — or buried inside — it. The v1 pad sat
+// half-inside buildings; the v2 pad (1786,-380) slid 24m south into the 60th
+// St roadbed. This sits on the real station plaza.
+const M_TERM = { x: 1793, z: -356, name: '59 ST & 2 AV' };
 const RI_TERM = { x: 2707, z: 72, name: 'ROOSEVELT ISLAND' };
 const TRAM_COLOR = '#c8102e';
 
