@@ -81,13 +81,20 @@ export interface RoadPaths {
   start: Uint32Array; // index into pts (per path), length = pathCount+1
   pts: Float32Array; // [x0,z0,x1,z1,...] world meters
   width: Float32Array; // per path, meters (drives minimap line weight)
+  kind: Uint8Array; // per path: 0 = vehicular road, 1 = bike lane (cycleway)
 }
 
+export const PATH_KIND_ROAD = 0;
+export const PATH_KIND_BIKE = 1;
+
 export interface CollisionData {
-  // Building outer rings for player push-out. World-space meters.
+  // Building rings (incl. elevated parts) for player push-out and roof landing.
+  // World-space meters.
   ringStart: Uint32Array; // index into points (per ring), length = ringCount+1
   points: Float32Array; // [x0,z0,x1,z1,...]
   aabb: Float32Array; // [minX,minZ,maxX,maxZ] per ring
+  top: Float32Array; // per ring: roof y (ground elevation + part height)
+  base: Float32Array; // per ring: underside y of the solid volume (elevated parts float)
 }
 
 export const ROAD_STYLE: Record<string, { w: number; col: [number, number, number]; y: number }> = {
@@ -103,7 +110,7 @@ export const ROAD_STYLE: Record<string, { w: number; col: [number, number, numbe
   pedestrian: { w: 8, col: [0.52, 0.53, 0.54], y: 0.06 },
   footway: { w: 2.6, col: [0.58, 0.59, 0.6], y: 0.1 },
   crossing: { w: 3, col: [0.4, 0.42, 0.44], y: 0.09 },
-  cycleway: { w: 2.4, col: [0.2, 0.3, 0.26], y: 0.09 },
+  cycleway: { w: 2.4, col: [0.14, 0.145, 0.16], y: 0.09 },
   path: { w: 2, col: [0.5, 0.47, 0.4], y: 0.09 },
   steps: { w: 2.6, col: [0.44, 0.44, 0.46], y: 0.1 },
   motorway_link: { w: 9, col: [0.12, 0.125, 0.14], y: 0.07 },
