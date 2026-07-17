@@ -1,5 +1,12 @@
 import type { Metadata, Viewport } from 'next';
+import Script from 'next/script';
 import './globals.css';
+
+// Google Analytics 4 (GA property under the "Here's Alexandria" account).
+// Set NEXT_PUBLIC_GA_ID to the Measurement ID (G-XXXXXXXXXX) in the Vercel
+// project env (and .env.local for dev). Unset = no tag loads, so local/preview
+// builds don't pollute the stream.
+const gaId = process.env.NEXT_PUBLIC_GA_ID;
 
 // Absolute base for og:image and friends. This page is statically prerendered,
 // so these are read at BUILD time — on Vercel the production alias is set then;
@@ -70,7 +77,23 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           crossOrigin="anonymous"
         />
       </head>
-      <body>{children}</body>
+      <body>
+        {children}
+        {gaId && (
+          <>
+            <Script
+              src={`https://www.googletagmanager.com/gtag/js?id=${gaId}`}
+              strategy="afterInteractive"
+            />
+            <Script id="ga-init" strategy="afterInteractive">
+              {`window.dataLayer = window.dataLayer || [];
+function gtag(){dataLayer.push(arguments);}
+gtag('js', new Date());
+gtag('config', '${gaId}');`}
+            </Script>
+          </>
+        )}
+      </body>
     </html>
   );
 }

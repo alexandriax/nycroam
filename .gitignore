@@ -4,6 +4,11 @@ data/cache/
 *.log
 .DS_Store
 
+# local env files (real values); .env.example IS committed as the reference
+.env
+.env.local
+.env*.local
+
 # raw Overpass/terrain responses (300MB, regenerate with npm run data:all)
 # The BUILT world data under public/ is committed on purpose: it is the app's
 # content, and Vercel deploys from this repo — an ignored public/ means an
