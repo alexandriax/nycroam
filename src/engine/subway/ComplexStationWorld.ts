@@ -1153,17 +1153,28 @@ export class ComplexStationWorld {
       }
       this.box(wx, 0.12, wz, this.lightMat, cxx, yTop, czz, this.root);
     }
-    // EXIT plate over the foot of the stairs
+    // EXIT plate over the foot of the stairs — two back-to-back front-facing
+    // quads (a single DoubleSide plane mirrors the lettering on its far face)
     const exitInfo = makeExitSignTexture(true);
     this.track(exitInfo.texture);
-    const exitMat = this.track(new THREE.MeshLambertMaterial({ map: exitInfo.texture, side: THREE.DoubleSide }));
+    const exitMat = this.track(new THREE.MeshLambertMaterial({ map: exitInfo.texture }));
     const sh2 = 0.42, sw2 = sh2 * exitInfo.aspect;
-    const sign = new THREE.Mesh(this.track(new THREE.PlaneGeometry(sw2, sh2)), exitMat);
-    sign.position.set(ex.at[0] - dx * 0.9, m.y + 2.3, ex.at[1] - dz * 0.9);
-    if (axis === 'x') sign.rotation.y = Math.PI / 2;
-    sign.matrixAutoUpdate = false;
-    sign.updateMatrix();
-    this.root.add(sign);
+    const signGeo = this.track(new THREE.PlaneGeometry(sw2, sh2));
+    const signG = new THREE.Group();
+    for (const face of [1, -1] as const) {
+      const m2 = new THREE.Mesh(signGeo, exitMat);
+      if (axis === 'x') {
+        m2.rotation.y = face === 1 ? Math.PI / 2 : -Math.PI / 2;
+        m2.position.x = face * 0.012;
+      } else {
+        if (face === -1) m2.rotation.y = Math.PI;
+        m2.position.z = face * 0.012;
+      }
+      signG.add(m2);
+    }
+    signG.position.set(ex.at[0] - dx * 0.9, m.y + 2.3, ex.at[1] - dz * 0.9);
+    this.freeze(signG);
+    this.root.add(signG);
   }
 
   // ---- stair visuals + walk ramps -----------------------------------------
@@ -1378,25 +1389,41 @@ export class ComplexStationWorld {
         this.hangSign(this.root, routes.length ? routes : g.spec.routes, text,
           sx, st.topY + 2.25, sz, span, 'down');
       } else {
-        // stairs down to a corridor/mezz: list every group reachable below
+        // stairs down to a corridor/mezz: list only the lines whose route from
+        // down there does NOT climb straight back up this stair — a line
+        // served from THIS level must not be signed "Downstairs"
         const reach: number[] = [];
         this.groups.forEach((_, gi) => {
-          const p = groupPaths[gi];
-          if (p.has(bIdx) || this.nodes.some((n, i) => i === bIdx && n.kind === 'plat' && n.groupIdx === gi)) reach.push(gi);
+          const hop = groupPaths[gi].get(bIdx);
+          if (hop && hop.stair !== st) reach.push(gi);
         });
         const routes = [...new Set(reach.flatMap((gi) => this.groups[gi].spec.routes))].slice(0, 6);
         if (routes.length) {
           this.hangSign(this.root, routes, 'Downstairs', sx, st.topY + 2.25, sz, span, 'down');
         }
       }
-      // 2) stair-foot signs on platforms: exit & transfers UP this stair
+      // 2) stair-foot signs: on platforms, exit & transfers UP this stair; on
+      // mezzanines/landings, the specific lines (and exit) whose route from
+      // down here climbs THIS stair — without these, a line reached via an
+      // upper level is invisible from below (the Columbus Circle 1 problem)
       if (bn.kind === 'plat') {
         const g = this.groups[bn.groupIdx!];
-        const others = this.groups.filter((og) => og !== g);
+        const others = this.groups.filter((og) => og.spec.id !== g.spec.id);
         const routes = [...new Set(others.flatMap((og) => og.spec.routes))].slice(0, 6);
         const text = others.length ? 'Transfer & Exit' : 'Exit';
         this.hangSign(this.root, routes, text,
           st.bottom[0] + dx * 1.4, st.bottomY + 2.25, st.bottom[1] + dz * 1.4, span, 'up');
+      } else {
+        const upRoutes: string[] = [];
+        this.groups.forEach((g, gi) => {
+          if (groupPaths[gi].get(bIdx)?.stair === st) upRoutes.push(...g.spec.routes);
+        });
+        const exitUp = exitPaths.get(bIdx)?.stair === st;
+        const routes = [...new Set(upRoutes)].slice(0, 6);
+        if (routes.length || exitUp) {
+          this.hangSign(this.root, routes, exitUp && !routes.length ? 'Exit' : exitUp ? '& Exit' : '',
+            st.bottom[0] + dx * 1.4, st.bottomY + 2.25, st.bottom[1] + dz * 1.4, span, 'up');
+        }
       }
     }
 

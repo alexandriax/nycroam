@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import { dataUrl } from '../engine/dataver';
 import type { World } from '../engine/World';
 import { PATH_KIND_BIKE } from '../engine/tileTypes';
 import { SANS } from '../engine/fonts';
@@ -52,7 +53,7 @@ export default function MiniMap({ world, size = 208, layer = 'transit' }: { worl
           return res.ok ? await res.json() : null;
         } catch { return null; }
       };
-      const [outline, streets] = await Promise.all([grab('/geo/outline.json'), grab('/geo/streets.json')]);
+      const [outline, streets] = await Promise.all([grab(dataUrl('/geo/outline.json')), grab(dataUrl('/geo/streets.json'))]);
       const { stations, docks, busStops } = world.mapData();
       if (alive) {
         dataRef.current = {

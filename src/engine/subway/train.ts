@@ -161,8 +161,8 @@ const IDENTITY_QUAT = new THREE.Quaternion();
 const SIDE_SIGN_TEX_W = 512;
 const SIDE_SIGN_TEX_H = 120;
 const LED_ROUTE_FRAC = 0.22; // fraction of canvas width reserved for the route letter
-const SIDE_SIGN_WIDTH = 0.9; // meters
-const SIDE_SIGN_HEIGHT = (SIDE_SIGN_WIDTH * SIDE_SIGN_TEX_H) / SIDE_SIGN_TEX_W; // ~0.21m, matches canvas aspect
+const SIDE_SIGN_WIDTH = 1.1; // meters — reads like the real R160 LED at platform distance
+const SIDE_SIGN_HEIGHT = (SIDE_SIGN_WIDTH * SIDE_SIGN_TEX_H) / SIDE_SIGN_TEX_W; // ~0.26m, matches canvas aspect
 const SIDE_SIGN_GEO = new THREE.PlaneGeometry(SIDE_SIGN_WIDTH, SIDE_SIGN_HEIGHT);
 
 // Small front-cab destination crop: same texture as the side signs, but a
@@ -188,7 +188,7 @@ const FRONT_DEST_GEO = new THREE.PlaneGeometry(FRONT_DEST_WIDTH, FRONT_DEST_HEIG
 // makeNumberFlagTexture / addNumberDecal).
 const NUMBER_ATLAS_W = 192; // px per row
 const NUMBER_ROW_H = 64; // px per row (height = NUMBER_ROW_H * carCount)
-const NUMBER_DECAL_W = 0.48; // meters
+const NUMBER_DECAL_W = 0.85; // meters — flag + digits at real decal scale
 const NUMBER_DECAL_H = (NUMBER_DECAL_W * NUMBER_ROW_H) / NUMBER_ATLAS_W; // matches one row's aspect
 const NUMBER_DECAL_GEO = new THREE.PlaneGeometry(NUMBER_DECAL_W, NUMBER_DECAL_H);
 
@@ -411,7 +411,7 @@ function makeNumberFlagTexture(numbers: number[]): THREE.CanvasTexture {
   ctx.textAlign = 'left';
   for (let i = 0; i < rows; i++) {
     const y0 = i * rowH;
-    const flagH = rowH * 0.44;
+    const flagH = rowH * 0.6; // the flag is the decal's dominant element, like the real cars
     drawUSFlag(ctx, 8, y0 + (rowH - flagH) / 2, flagH * 1.8, flagH);
     ctx.font = `${Math.round(rowH * 0.52)}px ${BLACK}`;
     ctx.fillStyle = '#e8eaed';
@@ -772,14 +772,19 @@ export class Train {
    */
   private addSideSigns(localX: number, dims: CarDims, segs: { cx: number; w: number; mid: boolean }[]): void {
     const { width: W } = dims;
-    const seg = segs[1]; // a mid segment, solidly walled above the window row
-    const signX = localX + seg.cx;
+    // TWO signs per car side, like the real cars: one on each MID segment (the
+    // solid band panels between the door bays), so they space evenly along the
+    // car and can never sit over a door or window opening.
     const signY = FLOOR_Y + WIN_HEAD + ABOVE_H / 2; // top-of-band solid panel center
-    for (const sideZ of [-1, 1] as const) {
-      const sign = new THREE.Mesh(SIDE_SIGN_GEO, this.sideSignMaterial);
-      sign.position.set(signX, signY, sideZ * (W / 2 + 0.01));
-      if (sideZ === -1) sign.rotation.y = Math.PI; // flip the single-sided plane to face -z
-      this.group.add(sign);
+    for (const seg of [segs[1], segs[2]]) {
+      const signX = localX + seg.cx;
+      for (const sideZ of [-1, 1] as const) {
+        const sign = new THREE.Mesh(SIDE_SIGN_GEO, this.sideSignMaterial);
+        // proud of the band frame lips (which sit ~0.015 past the wall skin)
+        sign.position.set(signX, signY, sideZ * (W / 2 + 0.02));
+        if (sideZ === -1) sign.rotation.y = Math.PI; // flip the single-sided plane to face -z
+        this.group.add(sign);
+      }
     }
   }
 
@@ -799,7 +804,7 @@ export class Train {
     const y = FLOOR_Y + WIN_HEAD + ABOVE_H / 2;
     for (const sideZ of [-1, 1] as const) {
       const decal = new THREE.Mesh(g, this.numberFlagMaterial);
-      decal.position.set(x, y, sideZ * (W / 2 + 0.012));
+      decal.position.set(x, y, sideZ * (W / 2 + 0.022));
       if (sideZ === -1) decal.rotation.y = Math.PI;
       this.group.add(decal);
     }

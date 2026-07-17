@@ -1,6 +1,8 @@
 // Runtime elevation sampler over the DEM grid produced by scripts/fetch-terrain.mjs.
 // Gracefully absent: heightAt() returns 0 until/unless terrain.json loads.
 
+import { dataUrl } from './dataver';
+
 interface TerrainGrid {
   originX: number;
   originZ: number;
@@ -14,7 +16,7 @@ let grid: TerrainGrid | null = null;
 
 export async function loadTerrain(): Promise<boolean> {
   try {
-    const res = await fetch('/geo/terrain.json');
+    const res = await fetch(dataUrl('/geo/terrain.json'));
     if (!res.ok) return false;
     const j = await res.json();
     grid = {

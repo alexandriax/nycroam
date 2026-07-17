@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { dataUrl } from '../dataver';
 import { LANDMARKS_PLACED, type Landmark } from './registry';
 import { mergeByMaterial, disposeGroup } from '../EntranceManager';
 import { heightAt } from '../terrain';
@@ -114,7 +115,7 @@ export class LandmarkManager {
 
   private loadFits(): Promise<void> {
     if (!this.fitsLoading) {
-      this.fitsLoading = fetch('/geo/landmarks-fit.json')
+      this.fitsLoading = fetch(dataUrl('/geo/landmarks-fit.json'))
         .then((r) => (r.ok ? r.json() : null))
         .then((j) => { this.fits = j?.fits ?? {}; })
         .catch(() => { this.fits = {}; });

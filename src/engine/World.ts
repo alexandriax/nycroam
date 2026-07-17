@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { dataUrl } from './dataver';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import { TileManager } from './TileManager';
 import { PlayerControls } from './controls';
@@ -167,8 +168,13 @@ export class World {
     this.entrances = new EntranceManager(
       this.streetScene,
       (x, z) => {
-        if (!this.tiles.readyAround(x, z)) return null; // wait for building collision before placing
-        return resolveBuildingCollision(x, z, 4.2, this.colNear(x, z), heightAt(x, z));
+        if (!this.tiles.readyAround(x, z)) return null; // wait for road/building data before placing
+        // OSM entrance points often sit in the roadway (Columbus Circle's
+        // island entrances, wide-avenue corners). Buildings first, then roads
+        // LAST so the returned point is always road-clear — on a narrow
+        // sidewalk a kit hugging the frontage beats one in a traffic lane.
+        const [bx, bz] = resolveBuildingCollision(x, z, 2.2, this.colNear(x, z), heightAt(x, z));
+        return this.ejectFromRoads(bx, bz, 1.6);
       },
       (x, z) => nearestWallDir(x, z, 15, this.tiles.collisionNear(x, z)),
     );
@@ -283,14 +289,14 @@ export class World {
 
   private async loadNetwork() {
     try {
-      const res = await fetch('/subway/network.json');
+      const res = await fetch(dataUrl('/subway/network.json'));
       if (res.ok) this.network = (await res.json()) as NetworkData;
     } catch { /* riding disabled without network data */ }
   }
 
   private async loadHoods() {
     try {
-      const res = await fetch('/geo/hoods.json');
+      const res = await fetch(dataUrl('/geo/hoods.json'));
       if (!res.ok) return;
       const json = await res.json();
       this.hoods = (json.hoods as { n: string; rings: number[][] }[]).map((h) => {
@@ -394,7 +400,7 @@ export class World {
     // ground.bin (v3): welded vertices in integer decimeters + delta-coded
     // indices. See encodeGroundBin in scripts/build-tiles.mjs. Decoding is a
     // typed-array view plus one expand loop — no JSON.parse of ~1M vertices.
-    const res = await fetch('/geo/ground.bin');
+    const res = await fetch(dataUrl('/geo/ground.bin'));
     if (!res.ok) throw new Error('no ground');
     const buf = await res.arrayBuffer();
     const head = new DataView(buf);
@@ -443,7 +449,7 @@ export class World {
   }
 
   private async loadSkyline() {
-    const res = await fetch('/tiles/skyline.json');
+    const res = await fetch(dataUrl('/tiles/skyline.json'));
     if (!res.ok) throw new Error('no skyline');
     const data = await res.json();
     const mat = makeSkylineMaterial(SKY.fog.clone());
