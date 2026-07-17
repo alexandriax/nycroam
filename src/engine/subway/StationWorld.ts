@@ -988,7 +988,7 @@ export class StationWorld {
     // ---- exit stairs (to street) ----
     const exitInfo = makeExitSignTexture(true);
     this.track(exitInfo.texture);
-    const exitMat = this.track(new THREE.MeshLambertMaterial({ map: exitInfo.texture, side: THREE.DoubleSide }));
+    const exitMat = this.track(new THREE.MeshLambertMaterial({ map: exitInfo.texture }));
     for (const ez of exitZs) {
       const stair = buildStairs(stairW, 3.2, 4.5);
       stair.rotation.y = Math.PI / 2; // ascend toward -x
@@ -1021,13 +1021,19 @@ export class StationWorld {
         this.box(0.1, sh, sWz, lightMat, sMinX, yBot + sh / 2, ez, root);     // lit street opening (-x end)
         this.box(sWx, 0.12, sWz, lightMat, sCx, yTop, ez, root);             // lit sky cap
       }
+      // two front-facing quads: a DoubleSide plane would mirror EXIT on its back
       const sh = 0.42, sw = sh * exitInfo.aspect;
-      const sign = new THREE.Mesh(this.track(new THREE.PlaneGeometry(sw, sh)), exitMat);
-      sign.position.set(exX + 0.85, MEZZ_Y + 2.3, ez);
-      sign.rotation.y = Math.PI / 2;
-      sign.matrixAutoUpdate = false;
-      sign.updateMatrix();
-      root.add(sign);
+      const signGeo = this.track(new THREE.PlaneGeometry(sw, sh));
+      const signG = new THREE.Group();
+      for (const face of [1, -1] as const) {
+        const m = new THREE.Mesh(signGeo, exitMat);
+        m.rotation.y = face === 1 ? Math.PI / 2 : -Math.PI / 2;
+        m.position.x = face * 0.012;
+        signG.add(m);
+      }
+      signG.position.set(exX + 0.85, MEZZ_Y + 2.3, ez);
+      signG.traverse((o) => { o.matrixAutoUpdate = false; o.updateMatrix(); });
+      root.add(signG);
     }
 
     // spawn: on the mezzanine on the UNPAID side, facing the fare line. The

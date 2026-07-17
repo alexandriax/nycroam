@@ -167,8 +167,13 @@ export class World {
     this.entrances = new EntranceManager(
       this.streetScene,
       (x, z) => {
-        if (!this.tiles.readyAround(x, z)) return null; // wait for building collision before placing
-        return resolveBuildingCollision(x, z, 4.2, this.colNear(x, z), heightAt(x, z));
+        if (!this.tiles.readyAround(x, z)) return null; // wait for road/building data before placing
+        // OSM entrance points often sit in the roadway (Columbus Circle's
+        // island entrances, wide-avenue corners). Buildings first, then roads
+        // LAST so the returned point is always road-clear — on a narrow
+        // sidewalk a kit hugging the frontage beats one in a traffic lane.
+        const [bx, bz] = resolveBuildingCollision(x, z, 2.2, this.colNear(x, z), heightAt(x, z));
+        return this.ejectFromRoads(bx, bz, 1.6);
       },
       (x, z) => nearestWallDir(x, z, 15, this.tiles.collisionNear(x, z)),
     );
