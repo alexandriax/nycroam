@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { dataUrl } from './dataver';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import type { SubwayData, StationSpec, EntranceSpec } from './subway/types';
 import { buildEntranceKit } from './streetprops';
@@ -121,7 +122,7 @@ export class EntranceManager {
 
   async init(): Promise<boolean> {
     try {
-      const res = await fetch('/subway/subway.json');
+      const res = await fetch(dataUrl('/subway/subway.json'));
       if (!res.ok) return false;
       this.data = (await res.json()) as SubwayData;
       for (const s of this.data.stations) this.stations.set(s.id, s);

@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { dataUrl } from './dataver';
 import { mergeByMaterial, disposeGroup } from './EntranceManager';
 import { heightAt } from './terrain';
 import { hash01 } from './palette';
@@ -165,7 +166,7 @@ export class BikeManager {
 
   async init(): Promise<boolean> {
     try {
-      const res = await fetch('/geo/bikes.json');
+      const res = await fetch(dataUrl('/geo/bikes.json'));
       if (!res.ok) return false;
       const json = await res.json();
       this.data = json.docks ?? null;

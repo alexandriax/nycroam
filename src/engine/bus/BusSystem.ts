@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { dataUrl } from '../dataver';
 import { disposeGroup } from '../EntranceManager';
 import { heightAt } from '../terrain';
 import { hash01 } from '../palette';
@@ -259,7 +260,7 @@ export class BusSystem {
 
   async init(): Promise<boolean> {
     try {
-      const res = await fetch('/geo/buses.json');
+      const res = await fetch(dataUrl('/geo/buses.json'));
       if (!res.ok) return false;
       const data = (await res.json()) as BusData;
       this.build(data);

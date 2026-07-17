@@ -208,7 +208,12 @@ export const builders: Record<string, (ctx: LandmarkCtx) => THREE.Group> = {
   'times-square': (ctx) => {
     const g = new THREE.Group();
     const DARK_STEEL = new THREE.MeshStandardMaterial({ color: '#26292d', metalness: 0.6, roughness: 0.5 });
-    const TKTS_RED = new THREE.MeshStandardMaterial({ color: '#c1121f', roughness: 0.15, emissive: '#6b0000', transparent: true, opacity: 0.55 });
+    // near-opaque ruby glass: at 0.55 the steps ghosted against whatever drove
+    // past behind them (transparent sorting) — depthWrite keeps them solid
+    const TKTS_RED = new THREE.MeshStandardMaterial({
+      color: '#c1121f', roughness: 0.15, emissive: '#6b0000',
+      transparent: true, opacity: 0.92, depthWrite: true,
+    });
     let seed = 1;
     // a dark-steel frame carrying n stacked abstract billboard panels facing the canyon
     const signStack = (x: number, z: number, faceX: number, panelW: number, top: number, n: number) => {
@@ -264,9 +269,18 @@ export const builders: Record<string, (ctx: LandmarkCtx) => THREE.Group> = {
     );
     wrap.position.set(0, 24, -58);
     g.add(wrap);
-    // TKTS translucent-red glass steps at the north end, with a glass parapet
-    for (let i = 0; i < 12; i++) g.add(box(15, 0.6, 0.95, TKTS_RED, 0, 0.3 + i * 0.55, 50 + i * 0.9));
-    g.add(box(15, 1.1, 0.12, GLASS_LM, 0, 7.3, 60)); // parapet
+    // TKTS red glass steps at the north end, with a glass parapet. The whole
+    // staircase shifts by ONE road-clearance offset (computed at its center,
+    // sized to its footprint) so it lands on the Duffy Square island as a
+    // unit instead of straddling the 7th Av roadbed.
+    {
+      const [tx, tz] = ctx.clearRoad(0, 55, 9);
+      const dxS = tx - 0, dzS = tz - 55;
+      for (let i = 0; i < 12; i++) {
+        g.add(box(15, 0.6, 0.95, TKTS_RED, dxS, 0.3 + i * 0.55, 50 + i * 0.9 + dzS));
+      }
+      g.add(box(15, 1.1, 0.12, GLASS_LM, dxS, 7.3, 60 + dzS)); // parapet
+    }
     return g;
   },
 

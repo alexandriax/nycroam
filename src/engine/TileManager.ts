@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { dataUrl } from './dataver';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import type { BuildResponse, MeshPayload, CollisionData, RoadPaths } from './tileTypes';
 import { TILE_SIZE, tileKey } from './geo';
@@ -80,7 +81,7 @@ export class TileManager {
   }
 
   async init(): Promise<void> {
-    const res = await fetch('/tiles/index.json');
+    const res = await fetch(dataUrl('/tiles/index.json'));
     if (!res.ok) throw new Error(`tiles/index.json missing (${res.status}) — run: npm run data:all`);
     const idx = await res.json();
     for (const k of idx.tiles as string[]) this.known.add(k);
@@ -182,7 +183,7 @@ export class TileManager {
       rec.state = 'building';
       const wi = this.pickWorker();
       this.inFlight.set(key, wi);
-      this.workers[wi].postMessage({ type: 'build', key, tx: rec.tx, tz: rec.tz, url: `/tiles/${key}.json` });
+      this.workers[wi].postMessage({ type: 'build', key, tx: rec.tx, tz: rec.tz, url: dataUrl(`/tiles/${key}.json`) });
     }
 
     // integrate at most 2 built tiles per frame (avoid jank)
