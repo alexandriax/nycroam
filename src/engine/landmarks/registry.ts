@@ -38,7 +38,10 @@ export const LANDMARKS_REG: LandmarkEntry[] = [
   // ---- financial district / battery ----
   { id: 'one-wtc', name: 'One World Trade Center', lat: 40.7127, lon: -74.0134, set: 'fidi', r: 1400 },
   { id: 'sept11-museum', name: '9/11 Memorial Museum', lat: 40.7115, lon: -74.0125, set: 'fidi', r: 450 },
-  { id: 'sept11-pools', name: 'September 11 Memorial Pools', lat: 40.7118, lon: -74.0133, set: 'fidi', r: 500 },
+  // anchored at the midpoint of the two BAKED memorial pools (54.2m water squares
+  // in the tile areas); -GRID aligns local x with their edges — the builder places
+  // its parapet frames at the pools' exact measured local offsets
+  { id: 'sept11-pools', name: 'September 11 Memorial Pools', lat: 40.71158, lon: -74.01313, set: 'fidi', r: 500, rot: -GRID },
   { id: 'oculus', name: 'Oculus', lat: 40.7115, lon: -74.0113, set: 'fidi', r: 600 },
   { id: 'nyse', name: 'New York Stock Exchange', lat: 40.7069, lon: -74.0113, set: 'fidi', r: 450, rot: 0.35 },
   { id: 'nyse-facade', name: 'NYSE Facade', lat: 40.7069, lon: -74.0113, set: 'fidi', r: 450, aliasOf: 'nyse' },
@@ -106,7 +109,10 @@ export const LANDMARKS_REG: LandmarkEntry[] = [
   { id: 'chrysler', name: 'Chrysler Building', lat: 40.7516, lon: -73.9755, set: 'midtown-east', r: 1500, rot: GRID },
   { id: 'one-vanderbilt', name: 'One Vanderbilt', lat: 40.7529, lon: -73.9787, set: 'midtown-east', r: 1400, rot: GRID },
   { id: 'summit-1v', name: 'Summit One Vanderbilt', lat: 40.7529, lon: -73.9787, set: 'midtown-east', r: 1400, aliasOf: 'one-vanderbilt' },
-  { id: 'united-nations', name: 'United Nations Headquarters', lat: 40.749, lon: -73.968, set: 'midtown-east', r: 800, rot: 0 },
+  // anchored on the real Secretariat slab center, rot aligning the slab with the
+  // measured OSM massing (long axis along the 1st Ave grid); the GA hall offset
+  // in the builder matches the real hall's centroid NNE of the slab
+  { id: 'united-nations', name: 'United Nations Headquarters', lat: 40.7489, lon: -73.9681, set: 'midtown-east', r: 800, rot: -2.072 },
   { id: 'roosevelt-tram', name: 'Roosevelt Island Tramway', lat: 40.7615, lon: -73.9642, set: 'midtown-east', r: 700, rot: GRID },
   { id: 'queensboro-bridge', name: 'Ed Koch Queensboro Bridge', lat: 40.7595, lon: -73.9605, set: 'midtown-east', r: 1500, rot: GRID },
 
@@ -121,7 +127,12 @@ export const LANDMARKS_REG: LandmarkEntry[] = [
   { id: 'amnh', name: 'American Museum of Natural History', lat: 40.7808, lon: -73.973, set: 'uptown', r: 600, rot: GRID },
   { id: 'met-museum', name: 'Metropolitan Museum of Art', lat: 40.7794, lon: -73.9626, set: 'uptown', r: 600, rot: GRID },
   { id: 'guggenheim', name: 'Guggenheim Museum', lat: 40.783, lon: -73.959, set: 'uptown', r: 550, rot: GRID },
-  { id: 'intrepid', name: 'Intrepid Museum', lat: 40.7648, lon: -74.0005, set: 'uptown', r: 900, rot: GRID },
+  // moored IN the Hudson off Pier 86 (the old anchor sat on the pier building
+  // itself). rot points the bow river-ward along the pier axis; the center sits
+  // far enough out that the hull is over water (the shore here is a long gentle
+  // berm), with the stern brushing the bank at the pierhead. The builder floats
+  // the hull at true water level (groundAt correction) rather than on terrain.
+  { id: 'intrepid', name: 'Intrepid Museum', lat: 40.76551, lon: -74.00377, set: 'uptown', r: 900, rot: 2.639 },
 
   // ---- central park ----
   { id: 'central-park', name: 'Central Park (Merchants Gate)', lat: 40.7677, lon: -73.9812, set: 'park', r: 450, rot: GRID },

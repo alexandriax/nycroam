@@ -107,29 +107,25 @@ export const builders: Record<string, (ctx: LandmarkCtx) => THREE.Group> = {
     return g;
   },
 
-  // 9/11 Memorial: two square voids with bronze-rimmed parapets over near-black water
+  // 9/11 Memorial: bronze-rimmed parapet frames around the two REAL pools. The
+  // tile pipeline bakes the memorial's water as two 54.2m squares (grid-rotated,
+  // at grade) — the registry anchors this landmark at their midpoint with
+  // rot -GRID, so the frames here land exactly on the baked water edges. Local
+  // pool centers below are the measured offsets of those squares; don't nudge
+  // them without re-measuring the tiles.
   'sept11-pools': () => {
     const g = new THREE.Group();
-    const DARKWATER = new THREE.MeshStandardMaterial({ color: '#0b1013', metalness: 0.4, roughness: 0.5 });
-    const S = 30, inner = 22, center = 8, depth = 4, t = 1.4;
-    const makePool = (cx: number): THREE.Group => {
+    const S = 53.8, t = 1.4; // inner clearance: parapet overlaps the 54.2m water edge 0.2m
+    const makePool = (cx: number, cz: number): THREE.Group => {
       const p = new THREE.Group();
       for (const [dx, dz, w, d] of [[0, S / 2 + t / 2, S + 2 * t, t], [0, -(S / 2 + t / 2), S + 2 * t, t], [S / 2 + t / 2, 0, t, S], [-(S / 2 + t / 2), 0, t, S]]) {
         p.add(box(w, 1.0, d, DARKSTONE, dx, 0.5, dz)); // parapet
-        p.add(box(w, 0.14, d, BRONZE, dx, 1.05, dz)); // bronze rim band
+        p.add(box(w, 0.14, d, BRONZE, dx, 1.05, dz)); // bronze name-panel rim
       }
-      for (const [dx, dz, w, d] of [[0, S / 2, S, 0.6], [0, -S / 2, S, 0.6], [S / 2, 0, 0.6, S], [-S / 2, 0, 0.6, S]])
-        p.add(box(w, depth, d, DARKSTONE, dx, -depth / 2, dz)); // walls descending to water
-      const water = new THREE.Mesh(new THREE.PlaneGeometry(inner, inner), DARKWATER);
-      water.rotation.x = -Math.PI / 2;
-      water.position.y = -depth + 0.05;
-      p.add(water);
-      for (const [dx, dz, w, d] of [[0, center / 2, center, 0.4], [0, -center / 2, center, 0.4], [center / 2, 0, 0.4, center], [-center / 2, 0, 0.4, center]])
-        p.add(box(w, depth, d, DARKSTONE, dx, -depth / 2 - 0.6, dz)); // small second void at the center
-      p.position.x = cx;
+      p.position.set(cx, 0, cz);
       return p;
     };
-    g.add(makePool(-30), makePool(30));
+    g.add(makePool(-33.4, -51.9), makePool(33.4, 51.9)); // north pool, south pool
     return g;
   },
 
