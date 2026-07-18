@@ -164,6 +164,14 @@ function fitFont(ctx: CanvasRenderingContext2D, text: string, maxW: number, star
   return size;
 }
 
+/** The raw feed route id sometimes carries its own "-SBS"/"+SBS" suffix
+ * (e.g. "M14A-SBS"), which would otherwise force the big amber glyph to
+ * shrink for a status the teal side stripe + chip already show. Strip it
+ * for DISPLAY only — callers still cache/key on the untouched route id. */
+function routeLabel(route: string): string {
+  return route.replace(/[+-]SBS$/i, '');
+}
+
 function charSum(s: string): number {
   let n = 0;
   for (let i = 0; i < s.length; i++) n += s.charCodeAt(i);
@@ -198,39 +206,44 @@ function cachedCanvasMat(
   return m;
 }
 
-/** Front destination: amber-on-black LED, `{route}  {dest}` (+ teal SBS chip). */
+/** Front destination: amber-on-black LED, ROUTE dominant with a smaller
+ * `{dest}` alongside (+ teal SBS chip). Canvas/plate are taller than a stock
+ * letterbox headsign so the route glyph reads big on approach; `dest` keeps
+ * the SAME pixel size as the old strip, so relative to the bigger route it
+ * now reads as clearly secondary (like a real bus headsign). */
 function frontDestMat(route: string, dest: string, sbs: boolean): THREE.Material {
-  return cachedCanvasMat(`F|${route}|${dest}|${sbs ? 1 : 0}`, 768, 132, {}, (ctx) => {
+  return cachedCanvasMat(`F|${route}|${dest}|${sbs ? 1 : 0}`, 768, 160, {}, (ctx) => {
     ctx.fillStyle = '#060708';
-    ctx.fillRect(0, 0, 768, 132);
+    ctx.fillRect(0, 0, 768, 160);
     const amber = '#ffb531';
+    const label = routeLabel(route);
     ctx.textBaseline = 'middle';
     ctx.textAlign = 'left';
     ctx.fillStyle = amber;
     ctx.shadowColor = amber;
-    ctx.shadowBlur = 8;
-    const rSize = fitFont(ctx, route, 210, 96, LED);
+    ctx.shadowBlur = 10;
+    const rSize = fitFont(ctx, label, 270, 116, LED);
     ctx.font = `${rSize}px ${LED}`;
-    ctx.fillText(route, 26, 70);
-    let x = 26 + ctx.measureText(route).width + 24;
+    ctx.fillText(label, 28, 84);
+    let x = 28 + ctx.measureText(label).width + 28;
     if (sbs) {
       ctx.shadowBlur = 0;
-      rr(ctx, x, 36, 104, 60, 10);
+      rr(ctx, x, 44, 124, 72, 12);
       ctx.fillStyle = '#00a6ce';
       ctx.fill();
       ctx.fillStyle = '#ffffff';
       ctx.textAlign = 'center';
-      ctx.font = `30px ${BLACK}`;
-      ctx.fillText('+SBS', x + 52, 68);
+      ctx.font = `36px ${BLACK}`;
+      ctx.fillText('+SBS', x + 62, 82);
       ctx.textAlign = 'left';
-      x += 126;
+      x += 150;
       ctx.fillStyle = amber;
-      ctx.shadowBlur = 8;
+      ctx.shadowBlur = 10;
     }
     if (dest) {
-      const dSize = fitFont(ctx, dest, 768 - x - 18, 56, LED);
+      const dSize = fitFont(ctx, dest, 768 - x - 22, 56, LED);
       ctx.font = `${dSize}px ${LED}`;
-      ctx.fillText(dest, x, 70);
+      ctx.fillText(dest, x, 84);
     }
     ctx.shadowBlur = 0;
   });
@@ -243,14 +256,15 @@ function routePlateMat(route: string, dest: string): THREE.Material {
     ctx.fillStyle = '#060708';
     ctx.fillRect(0, 0, 224, 168);
     const amber = '#ffb531';
+    const label = routeLabel(route);
     ctx.fillStyle = amber;
     ctx.shadowColor = amber;
     ctx.shadowBlur = 6;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    const rSize = fitFont(ctx, route, 200, 84, LED);
+    const rSize = fitFont(ctx, label, 200, 84, LED);
     ctx.font = `${rSize}px ${LED}`;
-    ctx.fillText(route, 112, 56);
+    ctx.fillText(label, 112, 56);
     if (dest) {
       const dSize = fitFont(ctx, dest, 208, 26, LED);
       ctx.font = `${dSize}px ${LED}`;
@@ -496,18 +510,26 @@ function buildInterior(g: THREE.Group): void {
 // ---------------------------------------------------------------------------
 function addStaticSigns(g: THREE.Group, opts: BusModelOpts): void {
   const { route, dest, sbs } = opts;
-  // front destination sign in the black box above the windshield
-  const front = new THREE.Mesh(new THREE.PlaneGeometry(1.9, 0.327), frontDestMat(route, dest, sbs));
+  // front destination sign in the black box above the windshield (spans
+  // y 2.35..2.78, 0.43 m tall) — the plate nearly fills that box so the
+  // route glyph is big
+  const front = new THREE.Mesh(new THREE.PlaneGeometry(1.9, 0.4), frontDestMat(route, dest, sbs));
   front.rotation.y = Math.PI / 2;
   front.position.set(6.08, 2.565, 0);
   g.add(front);
-  // side route plate beside the front door, floating in the first window
-  // opening on a black backing (readable from the curb)
+  // side route plates beside the front door on BOTH sides, floating in the
+  // first window opening on a black backing (readable from either sidewalk
+  // when buses queue at a stop; mirrored the same way as the text strip
+  // below). Both planes share the one cached `plate` material, so
+  // mergeByMaterial still collapses them into a single draw call.
   const plate = routePlateMat(route, dest);
-  addBox(g, BAND, 0.46, 0.34, 0.03, 5.35, 1.95, 1.275);
-  const side = new THREE.Mesh(new THREE.PlaneGeometry(0.42, 0.315), plate);
-  side.position.set(5.35, 1.95, 1.296);
-  g.add(side);
+  for (const s of [-1, 1] as const) {
+    addBox(g, BAND, 0.54, 0.4, 0.03, 5.35, 1.95, s * 1.275);
+    const side = new THREE.Mesh(new THREE.PlaneGeometry(0.5, 0.375), plate);
+    side.position.set(5.35, 1.95, s * 1.296);
+    if (s === -1) side.rotation.y = Math.PI;
+    g.add(side);
+  }
   // rear plate: same cached texture, UVs cropped to the route region
   const rearGeo = new THREE.PlaneGeometry(0.42, 0.205);
   const uv = rearGeo.attributes.uv;
