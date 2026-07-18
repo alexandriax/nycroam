@@ -9,78 +9,165 @@ import type { LandmarkCtx } from './kit';
 type BuilderMap = Record<string, (ctx: LandmarkCtx) => THREE.Group>;
 
 /**
+ * A SOLID extruded mass carries its true plan in the 2D shape it was extruded
+ * from. When that shape has been stood up so the extrusion axis is vertical (a
+ * tower shaft, a laid-flat prism), its outline is the building's footprint —
+ * recover it so collision hugs e.g. a triangular tower instead of a bounding box
+ * that would swallow the crosswalks and sidewalks wrapping around it.
+ *
+ * Returns the outline as x,z pairs in the group's LOCAL frame (same frame the
+ * box path uses, rotated into world together with everything else at emit time)
+ * plus its polygon area, or null when the outline is NOT a horizontal footprint:
+ * a vertical gable/pediment (edge-on, ~zero area), or a prism whose stand-up
+ * rotation was baked into the geometry rather than the mesh matrix (matrixWorld
+ * can't see it). The caller then falls back to the mesh AABB, which for those
+ * cases is either a thin wall (fine) or elevated (harmless at street level).
+ */
+const _efPoint = new THREE.Vector3();
+function extrudeFootprintLocal(mesh: THREE.Mesh): { pts: number[]; area: number } | null {
+  const params = (mesh.geometry as THREE.ExtrudeGeometry).parameters as unknown as
+    { shapes?: THREE.Shape | THREE.Shape[]; options?: { curveSegments?: number } } | undefined;
+  if (!params?.shapes) return null;
+  const shapes = Array.isArray(params.shapes) ? params.shapes : [params.shapes];
+  const curveSeg = params.options?.curveSegments ?? 12;
+  let best: number[] | null = null, bestArea = 0;
+  for (const shape of shapes) {
+    const outline = shape.extractPoints(curveSeg).shape; // 2D outline in the shape's XY plane
+    if (outline.length < 3) continue;
+    // shape XY (local z=0) -> mesh world matrix -> the group's LOCAL frame (x,z).
+    // matrixWorld holds any rotation put on the MESH (a stood-up shaft), so a
+    // horizontal shape lands as a horizontal footprint here.
+    const local: number[] = [];
+    for (const p of outline) {
+      _efPoint.set(p.x, p.y, 0).applyMatrix4(mesh.matrixWorld);
+      local.push(_efPoint.x, _efPoint.z);
+    }
+    // extractPoints closes the loop with a copy of the first point; drop it so a
+    // triangle stays 3 vertices (and the <=12 decimation counts real corners).
+    const m = local.length;
+    if (m >= 6 && Math.abs(local[0] - local[m - 2]) < 1e-4 && Math.abs(local[1] - local[m - 1]) < 1e-4) {
+      local.length -= 2;
+    }
+    // shoelace area in x,z (the later rot into world preserves it). Near-zero
+    // means the outline is edge-on — a vertical wall, not a footprint.
+    const n = local.length / 2;
+    let a2 = 0;
+    for (let i = 0, j = n - 1; i < n; j = i++) {
+      a2 += local[j * 2] * local[i * 2 + 1] - local[i * 2] * local[j * 2 + 1];
+    }
+    const area = Math.abs(a2) / 2;
+    if (area > bestArea) { bestArea = area; best = local; }
+  }
+  if (!best || bestArea < 1.0) return null; // no usable horizontal footprint
+  // keep the ring small: evenly decimate a high-vertex outline to <= 12 points
+  const n = best.length / 2;
+  if (n > 12) {
+    const step = Math.ceil(n / 12);
+    const simp: number[] = [];
+    for (let i = 0; i < n; i += step) simp.push(best[i * 2], best[i * 2 + 1]);
+    best = simp;
+  }
+  return { pts: best, area: bestArea };
+}
+
+/**
  * Coarse collision derived from a landmark's raw primitive tree (before the
- * per-material merge flattens it): each solid primitive's local AABB becomes a
- * rotated footprint ring with base/top heights, so walls push the player out,
- * roofs are landable, and elevated spans stay walkable underneath. Thin or low
- * pieces (struts, benches, fountains, panels) are skipped, as are arch walls —
- * an arch's AABB would seal the very opening you're meant to walk through.
+ * per-material merge flattens it): each solid primitive becomes a rotated
+ * footprint ring with base/top heights, so walls push the player out, roofs are
+ * landable, and elevated spans stay walkable underneath. Box/round masses use
+ * their world AABB; SOLID extruded masses derive an accurate N-gon footprint
+ * from the extrude outline (a triangular shaft blocks as a triangle, not a
+ * street-swallowing box). Thin or low pieces (struts, benches, panels) are
+ * skipped, as are arch walls (userData.passable) — an arch's footprint would
+ * seal the very opening you're meant to walk under.
+ *
+ * Rings are variable-length (ringStart indexes per-ring vertex counts), so a
+ * 4-corner box and an N-gon footprint coexist in one pack.
  */
 function deriveCollision(
   raw: THREE.Group, px: number, gy: number, pz: number, rot: number,
 ): CollisionData | null {
   raw.updateMatrixWorld(true);
-  const boxes: { x0: number; z0: number; x1: number; z1: number; base: number; top: number; area: number }[] = [];
+  // each kept primitive -> a LOCAL x,z polygon (variable length) + base/top/area
+  const rings: { pts: number[]; base: number; top: number; area: number }[] = [];
   const b3 = new THREE.Box3();
   raw.traverse((o) => {
     if (!(o instanceof THREE.Mesh)) return;
-    // Arch openings are extruded shapes whose solid AABB would seal the very
-    // span you're meant to walk through (Washington Sq arch) — leave passable.
+    // arch openings stay walk-under: their footprint would seal the span you
+    // walk through (Washington Sq arch, church portals, market arcades).
+    if (o.userData.passable) return;
     const geoType = (o.geometry as THREE.BufferGeometry).type;
-    if (geoType === 'ExtrudeGeometry') return;
     b3.setFromObject(o);
     if (b3.isEmpty()) return;
     const h = b3.max.y - b3.min.y;
-    const w = b3.max.x - b3.min.x, d = b3.max.z - b3.min.z;
     if (h < 2.0) return; // too low to stop a standing player (steps, benches, parapets)
-    // Wall-vs-strut test, split by geometry kind. A landmark's mass is built from
-    // box() walls that are PANEL-THIN in one axis but wide in the other (facades,
-    // slabs, gable fills); the old blanket `min(w,d) < 0.5` dropped those, so
-    // replace-type landmarks (OSM massing cleared) became walk-through.
-    if (geoType === 'BoxGeometry') {
-      // keep flat walls; skip only genuine posts (thin in BOTH horizontal axes)
-      if (Math.max(w, d) < 0.6) return;
-    } else {
-      // round/organic pieces (cyl/lathe): a diagonal strut's AABB inflates to a
-      // big empty box, but it's still thin in one axis — the original min-dim
-      // test drops struts/cables while keeping fat columns, domes, round towers
-      if (Math.min(w, d) < 0.5) return;
-    }
     // near-ground volumes read as grounded: a wall rising from a low stepped
     // plinth (the plinth itself filtered as "low") must still block at street
     // level, while genuinely elevated spans (arch lintels, decks) stay open
     const base = b3.min.y < 3.0 ? b3.min.y - 3 : b3.min.y;
-    boxes.push({ x0: b3.min.x, z0: b3.min.z, x1: b3.max.x, z1: b3.max.z, base, top: b3.max.y, area: w * d });
+    const top = b3.max.y;
+
+    // SOLID extruded mass: prefer its true plan over the AABB. A triangular
+    // Flatiron-style shaft must block ITS triangle, not a bounding box that
+    // would wall off the surrounding traffic island and crosswalks.
+    if (geoType === 'ExtrudeGeometry') {
+      const fp = extrudeFootprintLocal(o);
+      if (fp) { rings.push({ pts: fp.pts, base, top, area: fp.area }); return; }
+      // outline wasn't a horizontal footprint (vertical gable, or baked stand-up
+      // rotation) -> fall through: treat it like a flat wall via its AABB.
+    }
+
+    const w = b3.max.x - b3.min.x, d = b3.max.z - b3.min.z;
+    // Wall-vs-strut test, split by geometry kind. A landmark's mass is built from
+    // box() walls (and extruded gables) that are PANEL-THIN in one axis but wide
+    // in the other (facades, slabs, gable fills); keep those, drop only genuine
+    // posts. Round/organic pieces (cyl/lathe): a diagonal strut's AABB inflates
+    // to a big empty box, but it's still thin in one axis — the min-dim test
+    // drops struts/cables while keeping fat columns, domes, round towers.
+    const wallLike = geoType === 'BoxGeometry' || geoType === 'ExtrudeGeometry';
+    if (wallLike) {
+      if (Math.max(w, d) < 0.6) return; // thin in BOTH horizontal axes = a post
+    } else {
+      if (Math.min(w, d) < 0.5) return;
+    }
+    rings.push({
+      pts: [b3.min.x, b3.min.z, b3.max.x, b3.min.z, b3.max.x, b3.max.z, b3.min.x, b3.max.z],
+      base, top, area: w * d,
+    });
   });
-  if (!boxes.length) return null;
+  if (!rings.length) return null;
   // biggest volumes first; cap so a strut-heavy build can't bloat the pack
-  boxes.sort((a, b) => b.area - a.area);
-  if (boxes.length > 48) boxes.length = 48;
+  rings.sort((a, b) => b.area - a.area);
+  if (rings.length > 48) rings.length = 48;
   const cos = Math.cos(rot), sin = Math.sin(rot);
-  const starts = new Uint32Array(boxes.length + 1);
-  const pts = new Float32Array(boxes.length * 8);
-  const aabb = new Float32Array(boxes.length * 4);
-  const top = new Float32Array(boxes.length);
-  const base = new Float32Array(boxes.length);
-  for (let i = 0; i < boxes.length; i++) {
-    const bx = boxes[i];
-    starts[i] = i * 4;
-    const corners: [number, number][] = [[bx.x0, bx.z0], [bx.x1, bx.z0], [bx.x1, bx.z1], [bx.x0, bx.z1]];
+  let total = 0;
+  for (const r of rings) total += r.pts.length / 2;
+  const starts = new Uint32Array(rings.length + 1);
+  const pts = new Float32Array(total * 2);
+  const aabb = new Float32Array(rings.length * 4);
+  const top = new Float32Array(rings.length);
+  const base = new Float32Array(rings.length);
+  let o = 0; // running point index — rings vary in length, so accumulate
+  for (let i = 0; i < rings.length; i++) {
+    const r = rings[i];
+    starts[i] = o;
     let minX = 1e9, minZ = 1e9, maxX = -1e9, maxZ = -1e9;
-    for (let c = 0; c < 4; c++) {
-      const [lx, lz] = corners[c];
+    for (let c = 0; c < r.pts.length; c += 2) {
+      const lx = r.pts[c], lz = r.pts[c + 1];
+      // local -> world by the landmark's rot about its anchor (matches the
+      // group.rotation.y = rot / position (px,pz) the manager applies to the mesh)
       const wx = px + lx * cos + lz * sin;
       const wz = pz - lx * sin + lz * cos;
-      pts[i * 8 + c * 2] = wx;
-      pts[i * 8 + c * 2 + 1] = wz;
+      pts[o * 2] = wx; pts[o * 2 + 1] = wz;
       if (wx < minX) minX = wx; if (wx > maxX) maxX = wx;
       if (wz < minZ) minZ = wz; if (wz > maxZ) maxZ = wz;
+      o++;
     }
     aabb[i * 4] = minX; aabb[i * 4 + 1] = minZ; aabb[i * 4 + 2] = maxX; aabb[i * 4 + 3] = maxZ;
-    top[i] = gy + bx.top;
-    base[i] = gy + bx.base;
+    top[i] = gy + r.top;
+    base[i] = gy + r.base;
   }
-  starts[boxes.length] = boxes.length * 4;
+  starts[rings.length] = o;
   return { ringStart: starts, points: pts, aabb, top, base };
 }
 
