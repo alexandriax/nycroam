@@ -188,8 +188,13 @@ export class World {
     this.bikes = new BikeManager(
       this.streetScene,
       (x, z) => {
-        if (!this.tiles.readyAround(x, z)) return null;
-        return resolveBuildingCollision(x, z, 2.6, this.colNear(x, z), heightAt(x, z));
+        if (!this.tiles.readyAround(x, z)) return null; // wait for road/building data before placing
+        // Citi Bike station coordinates often land in the roadbed (docks are
+        // curbside but the source point can fall mid-avenue). Buildings
+        // first, then roads LAST so the returned point is always road-clear
+        // — docks are wide, so push the same 1.6m past the curb as entrances.
+        const [bx, bz] = resolveBuildingCollision(x, z, 2.6, this.colNear(x, z), heightAt(x, z));
+        return this.ejectFromRoads(bx, bz, 1.6);
       },
       (x, z) => nearestWallDir(x, z, 15, this.tiles.collisionNear(x, z)),
     );
