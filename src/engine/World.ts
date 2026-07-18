@@ -4,7 +4,7 @@ import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment
 import { TileManager } from './TileManager';
 import { PlayerControls } from './controls';
 import { resolveBuildingCollision, nearestWallDir, floorAt, floorAtAny, pointInBuildings, roofBelow } from './collision';
-import { PATH_KIND_ROAD } from './tileTypes';
+import { PATH_KIND_ROAD, type RoadPaths } from './tileTypes';
 import { setupSky, setupLights, followSun, SKY } from './sky';
 import { quality } from './quality';
 import { makeSkylineMaterial, makeFlatMaterial, makeWaterMaterial } from './materials';
@@ -43,6 +43,32 @@ type TransitHandle = BusRideHandle | TramRideHandle;
 const rideInterior = (h: TransitHandle) => ('interior' in h ? h.interior : BUS.interior);
 const rideFloorY = (h: TransitHandle) => ('floorY' in h ? h.floorY : BUS.floorY);
 const rideEye = (h: TransitHandle) => ('eye' in h ? h.eye : BUS.eye);
+
+/**
+ * A curb-side kit's ground footprint, for clearing it off the roadbed. The kit's
+ * long axis runs ALONG the street (bus shelter, dock rack, stair pit all parallel
+ * the curb); `hL` is that half-length and `pR` the perpendicular half-reach toward
+ * the road. The eject keeps this whole oriented rectangle `margin` metres clear of
+ * every ribbon — so a long shelter/rack end can't poke a crossing lane even when
+ * the pole itself is on the sidewalk (the residual that left a bus-stop corner in
+ * the Columbus Circle roadbed). `bldgClear` is the wall stand-off; `fixed` freezes
+ * the tangent to the RAW point (a bus kit's facing is set by BusSystem from the
+ * serving street the GTFS point sits on, not by whichever ribbon is nearest the
+ * moved anchor); `drop` lets a stop that can't be seated clear of the lane be
+ * skipped rather than rendered in traffic.
+ */
+interface KitFootprint {
+  hL: number; pR: number; margin: number; bldgClear: number; fixed?: boolean; drop?: boolean;
+}
+const BUS_FP: KitFootprint = { hL: 5.5, pR: 1.0, margin: 0.6, bldgClear: 1.6, fixed: true, drop: true };
+const DOCK_FP: KitFootprint = { hL: 7.4, pR: 1.05, margin: 0.5, bldgClear: 2.6 };
+const ENTRANCE_FP: KitFootprint = { hL: 3.6, pR: 1.2, margin: 0.5, bldgClear: 2.2 };
+// Footprint sample offsets in the kit-local (along-street, perp-to-road) frame:
+// the four corners, the four edge mid-points, and the anchor. Clearing all nine
+// keeps the whole rectangle out of the roadbed without a full polygon test.
+function fpSamples(hL: number, pR: number): [number, number][] {
+  return [[0, 0], [hL, pR], [-hL, pR], [hL, -pR], [-hL, -pR], [hL, 0], [-hL, 0], [0, pR], [0, -pR]];
+}
 
 export interface HudState {
   mode: 'street' | 'station' | 'ride' | 'bus';
@@ -168,9 +194,9 @@ export class World {
     this.entrances = new EntranceManager(
       this.streetScene,
       // OSM entrance points often sit in the roadway (Columbus Circle's island
-      // entrances, wide-avenue corners) or against a wall. Solve BOTH so the 2×2
-      // kiosk clears the lane and never phases into a building face.
-      (x, z) => this.resolvePlacement(x, z, 1.6, 2.2),
+      // entrances, wide-avenue corners) or against a wall. Clear the WHOLE kiosk
+      // + stair-pit footprint off the lane and never phase it into a building.
+      (x, z) => this.resolveFootprint(x, z, ENTRANCE_FP),
       (x, z) => nearestWallDir(x, z, 15, this.tiles.collisionNear(x, z)),
     );
     // road-clearance callback: landmark props (Times Square billboard masts)
@@ -183,10 +209,15 @@ export class World {
     this.bikes = new BikeManager(
       this.streetScene,
       // Citi Bike station coordinates often land in the roadbed (docks are
-      // curbside but the source point can fall mid-avenue). Solve BOTH so the
-      // wide rack sits on the sidewalk, clear of the lane and off the building.
-      (x, z) => this.resolvePlacement(x, z, 1.6, 2.6),
-      (x, z) => nearestWallDir(x, z, 15, this.tiles.collisionNear(x, z)),
+      // curbside but the source point can fall mid-avenue). Clear the whole ~14.5m
+      // rack footprint off the lane and off the building.
+      (x, z) => this.resolveFootprint(x, z, DOCK_FP),
+      // Orient the rack along the CURB (nearest vehicular ribbon), not just the
+      // nearest wall: ~half of docks sit in plazas/greenways with no building
+      // within 15m, where a wall-or-random angle used to swing the long rack
+      // across the roadway. Running it parallel to the street is what keeps a
+      // 14.5m rack out of the lane (the footprint eject then only trims the ends).
+      (x, z) => this.curbDir(x, z),
     );
 
     // buses: sim + culling live in BusSystem; the vehicle/stop visuals are
@@ -521,47 +552,201 @@ export class World {
     return [x, z]; // fully enclosed (shouldn't happen in Manhattan) — leave as-is
   }
 
-  /**
-   * Curb-resolve a bus stop's raw GTFS point: defer until its tiles load (null),
-   * then settle it onto the sidewalk, clear of BOTH the roadway and any building.
-   * GTFS points are curbside but some land in wide roadbeds. 2.2m past the curb
-   * seats the pole so the shelter canopy (which sits ~1m to either side of the
-   * pole, then runs ALONG the curb) clears the lane; the audit shows pushing
-   * further (2.5m+) only shoves stops into buildings without clearing the lane
-   * any better — the residual shelter-in-lane is corner geometry, not offset.
-   */
+  /** Curb-resolve a bus stop's raw GTFS point (BUS_FP; null = defer or drop). */
   private resolveBusStop(x: number, z: number): [number, number] | null {
-    return this.resolvePlacement(x, z, 2.2, 1.6);
+    return this.resolveFootprint(x, z, BUS_FP);
   }
 
   /**
-   * Place a footprint-carrying street object (bus stop, subway entrance, bike
-   * dock) clear of BOTH the roadway and any building. A single eject can't do it:
-   * pushing out of a building can shove the object into a traffic lane, and
-   * pushing out of the road can shove it into a wall — the reported "entrance
-   * kiosk in a building" and "bus shelter in the crosswalk" bugs came from
-   * resolving one then the other ONCE, so the last push undid the first. Instead
-   * alternate the two constraints until the point stops moving: a joint fixed
-   * point on the sidewalk between the curb and the wall. `roadClear` is how far
-   * past the curb the anchor must sit so the object's body (shelter canopy, dock
-   * rack, 2×2 kiosk) clears the lane; `bldgClear` keeps that body off the wall.
-   * Returns null (defer) until the tiles here have streamed — preserves the
-   * readyAround/null-deferral contract every caller relies on. When no point
-   * satisfies both (a highway/no-sidewalk pin) the loop ends on the ROAD eject,
-   * failing safe OUT of the lane rather than into a wall.
+   * Unit direction along the CURB at (x,z) — the tangent of the nearest vehicular
+   * ribbon — so a bike rack runs parallel to the street. Falls back to the nearest
+   * building wall, then null (BikeManager then uses a stable per-dock hash angle).
    */
-  private resolvePlacement(x: number, z: number, roadClear: number, bldgClear: number): [number, number] | null {
-    if (!this.tiles.readyAround(x, z)) return null; // wait for road/building data
+  private curbDir(x: number, z: number): [number, number] | null {
+    const paths = this.tiles.roadPathsNear(x, z, 1);
+    let best = 45 * 45, tx = 0, tz = 0, found = false; // ignore ribbons > 45m off
+    for (const rp of paths) {
+      const roadCount = rp.start.length - 1;
+      for (let r = 0; r < roadCount; r++) {
+        if (rp.kind[r] !== PATH_KIND_ROAD) continue; // curb = vehicular street, not a bike lane
+        const a = rp.start[r], b = rp.start[r + 1];
+        for (let j = a; j < b - 1; j++) {
+          const x1 = rp.pts[j * 2], z1 = rp.pts[j * 2 + 1];
+          const x2 = rp.pts[(j + 1) * 2], z2 = rp.pts[(j + 1) * 2 + 1];
+          const dx = x2 - x1, dz = z2 - z1, l2 = dx * dx + dz * dz;
+          if (l2 < 1e-6) continue;
+          let t = ((x - x1) * dx + (z - z1) * dz) / l2; t = t < 0 ? 0 : t > 1 ? 1 : t;
+          const ox = x - (x1 + t * dx), oz = z - (z1 + t * dz), d2 = ox * ox + oz * oz;
+          if (d2 < best) { best = d2; const l = Math.sqrt(l2); tx = dx / l; tz = dz / l; found = true; }
+        }
+      }
+    }
+    if (found) return [tx, tz];
+    return nearestWallDir(x, z, 15, this.tiles.collisionNear(x, z));
+  }
+
+  /** Kit-local frame at (x,z): [tx,tz] = nearest vehicular ribbon tangent (the
+   *  kit's long axis), [nx,nz] = unit toward that ribbon's centerline (the road
+   *  side). Bike lanes don't set the long axis; degenerate → perpendicular fallback. */
+  private roadFrame(paths: RoadPaths[], x: number, z: number): [number, number, number, number] {
+    let best = Infinity, tx = 1, tz = 0, cx = x, cz = z;
+    for (const rp of paths) {
+      const roadCount = rp.start.length - 1;
+      for (let r = 0; r < roadCount; r++) {
+        if (rp.kind[r] !== PATH_KIND_ROAD) continue;
+        const a = rp.start[r], b = rp.start[r + 1];
+        for (let j = a; j < b - 1; j++) {
+          const x1 = rp.pts[j * 2], z1 = rp.pts[j * 2 + 1];
+          const x2 = rp.pts[(j + 1) * 2], z2 = rp.pts[(j + 1) * 2 + 1];
+          const dx = x2 - x1, dz = z2 - z1, l2 = dx * dx + dz * dz;
+          if (l2 < 1e-6) continue;
+          let t = ((x - x1) * dx + (z - z1) * dz) / l2; t = t < 0 ? 0 : t > 1 ? 1 : t;
+          const qx = x1 + t * dx, qz = z1 + t * dz, d = Math.hypot(x - qx, z - qz);
+          if (d < best) { best = d; const l = Math.sqrt(l2); tx = dx / l; tz = dz / l; cx = qx; cz = qz; }
+        }
+      }
+    }
+    let nx = cx - x, nz = cz - z; const nl = Math.hypot(nx, nz);
+    if (nl > 1e-6) { nx /= nl; nz /= nl; } else { nx = -tz; nz = tx; }
+    return [tx, tz, nx, nz];
+  }
+
+  /** Signed clearance of a point to the nearest ribbon edge (incl. bike lanes):
+   *  distance to centerline minus half-width; negative = inside that ribbon. */
+  private ribbonClearance(paths: RoadPaths[], x: number, z: number): number {
+    let best = Infinity;
+    for (const rp of paths) {
+      const roadCount = rp.start.length - 1;
+      for (let r = 0; r < roadCount; r++) {
+        const half = rp.width[r] * 0.5;
+        const a = rp.start[r], b = rp.start[r + 1];
+        for (let j = a; j < b - 1; j++) {
+          const x1 = rp.pts[j * 2], z1 = rp.pts[j * 2 + 1];
+          const x2 = rp.pts[(j + 1) * 2], z2 = rp.pts[(j + 1) * 2 + 1];
+          const dx = x2 - x1, dz = z2 - z1, l2 = dx * dx + dz * dz;
+          if (l2 < 1e-6) continue;
+          let t = ((x - x1) * dx + (z - z1) * dz) / l2; t = t < 0 ? 0 : t > 1 ? 1 : t;
+          const d = Math.hypot(x - (x1 + t * dx), z - (z1 + t * dz)) - half;
+          if (d < best) best = d;
+        }
+      }
+    }
+    return best;
+  }
+
+  /** True once every sample of the oriented footprint sits `pad` clear of every ribbon. */
+  private footprintClear(paths: RoadPaths[], px: number, pz: number, fp: KitFootprint, frame: [number, number, number, number]): boolean {
+    const [tx, tz, nx, nz] = frame, pad = fp.margin * 0.6;
+    for (const [al, pe] of fpSamples(fp.hL, fp.pR)) {
+      if (this.ribbonClearance(paths, px + al * tx + pe * nx, pz + al * tz + pe * nz) < pad) return false;
+    }
+    return true;
+  }
+
+  /** True if any footprint sample lands inside a building at street level. */
+  private footprintInBuilding(px: number, pz: number, fp: KitFootprint, frame: [number, number, number, number]): boolean {
+    const [tx, tz, nx, nz] = frame, sets = this.colNear(px, pz), y = heightAt(px, pz);
+    for (const [al, pe] of fpSamples(fp.hL, fp.pR)) {
+      if (pointInBuildings(px + al * tx + pe * nx, pz + al * tz + pe * nz, sets, y)) return true;
+    }
+    return false;
+  }
+
+  /**
+   * Push a kit's WHOLE footprint out of every roadbed ribbon (greedy on the
+   * deepest-penetrating sample, iterated), so a long shelter/rack end clears a
+   * crossing or curving lane — not just the anchor. `frameFixed` (bus stops) keeps
+   * the kit's long axis on the serving street the raw point sits on.
+   */
+  private ejectFootprint(paths: RoadPaths[], x: number, z: number, fp: KitFootprint, frameFixed?: [number, number, number, number]): [number, number] {
+    const samples = fpSamples(fp.hL, fp.pR);
     let px = x, pz = z;
-    for (let i = 0; i < 4; i++) {
-      const [bx, bz] = resolveBuildingCollision(px, pz, bldgClear, this.colNear(px, pz), heightAt(px, pz));
-      const road = this.ejectFromRoads(bx, bz, roadClear);
-      const nx = road ? road[0] : bx, nz = road ? road[1] : bz;
-      const moved = Math.hypot(nx - px, nz - pz);
-      px = nx; pz = nz;
-      if (moved < 0.05) break; // converged — clear of both constraints
+    for (let iter = 0; iter < 12; iter++) {
+      const [tx, tz, nx, nz] = frameFixed ?? this.roadFrame(paths, px, pz);
+      let worst = 0, wux = 0, wuz = 0;
+      for (const [al, pe] of samples) {
+        const sx = px + al * tx + pe * nx, sz = pz + al * tz + pe * nz;
+        for (const rp of paths) {
+          const roadCount = rp.start.length - 1;
+          for (let r = 0; r < roadCount; r++) {
+            const target = rp.width[r] * 0.5 + fp.margin;
+            const a = rp.start[r], b = rp.start[r + 1];
+            for (let j = a; j < b - 1; j++) {
+              const x1 = rp.pts[j * 2], z1 = rp.pts[j * 2 + 1];
+              const x2 = rp.pts[(j + 1) * 2], z2 = rp.pts[(j + 1) * 2 + 1];
+              const dx = x2 - x1, dz = z2 - z1, l2 = dx * dx + dz * dz;
+              if (l2 < 1e-6) continue;
+              let t = ((sx - x1) * dx + (sz - z1) * dz) / l2; t = t < 0 ? 0 : t > 1 ? 1 : t;
+              const ox = sx - (x1 + t * dx), oz = sz - (z1 + t * dz), d = Math.hypot(ox, oz);
+              const pen = target - d;
+              // move the ANCHOR (so the whole footprint shifts) by this sample's escape
+              if (pen > worst) { worst = pen; if (d > 1e-3) { wux = ox / d; wuz = oz / d; } else { wux = nx; wuz = nz; } }
+            }
+          }
+        }
+      }
+      if (worst <= 0.02) break;
+      px += wux * worst; pz += wuz * worst;
     }
     return [px, pz];
+  }
+
+  /**
+   * Place a footprint-carrying kit (bus stop, subway entrance, bike dock) clear of
+   * BOTH the roadway and any building. Alternating single ejects (the previous
+   * approach) cleared only the ANCHOR, leaving long shelter/rack ends poking a
+   * crossing lane — the Columbus Circle bug. Now:
+   *  1. joint solve — alternate building-eject + whole-footprint road-eject until
+   *     the anchor stops moving;
+   *  2. if the footprint still isn't fully clear (a pocket between the overlapping
+   *     ribbons of a traffic circle, a tight corner), SPIRAL out from the raw point
+   *     for the nearest spot where the whole footprint clears, preferring one off
+   *     any building but accepting a wall graze (road-clear is the priority);
+   *  3. fail-safe — a footprint-only eject OUT of the lane. If it still can't seat
+   *     clear and the kit is droppable (bus stops), return null so it's skipped
+   *     rather than rendered in traffic.
+   * Returns null while tiles here are still streaming (the readyAround/null-defer
+   * contract every caller relies on) — so a dropped stop simply keeps deferring.
+   */
+  private resolveFootprint(x: number, z: number, fp: KitFootprint): [number, number] | null {
+    if (!this.tiles.readyAround(x, z)) return null; // wait for road/building data
+    const paths = this.tiles.roadPathsNear(x, z, 2); // 2-tile radius: wide-avenue centerlines in the next tile count
+    const frameFixed = fp.fixed ? this.roadFrame(paths, x, z) : undefined;
+    // 1) joint building + whole-footprint road solve
+    let px = x, pz = z;
+    for (let i = 0; i < 5; i++) {
+      const [bx, bz] = resolveBuildingCollision(px, pz, fp.bldgClear, this.colNear(px, pz), heightAt(px, pz));
+      const [rx, rz] = this.ejectFootprint(paths, bx, bz, fp, frameFixed);
+      const moved = Math.hypot(rx - px, rz - pz);
+      px = rx; pz = rz;
+      if (moved < 0.05) break;
+    }
+    if (this.footprintClear(paths, px, pz, fp, frameFixed ?? this.roadFrame(paths, px, pz))) return [px, pz];
+    // 2) spiral from the RAW point for the nearest fully-clear seat
+    let clearX = 0, clearZ = 0, clearD = Infinity, hasClear = false;
+    let grazeX = 0, grazeZ = 0, grazeD = Infinity, hasGraze = false;
+    for (let ring = 1; ring <= 24 && !hasClear; ring++) {
+      const steps = Math.max(6, ring * 4);
+      for (let a = 0; a < steps; a++) {
+        const ang = (a / steps) * Math.PI * 2;
+        let cx = x + Math.cos(ang) * ring, cz = z + Math.sin(ang) * ring;
+        [cx, cz] = resolveBuildingCollision(cx, cz, Math.min(fp.bldgClear, 0.6), this.colNear(cx, cz), heightAt(cx, cz));
+        const fr = frameFixed ?? this.roadFrame(paths, cx, cz);
+        if (!this.footprintClear(paths, cx, cz, fp, fr)) continue;
+        const d = Math.hypot(cx - x, cz - z);
+        if (this.footprintInBuilding(cx, cz, fp, fr)) {
+          if (d < grazeD) { grazeD = d; grazeX = cx; grazeZ = cz; hasGraze = true; }
+        } else if (d < clearD) { clearD = d; clearX = cx; clearZ = cz; hasClear = true; }
+      }
+    }
+    if (hasClear) return [clearX, clearZ];
+    if (hasGraze) return [grazeX, grazeZ];
+    // 3) fail-safe: shove the footprint out of the lane, wall-graze if need be
+    const [rx, rz] = this.ejectFootprint(paths, px, pz, fp, frameFixed);
+    if (fp.drop && !this.footprintClear(paths, rx, rz, fp, frameFixed ?? this.roadFrame(paths, rx, rz))) {
+      return null; // can't seat clear of the lane (highway/no-sidewalk pin) — skip it, don't render it in traffic
+    }
+    return [rx, rz];
   }
 
   /**
