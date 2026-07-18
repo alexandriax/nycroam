@@ -117,7 +117,14 @@ export function archWall(w: number, h: number, depth: number, archW: number, arc
   shape.holes.push(hole);
   const geo = new THREE.ExtrudeGeometry(shape, { depth, bevelEnabled: false, curveSegments: 10 });
   geo.translate(0, 0, -depth / 2);
-  return new THREE.Mesh(geo, mat);
+  const mesh = new THREE.Mesh(geo, mat);
+  // WHY: an arch is a wall with a walk-THROUGH opening. Landmark collision now
+  // derives a footprint ring from every solid extruded mass, but this outline's
+  // solid span would seal the very passage you walk under. Tag it so
+  // deriveCollision leaves the arch passable — the surrounding piers/frieze/
+  // cornice are separate box meshes that still block on their own.
+  mesh.userData.passable = true;
+  return mesh;
 }
 
 /** Simple standing figure silhouette (~`h` tall) for statues; deliberately stylized. */

@@ -763,6 +763,110 @@ async function main() {
     }
   }
 
+  // ---- GLOBAL VEHICULAR ROAD INDEX ----------------------------------------------------------
+  // Street props (signs, hydrants, trees) were placed with only their OWN tile's road
+  // pieces in view, so a wide avenue whose centerline sits in a NEIGHBOURING tile went
+  // unseen and props baked into its roadbed (70% of signs, 7% of hydrants, 6% of trees).
+  // Flatten every vehicular road piece — already in world metres in tileRoadPiecesWorld —
+  // into one coarse spatial grid (64m cells) so any prop can query the nearest ribbon
+  // island-wide. Half-widths are ROAD_STYLE.w/2 (tileTypes.ts); the class set and 64m cell
+  // size match src/engine/World.ejectFromRoads and the road-intrusion audit exactly.
+  const VEHICULAR_HALF = {
+    motorway: 11, trunk: 10, primary: 8.5, secondary: 7, tertiary: 6,
+    unclassified: 5, residential: 5, living_street: 4, service: 2.75,
+    motorway_link: 4.5, trunk_link: 4.5, primary_link: 4.5, secondary_link: 4.5, tertiary_link: 4.5,
+  };
+  const ROAD_CELL = 64;
+  const roadGrid = new Map(); // "gx,gz" -> [{ x1, z1, x2, z2, half }]
+  const roadCellKey = (gx, gz) => `${gx},${gz}`;
+  function addRoadSeg(x1, z1, x2, z2, half) {
+    const s = { x1, z1, x2, z2, half };
+    const gx0 = Math.floor(Math.min(x1, x2) / ROAD_CELL), gx1 = Math.floor(Math.max(x1, x2) / ROAD_CELL);
+    const gz0 = Math.floor(Math.min(z1, z2) / ROAD_CELL), gz1 = Math.floor(Math.max(z1, z2) / ROAD_CELL);
+    for (let gx = gx0; gx <= gx1; gx++) for (let gz = gz0; gz <= gz1; gz++) {
+      const k = roadCellKey(gx, gz);
+      let a = roadGrid.get(k);
+      if (!a) { a = []; roadGrid.set(k, a); }
+      a.push(s);
+    }
+  }
+  let roadSegCount = 0;
+  for (const pieces of tileRoadPiecesWorld.values()) {
+    for (const piece of pieces) {
+      const half = VEHICULAR_HALF[piece.cls];
+      if (half === undefined) continue; // footway/path/crossing/cycleway: not a vehicular roadbed
+      const p = piece.pts;
+      for (let i = 0; i < p.length - 1; i++) { addRoadSeg(p[i][0], p[i][1], p[i + 1][0], p[i + 1][1], half); roadSegCount++; }
+    }
+  }
+  console.log(`  global road index: ${roadSegCount} vehicular segments in ${roadGrid.size} cells`);
+
+  // Deepest vehicular penetration at (px,pz): scans the 3x3 grid neighbourhood and returns
+  // the worst (target - dist) over every nearby ribbon plus its outward normal, where
+  // target = half + clearance. A positive `worst` means the point sits inside that ribbon
+  // (or within `clearance` of its curb) and must move out along (wx,wz).
+  function worstRoadPenetration(px, pz, clearance) {
+    const gx = Math.floor(px / ROAD_CELL), gz = Math.floor(pz / ROAD_CELL);
+    let worst = 0, wx = 0, wz = 0;
+    for (let dx = -1; dx <= 1; dx++) for (let dz = -1; dz <= 1; dz++) {
+      const a = roadGrid.get(roadCellKey(gx + dx, gz + dz));
+      if (!a) continue;
+      for (const s of a) {
+        const vx = s.x2 - s.x1, vz = s.z2 - s.z1, l2 = vx * vx + vz * vz;
+        if (l2 < 1e-9) continue;
+        let t = ((px - s.x1) * vx + (pz - s.z1) * vz) / l2;
+        t = t < 0 ? 0 : t > 1 ? 1 : t;
+        const ox = px - (s.x1 + t * vx), oz = pz - (s.z1 + t * vz);
+        const pen = (s.half + clearance) - Math.hypot(ox, oz);
+        if (pen > worst) { worst = pen; wx = ox; wz = oz; }
+      }
+    }
+    return { worst, wx, wz };
+  }
+  // Push (x,z) out of every vehicular ribbon onto the sidewalk, `clearance` metres past the
+  // curb, by iterating on the deepest-penetrating ribbon (converges to the corner at a
+  // two-street intersection). Models src/engine/World.ejectFromRoads but over the GLOBAL
+  // index rather than the runtime's per-tile road paths. `maxTravel` caps total displacement
+  // (measured from `capOrigin` if given, else the start) so a data glitch can't fling the
+  // prop off its corner (Infinity = no cap). 10 iterations converge the zig-zag at a wide
+  // two-avenue intersection; a residual penetration means no sidewalk is reachable (a
+  // highway interchange) and the caller drops the prop.
+  function ejectFromRoads(x, z, clearance, maxTravel = Infinity, capOrigin = null) {
+    let px = x, pz = z;
+    for (let iter = 0; iter < 10; iter++) {
+      const { worst, wx, wz } = worstRoadPenetration(px, pz, clearance);
+      if (worst <= 0.02) break;
+      const d = Math.hypot(wx, wz);
+      if (d > 1e-3) { px += (wx / d) * worst; pz += (wz / d) * worst; }
+      else px += worst; // exactly on a centerline: nudge along +x
+    }
+    if (Number.isFinite(maxTravel)) {
+      const cx = capOrigin ? capOrigin[0] : x, cz = capOrigin ? capOrigin[1] : z;
+      const tdx = px - cx, tdz = pz - cz, td = Math.hypot(tdx, tdz);
+      if (td > maxTravel) { px = cx + (tdx / td) * maxTravel; pz = cz + (tdz / td) * maxTravel; }
+    }
+    return [px, pz];
+  }
+  // True when (x,z) sits within (road half-width + margin) of any vehicular centerline — i.e.
+  // standing in (or margin-close to) a roadbed. Used to CULL trees rather than move them.
+  function inVehicularRoad(x, z, margin) {
+    const gx = Math.floor(x / ROAD_CELL), gz = Math.floor(z / ROAD_CELL);
+    for (let dx = -1; dx <= 1; dx++) for (let dz = -1; dz <= 1; dz++) {
+      const a = roadGrid.get(roadCellKey(gx + dx, gz + dz));
+      if (!a) continue;
+      for (const s of a) {
+        const vx = s.x2 - s.x1, vz = s.z2 - s.z1, l2 = vx * vx + vz * vz;
+        if (l2 < 1e-9) continue;
+        let t = ((x - s.x1) * vx + (z - s.z1) * vz) / l2;
+        t = t < 0 ? 0 : t > 1 ? 1 : t;
+        const qx = s.x1 + t * vx, qz = s.z1 + t * vz;
+        const lim = s.half + margin;
+        if ((x - qx) * (x - qx) + (z - qz) * (z - qz) < lim * lim) return true;
+      }
+    }
+    return false;
+  }
+
   // ---- MAJOR STREETS: island-wide skeleton for the minimap's widest zoom -------------------
   // The minimap draws streets from the tile stream, but tiles only load within ~1.1km of the
   // player, so at the widest zoom most of the view has no road data at all. Bake the
@@ -837,8 +941,18 @@ async function main() {
     const hsh = Math.abs(Math.sin(rec.pt[0] * 12.9898 + rec.pt[1] * 78.233));
     const s1 = hsh < 0.5 ? 1 : -1;
     const dist = ((CLASS_W[ea.cls] || 10) + (CLASS_W[eb.cls] || 10)) / 4 + 2.2;
-    const px = rec.pt[0] + (cx / cl) * dist * s1;
-    const pz = rec.pt[1] + (cz / cl) * dist * s1;
+    const px0 = rec.pt[0] + (cx / cl) * dist * s1;
+    const pz0 = rec.pt[1] + (cz / cl) * dist * s1;
+    // The diagonal bisector offset above under-clears wide avenues (a corner push doesn't
+    // leave a roadbed squarely), so ~70% of sign assemblies baked into the street. Eject
+    // out of the deepest-penetrating vehicular ribbon using the GLOBAL road index (incl.
+    // avenues whose centerline sits in a neighbouring tile) to 1.9m past the curb = the
+    // sidewalk; cap total travel to 16m of the intersection node so it stays on its corner.
+    const [px, pz] = ejectFromRoads(px0, pz0, 1.9, 16, rec.pt);
+    // Still in pavement after ejecting? The node is a highway interchange (stacked parallel
+    // motorway/trunk ribbons) with no sidewalk within 16m — a street-name sign there can't
+    // reach a corner, so drop it rather than bake it into the roadbed.
+    if (inVehicularRoad(px, pz, 0.1)) continue;
     const [stx, stz] = tileOf([px, pz]);
     const skey = tileKeyOf(stx, stz);
     if (!tileSigns.has(skey)) tileSigns.set(skey, []);
@@ -863,7 +977,12 @@ async function main() {
   let hydCount = 0;
   for (const el of hydrantsMap.values()) {
     if (el.type !== 'node' || typeof el.lat !== 'number') continue;
-    const [hx, hz] = lonLatToXZ(el.lon, el.lat);
+    let [hx, hz] = lonLatToXZ(el.lon, el.lat);
+    // ~7% of OSM hydrant nodes fall in a roadbed. Eject 0.4m past the curb (hydrants sit
+    // right at the curb line) via the global road index; already-clear hydrants don't move.
+    // Cap travel at 12m; if still in pavement (a highway median with no curb) drop it.
+    [hx, hz] = ejectFromRoads(hx, hz, 0.4, 12);
+    if (inVehicularRoad(hx, hz, 0.1)) continue;
     const [htx, htz] = tileOf([hx, hz]);
     const hkey = tileKeyOf(htx, htz);
     if (!tileHyd.has(hkey)) tileHyd.set(hkey, []);
@@ -907,27 +1026,13 @@ async function main() {
           const nx = -(bz - az) / seg, nz = (bx - ax) / seg;
           const side = Math.abs(Math.sin(x * 12.9898 + z * 78.233)) < 0.5 ? 1 : -1;
           const off = (HYD_W[piece.cls] || 10) / 2 + 1.3;
-          const hx = x + nx * off * side, hz = z + nz * off * side;
-          // reject candidates inside ANY vehicular roadbed (cross streets at corners)
-          let inRoad = false;
-          for (const other of pieces) {
-            if (other === piece) continue;
-            const ow = (CLASS_W[other.cls] || (HYD_W[other.cls] ?? 0)) || 0;
-            if (!ow) continue;
-            const clr = ow / 2 + 0.6;
-            const op = other.pts;
-            for (let k = 1; k < op.length && !inRoad; k++) {
-              const [x1, z1] = op[k - 1], [x2, z2] = op[k];
-              const ddx = x2 - x1, ddz = z2 - z1;
-              const l2 = ddx * ddx + ddz * ddz;
-              let tt = l2 > 0 ? ((hx - x1) * ddx + (hz - z1) * ddz) / l2 : 0;
-              tt = Math.max(0, Math.min(1, tt));
-              const qx = x1 + tt * ddx, qz = z1 + tt * ddz;
-              if ((hx - qx) * (hx - qx) + (hz - qz) * (hz - qz) < clr * clr) inRoad = true;
-            }
-            if (inRoad) break;
-          }
-          if (!inRoad && !hydGrid.has(gk(hx, hz))) {
+          let hx = x + nx * off * side, hz = z + nz * off * side;
+          // Eject out of ANY vehicular roadbed — cross streets at corners, plus avenues
+          // whose centerline sits in a neighbouring tile the old per-tile scan missed —
+          // to 0.4m past the curb (cap travel 12m). Place it at the curb; if it can't clear
+          // the pavement (a highway median) skip it, as the old per-tile reject did.
+          [hx, hz] = ejectFromRoads(hx, hz, 0.4, 12);
+          if (!inVehicularRoad(hx, hz, 0.1) && !hydGrid.has(gk(hx, hz))) {
             for (let gx = -1; gx <= 1; gx++) for (let gz = -1; gz <= 1; gz++) {
               hydGrid.add(`${Math.round(hx / 40) + gx}:${Math.round(hz / 40) + gz}`);
             }
@@ -1085,25 +1190,13 @@ async function main() {
     return false;
   }
 
-  // Half-widths (m) of the drawn road ribbons, per class — a real OSM tree whose
-  // node falls INSIDE a vehicular ribbon is standing in the street (Times Sq medians,
-  // plaza edges the road ribbon overruns) and is culled. Footways/paths/crossings
-  // are intentionally absent: trees belong on sidewalks and in pedestrian plazas.
-  const ROAD_HALF = {
-    motorway: 11, trunk: 10, primary: 8.5, secondary: 7, tertiary: 6,
-    unclassified: 5, residential: 5, living_street: 4, service: 2.75,
-    motorway_link: 4.5, trunk_link: 4.5, primary_link: 4.5, secondary_link: 4.5, tertiary_link: 4.5,
-  };
-  function inRoadway(x, z, key) {
-    const pieces = tileRoadPiecesWorld.get(key);
-    if (!pieces) return false;
-    for (const piece of pieces) {
-      const hw = ROAD_HALF[piece.cls];
-      if (hw === undefined) continue; // sidewalks/plazas keep their trees
-      if (pointToPolylinesDist([x, z], [piece.pts]) < hw + 0.5) return true;
-    }
-    return false;
-  }
+  // A real OSM tree whose node falls inside (or within TREE_ROAD_MARGIN of) a vehicular
+  // ribbon is standing in the street (Times Sq medians, plaza edges the road ribbon
+  // overruns) and is CULLED, not moved — trees are plentiful. The old cull saw only the
+  // tree's OWN tile's road pieces and under-culled by ~6.7k; inVehicularRoad uses the
+  // GLOBAL road index (full half-width + margin) so neighbouring-tile avenues count too.
+  // Footways/paths/crossings are absent from the index, so trees keep their sidewalks/plazas.
+  const TREE_ROAD_MARGIN = 1.2;
 
   const realTreesByTile = new Map(); // key -> array of [x,z] world meters, capped at 800 (unchanged from v1)
   let treeTilesSampled = 0;
@@ -1112,7 +1205,7 @@ async function main() {
     const buildings = tileBuildingFootprints.get(key) || [];
     const list = rawList.filter(([x, z]) => {
       if (nearEntrance(x, z)) { realCulledAtEntrances++; return false; }
-      if (inRoadway(x, z, key)) { realCulledInRoad++; return false; }
+      if (inVehicularRoad(x, z, TREE_ROAD_MARGIN)) { realCulledInRoad++; return false; }
       // a tree node inside a building footprint would spear the building
       for (const bpoly of buildings) {
         if (pointInPolygonWithHoles([x, z], bpoly)) { realCulledInBuilding++; return false; }
@@ -1217,7 +1310,8 @@ async function main() {
       const buildings = tileBuildingFootprints.get(key) || [];
       const kept = [];
       for (const [x, z, clearance] of list) {
-        if (pointToPolylinesDist([x, z], roadPolylines) < clearance) continue;
+        if (pointToPolylinesDist([x, z], roadPolylines) < clearance) continue; // per-tile: keep off footpaths too
+        if (inVehicularRoad(x, z, TREE_ROAD_MARGIN)) continue; // global: no procedural tree in a vehicular roadbed
         if (nearEntrance(x, z)) continue;
         let insideBuilding = false;
         for (const bpoly of buildings) {

@@ -3,15 +3,26 @@ import type { CollisionData } from './tileTypes';
 // Standing head clearance: a ring whose underside is above this never blocks.
 const HEAD = 1.75;
 
+// On-top band: how far below a roof's top the player's feet may be and still
+// count as standing ON that roof rather than beside its wall. This ONE constant
+// couples the wall test (`ringSolidAt`) and the support test (`roofBelow`): a
+// ring is a solid wall exactly when the feet are more than ROOF_BAND below its
+// top, and a landable roof exactly when they're within ROOF_BAND below it. They
+// MUST share the value — if the wall test kept pushing you out through a height
+// the roof test already treated as "landed", you'd be shoved off the edge and
+// lifted back on the same frame (the walk-onto-a-roof jitter this fixes).
+const ROOF_BAND = 0.6;
+
 /**
  * A ring is solid at height `y` when the player's body (feet y, head y+HEAD)
- * overlaps its [base, top] span. Above the roof (feet at/over top) or fully
- * under an elevated part, the ring is passable. `y === undefined` keeps the
- * legacy footprint-only behavior (every ring solid).
+ * overlaps its [base, top] span AND the feet are more than ROOF_BAND below the
+ * top. Standing on the roof (feet within ROOF_BAND of the top) or fully under an
+ * elevated part, the ring is passable. `y === undefined` keeps the legacy
+ * footprint-only behavior (every ring solid).
  */
 function ringSolidAt(set: CollisionData, ri: number, y: number | undefined): boolean {
   if (y === undefined) return true;
-  return y < set.top[ri] - 0.3 && y + HEAD > set.base[ri];
+  return y < set.top[ri] - ROOF_BAND && y + HEAD > set.base[ri];
 }
 
 /**
@@ -115,7 +126,9 @@ export function roofBelow(x: number, z: number, y: number, sets: CollisionData[]
     const ringCount = set.ringStart.length - 1;
     for (let ri = 0; ri < ringCount; ri++) {
       const top = set.top[ri];
-      if (top > y + 0.45) continue; // roof above the feet — not a landing
+      // roof more than ROOF_BAND above the feet — not a landing. Shares the band
+      // with ringSolidAt so "beside the wall" and "on the roof" partition cleanly.
+      if (top > y + ROOF_BAND) continue;
       if (best !== null && top <= best) continue;
       const minX = set.aabb[ri * 4], minZ = set.aabb[ri * 4 + 1];
       const maxX = set.aabb[ri * 4 + 2], maxZ = set.aabb[ri * 4 + 3];
