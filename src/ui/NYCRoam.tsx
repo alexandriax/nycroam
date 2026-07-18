@@ -132,6 +132,10 @@ export default function NYCRoam() {
   const [showHelp, setShowHelp] = useState(true);
   const [isTouch, setIsTouch] = useState(false);
   const [mapLayer, setMapLayer] = useState<'transit' | 'bikes' | 'bus'>('transit');
+  // the intro overlay doubles as the loading screen: it persists after the world
+  // is ready as a frosted-glass welcome card, dismissed with "Explore".
+  const [intro, setIntro] = useState(true);
+  const [introLeaving, setIntroLeaving] = useState(false);
 
   useEffect(() => {
     if (!canvasRef.current) return;
@@ -149,6 +153,11 @@ export default function NYCRoam() {
 
   const loading = hud?.loading ?? true;
   const error = hud?.error ?? null;
+
+  const dismissIntro = () => {
+    setIntroLeaving(true);
+    window.setTimeout(() => setIntro(false), 560); // matches the CSS fade
+  };
 
   return (
     <div style={{ position: 'fixed', inset: 0 }}>
@@ -387,21 +396,42 @@ export default function NYCRoam() {
         </>
       )}
 
-      {/* loading */}
-      {loading && (
-        <div style={{
-          position: 'absolute', inset: 0, background: '#0b0e12', display: 'flex',
-          flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 16,
-        }}>
-          <img src="/mark.png" alt="" width={72} height={72} draggable={false}
-            style={{ imageRendering: 'auto', filter: 'drop-shadow(0 4px 14px rgba(0,0,0,0.5))' }} />
-          <div style={{ fontSize: 26, letterSpacing: 6, fontWeight: 700 }}>NYC ROAM</div>
-          <div style={{ display: 'flex', gap: 4 }}>
-            {['1', 'A', 'N', '4', 'B', '7', 'L'].map((r) => (
-              <span key={r} className="bullet pulse" style={{ background: routeColor(r), color: bulletTextColor(r) }}>{r}</span>
-            ))}
+      {/* attribution — always visible, above the intro overlay */}
+      <a className="credit hud-panel" href="https://www.alexandriaredmon.com"
+        target="_blank" rel="noopener noreferrer">
+        <span className="credit-dot" />
+        Made by Alexandria
+        <span className="credit-arrow">↗</span>
+      </a>
+
+      {/* intro overlay = the loading screen, kept as a frosted-glass welcome card
+          over the (blurred) loaded world until the visitor taps Explore */}
+      {intro && !error && (
+        <div className={`intro-overlay${introLeaving ? ' leaving' : ''}`}>
+          <div className="intro-card">
+            <img src="/mark.png" alt="" width={64} height={64} className="intro-mark" draggable={false} />
+            <div className="intro-word">NYC ROAM</div>
+            <div className="intro-bullets">
+              {['1', 'A', 'N', '7', 'B', 'L'].map((r) => (
+                <span key={r} className={`bullet${loading ? ' pulse' : ''}`}
+                  style={{ background: routeColor(r), color: bulletTextColor(r) }}>{r}</span>
+              ))}
+            </div>
+            <p className="intro-msg">
+              An explorable <b>Manhattan</b> at 1:1 scale, built from real map &amp; transit
+              data. Ride any <b>subway</b>, <b>bus</b>, or <b>bike</b> along its true routes
+              &amp; stops — or take <b>helicopter mode</b> and fly above the city to explore.
+            </p>
+            {loading ? (
+              <button className="intro-cta loading" disabled>
+                <span className="intro-spinner" />Loading Manhattan…
+              </button>
+            ) : (
+              <button className="intro-cta" onClick={dismissIntro} autoFocus>
+                Explore Manhattan
+              </button>
+            )}
           </div>
-          <div style={{ opacity: 0.6, fontSize: 13 }}>Loading Manhattan…</div>
         </div>
       )}
 

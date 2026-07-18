@@ -373,6 +373,129 @@ select, button {
   color: inherit;
 }
 
+/* ---- "Made by" credit (bottom-left) ---- */
+.credit {
+  position: absolute;
+  left: 12px;
+  bottom: 12px;
+  z-index: 60;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 11px;
+  font-size: 12px;
+  letter-spacing: 0.2px;
+  color: rgba(255, 255, 255, 0.66);
+  text-decoration: none;
+  transition: color 0.18s ease, opacity 0.18s ease;
+}
+.credit:hover { color: rgba(255, 255, 255, 0.95); }
+.credit .credit-dot {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: #f5a623;
+  box-shadow: 0 0 7px rgba(245, 166, 35, 0.75);
+}
+.credit .credit-arrow { opacity: 0.5; font-size: 11px; }
+
+/* ---- intro / loading overlay: a liquid-glass sheet over the (blurred) world ---- */
+.intro-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  /* semi-transparent so the loaded world shows through, blurred like frosted
+     glass — the liquid-glass look. */
+  background: radial-gradient(120% 120% at 50% 30%,
+              rgba(12, 16, 22, 0.42), rgba(6, 8, 12, 0.62));
+  backdrop-filter: blur(22px) saturate(125%);
+  -webkit-backdrop-filter: blur(22px) saturate(125%);
+  transition: opacity 0.55s ease;
+}
+.intro-overlay.leaving { opacity: 0; pointer-events: none; }
+
+.intro-card {
+  position: relative;
+  max-width: 452px;
+  width: 100%;
+  padding: 30px 34px 28px;
+  text-align: center;
+  border-radius: 22px;
+  /* brighter translucent panel reads as a glass card on the frosted sheet */
+  background: linear-gradient(160deg, rgba(28, 34, 43, 0.72), rgba(14, 18, 24, 0.72));
+  border: 1px solid rgba(255, 255, 255, 0.13);
+  box-shadow:
+    0 30px 80px rgba(0, 0, 0, 0.55),
+    inset 0 1px 0 rgba(255, 255, 255, 0.16),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.02);
+}
+.intro-card .intro-mark {
+  display: block;
+  margin: 0 auto 14px;
+  filter: drop-shadow(0 6px 18px rgba(0, 0, 0, 0.5));
+}
+.intro-card .intro-word {
+  font-size: 27px;
+  letter-spacing: 6px;
+  font-weight: 700;
+  margin-bottom: 14px;
+}
+.intro-bullets {
+  display: flex;
+  gap: 4px;
+  justify-content: center;
+  margin-bottom: 16px;
+}
+.intro-card .intro-msg {
+  font-size: 14.5px;
+  line-height: 1.62;
+  color: rgba(255, 255, 255, 0.8);
+  margin: 0 auto 22px;
+  max-width: 380px;
+}
+.intro-card .intro-msg b { color: #fff; font-weight: 700; }
+
+.intro-cta {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  min-width: 210px;
+  padding: 12px 26px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  background: rgba(255, 255, 255, 0.95);
+  color: #0b0e12;
+  font-size: 14.5px;
+  font-weight: 700;
+  letter-spacing: 0.3px;
+  cursor: pointer;
+  transition: transform 0.12s ease, background 0.18s ease, box-shadow 0.18s ease;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+}
+.intro-cta:hover { background: #fff; transform: translateY(-1px); box-shadow: 0 12px 30px rgba(0, 0, 0, 0.42); }
+.intro-cta:active { transform: translateY(0); }
+.intro-cta.loading {
+  background: rgba(255, 255, 255, 0.1);
+  color: rgba(255, 255, 255, 0.72);
+  border-color: rgba(255, 255, 255, 0.12);
+  cursor: default;
+  box-shadow: none;
+}
+.intro-spinner {
+  width: 15px; height: 15px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.28);
+  border-top-color: rgba(255, 255, 255, 0.85);
+  animation: introspin 0.8s linear infinite;
+}
+@keyframes introspin { to { transform: rotate(360deg); } }
+
 @media (max-width: 560px) {
   .jumpto { max-width: 150px; }
+  .intro-card { padding: 26px 22px 24px; }
+  .intro-card .intro-word { font-size: 23px; letter-spacing: 5px; }
+  .intro-card .intro-msg { font-size: 13.5px; }
 }
