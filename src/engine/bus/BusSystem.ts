@@ -74,12 +74,27 @@ const BASE_LAT = 3.0;
 // routes whose shapes coincide-then-diverge on a curve).
 const MIN_GAP = 15.5;      // center-to-center min along a lane (bus 12.2 + gap + curve margin)
 const LANE_HALF = 3.4;     // |lateral| below this = same lane (queue candidate)
+const LANE_FAN = 0.22;     // widen the lane gate this much per meter ahead (curve tolerance)
 const SAME_DIR_COS = 0.5;  // leader must share travel heading (dot of forwards)
-const MAX_BACK = 160;      // cap on hold-back distance (m); deeper overflow hides at terminal
 const CO_EPS = 0.5;        // |along| below this = co-located (key-ordered tiebreak)
 const LOOKAHEAD = 70;      // ignore leaders farther than this along-track (m)
-const HIDE_S = -1.5;       // held past its own route origin => wait (hidden) at the terminal
-const REL_RATE = 2.5;      // release (catch-up) smoothing rate; braking is instant (see below)
+// The rendered arc-length is a PERSISTENT state that eases toward its target
+// (min of the timetable position and one MIN_GAP behind the leader) with a
+// per-frame speed cap, so a bus decelerates and accelerates SMOOTHLY and its
+// position/heading never snap. A backed-up bus just waits (visibly) at s>=0 —
+// it never vanishes. FOLLOW_K = approach stiffness; V_MAX caps arc speed so no
+// jump is ever visible (buses run up to ~13 m/s; headroom lets a lagging bus
+// catch its schedule without teleporting).
+const FOLLOW_K = 3.5;      // rendered-position approach rate (1/s)
+const V_MAX = 20;          // cap on rendered arc-speed (m/s) — bounds every step
+const END_EPS = 2.0;       // despawn a finished run once it renders within this of its terminal
+const REL_RATE = 2.5;      // lateral-nudge release smoothing rate (base, per second)
+const LAT_CAP = 8;         // max lateral slide speed (m/s) — smooth merge, never a sideways snap
+// cross-traffic yield (intersections): a bus never drives its nose into another
+// bus's body regardless of heading; the one closer to the conflict proceeds, the
+// other holds back like waiting at the light.
+const CROSS_LOOK = 16;     // look this far ahead (m) for a body blocking the lane
+const CROSS_STOP_GAP = 1.6;// hold this much daylight short of the blocking body (m)
 // lateral safety net
 const SEP_TRIG = 13.5;     // consider a pair only within this center distance (m)
 const SEP_STREET_COS = 0.6;// only same-street pairs (|cos|>this); perpendicular crossings are out of scope
@@ -141,6 +156,8 @@ interface MeshedBus {
   dir: DirRT;
   k: number;
   model: BusModelLike;
+  sfx: number;      // smoothed, flip-rejecting forward x (stable curb offset + heading)
+  sfz: number;      // smoothed forward z
   y: number;        // smoothed ground height
   yaw: number;      // smoothed heading
   lastRS: number;   // last RENDERED arc-length (measured speed → wheels stop when held)
@@ -156,10 +173,10 @@ interface MeshedBus {
   fz: number;       // travel forward z
   leaderIdx: number; // nearest same-lane bus ahead (index in the per-frame array; -1 none)
   // ---- persistent smoothed anti-overlap state ----
-  back: number;     // smoothed hold-back distance behind the leader (m)
+  rs: number;       // RENDERED arc-length (eased toward the capped target; never jumps)
+  finishing: boolean; // run's schedule is over; drive to the terminal, then despawn
   sepX: number;     // smoothed lateral safety offset (world m)
   sepZ: number;
-  hidden: boolean;  // held at its terminal (its queue backed it past its origin)
 }
 
 interface PlacedStop {
@@ -566,28 +583,37 @@ export class BusSystem {
     for (const mb of this.meshed.values()) {
       const dir = mb.dir;
       const tau = this.tau(dir, mb.k);
-      if (tau >= dir.T) {
-        // run despawned; ridden bus is pinned (World bails via ride.active=false)
-        if (mb.key !== this.riddenKey) mb.model.group.visible = false;
-        continue;
+      // When the schedule says the run is over, DON'T vanish in place — keep the
+      // bus visible and drive it to its terminal (target = the route's final s);
+      // finalize removes it once it renders there. The ridden bus is pinned
+      // (World ends the ride via ride.active=false), so leave its schedule alone.
+      const finishing = tau >= dir.T && mb.key !== this.riddenKey;
+      mb.finishing = finishing;
+      let s: number;
+      if (finishing) {
+        s = dir.segSEnd[dir.nSeg - 1]; // the terminal
+        mb.lat = BASE_LAT;
+        mb.model.setDoors(0);
+      } else {
+        this.state(dir, tau >= dir.T ? dir.T - 1e-3 : tau, _st);
+        s = _st.s;
+        mb.lat = _st.lat;
+        mb.model.setDoors(_st.doorT);
+        const nx = dir.stopNames[_st.stopIdx] ?? null;
+        if (nx !== mb.lastNextStop) { mb.model.setNextStop(nx); mb.lastNextStop = nx; }
+        if (_st.stopReq !== mb.lastStopReq) { mb.model.setStopRequested(_st.stopReq); mb.lastStopReq = _st.stopReq; }
       }
-      this.state(dir, tau, _st);
-      this.pointAt(dir, _st.s, _pt);
-      this.tangentAt(dir, _st.s, _tan);
+      this.pointAt(dir, s, _pt);
+      this.tangentAt(dir, s, _tan);
       const rnx = -_tan.z, rnz = _tan.x; // unit right-of-travel normal
-      mb.sDes = _st.s;
-      mb.lat = _st.lat;
-      mb.desX = _pt.x + rnx * _st.lat;   // desired on-lane world position
-      mb.desZ = _pt.z + rnz * _st.lat;
+      mb.sDes = s;
+      mb.desX = _pt.x + rnx * mb.lat;    // desired on-lane world position
+      mb.desZ = _pt.z + rnz * mb.lat;
       mb.fx = _tan.x; mb.fz = _tan.z;    // travel forward = shape tangent
-      // scheduled signage (independent of where the bus is held)
-      mb.model.setDoors(_st.doorT);
-      const nx = dir.stopNames[_st.stopIdx] ?? null;
-      if (nx !== mb.lastNextStop) { mb.model.setNextStop(nx); mb.lastNextStop = nx; }
-      if (_st.stopReq !== mb.lastStopReq) { mb.model.setStopRequested(_st.stopReq); mb.lastStopReq = _st.stopReq; }
       vis.push(mb);
     }
-    this.clampSeparate(vis, dt);
+    const finished = this.clampSeparate(vis, dt);
+    for (const mb of finished) this.removeMeshed(mb);
   }
 
   /**
@@ -599,29 +625,41 @@ export class BusSystem {
    *  1. leader: for each bus, the nearest bus AHEAD on a shared centerline within
    *     a lane (any route, same travel heading). Co-located buses are ordered by
    *     key so they queue nose-to-tail rather than stacking.
-   *  2. resolve: leader-before-follower, hold each follower `back` metres behind
-   *     its leader's rendered position so the gap ≥ MIN_GAP. Braking (needing more
-   *     gap as it closes in) is applied instantly — but because the requirement
-   *     ramps up continuously that reads as smooth deceleration; releasing (leader
-   *     departs) eases forward for a gentle catch-up. So the rendered gap always
-   *     holds AND the ride stays smooth. A bus backed past its own origin holds
-   *     (hidden) at the terminal.
+   *  2. resolve: leader-before-follower. Each bus's RENDERED arc-length `rs` is a
+   *     persistent state eased (rate-capped) toward its target = min(timetable
+   *     position, one MIN_GAP behind the leader's rendered position), floored at
+   *     s=0. Because rs never jumps, position and heading are always smooth — a
+   *     bus decelerates to a stop behind a dwelling leader and accelerates away
+   *     when it departs, and a fully-backed-up bus WAITS VISIBLY at the terminal
+   *     (it is never hidden). Returns buses whose finished run reached the end.
    *  3. lateral net: for the few pairs queuing can't fix — opposite directions
    *     meeting at a turn, shapes that coincide-then-diverge on a curve — nudge the
    *     two apart along the shared street's perpendicular by their footprint
    *     penetration. Fires only on a real oriented-footprint overlap.
    */
-  private clampSeparate(vis: MeshedBus[], dt: number) {
+  private clampSeparate(vis: MeshedBus[], dt: number): MeshedBus[] {
     const n = vis.length;
-    if (n === 0) return;
+    if (n === 0) return [];
     const rx = new Float64Array(n), rz = new Float64Array(n);   // rendered pose
     const rfx = new Float64Array(n), rfz = new Float64Array(n);
     const done = new Uint8Array(n), onStack = new Uint8Array(n);
 
+    // per-bus run advancement: +1 at its terminal (finishing), −1 at its start,
+    // 0 mid-route. Many routes share a terminal (Columbus Circle, etc.); a bus
+    // ending its run must not dwell on the exact point where another route's bus
+    // ORIGINATES — the start bus is floored at s=0 and cannot back up, so the
+    // finishing bus is the one that must give way. Advancement drives that.
+    const adv = new Int8Array(n);
+    for (let i = 0; i < n; i++) {
+      const a = vis[i];
+      adv[i] = a.sDes >= a.dir.total - 2 ? 1 : a.sDes <= 2 ? -1 : 0;
+    }
+
     // (1) nearest same-lane leader ahead, on DESIRED positions (stable, lag-free)
     for (let i = 0; i < n; i++) {
-      const a = vis[i], fx = a.fx, fz = a.fz, xi = a.desX, zi = a.desZ, ki = a.keyNum;
+      const a = vis[i], fx = a.fx, fz = a.fz, xi = a.desX, zi = a.desZ, ki = a.keyNum, ai = adv[i];
       let bestAhead = -1, bestAlong = Infinity, bestColoc = -1, bestColocKey = -Infinity;
+      let termLeader = -1, termAdv = 2; // most-advanced-below-i wins → nearest in the order
       for (let j = 0; j < n; j++) {
         if (j === i) continue;
         const b = vis[j];
@@ -631,45 +669,117 @@ export class BusSystem {
         const lat = ddx * -fz + ddz * fx;
         // smaller lateral of the two frames: on shapes that coincide-then-diverge
         // the follower can read the leader out-of-lane in its own rotated frame
-        // while the leader reads it in-lane — link if EITHER sees a shared lane
+        // while the leader reads it in-lane — link if EITHER sees a shared lane.
+        // The gate widens with distance ahead (a cone): on a curve — traffic
+        // circles (Columbus Circle), bends — a leader one gap ahead sits off to
+        // the side in the follower's straight frame, so a fixed width misses it
+        // and they overlap. The cone catches it while staying tight up close.
         const latJ = ddx * b.fz - ddz * b.fx;
-        if (Math.min(Math.abs(lat), Math.abs(latJ)) >= LANE_HALF) continue;
+        const laneTol = LANE_HALF + LANE_FAN * Math.min(Math.max(0, along), 30);
+        if (Math.min(Math.abs(lat), Math.abs(latJ)) >= laneTol) continue;
         const cosH = fx * b.fx + fz * b.fz;
         if (cosH <= SAME_DIR_COS) continue; // only queue behind same travel heading
         if (along > CO_EPS) { if (along < bestAlong) { bestAlong = along; bestAhead = j; } }
         else if (along > -CO_EPS && b.keyNum < ki) { if (b.keyNum > bestColocKey) { bestColocKey = b.keyNum; bestColoc = j; } }
+        // terminal/start override: if i is strictly MORE advanced than j and they
+        // share this spot (within a bus length, ahead OR behind), i yields to j.
+        // This is antisymmetric (only the more-advanced side fires), so no
+        // deadlock; it catches the finishing-on-originating overlap the ahead/
+        // co-located branches miss when the pair straddles the co-located epsilon.
+        if (ai > adv[j] && Math.abs(along) < BUS.length && adv[j] < termAdv) {
+          termAdv = adv[j]; termLeader = j;
+        }
       }
-      a.leaderIdx = bestColoc >= 0 ? bestColoc : bestAhead;
+      a.leaderIdx = termLeader >= 0 ? termLeader : bestColoc >= 0 ? bestColoc : bestAhead;
     }
 
-    // (2) topological resolve with asymmetric smoothing folded in
+    // (1b) cross-traffic yield: no bus drives its nose into another bus's body,
+    // whatever the heading — this is what stops two buses PHASING THROUGH each
+    // other where their paths cross (perpendicular streets at an intersection, a
+    // merge), which the same-heading queue can't see. For each bus we find the
+    // nearest body blocking its lane ahead and the forward distance it may still
+    // advance (dA, negative if already too close). The bus that must stop CLOSER
+    // to the conflict (smaller d) has right of way and proceeds; the FARTHER one
+    // holds a short gap back. keyNum breaks exact ties so the pair never both
+    // freeze (no gridlock). Result is an absolute arc-length cap folded into (2).
+    const hLb = BUS.length / 2, hWb = BUS.width / 2;
+    const noseCapRS = new Float64Array(n);
+    noseCapRS.fill(Infinity);
+    for (let i = 0; i < n; i++) {
+      const a = vis[i], afx = a.fx, afz = a.fz;
+      for (let j = 0; j < n; j++) {
+        if (j === i) continue;
+        const b = vis[j];
+        const ddx = b.desX - a.desX, ddz = b.desZ - a.desZ;
+        const along = ddx * afx + ddz * afz;             // b's centre ahead of a
+        if (along <= 0 || along > CROSS_LOOK) continue;   // only near hazards ahead
+        const lat = ddx * -afz + ddz * afx;
+        // b's half-extent projected on a's forward (E) and a's lateral (latExt)
+        const c1 = Math.abs(afx * b.fx + afz * b.fz);     // |cos| between forwards
+        const c2 = Math.abs(afx * -b.fz + afz * b.fx);    // |sin|
+        const E = c1 * hLb + c2 * hWb;
+        const latExt = c2 * hLb + c1 * hWb;
+        if (Math.abs(lat) >= hWb + latExt) continue;      // b not across a's lane
+        const dA = along - E - hLb - CROSS_STOP_GAP;      // a's room before contact
+        // symmetric room for b before it hits a → right-of-way (closer proceeds)
+        const alongB = -ddx * b.fx - ddz * b.fz;
+        const dB = alongB - E - hLb - CROSS_STOP_GAP;
+        const aYields = dA > dB + 1e-3 || (Math.abs(dA - dB) <= 1e-3 && a.keyNum > b.keyNum);
+        if (!aYields) continue;
+        const cap = a.sDes + dA;                          // absolute arc a may reach
+        if (cap < noseCapRS[i]) noseCapRS[i] = cap;
+      }
+    }
+
+    // (2) topological resolve: each follower's persistent rendered arc-length
+    // eases (rate-capped) toward min(timetable, leader − MIN_GAP), floored at 0.
     const resolve = (i: number): void => {
       if (done[i]) return;
-      if (onStack[i]) { done[i] = 1; return; }
+      if (onStack[i]) { done[i] = 1; return; } // cycle: leader already resolving upstack
       onStack[i] = 1;
       const a = vis[i];
-      let backReq = 0;
+      // target arc-length: the timetable position, capped one MIN_GAP behind the
+      // leader's ALREADY-RESOLVED rendered position (measured from a's desired
+      // pose, which is stable/lag-free), never before the route start.
+      let target = a.sDes;
       const L = a.leaderIdx;
       if (L >= 0) {
         resolve(L);
-        if (!vis[L].hidden) {
-          const gap = (rx[L] - a.desX) * a.fx + (rz[L] - a.desZ) * a.fz;
-          if (gap < MIN_GAP) { backReq = MIN_GAP - gap; if (backReq > MAX_BACK) backReq = MAX_BACK; }
+        const gap = (rx[L] - a.desX) * a.fx + (rz[L] - a.desZ) * a.fz;
+        if (gap < MIN_GAP) {
+          const capped = a.sDes - (MIN_GAP - gap);
+          if (capped < target) target = capped;
         }
       }
-      const ridden = a.key === this.riddenKey;
-      const kr = Math.min(1, dt * (ridden ? REL_RATE * 0.6 : REL_RATE)); // gentler catch-up for the ride
-      // brake instant (guarantee), release eased (smooth); seed fresh on mesh-in
-      if (!a.init || backReq > a.back) a.back = backReq;
-      else a.back += (backReq - a.back) * kr;
-      // a bus whose queue would back it past its own route origin holds at the
-      // terminal (hidden) — but never the ridden bus (the camera is on it)
-      a.hidden = !ridden && (a.sDes - a.back) < HIDE_S;
-      const sCap = a.sDes - a.back;
-      this.pointAt(a.dir, sCap, _pt);
-      this.tangentAt(a.dir, sCap, _tan);
-      rx[i] = _pt.x - _tan.z * a.lat; rz[i] = _pt.z + _tan.x * a.lat;
-      rfx[i] = _tan.x; rfz[i] = _tan.z;
+      // cross-traffic hold: never advance the nose into a blocking body (2 §1b)
+      if (noseCapRS[i] < target) target = noseCapRS[i];
+      if (target < 0) target = 0;
+      // ease rs toward target with a per-frame speed cap → smooth accel/decel,
+      // never a snap. Seed exactly on mesh-in so a fresh bus doesn't glide in.
+      if (!a.init) {
+        a.rs = target;
+      } else {
+        let step = (target - a.rs) * Math.min(1, dt * FOLLOW_K);
+        const cap = V_MAX * dt;
+        if (step > cap) step = cap; else if (step < -cap) step = -cap;
+        a.rs += step;
+      }
+      this.pointAt(a.dir, a.rs, _pt);
+      this.tangentAt(a.dir, a.rs, _tan);
+      // Smoothed, flip-rejecting forward: a sharp/near-duplicate shape vertex can
+      // momentarily REVERSE the raw tangent, flipping the curb offset to the far
+      // side (a ~2·lat position jump). A real turn between frames is gradual
+      // (dot>0); a cusp flip is ~180° (dot<0) — reject it, keeping the previous
+      // forward, and otherwise ease toward the raw tangent. Curb offset + heading
+      // both use this, so neither jumps.
+      if (!a.init) { a.sfx = _tan.x; a.sfz = _tan.z; }
+      else if (_tan.x * a.sfx + _tan.z * a.sfz > 0) {
+        const tk = Math.min(1, dt * 10);
+        a.sfx += (_tan.x - a.sfx) * tk; a.sfz += (_tan.z - a.sfz) * tk;
+        const l = Math.hypot(a.sfx, a.sfz) || 1; a.sfx /= l; a.sfz /= l;
+      }
+      rx[i] = _pt.x - a.sfz * a.lat; rz[i] = _pt.z + a.sfx * a.lat;
+      rfx[i] = a.sfx; rfz[i] = a.sfz;
       onStack[i] = 0; done[i] = 1;
     };
     for (let i = 0; i < n; i++) resolve(i);
@@ -682,10 +792,10 @@ export class BusSystem {
     const hL = BUS.length / 2, hW = BUS.width / 2;
     for (let pass = 0; pass < SEP_PASSES; pass++) {
       for (let r = 0; r < n; r++) {
-        const i = order[r]; if (vis[i].hidden) continue;
+        const i = order[r];
         const fxi = rfx[i], fzi = rfz[i];
         for (let rj = r + 1; rj < n; rj++) {
-          const j = order[rj]; if (vis[j].hidden) continue;
+          const j = order[rj];
           const fxj = rfx[j], fzj = rfz[j];
           const cosH = fxi * fxj + fzi * fzj;
           if (Math.abs(cosH) < SEP_STREET_COS) continue; // perpendicular crossing: out of scope
@@ -713,39 +823,51 @@ export class BusSystem {
         if (m > SEP_MAX) { sepTx[i] *= SEP_MAX / m; sepTz[i] *= SEP_MAX / m; }
       }
     }
-    // smooth the lateral offset: apply in full the frame a conflict is live (the
-    // backstop must clear it at once), ease back toward the lane once it's gone
+    // smooth the lateral offset BOTH ways with the same per-frame speed cap as
+    // the longitudinal follow, so the backstop never snaps a bus sideways (the
+    // old "apply in full when live" caused visible ~m jumps). Longitudinal
+    // queuing already prevents same-lane overlap, so this fires rarely (crossing
+    // turns / coincident-then-diverging curves); easing it in over a few frames
+    // there is imperceptible and far smoother than a snap.
+    // ease the lateral offset toward its target, bounded by LAT_CAP so the slide
+    // is a smooth merge (a bus easing into the next lane), never a sideways snap.
     const kS = Math.min(1, dt * REL_RATE);
+    const latCap = LAT_CAP * dt;
     for (let i = 0; i < n; i++) {
       const a = vis[i];
-      const tx = sepTx[i], tz = sepTz[i];
-      if (!a.init || (tx * tx + tz * tz) > 1e-4) { a.sepX = tx; a.sepZ = tz; }
-      else { a.sepX += (tx - a.sepX) * kS; a.sepZ += (tz - a.sepZ) * kS; }
+      if (!a.init) { a.sepX = sepTx[i]; a.sepZ = sepTz[i]; }
+      else {
+        let ex = (sepTx[i] - a.sepX) * kS, ez = (sepTz[i] - a.sepZ) * kS;
+        const m = Math.hypot(ex, ez);
+        if (m > latCap) { ex *= latCap / m; ez *= latCap / m; }
+        a.sepX += ex; a.sepZ += ez;
+      }
       rx[i] += a.sepX; rz[i] += a.sepZ;
     }
 
-    // finalize: hide held buses; otherwise smooth ground height + heading, place,
-    // and drive wheel speed from the RENDERED arc-length (0 when held behind a leader)
+    // finalize: every bus is visible (none are ever hidden); smooth ground height
+    // + heading, place, and drive wheel speed from the RENDERED arc-length (0 when
+    // stopped behind a leader). A finished run that has reached its terminal is
+    // returned for removal so it drives off rather than blinking out mid-street.
     const yawK = Math.min(1, dt * 6), yK = Math.min(1, dt * 8);
+    const finished: MeshedBus[] = [];
     for (let i = 0; i < n; i++) {
       const a = vis[i], g = a.model.group;
-      const rs = a.sDes - a.back;
-      if (a.hidden && a.key !== this.riddenKey) {
-        g.visible = false;
-        a.lastRS = rs; // keep speed continuous when it re-emerges
-        continue;
-      }
       g.visible = true;
       const gy = heightAt(rx[i], rz[i]);
+      // rfx/rfz is the smoothed flip-rejecting forward, so both position and yaw
+      // are already jump-free; just ease ground height + heading.
       const rawYaw = Math.atan2(-rfz[i], rfx[i]);
-      if (!a.init) { a.y = gy; a.yaw = rawYaw; a.lastRS = rs; a.init = true; }
+      if (!a.init) { a.y = gy; a.yaw = rawYaw; a.lastRS = a.rs; a.init = true; }
       else { a.y += (gy - a.y) * yK; a.yaw = angLerp(a.yaw, rawYaw, yawK); }
       g.position.set(rx[i], a.y, rz[i]);
       g.rotation.y = a.yaw;
-      let ds = rs - a.lastRS; if (ds < 0) ds = 0;
-      a.lastRS = rs;
+      let ds = a.rs - a.lastRS; if (ds < 0) ds = 0;
+      a.lastRS = a.rs;
       a.model.setSpeed(dt > 0 ? ds / dt : 0, dt);
+      if (a.finishing && a.rs >= a.sDes - END_EPS) finished.push(a);
     }
+    return finished;
   }
 
   private buildMeshed(dir: DirRT, k: number, key: string): MeshedBus {
@@ -754,10 +876,10 @@ export class BusSystem {
     this.scene.add(model.group);
     const mb: MeshedBus = {
       key, keyNum: dir.routeIdx * 1e6 + dir.dirIdx * 1e5 + k, dir, k, model,
-      y: 0, yaw: 0, lastRS: 0,
+      sfx: 1, sfz: 0, y: 0, yaw: 0, lastRS: 0,
       lastNextStop: undefined, lastStopReq: false, init: false,
       sDes: 0, lat: 0, desX: 0, desZ: 0, fx: 1, fz: 0, leaderIdx: -1,
-      back: 0, sepX: 0, sepZ: 0, hidden: false,
+      rs: 0, finishing: false, sepX: 0, sepZ: 0,
     };
     this.meshed.set(key, mb);
     return mb;
