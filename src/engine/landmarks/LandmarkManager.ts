@@ -24,16 +24,32 @@ function deriveCollision(
   const b3 = new THREE.Box3();
   raw.traverse((o) => {
     if (!(o instanceof THREE.Mesh)) return;
-    if ((o.geometry as THREE.BufferGeometry).type === 'ExtrudeGeometry') return;
+    // Arch openings are extruded shapes whose solid AABB would seal the very
+    // span you're meant to walk through (Washington Sq arch) — leave passable.
+    const geoType = (o.geometry as THREE.BufferGeometry).type;
+    if (geoType === 'ExtrudeGeometry') return;
     b3.setFromObject(o);
     if (b3.isEmpty()) return;
     const h = b3.max.y - b3.min.y;
     const w = b3.max.x - b3.min.x, d = b3.max.z - b3.min.z;
-    if (h < 2.2 || Math.min(w, d) < 0.5) return;
-    // near-ground volumes read as grounded: a column shaft on a low stepped
-    // plinth (steps themselves filtered as "low") must still block at street
+    if (h < 2.0) return; // too low to stop a standing player (steps, benches, parapets)
+    // Wall-vs-strut test, split by geometry kind. A landmark's mass is built from
+    // box() walls that are PANEL-THIN in one axis but wide in the other (facades,
+    // slabs, gable fills); the old blanket `min(w,d) < 0.5` dropped those, so
+    // replace-type landmarks (OSM massing cleared) became walk-through.
+    if (geoType === 'BoxGeometry') {
+      // keep flat walls; skip only genuine posts (thin in BOTH horizontal axes)
+      if (Math.max(w, d) < 0.6) return;
+    } else {
+      // round/organic pieces (cyl/lathe): a diagonal strut's AABB inflates to a
+      // big empty box, but it's still thin in one axis — the original min-dim
+      // test drops struts/cables while keeping fat columns, domes, round towers
+      if (Math.min(w, d) < 0.5) return;
+    }
+    // near-ground volumes read as grounded: a wall rising from a low stepped
+    // plinth (the plinth itself filtered as "low") must still block at street
     // level, while genuinely elevated spans (arch lintels, decks) stay open
-    const base = b3.min.y < 2.5 ? b3.min.y - 3 : b3.min.y;
+    const base = b3.min.y < 3.0 ? b3.min.y - 3 : b3.min.y;
     boxes.push({ x0: b3.min.x, z0: b3.min.z, x1: b3.max.x, z1: b3.max.z, base, top: b3.max.y, area: w * d });
   });
   if (!boxes.length) return null;

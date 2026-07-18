@@ -167,15 +167,10 @@ export class World {
     this.tiles.unloadRadius = this.tiles.loadRadius + 300;
     this.entrances = new EntranceManager(
       this.streetScene,
-      (x, z) => {
-        if (!this.tiles.readyAround(x, z)) return null; // wait for road/building data before placing
-        // OSM entrance points often sit in the roadway (Columbus Circle's
-        // island entrances, wide-avenue corners). Buildings first, then roads
-        // LAST so the returned point is always road-clear — on a narrow
-        // sidewalk a kit hugging the frontage beats one in a traffic lane.
-        const [bx, bz] = resolveBuildingCollision(x, z, 2.2, this.colNear(x, z), heightAt(x, z));
-        return this.ejectFromRoads(bx, bz, 1.6);
-      },
+      // OSM entrance points often sit in the roadway (Columbus Circle's island
+      // entrances, wide-avenue corners) or against a wall. Solve BOTH so the 2×2
+      // kiosk clears the lane and never phases into a building face.
+      (x, z) => this.resolvePlacement(x, z, 1.6, 2.2),
       (x, z) => nearestWallDir(x, z, 15, this.tiles.collisionNear(x, z)),
     );
     // road-clearance callback: landmark props (Times Square billboard masts)
@@ -187,15 +182,10 @@ export class World {
     );
     this.bikes = new BikeManager(
       this.streetScene,
-      (x, z) => {
-        if (!this.tiles.readyAround(x, z)) return null; // wait for road/building data before placing
-        // Citi Bike station coordinates often land in the roadbed (docks are
-        // curbside but the source point can fall mid-avenue). Buildings
-        // first, then roads LAST so the returned point is always road-clear
-        // — docks are wide, so push the same 1.6m past the curb as entrances.
-        const [bx, bz] = resolveBuildingCollision(x, z, 2.6, this.colNear(x, z), heightAt(x, z));
-        return this.ejectFromRoads(bx, bz, 1.6);
-      },
+      // Citi Bike station coordinates often land in the roadbed (docks are
+      // curbside but the source point can fall mid-avenue). Solve BOTH so the
+      // wide rack sits on the sidewalk, clear of the lane and off the building.
+      (x, z) => this.resolvePlacement(x, z, 1.6, 2.6),
       (x, z) => nearestWallDir(x, z, 15, this.tiles.collisionNear(x, z)),
     );
 
@@ -533,19 +523,45 @@ export class World {
 
   /**
    * Curb-resolve a bus stop's raw GTFS point: defer until its tiles load (null),
-   * then push it out of any roadway ribbon onto the sidewalk and clear of
-   * buildings. GTFS points are curbside but some land in wide roadbeds; buses
-   * pass on the street side, so the pole belongs a couple meters curbward.
+   * then settle it onto the sidewalk, clear of BOTH the roadway and any building.
+   * GTFS points are curbside but some land in wide roadbeds. 2.2m past the curb
+   * seats the pole so the shelter canopy (which sits ~1m to either side of the
+   * pole, then runs ALONG the curb) clears the lane; the audit shows pushing
+   * further (2.5m+) only shoves stops into buildings without clearing the lane
+   * any better — the residual shelter-in-lane is corner geometry, not offset.
    */
   private resolveBusStop(x: number, z: number): [number, number] | null {
-    // 2.4m clearance so the shelter's canopy (not just the pole) clears the
-    // roadway and any painted bike lane beside it
-    const off = this.ejectFromRoads(x, z, 2.4);
-    if (!off) return null; // tiles not ready yet — defer
-    const [bx, bz] = resolveBuildingCollision(off[0], off[1], 0.8, this.colNear(off[0], off[1]), heightAt(off[0], off[1]));
-    // building push-back can re-enter the roadbed on narrow sidewalks — one
-    // lighter second pass settles between the two
-    return this.ejectFromRoads(bx, bz, 1.2) ?? [bx, bz];
+    return this.resolvePlacement(x, z, 2.2, 1.6);
+  }
+
+  /**
+   * Place a footprint-carrying street object (bus stop, subway entrance, bike
+   * dock) clear of BOTH the roadway and any building. A single eject can't do it:
+   * pushing out of a building can shove the object into a traffic lane, and
+   * pushing out of the road can shove it into a wall — the reported "entrance
+   * kiosk in a building" and "bus shelter in the crosswalk" bugs came from
+   * resolving one then the other ONCE, so the last push undid the first. Instead
+   * alternate the two constraints until the point stops moving: a joint fixed
+   * point on the sidewalk between the curb and the wall. `roadClear` is how far
+   * past the curb the anchor must sit so the object's body (shelter canopy, dock
+   * rack, 2×2 kiosk) clears the lane; `bldgClear` keeps that body off the wall.
+   * Returns null (defer) until the tiles here have streamed — preserves the
+   * readyAround/null-deferral contract every caller relies on. When no point
+   * satisfies both (a highway/no-sidewalk pin) the loop ends on the ROAD eject,
+   * failing safe OUT of the lane rather than into a wall.
+   */
+  private resolvePlacement(x: number, z: number, roadClear: number, bldgClear: number): [number, number] | null {
+    if (!this.tiles.readyAround(x, z)) return null; // wait for road/building data
+    let px = x, pz = z;
+    for (let i = 0; i < 4; i++) {
+      const [bx, bz] = resolveBuildingCollision(px, pz, bldgClear, this.colNear(px, pz), heightAt(px, pz));
+      const road = this.ejectFromRoads(bx, bz, roadClear);
+      const nx = road ? road[0] : bx, nz = road ? road[1] : bz;
+      const moved = Math.hypot(nx - px, nz - pz);
+      px = nx; pz = nz;
+      if (moved < 0.05) break; // converged — clear of both constraints
+    }
+    return [px, pz];
   }
 
   /**
@@ -999,11 +1015,19 @@ export class World {
         this.flyVel.set(0, 0, 0);
         let nx = this.pos.x + dx, nz = this.pos.z + dz;
         const nearWalk = this.colNear(nx, nz);
+        // Walls vs roofs are decided by feet height (this.pos.y), and both tests
+        // share collision.ts's ROOF_BAND so they partition cleanly:
+        //  - BESIDE a building at street level (feet well below its roof) the ring
+        //    is solid — pushed out, a wall you can't walk through.
+        //  - ON TOP (feet within the band of the roof) the ring is passable, so
+        //    you roam the whole footprint freely; roofBelow supplies the roof as
+        //    the floor. Walk past the edge and no roof is under (nx,nz) any more,
+        //    so g drops to the terrain/next roof and gravity eases you down.
         [nx, nz] = resolveBuildingCollision(nx, nz, 0.42, nearWalk, this.pos.y);
-        // ground = terrain, or the rooftop you're standing on / dropping onto
         const roof = roofBelow(nx, nz, this.pos.y, nearWalk);
         const g = Math.max(heightAt(nx, nz), roof ?? -Infinity);
-        // follow terrain smoothly (streets are graded, not stepped)
+        // one easing for everything: terrain grade, stepping up onto a roof, and
+        // the smooth drop off a roof edge (streets are graded, not stepped)
         this.pos.y += (g - this.pos.y) * Math.min(1, dt * 10);
         if (Math.abs(g - this.pos.y) < 0.02) this.pos.y = g;
         this.pos.x = nx; this.pos.z = nz;
