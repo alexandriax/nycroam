@@ -212,9 +212,9 @@ function cachedCanvasMat(
  * the SAME pixel size as the old strip, so relative to the bigger route it
  * now reads as clearly secondary (like a real bus headsign). */
 function frontDestMat(route: string, dest: string, sbs: boolean): THREE.Material {
-  return cachedCanvasMat(`F|${route}|${dest}|${sbs ? 1 : 0}`, 768, 160, {}, (ctx) => {
+  return cachedCanvasMat(`F|${route}|${dest}|${sbs ? 1 : 0}`, 768, 200, {}, (ctx) => {
     ctx.fillStyle = '#060708';
-    ctx.fillRect(0, 0, 768, 160);
+    ctx.fillRect(0, 0, 768, 200);
     const amber = '#ffb531';
     const label = routeLabel(route);
     ctx.textBaseline = 'middle';
@@ -222,19 +222,19 @@ function frontDestMat(route: string, dest: string, sbs: boolean): THREE.Material
     ctx.fillStyle = amber;
     ctx.shadowColor = amber;
     ctx.shadowBlur = 10;
-    const rSize = fitFont(ctx, label, 270, 116, LED);
+    const rSize = fitFont(ctx, label, 420, 176, LED);
     ctx.font = `${rSize}px ${LED}`;
-    ctx.fillText(label, 28, 84);
+    ctx.fillText(label, 28, 104);
     let x = 28 + ctx.measureText(label).width + 28;
     if (sbs) {
       ctx.shadowBlur = 0;
-      rr(ctx, x, 44, 124, 72, 12);
+      rr(ctx, x, 64, 124, 72, 12);
       ctx.fillStyle = '#00a6ce';
       ctx.fill();
       ctx.fillStyle = '#ffffff';
       ctx.textAlign = 'center';
       ctx.font = `36px ${BLACK}`;
-      ctx.fillText('+SBS', x + 62, 82);
+      ctx.fillText('+SBS', x + 62, 102);
       ctx.textAlign = 'left';
       x += 150;
       ctx.fillStyle = amber;
@@ -243,32 +243,34 @@ function frontDestMat(route: string, dest: string, sbs: boolean): THREE.Material
     if (dest) {
       const dSize = fitFont(ctx, dest, 768 - x - 22, 56, LED);
       ctx.font = `${dSize}px ${LED}`;
-      ctx.fillText(dest, x, 84);
+      ctx.fillText(dest, x, 104);
     }
     ctx.shadowBlur = 0;
   });
 }
 
 /** Side/rear amber route plate: big route on top, tiny dest below. The rear
- * plate reuses this texture with a UV crop onto the route region. */
+ * plate reuses this texture with a UV crop onto the route region. Wider than
+ * tall (vs. the old near-square plate) so a 3-4 char route can run near its
+ * full font size without the width cap shrinking it back down. */
 function routePlateMat(route: string, dest: string): THREE.Material {
-  return cachedCanvasMat(`P|${route}|${dest}`, 224, 168, {}, (ctx) => {
+  return cachedCanvasMat(`P|${route}|${dest}`, 380, 200, {}, (ctx) => {
     ctx.fillStyle = '#060708';
-    ctx.fillRect(0, 0, 224, 168);
+    ctx.fillRect(0, 0, 380, 200);
     const amber = '#ffb531';
     const label = routeLabel(route);
     ctx.fillStyle = amber;
     ctx.shadowColor = amber;
-    ctx.shadowBlur = 6;
+    ctx.shadowBlur = 8;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    const rSize = fitFont(ctx, label, 200, 84, LED);
+    const rSize = fitFont(ctx, label, 356, 140, LED);
     ctx.font = `${rSize}px ${LED}`;
-    ctx.fillText(label, 112, 56);
+    ctx.fillText(label, 190, 84);
     if (dest) {
-      const dSize = fitFont(ctx, dest, 208, 26, LED);
+      const dSize = fitFont(ctx, dest, 360, 26, LED);
       ctx.font = `${dSize}px ${LED}`;
-      ctx.fillText(dest, 112, 140);
+      ctx.fillText(dest, 190, 172);
     }
     ctx.shadowBlur = 0;
   });
@@ -390,8 +392,8 @@ function buildExterior(g: THREE.Group, sbs: boolean): void {
   // black destination-sign box above, headlights/signals on the lower mask.
   addBox(g, SKIRT, 0.08, SKIRT_T - SKIRT_B, 2.56, 6.03, (SKIRT_B + SKIRT_T) / 2, 0);
   addBox(g, WHITE, 0.08, 1.15 - SKIRT_T, 2.56, 6.03, (SKIRT_T + 1.15) / 2, 0); // lower mask
-  addBox(g, BAND, 0.08, 2.78 - 2.35, 2.56, 6.03, (2.35 + 2.78) / 2, 0); // dest-sign box
-  addBox(g, WHITE, 0.08, CANT_T - 2.78, 2.56, 6.03, (2.78 + CANT_T) / 2, 0); // cap
+  addBox(g, BAND, 0.08, 2.88 - 2.35, 2.56, 6.03, (2.35 + 2.88) / 2, 0); // dest-sign box (enlarged for a bigger route glyph)
+  addBox(g, WHITE, 0.08, CANT_T - 2.88, 2.56, 6.03, (2.88 + CANT_T) / 2, 0); // cap
   for (const pz of [-1.23, 1.23]) addBox(g, BAND, 0.08, 2.35 - 1.15, 0.1, 6.03, 1.75, pz); // A-pillars
   addBox(g, BAND, 0.08, 2.35 - 1.15, 0.06, 6.03, 1.75, 0); // 2-piece windshield mullion
   addBox(g, SKIRT, 0.1, 0.34, 2.62, 6.08, 0.45, 0); // bumper
@@ -511,31 +513,34 @@ function buildInterior(g: THREE.Group): void {
 function addStaticSigns(g: THREE.Group, opts: BusModelOpts): void {
   const { route, dest, sbs } = opts;
   // front destination sign in the black box above the windshield (spans
-  // y 2.35..2.78, 0.43 m tall) — the plate nearly fills that box so the
+  // y 2.35..2.88, 0.53 m tall) — the plate nearly fills that box so the
   // route glyph is big
-  const front = new THREE.Mesh(new THREE.PlaneGeometry(1.9, 0.4), frontDestMat(route, dest, sbs));
+  const front = new THREE.Mesh(new THREE.PlaneGeometry(1.9, 0.5), frontDestMat(route, dest, sbs));
   front.rotation.y = Math.PI / 2;
-  front.position.set(6.08, 2.565, 0);
+  front.position.set(6.08, 2.615, 0);
   g.add(front);
   // side route plates beside the front door on BOTH sides, floating in the
   // first window opening on a black backing (readable from either sidewalk
   // when buses queue at a stop; mirrored the same way as the text strip
   // below). Both planes share the one cached `plate` material, so
-  // mergeByMaterial still collapses them into a single draw call.
+  // mergeByMaterial still collapses them into a single draw call. Sized to
+  // the window opening (clear x 4.82..5.99, clear y 1.42..2.42 — no mullion
+  // in this segment, see `panes` in buildExterior).
   const plate = routePlateMat(route, dest);
   for (const s of [-1, 1] as const) {
-    addBox(g, BAND, 0.54, 0.4, 0.03, 5.35, 1.95, s * 1.275);
-    const side = new THREE.Mesh(new THREE.PlaneGeometry(0.5, 0.375), plate);
+    addBox(g, BAND, 0.8, 0.44, 0.03, 5.35, 1.95, s * 1.275);
+    const side = new THREE.Mesh(new THREE.PlaneGeometry(0.76, 0.4), plate);
     side.position.set(5.35, 1.95, s * 1.296);
     if (s === -1) side.rotation.y = Math.PI;
     g.add(side);
   }
-  // rear plate: same cached texture, UVs cropped to the route region
-  const rearGeo = new THREE.PlaneGeometry(0.42, 0.205);
+  // rear plate: same cached texture, UVs cropped to the route region (top
+  // 75% of the plate texture, above the dest line)
+  const rearGeo = new THREE.PlaneGeometry(0.61, 0.24);
   const uv = rearGeo.attributes.uv;
-  for (let i = 0; i < uv.count; i++) uv.setY(i, 0.35 + uv.getY(i) * 0.65);
+  for (let i = 0; i < uv.count; i++) uv.setY(i, 0.25 + uv.getY(i) * 0.75);
   uv.needsUpdate = true;
-  addBox(g, BAND, 0.04, 0.28, 0.48, -6.09, 2.45, 0.45);
+  addBox(g, BAND, 0.04, 0.32, 0.68, -6.09, 2.45, 0.45);
   const rear = new THREE.Mesh(rearGeo, plate);
   rear.rotation.y = -Math.PI / 2;
   rear.position.set(-6.115, 2.45, 0.45);
