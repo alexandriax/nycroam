@@ -13,8 +13,10 @@ const CLEAR_ZONES = LANDMARKS_PLACED
   .filter((l) => l.clear)
   .map((l) => ({ x: l.x, z: l.z, r2: l.clear! * l.clear! }));
 
-// NYC DOT bike-lane green (thermoplastic paint) + white edge stripes
-const BIKE_GREEN: [number, number, number] = [0.02, 0.3, 0.13];
+// NYC DOT bike-lane green (thermoplastic paint) + white edge stripes. Keep the
+// blue channel at/below red so it renders a warm leaf-green, never a cool teal
+// that reads as water; deeper + more saturated than the old wash.
+const BIKE_GREEN: [number, number, number] = [0.05, 0.34, 0.06];
 
 /**
  * Manhattan's signature protected on-street bike lanes. The OSM snapshot maps
