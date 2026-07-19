@@ -22,6 +22,10 @@ export class ElevatedStationWorld {
   readonly walkBoxes: WalkBox[] = [];
   readonly spawn = new THREE.Vector3();
   readonly platformSpawn = new THREE.Vector3();
+  /** Platform spawn beside the stopping track serving each direction (built in
+   *  build(); read via platformSpawnForDir) so exitRide lands the rider next to
+   *  the re-seeded train they rode. */
+  private readonly dirSpawns = new Map<1 | -1, THREE.Vector3>();
   readonly exitZones: ExitZone[] = [];
   readonly name: string;
   trackInfo!: TrackInfo;
@@ -145,6 +149,43 @@ export class ElevatedStationWorld {
     // ---- platforms ----
     const stairW = 2.6, stairRun = 11;
     const stairFeet: { minX: number; maxX: number; minZ: number; maxZ: number }[] = [];
+
+    // Board + sign x-positions, picked together (under the canopy) so the 4-5
+    // direction signs per edge interleave with — never overlap — the countdown
+    // boards, the canopy posts (4.6m cadence) and the stair openings. Boards run
+    // a ~33m cadence, signs ~40m, so their bases stagger; the blocked() predicate
+    // slides off any residual collision.
+    const canLen = L * 0.55;
+    const canHalf = canLen / 2;
+    const postBlocked = (x: number) => {
+      const nearest = -canHalf + Math.round((x + canHalf) / 4.6) * 4.6;
+      return Math.abs(x - nearest) < 0.5;
+    };
+    const stairBlockedB = (x: number) => stairXs.some((sx) => x > sx - 0.95 && x < sx + stairRun + 0.5);
+    const boardCountB = Math.max(2, Math.round(canLen / 33));
+    const boardXsB = pickBoardPositions(canHalf, boardCountB, (x) => postBlocked(x) || stairBlockedB(x), canHalf - 2);
+    const signCount = Math.max(4, Math.round(canLen / 40));
+    const signXs = pickBoardPositions(
+      canHalf, signCount,
+      (x) => postBlocked(x) || stairBlockedB(x) || boardXsB.some((bx) => Math.abs(x - bx) < 2.4),
+      canHalf - 2,
+    );
+    // one baked sign texture per unique routes+text (few edges per station, but
+    // side platforms often repeat a direction) — shared across a whole edge's
+    // 4-5 sign positions AND across edges with the same content.
+    const signCache = new Map<string, { mat: THREE.Material; aspect: number }>();
+    const signMatFor = (routes: string[], text: string) => {
+      const key = routes.join('') + '|' + text;
+      let entry = signCache.get(key);
+      if (!entry) {
+        const info = makeHangingSignTexture({ routes, text, arrow: 'none' });
+        this.track(info.texture);
+        entry = { mat: this.track(new THREE.MeshBasicMaterial({ map: info.texture })), aspect: info.aspect };
+        signCache.set(key, entry);
+      }
+      return entry;
+    };
+
     for (const p of cs.platforms) {
       const pw = p.zMax - p.zMin, pc = (p.zMin + p.zMax) / 2;
       this.box(L, 0.7, pw, platMat, 0, PLAT_Y - 0.35, pc);
@@ -187,26 +228,19 @@ export class ElevatedStationWorld {
         this.scene.add(can);
       }
       // hanging direction signs under the canopy: one per adjacent stopping
-      // track, hung over that platform edge with its face PARALLEL to the
-      // track, labeled with the direction that track really serves (the old
-      // signs hardcoded "Uptown & The Bronx"/"Downtown & Brooklyn" on every
-      // platform — wrong text for most routes, and both directions shown even
-      // on single-direction side platforms — on a mirrored DoubleSide plane).
+      // track, hung over that platform edge with its face PARALLEL to the track
+      // (two front-facing quads — never a mirrored DoubleSide plane), labeled
+      // with the direction that track really serves. 4-5 evenly along the
+      // canopy, clear of the boards / posts / stair openings.
       elevStopping.forEach((tz, ti) => {
         const nearMin = Math.abs(tz - p.zMin) < TRACK_W * 0.8;
         const nearMax = Math.abs(tz - p.zMax) < TRACK_W * 0.8;
         if (!nearMin && !nearMax) return;
         const edgeZ = nearMin ? p.zMin + 0.5 : p.zMax - 0.5;
-        const info = makeHangingSignTexture({
-          routes: spec.routes,
-          text: directionLabel(spec.routes, elevDirs[ti], spec.name),
-          arrow: 'none',
-        });
-        this.track(info.texture);
-        const mat = this.track(new THREE.MeshBasicMaterial({ map: info.texture }));
-        const h = 0.5, w = Math.min(h * info.aspect, 5.2);
+        const { mat, aspect } = signMatFor(spec.routes, directionLabel(spec.routes, elevDirs[ti], spec.name));
+        const h = 0.5, w = Math.min(h * aspect, 5.2);
         const geo = this.track(new THREE.PlaneGeometry(w, h));
-        for (const sx of [-L / 5, L / 5]) {
+        for (const sx of signXs) {
           const g = new THREE.Group();
           const a = new THREE.Mesh(geo, mat);
           const b = new THREE.Mesh(geo, mat);
@@ -273,6 +307,14 @@ export class ElevatedStationWorld {
     this.spawn.set(-6, 0, 0);
     const p0 = cs.platforms[0];
     this.platformSpawn.set(4, PLAT_Y, (p0.zMin + p0.zMax) / 2);
+    // one platform spawn per served direction (beside the track that runs it),
+    // so exitRide drops the rider onto the correct platform for the re-seeded train.
+    elevStopping.forEach((tz, i) => {
+      if (this.dirSpawns.has(elevDirs[i])) return;
+      const pl = cs.platforms.find((p) =>
+        Math.abs(tz - p.zMin) < TRACK_W * 0.9 || Math.abs(tz - p.zMax) < TRACK_W * 0.9);
+      if (pl) this.dirSpawns.set(elevDirs[i], new THREE.Vector3(4, PLAT_Y, (pl.zMin + pl.zMax) / 2));
+    });
 
     const isSidePass = spec.layout.type === 'side' && spec.layout.passTracks > 0 && cs.tracks.length > 2;
     // trackZs/trackDirs come from the hoisted arrays the signs already used —
@@ -301,13 +343,10 @@ export class ElevatedStationWorld {
     });
 
     // ---- platform countdown boards (under the canopy, shared texture) ----
-    // Same MTA-style per-line paged boards as the underground stations. They hang
-    // under the canopy near center at head height, spread ~33m apart (≥2), each
-    // clearing the canopy posts (multiples of 4.6 from the canopy end), the stair
-    // openings, and the two hanging destination signs. All boards on a platform
-    // share ONE canvas/texture; faces tick from arrivalsFn() in update().
-    const canLen = L * 0.55;
-    const canHalf = canLen / 2;
+    // Same MTA-style per-line paged boards as the underground stations, at the
+    // board x-positions picked with the signs above (so boards and the 4-5
+    // direction signs interleave, clear of the canopy posts and stair openings).
+    // All boards on a platform share ONE canvas/texture; faces tick in update().
     // stopping tracks + their directions, matched to StationWorld's convention so
     // each platform's served directions come out identical (board content only —
     // trackInfo above is untouched).
@@ -323,18 +362,6 @@ export class ElevatedStationWorld {
       });
       return [...dirs];
     };
-    const postBlocked = (x: number) => {
-      const nearest = -canHalf + Math.round((x + canHalf) / 4.6) * 4.6;
-      return Math.abs(x - nearest) < 0.5;
-    };
-    const stairBlockedB = (x: number) => stairXs.some((sx) => x > sx - 0.95 && x < sx + stairRun + 0.5);
-    const signBlockedB = (x: number) => [-L / 5, L / 5].some((sx) => Math.abs(x - sx) < 1.5);
-    const boardCountB = Math.max(2, Math.round(canLen / 33));
-    const boardXsB = pickBoardPositions(
-      canHalf, boardCountB,
-      (x) => postBlocked(x) || stairBlockedB(x) || signBlockedB(x),
-      canHalf - 2,
-    );
     const BOARD_Y = PLAT_Y + 2.35; // under the gabled roof (~PLAT_Y+3.15), above head height
     for (const p of cs.platforms) {
       const dirs = platformDirsB(p);
@@ -344,6 +371,12 @@ export class ElevatedStationWorld {
         (r) => this.track(r), this.scene, spec.routes, dirs, boardXsB, BOARD_Y, pc,
       );
     }
+  }
+
+  /** Platform spawn beside the stopping track that serves `dirSign` (so stepping
+   *  off a ride lands next to the re-seeded train). Falls back to platformSpawn. */
+  platformSpawnForDir(dirSign: 1 | -1): THREE.Vector3 {
+    return (this.dirSpawns.get(dirSign) ?? this.platformSpawn).clone();
   }
 
   update(dt: number) {

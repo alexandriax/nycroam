@@ -30,10 +30,16 @@ interface Slot {
   wasApproaching: boolean; // rising-edge latch for onArrive
 }
 
-// Rough real seconds for a freshly-spawned train to go hidden->approach->dwell,
-// before the timeScale compression is applied — used to estimate the countdown
-// for a track with no train on it yet.
+// Internal seconds for a freshly-spawned train to go hidden->approach->dwell
+// (BASE_DURATION.hidden 12 + approach 7; both deterministic now, see train.ts) —
+// divided by the slot's timeScale to estimate the countdown for a track with no
+// train on it yet. Kept in lockstep with the live train's own phase clock so the
+// "no train yet" projection hands off seamlessly the instant a train spawns.
 const SPAWN_TO_DWELL = 19;
+
+// Real seconds a RE-SEEDED train (the one the player just stepped off) holds its
+// doors open for re-boarding before it closes up and departs.
+const REBOARD_DWELL_REAL = 8;
 
 /**
  * Runs arrivals on a station's tracks: one train per track at a time, cycling
@@ -240,33 +246,81 @@ export class TrainScheduler {
   /**
    * Upcoming trains for the platform countdown displays, ONE ENTRY PER TRAIN
    * (each with a single route) so the boards can list "N … 2 MIN" and
-   * "R … 12 MIN" as separate rows instead of mashing "N/R". Per slot: the
-   * inbound train (if any) leads with its live time-to-dwell, then the route
-   * ROTATION is projected forward at ~headway spacing — so the same order the
-   * scheduler will actually spawn. Up to 3 per slot, sorted by the consumer.
+   * "R … 12 MIN" as separate rows instead of mashing "N/R". Per slot the imminent
+   * train leads with a phase-accurate ETA read off the live train's own clock
+   * (see the `anchor` note below), then the route ROTATION is projected forward
+   * from that same anchor at headway spacing — so a row counts down monotonically
+   * and reads "now" only while a train is genuinely pulling in or dwelling, never
+   * the old ideal-headway projection that hit 0 before a train even existed. Up
+   * to 3 per slot, sorted by the consumer.
    */
   arrivals(): Arrival[] {
     const out: Arrival[] = [];
+    const respawn = Math.max(2, this.headway - 30); // recycle cooldown (see update())
     for (const s of this.slots) {
       if (s.passThrough) continue;
       const len = s.routes.length;
-      let base: number; // seconds until the FIRST of the projected spawns dwells
-      if (s.train) {
-        const eta = s.train.secondsToArrival;
-        if (eta !== Infinity) {
-          // inbound/dwelling train: it is routes[routeIdx-1] (spawn incremented)
-          out.push({ dirSign: s.dirSign, routes: [s.routes[(s.routeIdx - 1 + len) % len]], seconds: eta / s.timeScale });
-        }
-        // next spawn comes after this train's remaining cycle + recycle cooldown
-        base = (eta === Infinity ? 0 : eta / s.timeScale) + this.headway;
+      const ts = s.timeScale;
+      // `anchor` = REAL seconds until this slot's imminent train has its doors
+      // open, read off the SAME clock that spawns and moves trains — never the
+      // old ideal-headway projection that hit 0 before a train even existed.
+      // `first` = which rotation slot that imminent train is. A live train stays
+      // the anchor smoothly through hidden -> approach -> dwell (secondsToArrival
+      // folds the hidden phase in); a DEPARTING train hands off to the next spawn
+      // (the same recycle + hidden + approach budget update() will actually run);
+      // an empty slot counts its cooldown down to the fixed spawn->dwell travel.
+      // All three branches meet at equal values on their boundaries, so a board
+      // row descends monotonically to "now" exactly as a train pulls in, then
+      // rolls up to the next train the moment this one departs.
+      let anchor: number, first: number;
+      if (s.train && s.train.phase !== 'depart') {
+        anchor = s.train.secondsToArrival / ts;
+        first = s.routeIdx - 1; // spawn() already advanced routeIdx past the live train
+      } else if (s.train) {
+        anchor = s.train.stateRemaining / ts + respawn + SPAWN_TO_DWELL / ts;
+        first = s.routeIdx;
       } else {
-        base = Math.max(0, s.cooldown) + SPAWN_TO_DWELL / s.timeScale;
+        anchor = Math.max(0, s.cooldown) + SPAWN_TO_DWELL / ts;
+        first = s.routeIdx;
       }
       for (let k = 0; out.length < 64 && k < 3; k++) {
-        out.push({ dirSign: s.dirSign, routes: [s.routes[(s.routeIdx + k) % len]], seconds: base + k * this.headway });
+        const idx = (((first + k) % len) + len) % len;
+        out.push({ dirSign: s.dirSign, routes: [s.routes[idx]], seconds: anchor + k * this.headway });
       }
     }
     return out;
+  }
+
+  /**
+   * Put a doors-OPEN train on the track serving (route, dirSign) right now, so a
+   * player who just stepped off a ride finds the train they rode still standing
+   * at the platform, re-boardable, before it closes up and pulls out. Keeps the
+   * rotation honest: the seeded train becomes this slot's current train (so
+   * boardable()/arrivals() report it as "now"), and the normal recycle in
+   * update() then spaces the next spawn a headway later — no double train on the
+   * track, no permanent hole in the rotation. Returns the seeded track's local z
+   * (so the world can drop the player beside it), or null if nothing matches.
+   */
+  seedDwell(route: string, dirSign: 1 | -1): number | null {
+    const slot = this.slots.find((s) => !s.passThrough && s.dirSign === dirSign && s.routes.includes(route))
+      ?? this.slots.find((s) => !s.passThrough && s.dirSign === dirSign);
+    if (!slot) return null;
+    // clear any existing train first so we never stack two on the track
+    if (slot.train) {
+      this.parent.remove(slot.train.group);
+      slot.train.dispose();
+      slot.train = null;
+    }
+    // align the rotation so spawn() draws `route`, then force the fresh train to
+    // an immediate open dwell (internal secs = real x the slot's time compression)
+    const ri = slot.routes.indexOf(route);
+    if (ri >= 0) slot.routeIdx = ri;
+    this.spawn(slot);
+    slot.train!.forceDwell(REBOARD_DWELL_REAL * slot.timeScale);
+    slot.everVisible = true;
+    slot.wasApproaching = false; // dwelling, not approaching — no false arrival roar
+    slot.trainAge = 0;
+    return slot.trackZ;
   }
 
   dispose() {

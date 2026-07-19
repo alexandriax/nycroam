@@ -212,12 +212,16 @@ export class PlatformCountdown {
     }
   }
 
-  /** Minutes readout for a row: "—" (no train), "Now" (<45s), else the rounded
-   *  minutes as a big number with a "MIN" unit. */
+  /** Minutes readout for a row: "—" (no train), "Now", else whole minutes as a
+   *  big number with a "MIN" unit. The scheduler now feeds phase-accurate ETAs,
+   *  so "Now" is gated tight (≈ the approach + dwell window, ~7s) — a row reads
+   *  "Now" only while a train is genuinely pulling in or dwelling, never while
+   *  one is still hidden in the tunnel a minute out. Minutes floor at 1 so a
+   *  ~20s ETA never renders the nonsensical "0 MIN". */
   private minsInfo(seconds: number): { big: string; unit: string } {
     if (!Number.isFinite(seconds)) return { big: '—', unit: '' };
-    if (seconds < 45) return { big: 'Now', unit: '' };
-    return { big: String(Math.round(seconds / 60)), unit: 'MIN' };
+    if (seconds < 7) return { big: 'Now', unit: '' };
+    return { big: String(Math.max(1, Math.round(seconds / 60))), unit: 'MIN' };
   }
 
   private roundRectPath(
@@ -389,6 +393,10 @@ export class StationWorld {
   readonly walkBoxes: WalkBox[] = [];
   readonly spawn = new THREE.Vector3();
   readonly platformSpawn = new THREE.Vector3();
+  /** Platform-center spawn beside the stopping track serving each direction, so
+   *  a player stepping off a ride lands next to the re-seeded train they rode
+   *  (populated in build(); read via platformSpawnForDir). */
+  private readonly dirSpawns = new Map<1 | -1, THREE.Vector3>();
   readonly exitZones: ExitZone[] = [];
   readonly name: string;
   trackInfo!: TrackInfo;
@@ -738,6 +746,26 @@ export class StationWorld {
       }
       return spec.routes;
     };
+    // Board + sign x-positions are picked together so the signs interleave with
+    // (never overlap) the countdown boards. Boards run a ~33m cadence; signs a
+    // ~40m cadence (4-5 per platform), so their bases already stagger, and any
+    // residual near-collision (or a stair opening) slides the sign off.
+    const stairBlocked = (x: number) =>
+      stairHoles.some((h) => x > h.minX - 0.5 && x < h.maxX + 0.5);
+    const pillarBlocked = (x: number) => {
+      const nearestPillar = -half + 6 + Math.round((x - (-half + 6)) / 4.6) * 4.6;
+      return Math.abs(x - nearestPillar) < 0.6;
+    };
+    const boardCount = Math.max(2, Math.round(L / 33));
+    const boardXs = pickBoardPositions(
+      half, boardCount, (x) => pillarBlocked(x) || stairBlocked(x), half - 4,
+    );
+    const signCount = Math.max(4, Math.round(L / 40));
+    const signXs = pickBoardPositions(
+      half, signCount,
+      (x) => stairBlocked(x) || boardXs.some((bx) => Math.abs(x - bx) < 2.4),
+      half - 4,
+    );
     for (const p of cs.platforms) {
       stoppingZs.forEach((tz, i) => {
         const nearMin = Math.abs(tz - p.zMin) < TRACK_W * 0.8;
@@ -746,9 +774,10 @@ export class StationWorld {
         const edgeZ = nearMin ? p.zMin + 0.55 : p.zMax - 0.55;
         const rts = trackRoutesFor(i);
         const label = directionLabel(rts, trackDirs[i], spec.name);
-        // MTA-style: the board's face runs PARALLEL to its track, over the
-        // platform edge, so it reads from the platform (and across the tracks)
-        for (const sx of [(-3 * L) / 8, -L / 8, L / 8, (3 * L) / 8]) {
+        // MTA-style: the sign's face runs PARALLEL to its track, over the
+        // platform edge, so it reads from the platform (and across the tracks).
+        // 4-5 evenly along the platform, clear of the boards and stair wells.
+        for (const sx of signXs) {
           hangSign(rts, label, sx, CEIL - 0.55, edgeZ, false);
         }
       });
@@ -764,16 +793,6 @@ export class StationWorld {
     // line the boards cross) and the stair openings. z = platform center, y =
     // board height; faces are ticked from arrivalsFn() in update().
     const PANEL_Y = 2.6; // board center ~1.0m under the 3.6m ceiling; ~2.1m floor clearance
-    const pillarBlocked = (x: number) => {
-      const nearestPillar = -half + 6 + Math.round((x - (-half + 6)) / 4.6) * 4.6;
-      return Math.abs(x - nearestPillar) < 0.6;
-    };
-    const stairBlocked = (x: number) =>
-      stairHoles.some((h) => x > h.minX - 0.5 && x < h.maxX + 0.5);
-    const boardCount = Math.max(2, Math.round(L / 33));
-    const boardXs = pickBoardPositions(
-      half, boardCount, (x) => pillarBlocked(x) || stairBlocked(x), half - 4,
-    );
     for (const p of cs.platforms) {
       const dirs = platformDirs(p);
       if (dirs.length === 0) continue;
@@ -1095,6 +1114,21 @@ export class StationWorld {
     };
     const p0 = cs.platforms[0];
     this.platformSpawn.set(4, 0, (p0.zMin + p0.zMax) / 2);
+    // one platform-center spawn per served direction (the platform adjacent to
+    // the stopping track that runs it), so exitRide can drop the rider beside
+    // the re-seeded train on the correct platform for a side-platform station.
+    stoppingZs.forEach((tz, i) => {
+      if (this.dirSpawns.has(trackDirs[i])) return;
+      const pl = cs.platforms.find((p) =>
+        Math.abs(tz - p.zMin) < TRACK_W * 0.9 || Math.abs(tz - p.zMax) < TRACK_W * 0.9);
+      if (pl) this.dirSpawns.set(trackDirs[i], new THREE.Vector3(4, 0, (pl.zMin + pl.zMax) / 2));
+    });
+  }
+
+  /** Platform spawn beside the stopping track that serves `dirSign` (so stepping
+   *  off a ride lands next to the re-seeded train). Falls back to platformSpawn. */
+  platformSpawnForDir(dirSign: 1 | -1): THREE.Vector3 {
+    return (this.dirSpawns.get(dirSign) ?? this.platformSpawn).clone();
   }
 
   update(dt: number) {

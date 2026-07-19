@@ -1241,15 +1241,28 @@ export class World {
       this.onFade?.(true);
       await wait(420);
       const stationId = this.ride.currentStationId;
+      // capture the line + direction BEFORE disposing the ride so we can re-seed
+      // the train the player just rode as a doors-open dwell at this platform
+      const rideRoute = this.ride.route;
+      const rideDir = this.ride.shareInfo.dirSign;
       this.ride.dispose();
       this.ride = null;
       const spec = this.entrances.stationsMap.get(stationId);
       if (spec) {
         this.buildStation(spec);
-        // in a complex, step off onto the platform of the group we rode into
-        this.pos.copy(this.station instanceof ComplexStationWorld
-          ? this.station.platformSpawnFor(stationId)
-          : this.station!.platformSpawn);
+        // Seed the ridden train standing at the platform, doors open, matching
+        // the line + direction, so it's there to re-board for a few seconds
+        // before it closes up and pulls out — instead of the track sitting empty
+        // after the rebuild (the "that train disappears immediately" bug). Land
+        // the player beside that seeded track; lastEnterGuard (reset below)
+        // blocks an instant re-board while the seeded dwell outlives the guard.
+        if (this.station instanceof ComplexStationWorld) {
+          this.pos.copy(this.station.seedRideExit(stationId, rideRoute, rideDir)
+            ?? this.station.platformSpawnFor(stationId));
+        } else {
+          this.scheduler?.seedDwell(rideRoute, rideDir);
+          this.pos.copy(this.station!.platformSpawnForDir(rideDir));
+        }
         // exiting the subway drops you back on the street at this station's entrance
         const ent = this.entrances.entranceFor(spec);
         this.returnPos.set(ent[0] + 2.2, 0, ent[1] + 2.2);
