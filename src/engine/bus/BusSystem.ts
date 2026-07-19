@@ -936,13 +936,15 @@ export class BusSystem {
    * the kit outside its walls.
    */
   evictStopsWithin(x0: number, z0: number, x1: number, z1: number) {
+    let evicted = false;
     for (const ps of Array.from(this.placedStops.values())) {
       if (ps.x < x0 || ps.x > x1 || ps.z < z0 || ps.z > z1) continue;
       this.scene.remove(ps.group);
       disposeGroup(ps.group);
       this.placedStops.delete(ps.id);
+      evicted = true;
     }
-    this.stopTimer = 0;
+    if (evicted) this.stopTimer = 0; // only re-scan if a landmark actually covered a stop
   }
 
   /** Every ~0.7 s: place stop kits within 300 m, remove beyond 340 m. */
@@ -956,23 +958,26 @@ export class BusSystem {
         this.placedStops.delete(ps.id);
       }
     }
-    // placements
+    // placements — amortized: at most 2 stop kits actually seated per pass
+    // (each is a resolvePlacement footprint solve + kit merge). A backlog resumes
+    // next frame (stopTimer 0) rather than seating the whole radius in one burst.
+    let placed = 0;
     for (const st of this.allStops) {
       if (this.placedStops.size >= STOP_CAP) break;
       if (this.placedStops.has(st.id)) continue;
       const dx = st.x - px, dz = st.z - pz;
       if (dx * dx + dz * dz > STOP_PLACE_R2) continue;
-      this.placeStop(st);
+      if (this.placeStop(st) && ++placed >= 2) { this.stopTimer = 0; return; }
     }
   }
 
-  private placeStop(st: { id: string; x: number; z: number; seed: number }) {
+  private placeStop(st: { id: string; x: number; z: number; seed: number }): boolean {
     // pull the raw GTFS point onto the sidewalk (off roadways/buildings). null =
     // tiles not loaded here yet → defer; the next scan tick retries this stop.
     let sx = st.x, sz = st.z;
     if (this.resolvePlacement) {
       const rp = this.resolvePlacement(st.x, st.z);
-      if (rp === null) return;
+      if (rp === null) return false;
       sx = rp[0]; sz = rp[1];
     }
     const info = this.data!.stops[st.id];
@@ -1011,6 +1016,7 @@ export class BusSystem {
     group.rotation.y = yaw;
     this.scene.add(group);
     this.placedStops.set(st.id, { id: st.id, group, x: sx, z: sz });
+    return true;
   }
 
   // ---- boarding / riding ----

@@ -170,8 +170,14 @@ export class EntranceManager {
     if (!this.data) return;
     this.timer -= dt;
     if (this.timer > 0) return;
-    this.timer = 0.7;
 
+    // Amortize: build at most ONE kit per pass. Each entrance build (footprint
+    // eject spiral + geometry merge + signage texture) is a multi-ms burst, so
+    // seating a whole neighbourhood in one tick froze for hundreds of ms. When a
+    // backlog remains we resume next frame (timer 0) instead of the 0.7s idle
+    // throttle — the world still populates in a fraction of a second, spread one
+    // build per frame so no single frame stalls. Disposals stay uncapped (cheap).
+    let built = 0;
     const r2 = this.placeRadius * this.placeRadius;
     for (let i = 0; i < this.data.entrances.length; i++) {
       const e = this.data.entrances[i];
@@ -179,6 +185,7 @@ export class EntranceManager {
       const inRange = dx * dx + dz * dz < r2;
       const existing = this.placed.get(i);
       if (inRange && !existing) {
+        if (built >= 1) continue; // budget spent — leave the rest for next frame
         const station = this.stations.get(e.stationId);
         if (!station) continue;
         // elevated stations get the kiosk marker (their stairs go up, not down)
@@ -225,12 +232,14 @@ export class EntranceManager {
         group.add(beacon);
         this.scene.add(group);
         this.placed.set(i, { spec: e, station, group, pos });
+        built++;
       } else if (!inRange && existing) {
         this.scene.remove(existing.group);
         disposeGroup(existing.group);
         this.placed.delete(i);
       }
     }
+    this.timer = built >= 1 ? 0 : 0.7; // backlog: resume next frame; idle: throttle
   }
 
   /**
@@ -240,13 +249,18 @@ export class EntranceManager {
    * landmark's collision, so the kit re-seats outside its walls.
    */
   evictWithin(x0: number, z0: number, x1: number, z1: number) {
+    let evicted = false;
     for (const [i, p] of [...this.placed]) {
       if (p.pos[0] < x0 || p.pos[0] > x1 || p.pos[1] < z0 || p.pos[1] > z1) continue;
       this.scene.remove(p.group);
       disposeGroup(p.group);
       this.placed.delete(i);
+      evicted = true;
     }
-    this.timer = 0; // re-place on the next update tick
+    // Only force a re-place scan if we actually removed something — every landmark
+    // build calls this, and zeroing the timer each time otherwise churned the
+    // stream loop into running every frame for no reason.
+    if (evicted) this.timer = 0;
   }
 
   /** Nearest entrance within `dist` meters of (x,z), or null. */

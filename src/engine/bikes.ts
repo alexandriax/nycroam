@@ -193,8 +193,11 @@ export class BikeManager {
     if (!this.data) return;
     this.timer -= dt;
     if (this.timer > 0) return;
-    this.timer = 0.7;
 
+    // Amortize dock builds one-per-pass — a whole rack (posts + parked bikes,
+    // ejected off roads/buildings) is a several-ms burst; seating many at once
+    // hitched. Backlog resumes next frame (timer 0); idle throttles to 0.7s.
+    let built = 0;
     const r2 = this.placeRadius * this.placeRadius;
     for (let i = 0; i < this.data.length; i++) {
       const d = this.data[i];
@@ -202,6 +205,7 @@ export class BikeManager {
       const inRange = dx * dx + dz * dz < r2;
       const existing = this.placed.get(i);
       if (inRange && !existing) {
+        if (built >= 1) continue; // budget spent — next frame handles the rest
         let pos: [number, number] = [d.p[0], d.p[1]];
         if (this.eject) {
           let deferred = false;
@@ -218,12 +222,14 @@ export class BikeManager {
         const w = this.wallDir ? this.wallDir(pos[0], pos[1]) : null;
         const rotY = w ? Math.atan2(-w[1], w[0]) : hash01(i * 31 + 7) * Math.PI;
         this.placed.set(i, this.build(i, d, slots, bikes, pos, rotY));
+        built++;
       } else if (!inRange && existing) {
         this.scene.remove(existing.group);
         disposeGroup(existing.group);
         this.placed.delete(i);
       }
     }
+    this.timer = built >= 1 ? 0 : 0.7; // backlog: resume next frame; idle: throttle
   }
 
   private build(idx: number, spec: DockSpec, slots: number, bikes: number, pos: [number, number], rotY: number): PlacedDock {
@@ -248,13 +254,15 @@ export class BikeManager {
    * live in bikeCounts, so inventory survives the re-place.
    */
   evictWithin(x0: number, z0: number, x1: number, z1: number) {
+    let evicted = false;
     for (const [i, p] of [...this.placed]) {
       if (p.pos[0] < x0 || p.pos[0] > x1 || p.pos[1] < z0 || p.pos[1] > z1) continue;
       this.scene.remove(p.group);
       disposeGroup(p.group);
       this.placed.delete(i);
+      evicted = true;
     }
-    this.timer = 0;
+    if (evicted) this.timer = 0; // only re-scan if a landmark actually covered a dock
   }
 
   nearest(x: number, z: number, dist: number): { dock: PlacedDock; d: number; canGrab: boolean; canDock: boolean } | null {

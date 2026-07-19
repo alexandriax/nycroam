@@ -167,6 +167,7 @@ export class World {
   private waterUpdate: ((dt: number) => void) | null = null;
   private flyVel = new THREE.Vector3();
   private flyTarget = new THREE.Vector3();
+  private _eye = new THREE.Vector3(); // reused camera-eye scratch (per-frame, hot path)
   hud: HudState = {
     mode: 'street', fly: false, prompt: null, promptRoutes: [], promptBus: [], promptHint: null, riding: false, area: null, street: null, cross: null, stationName: null,
     stationRoutes: [], ride: null, bus: null, tilesLoaded: 0, tilesPending: 0, fps: 0, loading: true, error: null,
@@ -1699,16 +1700,16 @@ export class World {
     // sound + the on-foot head-bob (writes walkBob.bobY/swayX/roll and onFootBob)
     this.updateAudio(dt, preX, preZ);
 
-    let eye: THREE.Vector3;
+    const eye = this._eye; // reused each frame — no per-frame Vector3 garbage
     if (this.mode === 'bus' && this.busRide) {
       // camera rides the cabin: local aisle offset through the bus transform
       const g = this.busRide.model.group;
       g.updateMatrixWorld();
-      eye = g.localToWorld(new THREE.Vector3(
+      g.localToWorld(eye.set(
         this.busLocal.x, rideFloorY(this.busRide) + rideEye(this.busRide), this.busLocal.z,
       ));
     } else {
-      eye = new THREE.Vector3(this.pos.x, this.pos.y + this.eyeHeight, this.pos.z);
+      eye.set(this.pos.x, this.pos.y + this.eyeHeight, this.pos.z);
       if (this.onFootBob) {
         // vertical dip + a lateral sway along the camera-right axis; the roll
         // rides in through applyToCamera. Cosmetic only — this.pos is untouched.
