@@ -15,6 +15,7 @@ export class PlayerControls {
   yaw = Math.PI; // face north (-z)
   pitch = 0;
   fly = false;
+  run = false; // sticky sprint, toggled by the touch Run button (no Shift key on mobile)
   private keys = new Set<string>();
   private el: HTMLElement;
   private dragging = false;
@@ -97,7 +98,7 @@ export class PlayerControls {
     strafe += this.touchMove.x;
     const len = Math.hypot(forward, strafe);
     if (len > 1) { forward /= len; strafe /= len; }
-    return { forward, strafe, up, sprint: k.has('shift') };
+    return { forward, strafe, up, sprint: k.has('shift') || this.run };
   }
 
   /** Direction vectors on the ground plane. */

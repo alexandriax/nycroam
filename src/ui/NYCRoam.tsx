@@ -137,6 +137,7 @@ export default function NYCRoam() {
   const [intro, setIntro] = useState(true);
   const [introLeaving, setIntroLeaving] = useState(false);
   const [muted, setMuted] = useState(false);
+  const [running, setRunning] = useState(false);
   const [copied, setCopied] = useState(false);
   const copiedTimer = useRef(0);
 
@@ -188,6 +189,11 @@ export default function NYCRoam() {
   const toggleMute = () => {
     const w = worldRef.current;
     if (w) setMuted(w.audio.toggleMuted());
+  };
+
+  const toggleRun = () => {
+    const c = worldRef.current?.controlsRef;
+    if (c) { c.run = !c.run; setRunning(c.run); }
   };
 
   return (
@@ -330,6 +336,17 @@ export default function NYCRoam() {
               aria-label="Descend"
             >▼</button>
           </div>
+        )}
+        {/* walk/run toggle — touch has no Shift key, so sprint needs a button */}
+        {isTouch && hud?.mode === 'street' && !hud?.riding && !hud?.fly && (
+          <button
+            onClick={toggleRun}
+            className={`hud-panel run-btn${running ? ' on' : ''}`}
+            aria-label={running ? 'Switch to walking' : 'Switch to running'}
+          >
+            <span className="run-ico">{running ? '🏃' : '🚶'}</span>
+            {running ? 'Running' : 'Walk'}
+          </button>
         )}
       </div>
 

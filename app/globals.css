@@ -247,6 +247,26 @@ kbd {
 /* touch: same pill, but a 44px-tall tap target */
 .heli-btn.touch { padding: 12px 14px; font-size: 13px; }
 
+/* ---- walk/run toggle (touch only) ---- */
+.run-btn {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 12px 14px;
+  font-size: 13px;
+  letter-spacing: 0.2px;
+  color: rgba(255, 255, 255, 0.85);
+  cursor: pointer;
+  touch-action: manipulation;
+  transition: border-color 0.15s ease, color 0.15s ease, background 0.15s ease;
+}
+.run-ico { font-size: 13px; line-height: 1; }
+.run-btn.on {
+  background: rgba(13, 92, 51, 0.6);
+  border-color: rgba(70, 220, 140, 0.35);
+  color: #eafff3;
+}
+
 /* ---- altitude pair (touch, under the heli button) ---- */
 .alt-pair { display: flex; gap: 6px; }
 .alt-btn {
