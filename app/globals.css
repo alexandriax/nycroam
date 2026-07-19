@@ -95,6 +95,9 @@ canvas { display: block; touch-action: none; }
     inset 0 1px 0 rgba(255, 255, 255, 0.06);
 }
 
+/* a row of top-right controls kept on one line (jump-to + link, fps + mute) */
+.hud-row { display: flex; align-items: center; gap: 8px; }
+
 /* current-street readout, styled after the corner blade signs */
 .street-blade {
   align-self: flex-start;

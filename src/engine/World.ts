@@ -1771,8 +1771,13 @@ export class World {
     this.onFootBob = onFoot;
     const footfall = this.walkBob.update(dt, onFoot ? groundSpeed : 0, onFoot);
     if (footfall && !this.transitioning) {
-      // vary pitch per step, and lift it a touch at a run, so it never machine-guns
-      a.play('footstep', { rate: 0.9 + Math.random() * 0.16 + Math.min(0.22, groundSpeed / 45) });
+      // walking = a full, soft step; running = softer + duller (a padded patter),
+      // not a louder/higher machine-gun. Cadence already rises with speed.
+      const running = groundSpeed > 7.5; // walk ~5.2 m/s, run ~10.9
+      a.play('footstep', {
+        volume: running ? 0.6 : 1,
+        rate: (running ? 0.86 : 0.94) + Math.random() * 0.12,
+      });
     }
 
     // bike: chain/tyre hum, scaled to how fast you're actually rolling

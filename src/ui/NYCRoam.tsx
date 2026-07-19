@@ -196,6 +196,45 @@ export default function NYCRoam() {
     if (c) { c.run = !c.run; setRunning(c.run); }
   };
 
+  // Live transit readout (which train/bus, next stop). Shared between the
+  // desktop placement (centred, bottom) and mobile (tucked under the top-left
+  // location panel so it doesn't cover the joystick/GO).
+  const transitInner = hud?.mode === 'ride' && hud.ride ? (
+    <>
+      <Bullets routes={[hud.ride.route]} size={isTouch ? 24 : 28} />
+      <div style={{ lineHeight: 1.4 }}>
+        <div style={{ fontSize: 12, opacity: 0.65 }}>to {hud.ride.terminal}</div>
+        <div style={{ fontSize: isTouch ? 14 : 15 }}>
+          {hud.ride.state === 'dwell' && (hud.ride.atEnd
+            ? <>Last stop — <b>{hud.ride.thisStop}</b></>
+            : <>This is <b>{hud.ride.thisStop}</b></>)}
+          {hud.ride.state === 'closing' && <span className="pulse">Stand clear of the closing doors</span>}
+          {hud.ride.state === 'moving' && <>Next stop: <b>{hud.ride.thisStop}</b></>}
+        </div>
+        {hud.ride.state === 'dwell' && (
+          <div style={{ fontSize: 11, opacity: 0.6 }}>{isTouch ? 'tap GO to step off' : 'press E to step off'}</div>
+        )}
+      </div>
+    </>
+  ) : hud?.mode === 'bus' && hud.bus ? (
+    <>
+      <BusChips badges={[{ id: hud.bus.route, color: hud.bus.color, sbs: hud.bus.sbs }]} size={isTouch ? 24 : 28} />
+      <div style={{ lineHeight: 1.4 }}>
+        <div style={{ fontSize: 12, opacity: 0.65 }}>to {hud.bus.dest}</div>
+        <div style={{ fontSize: isTouch ? 14 : 15 }}>
+          {hud.bus.state === 'dwell' && (hud.bus.atEnd
+            ? <>Last stop — <b>{hud.bus.thisStop}</b></>
+            : <>This is <b>{hud.bus.thisStop}</b></>)}
+          {hud.bus.state === 'closing' && <span className="pulse">Doors closing</span>}
+          {hud.bus.state === 'moving' && <>Next stop: <b>{hud.bus.thisStop}</b></>}
+        </div>
+        {hud.bus.state === 'dwell' && (
+          <div style={{ fontSize: 11, opacity: 0.6 }}>{isTouch ? 'tap GO to step off' : 'press E to step off'}</div>
+        )}
+      </div>
+    </>
+  ) : null;
+
   return (
     <div style={{ position: 'fixed', inset: 0 }}>
       <canvas ref={canvasRef} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%' }} />
@@ -206,32 +245,47 @@ export default function NYCRoam() {
         opacity: fade ? 1 : 0, transition: 'opacity 0.4s ease',
       }} />
 
-      {/* top bar */}
-      <div className="hud-panel" style={{
-        position: 'absolute', top: 12, left: 12, padding: '7px 12px',
-        display: 'flex', flexDirection: 'column', gap: 5,
-        maxWidth: 'calc(100vw - 268px)', overflow: 'hidden', whiteSpace: 'nowrap',
+      {/* top-left: location panel, with the mobile transit readout stacked under it */}
+      <div style={{
+        position: 'absolute', top: 12, left: 12,
+        display: 'flex', flexDirection: 'column', gap: 8, alignItems: 'flex-start',
       }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
-          {/* the mascot IS the wordmark — sized to the text it replaces */}
-          <img src="/mark.png" alt="NYC Roam" width={18} height={18} className="mark" draggable={false} />
-          <span style={{ opacity: 0.62, fontSize: 12, overflow: 'hidden', textOverflow: 'ellipsis', letterSpacing: 0.2 }}>
-            {hud?.mode === 'station'
-              ? <>{hud.stationName} <Bullets routes={hud.stationRoutes} size={16} /></>
-              : (hud?.area ?? 'Manhattan')}
-          </span>
+        <div className="hud-panel" style={{
+          padding: '7px 12px', display: 'flex', flexDirection: 'column', gap: 5,
+          maxWidth: 'calc(100vw - 268px)', overflow: 'hidden', whiteSpace: 'nowrap',
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
+            {/* the mascot IS the wordmark — sized to the text it replaces */}
+            <img src="/mark.png" alt="NYC Roam" width={18} height={18} className="mark" draggable={false} />
+            <span style={{ opacity: 0.62, fontSize: 12, overflow: 'hidden', textOverflow: 'ellipsis', letterSpacing: 0.2 }}>
+              {hud?.mode === 'station'
+                ? <>{hud.stationName} <Bullets routes={hud.stationRoutes} size={16} /></>
+                : (hud?.area ?? 'Manhattan')}
+            </span>
+          </div>
+          {/* current street, styled like the blade signs on the corners */}
+          {(hud?.mode === 'street' || hud?.mode === 'bus') && hud?.street && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+              <span className="street-blade">{abbreviateStreet(hud.street)}</span>
+              {hud.cross && <span className="street-blade cross">{abbreviateStreet(hud.cross)}</span>}
+            </div>
+          )}
         </div>
-        {/* current street, styled like the blade signs on the corners */}
-        {(hud?.mode === 'street' || hud?.mode === 'bus') && hud?.street && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-            <span className="street-blade">{abbreviateStreet(hud.street)}</span>
-            {hud.cross && <span className="street-blade cross">{abbreviateStreet(hud.cross)}</span>}
+        {/* mobile: which train/bus + next stop, right under the location panel */}
+        {isTouch && transitInner && (
+          <div className="hud-panel" style={{
+            padding: '9px 14px', display: 'flex', gap: 10, alignItems: 'center',
+            maxWidth: 'calc(100vw - 130px)',
+          }}>
+            {transitInner}
           </div>
         )}
       </div>
 
       {/* stats + teleport */}
       <div style={{ position: 'absolute', top: 12, right: 12, display: 'flex', flexDirection: 'column', gap: 8, alignItems: 'flex-end' }}>
+        {/* row 1: jump-to + share link side by side (like desktop, tidier on mobile) */}
+        <div className="hud-row">
         <select
           className="hud-panel jumpto"
           defaultValue=""
@@ -271,6 +325,12 @@ export default function NYCRoam() {
             </svg>
           )}
         </button>
+        </div>
+        {/* row 2: fps readout + sound on/off on one line */}
+        <div className="hud-row">
+        <div className="hud-panel stats">
+          {hud ? `${hud.fps} fps · ${hud.tilesLoaded} tiles${hud.tilesPending ? ` (+${hud.tilesPending})` : ''}${hud.fly ? ' · HELI' : ''}${hud.riding ? ' · BIKE' : ''}${hud.mode === 'bus' ? ' · BUS' : ''}` : '—'}
+        </div>
         {/* sound on/off — the world's footsteps, engines, doors & rotors */}
         <button
           className={`hud-panel share-btn${muted ? ' muted' : ''}`}
@@ -293,8 +353,6 @@ export default function NYCRoam() {
             )}
           </svg>
         </button>
-        <div className="hud-panel stats">
-          {hud ? `${hud.fps} fps · ${hud.tilesLoaded} tiles${hud.tilesPending ? ` (+${hud.tilesPending})` : ''}${hud.fly ? ' · HELI' : ''}${hud.riding ? ' · BIKE' : ''}${hud.mode === 'bus' ? ' · BUS' : ''}` : '—'}
         </div>
 
         {/* controls legend */}
@@ -409,52 +467,14 @@ export default function NYCRoam() {
         </div>
       )}
 
-      {/* riding panel */}
-      {hud?.mode === 'ride' && hud.ride && (
+      {/* desktop: the live transit readout stays centred at the bottom
+          (on mobile it lives under the top-left location panel instead) */}
+      {!isTouch && transitInner && (
         <div className="hud-panel" style={{
-          position: 'absolute', bottom: isTouch ? 170 : 84, left: '50%', transform: 'translateX(-50%)',
+          position: 'absolute', bottom: 84, left: '50%', transform: 'translateX(-50%)',
           padding: '12px 20px', display: 'flex', gap: 12, alignItems: 'center', whiteSpace: 'nowrap',
         }}>
-          <Bullets routes={[hud.ride.route]} size={28} />
-          <div style={{ lineHeight: 1.45 }}>
-            <div style={{ fontSize: 12, opacity: 0.65 }}>to {hud.ride.terminal}</div>
-            <div style={{ fontSize: 15 }}>
-              {hud.ride.state === 'dwell' && (hud.ride.atEnd
-                ? <>Last stop — <b>{hud.ride.thisStop}</b></>
-                : <>This is <b>{hud.ride.thisStop}</b></>)}
-              {hud.ride.state === 'closing' && <span className="pulse">Stand clear of the closing doors</span>}
-              {/* while moving, RideWorld has already advanced idx to the station
-                  we're pulling into, so thisStop IS the next stop (nextStop is the
-                  one after — showing it here announced a stop too far ahead). */}
-              {hud.ride.state === 'moving' && <>Next stop: <b>{hud.ride.thisStop}</b></>}
-            </div>
-            {hud.ride.state === 'dwell' && (
-              <div style={{ fontSize: 11, opacity: 0.6 }}>{isTouch ? 'tap GO to step off' : 'press E to step off'}</div>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* bus riding panel */}
-      {hud?.mode === 'bus' && hud.bus && (
-        <div className="hud-panel" style={{
-          position: 'absolute', bottom: isTouch ? 170 : 84, left: '50%', transform: 'translateX(-50%)',
-          padding: '12px 20px', display: 'flex', gap: 12, alignItems: 'center', whiteSpace: 'nowrap',
-        }}>
-          <BusChips badges={[{ id: hud.bus.route, color: hud.bus.color, sbs: hud.bus.sbs }]} size={28} />
-          <div style={{ lineHeight: 1.45 }}>
-            <div style={{ fontSize: 12, opacity: 0.65 }}>to {hud.bus.dest}</div>
-            <div style={{ fontSize: 15 }}>
-              {hud.bus.state === 'dwell' && (hud.bus.atEnd
-                ? <>Last stop — <b>{hud.bus.thisStop}</b></>
-                : <>This is <b>{hud.bus.thisStop}</b></>)}
-              {hud.bus.state === 'closing' && <span className="pulse">Doors closing</span>}
-              {hud.bus.state === 'moving' && <>Next stop: <b>{hud.bus.thisStop}</b></>}
-            </div>
-            {hud.bus.state === 'dwell' && (
-              <div style={{ fontSize: 11, opacity: 0.6 }}>{isTouch ? 'tap GO to step off' : 'press E to step off'}</div>
-            )}
-          </div>
+          {transitInner}
         </div>
       )}
 
