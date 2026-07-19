@@ -148,7 +148,11 @@ export const LANDMARKS_REG: LandmarkEntry[] = [
   { id: 'pulitzer-fountain', name: 'Pulitzer Fountain', lat: 40.764, lon: -73.9737, set: 'uptown', r: 400, rot: GRID },
   { id: 'lincoln-center', name: 'Lincoln Center', lat: 40.7727, lon: -73.9829, set: 'uptown', r: 550, rot: GRID },
   { id: 'met-opera', name: 'Metropolitan Opera House', lat: 40.7728, lon: -73.9843, set: 'uptown', r: 550, aliasOf: 'lincoln-center' },
-  { id: 'dakota', name: 'The Dakota', lat: 40.7765, lon: -73.9761, set: 'uptown', r: 450, rot: GRID },
+  // anchored inside the cleared lot: the original hand-typed anchor put three
+  // corners of the 41.5m block in the Central Park West roadbed (verified
+  // against the baked road ribbons); this sits every corner ≥10m clear of the
+  // CPW centerline and ≥50m from the nearest surviving building
+  { id: 'dakota', name: 'The Dakota', lat: 40.776614, lon: -73.976125, set: 'uptown', r: 450, rot: GRID },
   { id: 'amnh', name: 'American Museum of Natural History', lat: 40.7808, lon: -73.973, set: 'uptown', r: 600, rot: GRID },
   { id: 'met-museum', name: 'Metropolitan Museum of Art', lat: 40.7794, lon: -73.9626, set: 'uptown', r: 600, rot: GRID },
   { id: 'guggenheim', name: 'Guggenheim Museum', lat: 40.783, lon: -73.959, set: 'uptown', r: 550, rot: GRID },

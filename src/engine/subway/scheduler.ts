@@ -132,12 +132,16 @@ export class TrainScheduler {
         s.train.update(dt * s.timeScale);
         s.trainAge += dt;
         s.everVisible = s.everVisible || s.train.group.visible;
-        // recycle once the cycle wraps back to hidden AFTER having run
+        // recycle once the cycle wraps back to hidden AFTER having run.
+        // Deterministic spacing: the countdown boards project future arrivals
+        // at exact `headway` intervals, and a ±20% jittered respawn made every
+        // projected time visibly wrong (rows jumped when the real train
+        // spawned). Real headways are metronomic; the boards now are too.
         if (s.everVisible && !s.train.group.visible && s.trainAge > 5) {
           this.parent.remove(s.train.group);
           s.train.dispose();
           s.train = null;
-          s.cooldown = Math.max(2, this.headway * (0.8 + Math.random() * 0.4) - 30);
+          s.cooldown = Math.max(2, this.headway - 30);
         }
         continue;
       }
@@ -165,16 +169,31 @@ export class TrainScheduler {
     if (travelSign === -1) train.group.rotation.y = Math.PI;
     const bb = new THREE.Box3().setFromObject(train.group);
     const portal = this.info.portal;
+    // Portal x for each end, sized so the train sits fully offstage: the south
+    // (-x) end and the north (+x) end. Travel direction picks entry/exit ends —
+    // an uptown train (+x travel) comes in from the south and leaves north, a
+    // downtown train the reverse. (These used to be hardcoded south→north for
+    // BOTH directions, so opposite-bound trains approached from the same end.)
+    const southX = -portal - bb.max.x;
+    const northX = portal - bb.min.x;
     if (s.passThrough) {
-      train.setTravel(-portal - bb.max.x, portal + 30 - bb.min.x, portal + 120 - bb.min.x);
+      train.setTravel(
+        travelSign === 1 ? southX : northX,
+        travelSign === 1 ? portal + 30 - bb.min.x : -portal - 30 - bb.max.x,
+        travelSign === 1 ? portal + 120 - bb.min.x : -portal - 120 - bb.max.x,
+      );
     } else if (stub) {
       // terminal: in from the open (-stub) portal, dwell centered on the
       // platform, then back out the same portal (interp runs stop -> to, so a
       // `to` on the arrival side plays as a reverse move)
-      const from = stub === 1 ? -portal - bb.max.x : portal - bb.min.x;
+      const from = stub === 1 ? southX : northX;
       train.setTravel(from, -(bb.min.x + bb.max.x) / 2, from);
     } else {
-      train.setTravel(-portal - bb.max.x, -(bb.min.x + bb.max.x) / 2, portal - bb.min.x);
+      train.setTravel(
+        travelSign === 1 ? southX : northX,
+        -(bb.min.x + bb.max.x) / 2,
+        travelSign === 1 ? northX : southX,
+      );
     }
     train.group.traverse((o) => {
       if (o instanceof THREE.Mesh || o instanceof THREE.InstancedMesh) {

@@ -158,6 +158,7 @@ interface MeshedBus {
   model: BusModelLike;
   sfx: number;      // smoothed, flip-rejecting forward x (stable curb offset + heading)
   sfz: number;      // smoothed forward z
+  flipRS: number;   // rendered arc-length when the forward last tracked the tangent
   y: number;        // smoothed ground height
   yaw: number;      // smoothed heading
   lastRS: number;   // last RENDERED arc-length (measured speed → wheels stop when held)
@@ -766,17 +767,24 @@ export class BusSystem {
       }
       this.pointAt(a.dir, a.rs, _pt);
       this.tangentAt(a.dir, a.rs, _tan);
-      // Smoothed, flip-rejecting forward: a sharp/near-duplicate shape vertex can
+      // Smoothed, flip-rejecting forward: a near-duplicate shape vertex can
       // momentarily REVERSE the raw tangent, flipping the curb offset to the far
-      // side (a ~2·lat position jump). A real turn between frames is gradual
-      // (dot>0); a cusp flip is ~180° (dot<0) — reject it, keeping the previous
-      // forward, and otherwise ease toward the raw tangent. Curb offset + heading
-      // both use this, so neither jumps.
-      if (!a.init) { a.sfx = _tan.x; a.sfz = _tan.z; }
-      else if (_tan.x * a.sfx + _tan.z * a.sfz > 0) {
+      // side (a ~2·lat position jump). Only a NEAR-180° flip is a data cusp —
+      // real street turns run up to ~120° (avenue→crosstown corners), and
+      // rejecting those froze the heading for the whole next segment: the bus
+      // drove hundreds of meters broadside. So: ease toward the tangent through
+      // any genuine turn, hold only near-reversals — and if a "reversal"
+      // persists while the bus keeps advancing, it's real geometry (a terminal
+      // hairpin), so adopt it rather than driving backwards-faced.
+      if (!a.init) { a.sfx = _tan.x; a.sfz = _tan.z; a.flipRS = a.rs; }
+      else if (_tan.x * a.sfx + _tan.z * a.sfz > -0.7) {
         const tk = Math.min(1, dt * 10);
         a.sfx += (_tan.x - a.sfx) * tk; a.sfz += (_tan.z - a.sfz) * tk;
         const l = Math.hypot(a.sfx, a.sfz) || 1; a.sfx /= l; a.sfz /= l;
+        a.flipRS = a.rs;
+      } else if (a.rs - a.flipRS > 6) {
+        a.sfx = _tan.x; a.sfz = _tan.z;
+        a.flipRS = a.rs;
       }
       rx[i] = _pt.x - a.sfz * a.lat; rz[i] = _pt.z + a.sfx * a.lat;
       rfx[i] = a.sfx; rfz[i] = a.sfz;
@@ -876,7 +884,7 @@ export class BusSystem {
     this.scene.add(model.group);
     const mb: MeshedBus = {
       key, keyNum: dir.routeIdx * 1e6 + dir.dirIdx * 1e5 + k, dir, k, model,
-      sfx: 1, sfz: 0, y: 0, yaw: 0, lastRS: 0,
+      sfx: 1, sfz: 0, flipRS: 0, y: 0, yaw: 0, lastRS: 0,
       lastNextStop: undefined, lastStopReq: false, init: false,
       sDes: 0, lat: 0, desX: 0, desZ: 0, fx: 1, fz: 0, leaderIdx: -1,
       rs: 0, finishing: false, sepX: 0, sepZ: 0,

@@ -176,8 +176,11 @@ export class RideWorld {
   ) {
     this.route = routeId;
     this.dirSign = dirSign;
-    const r = network.routes[routeId];
-    this.stops = r.stops;
+    // Callers validate route/start against the network, but a bad pair must
+    // never take the whole app down with it — degrade to a one-stop ride
+    // (instantly "Last stop" → auto-exit back to the station) instead.
+    const r = network.routes[routeId] ?? { stops: [startStationId], t: [], color: '#808183' };
+    this.stops = r.stops.length ? r.stops : [startStationId];
     this.times = r.t;
     this.idx = Math.max(0, this.stops.indexOf(startStationId));
     for (const [id, s] of stations) {
