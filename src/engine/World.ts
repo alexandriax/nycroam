@@ -200,7 +200,7 @@ export class World {
     this.skyDome = setupSky(this.streetScene, loadRadius, far);
     this.sun = setupLights(this.streetScene).sun;
 
-    this.tiles = new TileManager(this.streetScene, this.isMobile ? 2 : 3);
+    this.tiles = new TileManager(this.streetScene, this.isMobile ? 2 : 3, (g) => this.compileGroup(g));
     this.tiles.loadRadius = loadRadius;
     this.tiles.unloadRadius = this.tiles.loadRadius + 300;
     this.entrances = new EntranceManager(
@@ -210,6 +210,8 @@ export class World {
       // + stair-pit footprint off the lane and never phase it into a building.
       (x, z) => this.resolveFootprint(x, z, ENTRANCE_FP),
       (x, z) => nearestWallDir(x, z, 15, this.tiles.collisionNear(x, z)),
+      // pre-warm the kit's shaders off the render frame before it's revealed
+      (g) => this.compileGroup(g),
     );
     // road-clearance callback: landmark props (Times Square billboard masts)
     // that bake into a roadbed get nudged onto the sidewalk; null defers a
@@ -217,6 +219,10 @@ export class World {
     this.landmarks = new LandmarkManager(
       this.streetScene,
       (x, z, clearance) => this.ejectFromRoads(x, z, clearance),
+      // pre-warm each bespoke landmark's shaders off the render frame (they
+      // introduce new materials — bronze glass, curtain wall — that otherwise
+      // compile in the first frame that shows them)
+      (g) => this.compileGroup(g),
     );
     // a landmark that builds OVER an already-placed street kit (subway
     // entrance half-inside the Times Square billboard block) evicts it; the
@@ -273,6 +279,31 @@ export class World {
     this.resize();
     window.addEventListener('resize', this.resize);
     this.restore();
+  }
+
+  /**
+   * Pre-warm a freshly-built group's shader programs OFF the render frame, so
+   * the streaming manager can add it to the scene without the first-visible
+   * frame hitching. The first frame a new material combo becomes visible
+   * otherwise triggers a synchronous GL program link inside renderer.render() —
+   * measured at ~82ms for the opening ring of tiles and ~52ms per bespoke
+   * landmark, then 0.5ms forever after (programs are cached for the session).
+   * That one-frame compile spike, invisible to the 0.5s-averaged FPS meter, is
+   * the "stutter into new areas, smooth on the way back" the user reported.
+   *
+   * compileAsync links on the driver thread via KHR_parallel_shader_compile and
+   * resolves when ready; the caller adds the group only then. Compiled against
+   * streetScene (as targetScene) so the program permutation — lights, fog,
+   * environment, shadows — matches the one the real render uses, so there is no
+   * second compile at draw time. Never throws: a compile failure degrades to the
+   * caller adding the group uncompiled (at worst one legacy hitch), never a hole.
+   */
+  private async compileGroup(group: THREE.Object3D): Promise<void> {
+    try {
+      await this.renderer.compileAsync(group, this.camera, this.streetScene);
+    } catch {
+      /* ignore — caller still adds the group; worst case one first-frame hitch */
+    }
   }
 
   get controlsRef() { return this.controls; }

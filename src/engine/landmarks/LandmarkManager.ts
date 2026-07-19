@@ -190,6 +190,7 @@ type RoadEject = (x: number, z: number, clearance: number) => [number, number] |
 export class LandmarkManager {
   private scene: THREE.Scene;
   private roadEject: RoadEject | null;
+  private compile: ((g: THREE.Object3D) => Promise<void>) | null;
   private placed = new Map<string, THREE.Group>();
   private building = new Set<string>();
   private sets = new Map<string, Promise<BuilderMap | null>>();
@@ -201,9 +202,14 @@ export class LandmarkManager {
   /** Fired after a landmark's collision registers: (id, solid bounds). */
   onBuilt: ((id: string, x0: number, z0: number, x1: number, z1: number) => void) | null = null;
 
-  constructor(scene: THREE.Scene, roadEject: RoadEject | null = null) {
+  constructor(
+    scene: THREE.Scene,
+    roadEject: RoadEject | null = null,
+    compile: ((g: THREE.Object3D) => Promise<void>) | null = null,
+  ) {
     this.scene = scene;
     this.roadEject = roadEject;
+    this.compile = compile;
   }
 
   private loadSet(name: string): Promise<BuilderMap | null> {
@@ -267,8 +273,21 @@ export class LandmarkManager {
       const group = mergeByMaterial(raw);
       group.position.set(px, gy, pz);
       group.rotation.y = rot;
-      this.scene.add(group);
+      // Claim the slot + register collision synchronously so the landmark is
+      // solid and won't be rebuilt, but defer the VISIBLE add until its shaders
+      // are pre-warmed off the render frame. A bespoke landmark introduces new
+      // materials (bronze glass, curtain wall) that otherwise compile inside the
+      // first render that shows it (measured ~52ms for the Empire State build).
+      // If the player left range while the compile was in flight the update()
+      // evictor has disposed and removed it from `placed`; skip the add.
       this.placed.set(lm.id, group);
+      if (this.compile) {
+        void this.compile(group).then(() => {
+          if (this.placed.get(lm.id) === group) this.scene.add(group);
+        });
+      } else {
+        this.scene.add(group);
+      }
       if (collision) {
         let x0 = 1e9, z0 = 1e9, x1 = -1e9, z1 = -1e9;
         for (let i = 0; i < collision.aabb.length; i += 4) {
