@@ -455,7 +455,8 @@ export default function NYCRoam() {
       {/* intro overlay = the loading screen, kept as a frosted-glass welcome card
           over the (blurred) loaded world until the visitor taps Explore */}
       {intro && !error && (
-        <div className={`intro-overlay${introLeaving ? ' leaving' : ''}`}>
+        <div className={`intro-overlay${introLeaving ? ' leaving' : ''}`}
+          onClick={loading ? undefined : dismissIntro}>
           <div className="intro-card">
             <img src="/mark.png" alt="" width={64} height={64} className="intro-mark" draggable={false} />
             <div className="intro-word">NYC ROAM</div>
@@ -466,16 +467,16 @@ export default function NYCRoam() {
               ))}
             </div>
             <p className="intro-msg">
-              An explorable <b>Manhattan</b> at 1:1 scale, built from real map &amp; transit
+              An explorable <b>Manhattan</b> built from real map &amp; transit
               data. Ride any <b>subway</b>, <b>bus</b>, or <b>bike</b> along its true routes
-              &amp; stops — or take <b>helicopter mode</b> and fly above the city to explore.
+              &amp; stops, or take <b>helicopter mode</b> and fly above the city to explore.
             </p>
             {loading ? (
               <button className="intro-cta loading" disabled>
                 <span className="intro-spinner" />Loading Manhattan…
               </button>
             ) : (
-              <button className="intro-cta" onClick={dismissIntro} autoFocus>
+              <button className="intro-cta" autoFocus>
                 Explore Manhattan
               </button>
             )}

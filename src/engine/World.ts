@@ -34,7 +34,8 @@ import { loadTerrain, heightAt } from './terrain';
 const SAVE_KEY = 'nycroam';
 const LEGACY_SAVE_KEY = 'nycworld'; // read-only: keeps positions saved before the rename
 const WALK_EYE = 1.7; // standing; BikeView.eyeHeight is the seated one
-const START = { lat: 40.7681, lon: -73.9819 }; // Columbus Circle — first-visit spawn
+const START = { lat: 40.766931, lon: -73.981573 }; // Columbus Circle — first-visit spawn
+const START_LOOK = { yaw: (21.3 * Math.PI) / 180, pitch: (6.2 * Math.PI) / 180 }; // first-visit facing
 
 /** Anything the rider can be aboard in mode 'bus': an MTA bus or the tram.
  * The tram handle carries its own cabin geometry (interior box, floor, eye,
@@ -1700,6 +1701,8 @@ export class World {
     // first-visit default: Columbus Circle (a saved position overrides it below)
     const [sx, sz] = lonLatToXZ(START.lon, START.lat);
     this.pos.set(sx, 0, sz);
+    this.controls.yaw = START_LOOK.yaw;
+    this.controls.pitch = START_LOOK.pitch;
     // initial spawn gets the same building ejection as teleports — a saved (or
     // default) point can sit inside a footprint that streams in around it
     this.spawnResolve = true;
