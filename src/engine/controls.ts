@@ -107,11 +107,12 @@ export class PlayerControls {
     return { fwd, right };
   }
 
-  applyToCamera(cam: THREE.PerspectiveCamera, eye: THREE.Vector3) {
+  applyToCamera(cam: THREE.PerspectiveCamera, eye: THREE.Vector3, roll = 0) {
     cam.position.copy(eye);
     cam.rotation.set(0, 0, 0);
     cam.rotateY(this.yaw);
     cam.rotateX(this.pitch);
+    if (roll) cam.rotateZ(roll); // subtle walk sway; 0 everywhere else
   }
 
   dispose() {

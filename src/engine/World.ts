@@ -13,6 +13,8 @@ import { BikeManager, buildMountedBike } from './bikes';
 import { LandmarkManager } from './landmarks/LandmarkManager';
 import { LANDMARKS_REG } from './landmarks/registry';
 import { BikeView } from './bikeview';
+import { WalkBob } from './walkbob';
+import { AudioManager } from './audio';
 import { BusSystem, type BusRideHandle } from './bus/BusSystem';
 import { TramSystem, type TramRideHandle } from './tram';
 import { BusModel } from './bus/model';
@@ -121,6 +123,12 @@ export class World {
   private hoodTimer = 0;
   private riding = false; // on a bike (street mode only)
   private bikeView: BikeView | null = null; // built on the first ride, kept after
+  private walkBob = new WalkBob(); // subtle on-foot head-bob (cosmetic camera offset)
+  private onFootBob = false; // apply the walk-bob to the camera this frame
+  /** Diegetic sound: footsteps, bike/bus/train/heli ambiences, doors, arrivals. */
+  readonly audio = new AudioManager();
+  private prevBusHudState: string | null = null; // ridden-bus door-open edge
+  private lastArriveSound = 0; // throttle the "train pulling in" one-shot
   private controls: PlayerControls;
   private station: StationWorld | ElevatedStationWorld | ComplexStationWorld | null = null;
   private scheduler: TrainScheduler | null = null;
@@ -1075,6 +1083,10 @@ export class World {
       // start mid-cabin in the aisle, facing whatever way you were looking
       this.busLocal.set(tram ? 0.3 : 0.6, 0, 0.1);
       this.prevBusYaw = h.pos.yaw;
+      // you board through the open doors — hiss them; prime the edge tracker so
+      // the first frame's dwell state doesn't re-fire it
+      if (!tram) this.audio.play('busDoors');
+      this.prevBusHudState = h.hud.state;
       this.busEndSince = 0;
       this.lastEnterGuard = performance.now();
       this.hud.prompt = null;
@@ -1235,6 +1247,7 @@ export class World {
     const cx = complexFor(spec.id);
     if (cx) {
       const world = new ComplexStationWorld(cx, this.envTex);
+      world.onArrive = this.handleTrainArrive; // any group's train pulling in
       world.attachTrains(this.network);
       this.station = world;
       this.scheduler = null; // the complex owns one scheduler per track group
@@ -1246,6 +1259,7 @@ export class World {
       ? new ElevatedStationWorld(spec, this.envTex)
       : new StationWorld(spec, this.envTex);
     this.scheduler = new TrainScheduler(this.station.scene, spec, this.station.trackInfo, this.network);
+    this.scheduler.onArrive = this.handleTrainArrive;
     // feed the platform countdown clocks: the station redraws them from this on
     // its own timer (reads the live scheduler each call, so it survives rebuilds).
     (this.station as { arrivalsFn?: () => Arrival[] }).arrivalsFn = () => this.scheduler?.arrivals() ?? [];
@@ -1354,6 +1368,7 @@ export class World {
     // (embedded panes, background tabs), pick up the real size on first frame
     if (this.renderer.domElement.width === 0 && window.innerWidth > 0) this.resize();
     const dt = Math.min(0.05, this.clock.getDelta());
+    const preX = this.pos.x, preZ = this.pos.z; // for the walk-bob's ground speed
     const input = this.controls.consumeInput();
     const { fwd, right } = this.controls.basis();
 
@@ -1681,6 +1696,9 @@ export class World {
       }
     }
 
+    // sound + the on-foot head-bob (writes walkBob.bobY/swayX/roll and onFootBob)
+    this.updateAudio(dt, preX, preZ);
+
     let eye: THREE.Vector3;
     if (this.mode === 'bus' && this.busRide) {
       // camera rides the cabin: local aisle offset through the bus transform
@@ -1691,8 +1709,15 @@ export class World {
       ));
     } else {
       eye = new THREE.Vector3(this.pos.x, this.pos.y + this.eyeHeight, this.pos.z);
+      if (this.onFootBob) {
+        // vertical dip + a lateral sway along the camera-right axis; the roll
+        // rides in through applyToCamera. Cosmetic only — this.pos is untouched.
+        eye.y += this.walkBob.bobY;
+        eye.x += right.x * this.walkBob.swayX;
+        eye.z += right.z * this.walkBob.swayX;
+      }
     }
-    this.controls.applyToCamera(this.camera, eye);
+    this.controls.applyToCamera(this.camera, eye, this.onFootBob ? this.walkBob.roll : 0);
     this.skyDome?.position.copy(this.camera.position);
     const scene = this.mode === 'ride' && this.ride ? this.ride.scene
       : this.mode === 'station' && this.station ? this.station.scene
@@ -1713,6 +1738,69 @@ export class World {
       this.pushHud();
       this.save();
     }
+  };
+
+  /**
+   * Drives every diegetic sound and the on-foot head-bob from the current mode.
+   * Called each frame right before the camera is placed, so walkBob's offsets
+   * are fresh. Loop targets are set unconditionally (silent = target 0), so a
+   * mode you just left fades out instead of cutting.
+   */
+  private updateAudio(dt: number, preX: number, preZ: number) {
+    const a = this.audio;
+    const moved = Math.hypot(this.pos.x - preX, this.pos.z - preZ);
+    // a teleport / mode swap jumps the position — don't read that as speed
+    const groundSpeed = moved > 3 ? 0 : moved / Math.max(dt, 1e-4);
+
+    // walk-bob + footsteps: genuinely on foot (street or on a platform)
+    const onFoot = (this.mode === 'street' && !this.controls.fly && !this.riding)
+      || (this.mode === 'station' && !this.controls.fly);
+    this.onFootBob = onFoot;
+    const footfall = this.walkBob.update(dt, onFoot ? groundSpeed : 0, onFoot);
+    if (footfall && !this.transitioning) {
+      // vary pitch per step, and lift it a touch at a run, so it never machine-guns
+      a.play('footstep', { rate: 0.9 + Math.random() * 0.16 + Math.min(0.22, groundSpeed / 45) });
+    }
+
+    // bike: chain/tyre hum, scaled to how fast you're actually rolling
+    const biking = this.mode === 'street' && this.riding && !this.controls.fly;
+    a.loop('bike', biking ? Math.min(1, groundSpeed / 12) : 0, 0.75 + Math.min(0.6, groundSpeed / 22));
+    // helicopter: rotor while in flight (street fly only — not the station hatch)
+    a.loop('helicopter', this.mode === 'street' && this.controls.fly ? 1 : 0, 1);
+    // bus: diesel engine while aboard an actual bus (the tram is electric — silent)
+    const onBus = this.mode === 'bus' && !!this.busRide && !this.ridingTram;
+    a.loop('bus', onBus ? 0.55 + Math.min(0.45, groundSpeed / 12) : 0,
+      onBus ? 0.82 + Math.min(0.4, groundSpeed / 14) : 1);
+    // train: car rumble — full while moving, a low idle at the platform
+    let trainVol = 0, trainRate = 1;
+    if (this.mode === 'ride' && this.ride) {
+      const st = this.ride.hudInfo.state;
+      trainVol = st === 'moving' ? 1 : st === 'closing' ? 0.35 : 0.12;
+      trainRate = st === 'moving' ? 1 : 0.85;
+    }
+    a.loop('train', trainVol, trainRate);
+
+    // bus doors: hiss + chime each time the ridden bus pulls in (state -> dwell)
+    if (onBus && this.busRide) {
+      const bstate = this.busRide.hud.state;
+      if (bstate === 'dwell' && this.prevBusHudState !== null && this.prevBusHudState !== 'dwell') {
+        a.play('busDoors');
+      }
+      this.prevBusHudState = bstate;
+    } else {
+      this.prevBusHudState = null;
+    }
+
+    a.update(dt);
+  }
+
+  /** A boardable train just started pulling into the platform. */
+  private handleTrainArrive = () => {
+    const now = performance.now();
+    if (now - this.lastEnterGuard < 1200) return; // don't fire on the walk-in frame
+    if (now - this.lastArriveSound < 3500) return; // one arrival roar at a time
+    this.lastArriveSound = now;
+    this.audio.play('trainArrive');
   };
 
   private pushHud() {
@@ -1810,6 +1898,7 @@ export class World {
     this.tram.destroy();
     this.landmarks.destroy();
     this.bikeView?.dispose();
+    this.audio.dispose();
     this.scheduler?.dispose();
     this.station?.dispose();
     this.ride?.dispose();

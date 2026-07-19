@@ -131,6 +131,8 @@ canvas { display: block; touch-action: none; }
   border-color: rgba(70, 220, 140, 0.35);
   color: #eafff3;
 }
+/* sound muted: dim the speaker so the crossed-out state reads at a glance */
+.share-btn.muted { color: rgba(255, 255, 255, 0.4); }
 
 /* the nearest cross street rides along as a second, quieter blade */
 .street-blade.cross {

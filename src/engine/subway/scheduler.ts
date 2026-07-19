@@ -27,6 +27,7 @@ interface Slot {
   passThrough: boolean;
   platformSide: 1 | -1; // train-LOCAL z-sign facing the platform (doors open here)
   flip: boolean; // travels opposite to dirSign-along-+x (TrackInfo.trackFlips)
+  wasApproaching: boolean; // rising-edge latch for onArrive
 }
 
 // Rough real seconds for a freshly-spawned train to go hidden->approach->dwell,
@@ -52,6 +53,9 @@ export class TrainScheduler {
   private info: TrackInfo;
   private slots: Slot[] = [];
   private headway: number;
+  /** Fires when a boardable (non-express) train first pulls in, so the world
+   *  can play a "train arriving" sound. */
+  onArrive: (() => void) | null = null;
 
   constructor(parent: THREE.Object3D, spec: StationSpec, info: TrackInfo, network: NetworkData | null, headway = 30) {
     this.parent = parent;
@@ -101,6 +105,7 @@ export class TrainScheduler {
         passThrough: false,
         platformSide,
         flip,
+        wasApproaching: false,
       });
     });
 
@@ -122,6 +127,7 @@ export class TrainScheduler {
         passThrough: true,
         platformSide: 1, // express blows through; doors never open
         flip: false,
+        wasApproaching: false,
       });
     }
   }
@@ -132,6 +138,10 @@ export class TrainScheduler {
         s.train.update(dt * s.timeScale);
         s.trainAge += dt;
         s.everVisible = s.everVisible || s.train.group.visible;
+        // rising edge into 'approach' on a platform track = a train pulling in
+        const approaching = s.train.phase === 'approach';
+        if (approaching && !s.wasApproaching && !s.passThrough) this.onArrive?.();
+        s.wasApproaching = approaching;
         // recycle once the cycle wraps back to hidden AFTER having run.
         // Deterministic spacing: the countdown boards project future arrivals
         // at exact `headway` intervals, and a ±20% jittered respawn made every
@@ -205,6 +215,7 @@ export class TrainScheduler {
     s.train = train;
     s.trainAge = 0;
     s.everVisible = false;
+    s.wasApproaching = false;
   }
 
   /** A dwelling, doors-open train the player (at parent-local x,z) can board. */

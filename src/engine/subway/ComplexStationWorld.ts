@@ -98,6 +98,8 @@ export class ComplexStationWorld {
   /** Present for interface parity with StationWorld; complexes drive their own
    *  per-group countdowns from their own schedulers instead. */
   arrivalsFn?: () => Arrival[];
+  /** Forwarded to every group scheduler: fires when any train pulls in. */
+  onArrive: (() => void) | null = null;
   readonly groups: BuiltGroup[] = [];
 
   private cx: ComplexSpec;
@@ -1558,6 +1560,7 @@ export class ComplexStationWorld {
   attachTrains(network: NetworkData | null) {
     for (const g of this.groups) {
       g.scheduler = new TrainScheduler(g.node, g.stationSpec, g.trackInfo, network);
+      g.scheduler.onArrive = () => this.onArrive?.();
     }
   }
 

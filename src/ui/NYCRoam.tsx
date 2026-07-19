@@ -136,6 +136,7 @@ export default function NYCRoam() {
   // is ready as a frosted-glass welcome card, dismissed with "Explore".
   const [intro, setIntro] = useState(true);
   const [introLeaving, setIntroLeaving] = useState(false);
+  const [muted, setMuted] = useState(false);
   const [copied, setCopied] = useState(false);
   const copiedTimer = useRef(0);
 
@@ -171,6 +172,7 @@ export default function NYCRoam() {
     world.onHud = setHud;
     world.onFade = setFade;
     world.init();
+    setMuted(world.audio.isMuted);
     return () => { world.destroy(); worldRef.current = null; };
   }, []);
 
@@ -178,8 +180,14 @@ export default function NYCRoam() {
   const error = hud?.error ?? null;
 
   const dismissIntro = () => {
+    worldRef.current?.audio.unlock(); // the tap that starts the world starts the audio
     setIntroLeaving(true);
     window.setTimeout(() => setIntro(false), 560); // matches the CSS fade
+  };
+
+  const toggleMute = () => {
+    const w = worldRef.current;
+    if (w) setMuted(w.audio.toggleMuted());
   };
 
   return (
@@ -256,6 +264,28 @@ export default function NYCRoam() {
               <path d="M8.2 11.1 L6.4 12.9 a2.55 2.55 0 0 1 -3.6 -3.6 L4.6 7.5" />
             </svg>
           )}
+        </button>
+        {/* sound on/off — the world's footsteps, engines, doors & rotors */}
+        <button
+          className={`hud-panel share-btn${muted ? ' muted' : ''}`}
+          onClick={toggleMute}
+          title={muted ? 'Sound off — click to unmute' : 'Sound on — click to mute'}
+          aria-label={muted ? 'Unmute sound' : 'Mute sound'}
+        >
+          <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M2.5 6 H4.5 L7.5 3.3 V12.7 L4.5 10 H2.5 Z" fill="currentColor" stroke="none" />
+            {muted ? (
+              <>
+                <line x1="10.4" y1="6" x2="13.6" y2="10" />
+                <line x1="13.6" y1="6" x2="10.4" y2="10" />
+              </>
+            ) : (
+              <>
+                <path d="M10 5.4 a3.2 3.2 0 0 1 0 5.2" />
+                <path d="M11.7 3.7 a5.6 5.6 0 0 1 0 8.6" />
+              </>
+            )}
+          </svg>
         </button>
         <div className="hud-panel stats">
           {hud ? `${hud.fps} fps · ${hud.tilesLoaded} tiles${hud.tilesPending ? ` (+${hud.tilesPending})` : ''}${hud.fly ? ' · HELI' : ''}${hud.riding ? ' · BIKE' : ''}${hud.mode === 'bus' ? ' · BUS' : ''}` : '—'}
