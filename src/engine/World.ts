@@ -533,11 +533,42 @@ export class World {
   };
 
   teleport(lat: number, lon: number) {
-    if (this.mode === 'station') this.exitStation(true);
+    if (this.transitioning) return; // mid fade/exit — ignore rather than corrupt state
+    this.leaveTransit();            // abandon any train/bus/tram/bike so `pos` takes effect
     const [x, z] = lonLatToXZ(lon, lat);
     this.pos.set(x, 0, z);
     this.spawnResolve = true; // resolved out of any building once tiles arrive
     this.save();
+  }
+
+  /**
+   * Synchronously abandon any active train / bus / tram ride (and dismount a
+   * bike), dropping straight back to street mode with no fade or exit-placement.
+   * "Jump to…" (teleport) must work from any mode, but the ride and bus render
+   * branches pin the camera to the vehicle each frame, so moving `pos` alone is
+   * ignored until we actually leave the ride.
+   */
+  private leaveTransit() {
+    if (this.mode === 'station') { void this.exitStation(true); return; }
+    if (this.ride) {
+      this.ride.dispose();
+      this.ride = null;
+      this.hud.ride = null;
+      this.atEndSince = 0;
+    }
+    if (this.busRide) {
+      this.busRide.end();
+      this.busRide = null;
+      this.ridingTram = false;
+      this.hud.bus = null;
+      this.busEndSince = 0;
+    }
+    // drop a bike whether standalone or carried on a bus's front rack
+    if (this.busBike) { this.busBike.removeFromParent(); disposeGroup(this.busBike); this.busBike = null; }
+    this.broughtBike = false;
+    if (this.riding) this.setRiding(false);
+    this.mode = 'street';
+    this.hud.mode = 'street';
   }
 
   /**
