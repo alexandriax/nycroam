@@ -129,6 +129,7 @@ export class World {
   readonly audio = new AudioManager();
   private prevBusHudState: string | null = null; // ridden-bus door-open edge
   private lastArriveSound = 0; // throttle the "train pulling in" one-shot
+  private footstepsEnabled = false; // footstep SFX muted for now — flip true to restore
   private controls: PlayerControls;
   private station: StationWorld | ElevatedStationWorld | ComplexStationWorld | null = null;
   private scheduler: TrainScheduler | null = null;
@@ -1770,7 +1771,7 @@ export class World {
       || (this.mode === 'station' && !this.controls.fly);
     this.onFootBob = onFoot;
     const footfall = this.walkBob.update(dt, onFoot ? groundSpeed : 0, onFoot);
-    if (footfall && !this.transitioning) {
+    if (this.footstepsEnabled && footfall && !this.transitioning) {
       // walking = a full, soft step; running = softer + duller (a padded patter),
       // not a louder/higher machine-gun. Cadence already rises with speed.
       const running = groundSpeed > 7.5; // walk ~5.2 m/s, run ~10.9
