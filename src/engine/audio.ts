@@ -24,13 +24,13 @@ interface SoundDef { file: string; loop: boolean; gain: number; }
 
 // Base per-sound gains bake in the relative loudness so callers pass a clean
 // 0..1 intensity. Files live in public/audio/.
-// Loops are gapless WAV (MP3 encoder padding ticks on every Web Audio loop);
-// one-shots stay MP3. All files are loudness/peak-normalized, so these gains
-// are the deliberate mix, not level correction.
+// Loops are WAV (gapless) except train.mp3, a supplied sample. MP3 carries
+// encoder-delay padding that can tick on loop, so loop sources trim it via
+// loopStart/loopEnd (see update()). One-shots stay MP3. Gains are the mix.
 const MANIFEST: Record<LoopName | OneShotName, SoundDef> = {
   bike: { file: 'bike.wav', loop: true, gain: 0.6 },
   bus: { file: 'bus.wav', loop: true, gain: 0.5 },
-  train: { file: 'train.wav', loop: true, gain: 0.6 },
+  train: { file: 'train.mp3', loop: true, gain: 0.6 },
   helicopter: { file: 'helicopter.wav', loop: true, gain: 0.7 },
   footstep: { file: 'footstep.mp3', loop: false, gain: 0.45 },
   busDoors: { file: 'bus-doors.mp3', loop: false, gain: 0.7 },
@@ -182,8 +182,20 @@ export class AudioManager {
             const src = this.ctx.createBufferSource();
             src.buffer = buf;
             src.loop = true;
+            let off = 0;
+            if (def.file.endsWith('.mp3')) {
+              // MP3 decodes with encoder-delay silence at the head (+ padding at
+              // the tail) that ticks on every loop wrap. Set the loop window to
+              // the actual non-silent span so it wraps seamlessly — robust
+              // whether or not the browser already trimmed the padding.
+              const ch = buf.getChannelData(0);
+              let s = 0; while (s < ch.length && Math.abs(ch[s]) < 0.01) s++;
+              let e = ch.length - 1; while (e > s && Math.abs(ch[e]) < 0.01) e--;
+              src.loopStart = off = s / buf.sampleRate;
+              src.loopEnd = (e + 1) / buf.sampleRate;
+            }
             src.connect(st.gainNode);
-            src.start();
+            src.start(0, off);
             st.source = src;
           }
         }
