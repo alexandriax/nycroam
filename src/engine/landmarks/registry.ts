@@ -46,9 +46,17 @@ export interface LandmarkEntry {
 // slanted NYPL, rotated Flatiron trim, Times Sq masts across the roadway).
 const GRID = -0.507;
 
+// Anchor audit note: several anchors were shifted a few meters so each
+// landmark's BUILT footprint (its derived collision rings, sampled along every
+// ground-level edge) clears the baked road ribbons — the old point-only checks
+// missed wide builds poking into avenues (a theater marquee stood in 7th Av).
+// Deliberately NOT shifted: bridges (they span roads), massing-attached builds
+// (flatiron, amnh, radio-city, nyse, msg — they must stay on their footprints;
+// stylized road widths overlap them slightly), grand-central (boxed by the
+// Park Av viaduct ribbons), and service-alley grazes (stylization noise).
 export const LANDMARKS_REG: LandmarkEntry[] = [
   // ---- financial district / battery ----
-  { id: 'one-wtc', name: 'One World Trade Center', lat: 40.7127, lon: -74.0134, set: 'fidi', r: 1400 },
+  { id: 'one-wtc', name: 'One World Trade Center', lat: 40.712507, lon: -74.013462, set: 'fidi', r: 1400 },
   { id: 'sept11-museum', name: '9/11 Memorial Museum', lat: 40.7115, lon: -74.0125, set: 'fidi', r: 450 },
   // anchored at the midpoint of the two BAKED memorial pools (54.2m water squares
   // in the tile areas); GRID aligns local x with their edges — the builder places
@@ -75,7 +83,7 @@ export const LANDMARKS_REG: LandmarkEntry[] = [
   { id: 'woolworth', name: 'Woolworth Building', lat: 40.7124, lon: -74.0083, set: 'civic', r: 1200, rot: 0.28 },
   { id: 'municipal-building', name: 'Manhattan Municipal Building', lat: 40.7127, lon: -74.0041, set: 'civic', r: 900, rot: 0.5 },
   { id: 'foley-square', name: 'Supreme Court & Foley Square', lat: 40.7143, lon: -74.0018, set: 'civic', r: 450, rot: -1.05 },
-  { id: 'african-burial-ground', name: 'African Burial Ground', lat: 40.7147, lon: -74.0043, set: 'civic', r: 350, rot: 0.3 },
+  { id: 'african-burial-ground', name: 'African Burial Ground', lat: 40.714769, lon: -74.004275, set: 'civic', r: 350, rot: 0.3 },
   { id: 'chinatown-gate', name: 'Chinatown', lat: 40.7157, lon: -73.997, set: 'civic', r: 420, rot: -0.62 },
   { id: 'little-italy', name: 'Little Italy', lat: 40.7191, lon: -73.9973, set: 'civic', r: 380, rot: 0.05 },
   { id: 'brooklyn-bridge', name: 'Brooklyn Bridge', lat: 40.7069, lon: -73.9987, set: 'civic', r: 1700, rot: -1.12 },
@@ -109,7 +117,7 @@ export const LANDMARKS_REG: LandmarkEntry[] = [
   { id: 'bryant-park', name: 'Bryant Park', lat: 40.7536, lon: -73.9832, set: 'midtown-south', r: 450, rot: GRID },
   { id: 'msg', name: 'Madison Square Garden', lat: 40.7505, lon: -73.9934, set: 'midtown-south', r: 600, rot: GRID },
   { id: 'times-square', name: 'Times Square', lat: 40.758, lon: -73.9855, set: 'midtown-south', r: 650, rot: GRID, needsRoads: true },
-  { id: 'broadway-theaters', name: 'Broadway Theater District', lat: 40.759, lon: -73.9845, set: 'midtown-south', r: 500, rot: GRID },
+  { id: 'broadway-theaters', name: 'Broadway Theater District', lat: 40.759019, lon: -73.984372, set: 'midtown-south', r: 500, rot: GRID },
 
   // ---- midtown core (rockefeller / fifth ave) ----
   { id: 'rockefeller-plaza', name: 'Rockefeller Plaza', lat: 40.7587, lon: -73.9787, set: 'midtown-core', r: 550, rot: GRID },
@@ -120,7 +128,7 @@ export const LANDMARKS_REG: LandmarkEntry[] = [
   { id: 'st-patricks', name: "St. Patrick's Cathedral", lat: 40.7585, lon: -73.976, set: 'midtown-core', r: 700, rot: GRID - Math.PI / 2 },
   { id: 'radio-city', name: 'Radio City Music Hall', lat: 40.7599, lon: -73.9801, set: 'midtown-core', r: 500, rot: GRID },
   { id: 'moma', name: 'Museum of Modern Art', lat: 40.7616, lon: -73.9774, set: 'midtown-core', r: 400, rot: GRID },
-  { id: 'love-sculpture', name: 'LOVE Sculpture Site', lat: 40.7629, lon: -73.9779, set: 'midtown-core', r: 350, rot: GRID },
+  { id: 'love-sculpture', name: 'LOVE Sculpture Site', lat: 40.762874, lon: -73.977909, set: 'midtown-core', r: 350, rot: GRID },
   { id: 'carnegie-hall', name: 'Carnegie Hall', lat: 40.7651, lon: -73.9799, set: 'midtown-core', r: 450, rot: GRID },
   { id: 'fifth-avenue', name: 'Fifth Avenue', lat: 40.759, lon: -73.9773, set: 'midtown-core', r: 500, rot: GRID },
 
@@ -136,7 +144,7 @@ export const LANDMARKS_REG: LandmarkEntry[] = [
   // the tramway is a RIDEABLE World system now (src/engine/tram.ts), not a landmark
   // 270 Park (Foster + Partners JPMorganChase HQ): FULL replacement — the OSM
   // extract predates completion (h=250 stale massing, cleared by the pipeline)
-  { id: 'chase-hq', name: '270 Park Ave — JPMorganChase', lat: 40.7558, lon: -73.9755, set: 'midtown-east', r: 1400, rot: GRID },
+  { id: 'chase-hq', name: '270 Park Ave — JPMorganChase', lat: 40.755819, lon: -73.975652, set: 'midtown-east', r: 1400, rot: GRID },
   { id: 'queensboro-bridge', name: 'Ed Koch Queensboro Bridge', lat: 40.7595, lon: -73.9605, set: 'midtown-east', r: 1500, rot: GRID },
 
   // ---- uptown west (columbus circle -> UWS) + UES museums ----
@@ -146,7 +154,7 @@ export const LANDMARKS_REG: LandmarkEntry[] = [
   { id: 'hearst-tower', name: 'Hearst Tower', lat: 40.7666, lon: -73.9836, set: 'uptown', r: 900, rot: GRID },
   { id: 'plaza-hotel', name: 'The Plaza Hotel', lat: 40.7644, lon: -73.9745, set: 'uptown', r: 550, rot: GRID },
   { id: 'pulitzer-fountain', name: 'Pulitzer Fountain', lat: 40.764, lon: -73.9737, set: 'uptown', r: 400, rot: GRID },
-  { id: 'lincoln-center', name: 'Lincoln Center', lat: 40.7727, lon: -73.9829, set: 'uptown', r: 550, rot: GRID },
+  { id: 'lincoln-center', name: 'Lincoln Center', lat: 40.772709, lon: -73.982946, set: 'uptown', r: 550, rot: GRID },
   { id: 'met-opera', name: 'Metropolitan Opera House', lat: 40.7728, lon: -73.9843, set: 'uptown', r: 550, aliasOf: 'lincoln-center' },
   // anchored inside the cleared lot: the original hand-typed anchor put three
   // corners of the 41.5m block in the Central Park West roadbed (verified
@@ -154,7 +162,7 @@ export const LANDMARKS_REG: LandmarkEntry[] = [
   // CPW centerline and ≥50m from the nearest surviving building
   { id: 'dakota', name: 'The Dakota', lat: 40.776614, lon: -73.976125, set: 'uptown', r: 450, rot: GRID },
   { id: 'amnh', name: 'American Museum of Natural History', lat: 40.7808, lon: -73.973, set: 'uptown', r: 600, rot: GRID },
-  { id: 'met-museum', name: 'Metropolitan Museum of Art', lat: 40.7794, lon: -73.9626, set: 'uptown', r: 600, rot: GRID },
+  { id: 'met-museum', name: 'Metropolitan Museum of Art', lat: 40.779391, lon: -73.962542, set: 'uptown', r: 600, rot: GRID },
   { id: 'guggenheim', name: 'Guggenheim Museum', lat: 40.783, lon: -73.959, set: 'uptown', r: 550, rot: GRID },
   // moored IN the Hudson off Pier 86 (the old anchor sat on the pier building
   // itself). rot points the bow river-ward along the pier axis; the center sits
@@ -189,7 +197,7 @@ export const LANDMARKS_REG: LandmarkEntry[] = [
   { id: 'riverside-park', name: 'Riverside Park', lat: 40.785, lon: -73.9838, set: 'heights', r: 400, rot: GRID },
   { id: 'hamilton-grange', name: 'Hamilton Grange', lat: 40.8214, lon: -73.9469, set: 'heights', r: 400, rot: GRID },
   { id: 'morris-jumel', name: 'Morris-Jumel Mansion', lat: 40.8345, lon: -73.9386, set: 'heights', r: 400, rot: GRID },
-  { id: 'dyckman-farmhouse', name: 'Dyckman Farmhouse', lat: 40.8668, lon: -73.9229, set: 'heights', r: 380, rot: GRID },
+  { id: 'dyckman-farmhouse', name: 'Dyckman Farmhouse', lat: 40.866852, lon: -73.922818, set: 'heights', r: 380, rot: GRID },
   { id: 'cloisters', name: 'The Cloisters', lat: 40.8649, lon: -73.9317, set: 'heights', r: 700, rot: 0.2 },
   { id: 'fort-tryon', name: 'Fort Tryon Park', lat: 40.8593, lon: -73.9327, set: 'heights', r: 420, rot: 0.2 },
   { id: 'inwood-hill', name: 'Inwood Hill Park', lat: 40.8712, lon: -73.9243, set: 'heights', r: 420, rot: 0 },

@@ -113,6 +113,14 @@ canvas { display: block; touch-action: none; }
   max-width: 100%;
 }
 
+/* the nearest cross street rides along as a second, quieter blade */
+.street-blade.cross {
+  background: #0a5c35;
+  border-color: rgba(233, 237, 233, 0.45);
+  color: rgba(244, 247, 244, 0.85);
+  flex-shrink: 1;
+}
+
 .mark {
   display: block;
   filter: drop-shadow(0 1px 3px rgba(0, 0, 0, 0.5));
