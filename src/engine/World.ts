@@ -129,7 +129,7 @@ export class World {
   readonly audio = new AudioManager();
   private prevBusHudState: string | null = null; // ridden-bus door-open edge
   private lastArriveSound = 0; // throttle the "train pulling in" one-shot
-  private footstepsEnabled = false; // footstep SFX muted for now — flip true to restore
+  private footstepsEnabled = true; // footstep SFX (uses the updated sample)
   private controls: PlayerControls;
   private station: StationWorld | ElevatedStationWorld | ComplexStationWorld | null = null;
   private scheduler: TrainScheduler | null = null;
