@@ -28,13 +28,14 @@ import { RideWorld, type RideHud } from './subway/RideWorld';
 import type { StationSpec, NetworkData, Arrival } from './subway/types';
 import { routeColor } from './subway/types';
 import { boardLabel } from './subway/directions';
-import { lonLatToXZ } from './geo';
+import { lonLatToXZ, ORIGIN, M_PER_DEG_LAT, M_PER_DEG_LON } from './geo';
 import { loadTerrain, heightAt } from './terrain';
 
 const SAVE_KEY = 'nycroam';
 const LEGACY_SAVE_KEY = 'nycworld'; // read-only: keeps positions saved before the rename
 const WALK_EYE = 1.7; // standing; BikeView.eyeHeight is the seated one
-const START = { lat: 40.7681, lon: -73.9819 }; // Columbus Circle — first-visit spawn
+const START = { lat: 40.766931, lon: -73.981573 }; // Columbus Circle — first-visit spawn
+const START_LOOK = { yaw: (21.3 * Math.PI) / 180, pitch: (6.2 * Math.PI) / 180 }; // first-visit facing
 
 /** Anything the rider can be aboard in mode 'bus': an MTA bus or the tram.
  * The tram handle carries its own cabin geometry (interior box, floor, eye,
@@ -207,6 +208,16 @@ export class World {
       this.streetScene,
       (x, z, clearance) => this.ejectFromRoads(x, z, clearance),
     );
+    // a landmark that builds OVER an already-placed street kit (subway
+    // entrance half-inside the Times Square billboard block) evicts it; the
+    // managers re-place it next tick, and their eject callbacks now see the
+    // landmark's collision, so the kit re-seats outside the walls
+    this.landmarks.onBuilt = (_id, x0, z0, x1, z1) => {
+      const PAD = 6; // kits eject with their own clearance; a small pad catches edge-sitters
+      this.entrances.evictWithin(x0 - PAD, z0 - PAD, x1 + PAD, z1 + PAD);
+      this.bikes.evictWithin(x0 - PAD, z0 - PAD, x1 + PAD, z1 + PAD);
+      this.buses.evictStopsWithin(x0 - PAD, z0 - PAD, x1 + PAD, z1 + PAD);
+    };
     this.bikes = new BikeManager(
       this.streetScene,
       // Citi Bike station coordinates often land in the roadbed (docks are
@@ -312,6 +323,106 @@ export class World {
         this.controls.fly = true;
       }
     }
+
+    // deep-link: shared views from the share button (see shareLink()) — exact
+    // camera, then whichever transit context the sharer was in
+    const look = params.get('look');
+    if (look) {
+      const [ly, lp] = look.split(',').map(Number);
+      if (Number.isFinite(ly)) this.controls.yaw = (ly * Math.PI) / 180;
+      if (Number.isFinite(lp)) this.controls.pitch = Math.max(-1.45, Math.min(1.45, (lp * Math.PI) / 180));
+    }
+    if (!q && !lm) {
+      const rideQ = params.get('ride');
+      const busQ = params.get('bus');
+      const atQ = params.get('at');
+      if (rideQ) {
+        this.restoreRideLink(rideQ);
+      } else if (busQ) {
+        void this.restoreBusLink(busQ);
+      } else if (atQ) {
+        const [la, lo] = atQ.split(',').map(Number);
+        if (Number.isFinite(la) && Number.isFinite(lo)) {
+          const [x, z] = lonLatToXZ(lo, la);
+          const altS = params.get('alt');
+          const alt = altS === null ? NaN : Number(altS);
+          this.pos.set(x, Number.isFinite(alt) ? alt : heightAt(x, z), z);
+          this.spawnResolve = false; // an exact shared spot — restore it verbatim
+          const m = params.get('mode');
+          if (m === 'fly') this.controls.fly = true;
+          else if (m === 'bike') this.setRiding(true);
+          this.save();
+        }
+      }
+    }
+  }
+
+  /** Absolute URL that restores this exact view: position, camera, and the
+   *  transit context (station, mid-segment subway ride, or the precise bus
+   *  run). The share button copies this. */
+  shareLink(): string {
+    const p = new URLSearchParams();
+    const yaw = (((this.controls.yaw * 180) / Math.PI) % 360).toFixed(1);
+    const pitch = ((this.controls.pitch * 180) / Math.PI).toFixed(1);
+    p.set('look', `${yaw},${pitch}`);
+    if (this.mode === 'ride' && this.ride) {
+      const s = this.ride.shareInfo;
+      p.set('ride', `${s.route}.${s.dirSign === 1 ? 'u' : 'd'}.${s.originId}.${s.prog.toFixed(2)}`);
+    } else if (this.mode === 'bus' && this.busRide && !this.ridingTram) {
+      const b = this.buses.rideShare;
+      if (b) p.set('bus', `${b.route}.${b.dirIdx}.${b.k}.${b.tau}`);
+    } else if (this.mode === 'station' && this.currentStationSpec) {
+      p.set('station', this.currentStationSpec.id);
+    } else {
+      // street / fly / bike / on a rooftop — the tram degrades to its street
+      // position (its cabins aren't addressable by a stable key)
+      const lat = (ORIGIN.lat - this.pos.z / M_PER_DEG_LAT).toFixed(6);
+      const lon = (ORIGIN.lon + this.pos.x / M_PER_DEG_LON).toFixed(6);
+      p.set('at', `${lat},${lon}`);
+      const g = heightAt(this.pos.x, this.pos.z);
+      if (this.controls.fly) {
+        p.set('mode', 'fly');
+        p.set('alt', this.pos.y.toFixed(1));
+      } else if (this.riding) {
+        p.set('mode', 'bike');
+      } else if (this.pos.y - g > 2) {
+        p.set('alt', this.pos.y.toFixed(1)); // standing on a rooftop
+      }
+    }
+    return `${location.origin}/?${p.toString()}`;
+  }
+
+  /** Restore a shared mid-ride subway view: `<route>.<u|d>.<originStop>.<prog>`. */
+  private restoreRideLink(spec: string) {
+    const m = spec.match(/^([A-Za-z0-9]+)\.([ud])\.([^.]+)\.([\d.]+)$/);
+    if (!m || !this.network) return;
+    const route = m[1];
+    const dirSign: 1 | -1 = m[2] === 'u' ? 1 : -1;
+    const originId = m[3];
+    const prog = Math.min(0.99, Number(m[4]) || 0);
+    if (!this.network.routes[route]?.stops.includes(originId)) return;
+    // seed the station context so stepping off returns somewhere sensible
+    const stSpec = this.entrances.stationsMap.get(originId);
+    if (stSpec) {
+      const ent = this.entrances.entranceFor(stSpec);
+      this.returnPos.set(ent[0] + 2.2, 0, ent[1] + 2.2);
+      this.currentStationSpec = stSpec;
+    }
+    this.ride = new RideWorld(route, dirSign, originId, this.network, this.entrances.stationsMap, this.envTex);
+    this.ride.jumpTo(prog);
+    this.mode = 'ride';
+    this.pos.set(0, 0, 0);
+    this.hud.mode = 'ride';
+    this.lastEnterGuard = performance.now();
+    this.pushHud();
+  }
+
+  /** Restore a shared bus ride: `<routeId>.<dirIdx>.<k>.<tau>`. */
+  private async restoreBusLink(spec: string) {
+    const m = spec.match(/^([A-Za-z0-9+-]+)\.(\d+)\.(\d+)\.(\d+)$/);
+    if (!m) return;
+    const h = this.buses.restoreRide(m[1], Number(m[2]), Number(m[3]), Number(m[4]));
+    if (h) await this.enterTransit(h, false);
   }
 
   private async loadNetwork() {
@@ -694,6 +805,23 @@ export class World {
   }
 
   /**
+   * True if any footprint sample lands inside a PREMIUM LANDMARK ring at street
+   * level. Split from footprintInBuilding because the two read differently in
+   * the world: grazing low-res tile massing is a tolerable last resort for a
+   * kit, but half-sinking into a modeled landmark (the Times Square billboard
+   * block, Hearst's base) is exactly the overlap bug — never acceptable.
+   */
+  private footprintInLandmark(px: number, pz: number, fp: KitFootprint, frame: [number, number, number, number]): boolean {
+    const sets = this.landmarks.collisionNear(px, pz);
+    if (!sets.length) return false;
+    const [tx, tz, nx, nz] = frame, y = heightAt(px, pz);
+    for (const [al, pe] of fpSamples(fp.hL, fp.pR)) {
+      if (pointInBuildings(px + al * tx + pe * nx, pz + al * tz + pe * nz, sets, y)) return true;
+    }
+    return false;
+  }
+
+  /**
    * Push a kit's WHOLE footprint out of every roadbed ribbon (greedy on the
    * deepest-penetrating sample, iterated), so a long shelter/rack end clears a
    * crossing or curving lane — not just the anchor. `frameFixed` (bus stops) keeps
@@ -762,11 +890,19 @@ export class World {
       px = rx; pz = rz;
       if (moved < 0.05) break;
     }
-    if (this.footprintClear(paths, px, pz, fp, frameFixed ?? this.roadFrame(paths, px, pz))) return [px, pz];
+    // accept only if the footprint is clear of the LANE and not swallowed by a
+    // building: the alternating solve can oscillate (building push out, road
+    // push back in, net movement ~0) and a point fully inside a tower base is
+    // trivially "road-clear" — the Hearst entrance bug. Unhealthy sites fall
+    // through to the spiral, which prefers genuinely clear ground.
+    const frame1 = frameFixed ?? this.roadFrame(paths, px, pz);
+    if (this.footprintClear(paths, px, pz, fp, frame1) && !this.footprintInBuilding(px, pz, fp, frame1)) return [px, pz];
     // 2) spiral from the RAW point for the nearest fully-clear seat
     let clearX = 0, clearZ = 0, clearD = Infinity, hasClear = false;
     let grazeX = 0, grazeZ = 0, grazeD = Infinity, hasGraze = false;
-    for (let ring = 1; ring <= 24 && !hasClear; ring++) {
+    // 36 m radius: a full-block landmark base (Hearst) beside a wide avenue can
+    // leave no legal seat within 24 m of the mapped point
+    for (let ring = 1; ring <= 36 && !hasClear; ring++) {
       const steps = Math.max(6, ring * 4);
       for (let a = 0; a < steps; a++) {
         const ang = (a / steps) * Math.PI * 2;
@@ -774,6 +910,8 @@ export class World {
         [cx, cz] = resolveBuildingCollision(cx, cz, Math.min(fp.bldgClear, 0.6), this.colNear(cx, cz), heightAt(cx, cz));
         const fr = frameFixed ?? this.roadFrame(paths, cx, cz);
         if (!this.footprintClear(paths, cx, cz, fp, fr)) continue;
+        // a premium landmark is never an acceptable graze — tile massing only
+        if (this.footprintInLandmark(cx, cz, fp, fr)) continue;
         const d = Math.hypot(cx - x, cz - z);
         if (this.footprintInBuilding(cx, cz, fp, fr)) {
           if (d < grazeD) { grazeD = d; grazeX = cx; grazeZ = cz; hasGraze = true; }
@@ -784,8 +922,12 @@ export class World {
     if (hasGraze) return [grazeX, grazeZ];
     // 3) fail-safe: shove the footprint out of the lane, wall-graze if need be
     const [rx, rz] = this.ejectFootprint(paths, px, pz, fp, frameFixed);
-    if (fp.drop && !this.footprintClear(paths, rx, rz, fp, frameFixed ?? this.roadFrame(paths, rx, rz))) {
+    const frame3 = frameFixed ?? this.roadFrame(paths, rx, rz);
+    if (fp.drop && !this.footprintClear(paths, rx, rz, fp, frame3)) {
       return null; // can't seat clear of the lane (highway/no-sidewalk pin) — skip it, don't render it in traffic
+    }
+    if (this.footprintInLandmark(rx, rz, fp, frame3)) {
+      return null; // never seat ANY kit inside a landmark — defer instead (a late kit beats one inside Hearst's lobby)
     }
     return [rx, rz];
   }
@@ -1590,6 +1732,8 @@ export class World {
     // first-visit default: Columbus Circle (a saved position overrides it below)
     const [sx, sz] = lonLatToXZ(START.lon, START.lat);
     this.pos.set(sx, 0, sz);
+    this.controls.yaw = START_LOOK.yaw;
+    this.controls.pitch = START_LOOK.pitch;
     // initial spawn gets the same building ejection as teleports — a saved (or
     // default) point can sit inside a footprint that streams in around it
     this.spawnResolve = true;

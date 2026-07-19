@@ -136,6 +136,29 @@ export default function NYCRoam() {
   // is ready as a frosted-glass welcome card, dismissed with "Explore".
   const [intro, setIntro] = useState(true);
   const [introLeaving, setIntroLeaving] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const copiedTimer = useRef(0);
+
+  const copyShareLink = async () => {
+    const url = worldRef.current?.shareLink();
+    if (!url) return;
+    try {
+      await navigator.clipboard.writeText(url);
+    } catch {
+      // clipboard API can be unavailable (http, permissions) — legacy fallback
+      const ta = document.createElement('textarea');
+      ta.value = url;
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand('copy');
+      ta.remove();
+    }
+    setCopied(true);
+    window.clearTimeout(copiedTimer.current);
+    copiedTimer.current = window.setTimeout(() => setCopied(false), 1600);
+  };
 
   useEffect(() => {
     if (!canvasRef.current) return;
@@ -212,6 +235,28 @@ export default function NYCRoam() {
             {LANDMARK_JUMPS.map((l) => <option key={l.name} value={`${l.lat},${l.lon}`}>{l.name}</option>)}
           </optgroup>
         </select>
+        {/* copy a deep link to this exact view (position + camera + transit state) */}
+        <button
+          className={`hud-panel share-btn${copied ? ' ok' : ''}`}
+          onClick={copyShareLink}
+          title="Copy a link to this exact view"
+          aria-label="Copy a link to this exact view"
+        >
+          {copied ? (
+            <>
+              <svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M2.5 8.5 L6 12 L13.5 4" />
+              </svg>
+              Copied
+            </>
+          ) : (
+            <svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M6.7 9.3 L9.3 6.7" />
+              <path d="M7.8 4.9 L9.6 3.1 a2.55 2.55 0 0 1 3.6 3.6 L11.4 8.5" />
+              <path d="M8.2 11.1 L6.4 12.9 a2.55 2.55 0 0 1 -3.6 -3.6 L4.6 7.5" />
+            </svg>
+          )}
+        </button>
         <div className="hud-panel stats">
           {hud ? `${hud.fps} fps · ${hud.tilesLoaded} tiles${hud.tilesPending ? ` (+${hud.tilesPending})` : ''}${hud.fly ? ' · HELI' : ''}${hud.riding ? ' · BIKE' : ''}${hud.mode === 'bus' ? ' · BUS' : ''}` : '—'}
         </div>
@@ -410,7 +455,8 @@ export default function NYCRoam() {
       {/* intro overlay = the loading screen, kept as a frosted-glass welcome card
           over the (blurred) loaded world until the visitor taps Explore */}
       {intro && !error && (
-        <div className={`intro-overlay${introLeaving ? ' leaving' : ''}`}>
+        <div className={`intro-overlay${introLeaving ? ' leaving' : ''}`}
+          onClick={loading ? undefined : dismissIntro}>
           <div className="intro-card">
             <img src="/mark.png" alt="" width={64} height={64} className="intro-mark" draggable={false} />
             <div className="intro-word">NYC ROAM</div>
@@ -421,16 +467,16 @@ export default function NYCRoam() {
               ))}
             </div>
             <p className="intro-msg">
-              An explorable <b>Manhattan</b> at 1:1 scale, built from real map &amp; transit
+              An explorable <b>Manhattan</b> built from real map &amp; transit
               data. Ride any <b>subway</b>, <b>bus</b>, or <b>bike</b> along its true routes
-              &amp; stops — or take <b>helicopter mode</b> and fly above the city to explore.
+              &amp; stops, or take <b>helicopter mode</b> and fly above the city to explore.
             </p>
             {loading ? (
               <button className="intro-cta loading" disabled>
                 <span className="intro-spinner" />Loading Manhattan…
               </button>
             ) : (
-              <button className="intro-cta" onClick={dismissIntro} autoFocus>
+              <button className="intro-cta" autoFocus>
                 Explore Manhattan
               </button>
             )}

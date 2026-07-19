@@ -113,6 +113,25 @@ canvas { display: block; touch-action: none; }
   max-width: 100%;
 }
 
+/* ---- share button (copies a deep link to the exact current view) ---- */
+.share-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 9px;
+  font-size: 11px;
+  letter-spacing: 0.2px;
+  color: rgba(255, 255, 255, 0.8);
+  cursor: pointer;
+  transition: border-color 0.15s ease, color 0.15s ease, background 0.15s ease;
+}
+.share-btn:hover { border-color: rgba(255, 255, 255, 0.18); color: #fff; }
+.share-btn.ok {
+  background: rgba(13, 92, 51, 0.6);
+  border-color: rgba(70, 220, 140, 0.35);
+  color: #eafff3;
+}
+
 /* the nearest cross street rides along as a second, quieter blade */
 .street-blade.cross {
   background: #0a5c35;

@@ -241,6 +241,22 @@ export class BikeManager {
     this.placed.set(p.idx, this.build(p.idx, p.spec, p.slots, this.bikeCounts.get(p.idx)!, p.pos, p.rotY));
   }
 
+  /**
+   * Evict placed docks inside a world-space box so the next update() re-seats
+   * them — called when a premium landmark finishes building over one (the
+   * eject callback then sees the landmark's collision). Session bike counts
+   * live in bikeCounts, so inventory survives the re-place.
+   */
+  evictWithin(x0: number, z0: number, x1: number, z1: number) {
+    for (const [i, p] of [...this.placed]) {
+      if (p.pos[0] < x0 || p.pos[0] > x1 || p.pos[1] < z0 || p.pos[1] > z1) continue;
+      this.scene.remove(p.group);
+      disposeGroup(p.group);
+      this.placed.delete(i);
+    }
+    this.timer = 0;
+  }
+
   nearest(x: number, z: number, dist: number): { dock: PlacedDock; d: number; canGrab: boolean; canDock: boolean } | null {
     let best: PlacedDock | null = null;
     let bestD2 = dist * dist;
