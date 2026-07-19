@@ -29,12 +29,12 @@ interface SoundDef { file: string; loop: boolean; gain: number; }
 // via loopStart/loopEnd (see update()). One-shots stay MP3. Gains are the mix
 // (bike's is high because the supplied sample is quiet).
 const MANIFEST: Record<LoopName | OneShotName, SoundDef> = {
-  bike: { file: 'bike.mp3', loop: true, gain: 4.0 }, // supplied sample is quiet — gain lifts it to the mix
+  bike: { file: 'bike.mp3', loop: true, gain: 2.0 }, // supplied sample is quiet — gain lifts it to the mix
   bus: { file: 'bus.wav', loop: true, gain: 0.5 },
   train: { file: 'train.mp3', loop: true, gain: 0.6 },
   helicopter: { file: 'helicopter.wav', loop: true, gain: 0.7 },
   footstep: { file: 'footstep.mp3', loop: false, gain: 0.45 },
-  busDoors: { file: 'bus-doors.mp3', loop: false, gain: 0.7 },
+  busDoors: { file: 'bus-doors.mp3', loop: false, gain: 0.35 },
   trainArrive: { file: 'train-arrive.mp3', loop: false, gain: 0.75 },
 };
 
