@@ -680,6 +680,33 @@ export class RideWorld {
 
   get currentStationId() { return this.stops[this.idx]; }
   get canExit() { return this.state === 'dwell'; }
+
+  /**
+   * Snapshot for deep links: the segment ORIGIN stop (during 'moving', idx has
+   * already advanced to the stop being approached) plus progress through the
+   * current leg — enough to rebuild this exact between-stations moment.
+   */
+  get shareInfo(): { route: string; dirSign: 1 | -1; originId: string; prog: number } {
+    const originIdx = this.state === 'moving' ? this.idx - this.dirSign : this.idx;
+    return {
+      route: this.route,
+      dirSign: this.dirSign,
+      originId: this.stops[Math.max(0, Math.min(this.stops.length - 1, originIdx))],
+      prog: this.state === 'moving' ? Math.min(0.99, this.t / this.stateLen) : 0,
+    };
+  }
+
+  /**
+   * Drive the real state machine forward until we're `prog` of the way through
+   * the leg out of the CURRENT (origin) station — used by deep links to restore
+   * a mid-segment ride. No-op for prog ≤ 0; capped so an atEnd ride can't spin.
+   */
+  jumpTo(prog: number) {
+    if (prog <= 0.02 || this.atEnd) return;
+    let guard = 400;
+    while (this.state !== 'moving' && guard-- > 0) this.update(0.5);
+    while (this.state === 'moving' && this.t / this.stateLen < prog && guard-- > 0) this.update(0.25);
+  }
   get atEnd() {
     const next = this.idx + this.dirSign;
     return next < 0 || next >= this.stops.length;

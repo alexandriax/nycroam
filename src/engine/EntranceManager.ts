@@ -233,6 +233,22 @@ export class EntranceManager {
     }
   }
 
+  /**
+   * Evict placed entrance kits inside a world-space box (padded by the caller).
+   * Used when a premium landmark finishes building over an already-placed kit:
+   * the next update() re-places it, and the eject callback now sees the
+   * landmark's collision, so the kit re-seats outside its walls.
+   */
+  evictWithin(x0: number, z0: number, x1: number, z1: number) {
+    for (const [i, p] of [...this.placed]) {
+      if (p.pos[0] < x0 || p.pos[0] > x1 || p.pos[1] < z0 || p.pos[1] > z1) continue;
+      this.scene.remove(p.group);
+      disposeGroup(p.group);
+      this.placed.delete(i);
+    }
+    this.timer = 0; // re-place on the next update tick
+  }
+
   /** Nearest entrance within `dist` meters of (x,z), or null. */
   nearest(x: number, z: number, dist: number): PlacedEntrance | null {
     let best: PlacedEntrance | null = null;

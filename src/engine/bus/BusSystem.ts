@@ -929,6 +929,22 @@ export class BusSystem {
     if (bestDir) this.buildMeshed(bestDir, bestK, bestKey);
   }
 
+  /**
+   * Evict placed stop kits inside a world-space box so the next stream tick
+   * re-places them — called when a premium landmark finishes building over
+   * one; resolvePlacement then sees the landmark's collision and re-seats
+   * the kit outside its walls.
+   */
+  evictStopsWithin(x0: number, z0: number, x1: number, z1: number) {
+    for (const ps of Array.from(this.placedStops.values())) {
+      if (ps.x < x0 || ps.x > x1 || ps.z < z0 || ps.z > z1) continue;
+      this.scene.remove(ps.group);
+      disposeGroup(ps.group);
+      this.placedStops.delete(ps.id);
+    }
+    this.stopTimer = 0;
+  }
+
   /** Every ~0.7 s: place stop kits within 300 m, remove beyond 340 m. */
   private streamStops(px: number, pz: number) {
     // removals first (frees the cap)
@@ -1017,6 +1033,35 @@ export class BusSystem {
     if (!best) return null;
     const rt = this.routes[best.dir.routeIdx];
     return { key: best.key, route: rt.id, dest: best.dir.dest, color: rt.color, sbs: rt.sbs, door: bestDoor };
+  }
+
+  /** Snapshot of the ridden run for deep links (null when not riding). */
+  get rideShare(): { route: string; dirIdx: number; k: number; tau: number } | null {
+    if (!this.ride) return null;
+    const mb = this.ride.mb;
+    return {
+      route: this.routes[mb.dir.routeIdx].id,
+      dirIdx: mb.dir.dirIdx,
+      k: mb.k,
+      tau: Math.round(this.tau(mb.dir, mb.k)),
+    };
+  }
+
+  /**
+   * Rebuild the exact shared bus run: buses are pure timetable math
+   * (position = f(worldTime)), so shifting worldTime puts run (dir, k) at the
+   * shared τ — every other bus just materializes at a consistent other point
+   * of its own cycle, which is invisible on a fresh load. Returns the boarded
+   * handle, or null if the route/run doesn't exist in this data.
+   */
+  restoreRide(routeId: string, dirIdx: number, k: number, tau: number): BusRideHandle | null {
+    const rt = this.routesById.get(routeId);
+    const dir = rt?.dirs.find((d) => d.dirIdx === dirIdx);
+    if (!rt || !dir) return null;
+    const kk = Math.max(0, Math.min(dir.N - 1, Math.round(k)));
+    const t = Math.max(0, Math.min(dir.T - 5, tau)); // clamp inside the live run
+    this.worldTime = t - dir.routePhase + kk * dir.H;
+    return this.board(`${rt.idx}:${dirIdx}:${kk}`);
   }
 
   board(key: string): BusRideHandle | null {

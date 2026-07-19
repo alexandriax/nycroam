@@ -198,6 +198,8 @@ export class LandmarkManager {
   private initialPlaced = false;
   private fits: Record<string, Fit> | null = null;
   private fitsLoading: Promise<void> | null = null;
+  /** Fired after a landmark's collision registers: (id, solid bounds). */
+  onBuilt: ((id: string, x0: number, z0: number, x1: number, z1: number) => void) | null = null;
 
   constructor(scene: THREE.Scene, roadEject: RoadEject | null = null) {
     this.scene = scene;
@@ -276,6 +278,10 @@ export class LandmarkManager {
           if (collision.aabb[i + 3] > z1) z1 = collision.aabb[i + 3];
         }
         this.colSets.set(lm.id, { data: collision, x0, z0, x1, z1 });
+        // functional street kits (subway entrances, bus stops, bike docks)
+        // placed BEFORE this build never saw its walls — let the world evict
+        // and re-seat anything inside the new solid bounds
+        this.onBuilt?.(lm.id, x0, z0, x1, z1);
       }
     } catch {
       /* a single failed landmark must never take the frame loop down */

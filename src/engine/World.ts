@@ -28,7 +28,7 @@ import { RideWorld, type RideHud } from './subway/RideWorld';
 import type { StationSpec, NetworkData, Arrival } from './subway/types';
 import { routeColor } from './subway/types';
 import { boardLabel } from './subway/directions';
-import { lonLatToXZ } from './geo';
+import { lonLatToXZ, ORIGIN, M_PER_DEG_LAT, M_PER_DEG_LON } from './geo';
 import { loadTerrain, heightAt } from './terrain';
 
 const SAVE_KEY = 'nycroam';
@@ -207,6 +207,16 @@ export class World {
       this.streetScene,
       (x, z, clearance) => this.ejectFromRoads(x, z, clearance),
     );
+    // a landmark that builds OVER an already-placed street kit (subway
+    // entrance half-inside the Times Square billboard block) evicts it; the
+    // managers re-place it next tick, and their eject callbacks now see the
+    // landmark's collision, so the kit re-seats outside the walls
+    this.landmarks.onBuilt = (_id, x0, z0, x1, z1) => {
+      const PAD = 6; // kits eject with their own clearance; a small pad catches edge-sitters
+      this.entrances.evictWithin(x0 - PAD, z0 - PAD, x1 + PAD, z1 + PAD);
+      this.bikes.evictWithin(x0 - PAD, z0 - PAD, x1 + PAD, z1 + PAD);
+      this.buses.evictStopsWithin(x0 - PAD, z0 - PAD, x1 + PAD, z1 + PAD);
+    };
     this.bikes = new BikeManager(
       this.streetScene,
       // Citi Bike station coordinates often land in the roadbed (docks are
@@ -312,6 +322,106 @@ export class World {
         this.controls.fly = true;
       }
     }
+
+    // deep-link: shared views from the share button (see shareLink()) — exact
+    // camera, then whichever transit context the sharer was in
+    const look = params.get('look');
+    if (look) {
+      const [ly, lp] = look.split(',').map(Number);
+      if (Number.isFinite(ly)) this.controls.yaw = (ly * Math.PI) / 180;
+      if (Number.isFinite(lp)) this.controls.pitch = Math.max(-1.45, Math.min(1.45, (lp * Math.PI) / 180));
+    }
+    if (!q && !lm) {
+      const rideQ = params.get('ride');
+      const busQ = params.get('bus');
+      const atQ = params.get('at');
+      if (rideQ) {
+        this.restoreRideLink(rideQ);
+      } else if (busQ) {
+        void this.restoreBusLink(busQ);
+      } else if (atQ) {
+        const [la, lo] = atQ.split(',').map(Number);
+        if (Number.isFinite(la) && Number.isFinite(lo)) {
+          const [x, z] = lonLatToXZ(lo, la);
+          const altS = params.get('alt');
+          const alt = altS === null ? NaN : Number(altS);
+          this.pos.set(x, Number.isFinite(alt) ? alt : heightAt(x, z), z);
+          this.spawnResolve = false; // an exact shared spot — restore it verbatim
+          const m = params.get('mode');
+          if (m === 'fly') this.controls.fly = true;
+          else if (m === 'bike') this.setRiding(true);
+          this.save();
+        }
+      }
+    }
+  }
+
+  /** Absolute URL that restores this exact view: position, camera, and the
+   *  transit context (station, mid-segment subway ride, or the precise bus
+   *  run). The share button copies this. */
+  shareLink(): string {
+    const p = new URLSearchParams();
+    const yaw = (((this.controls.yaw * 180) / Math.PI) % 360).toFixed(1);
+    const pitch = ((this.controls.pitch * 180) / Math.PI).toFixed(1);
+    p.set('look', `${yaw},${pitch}`);
+    if (this.mode === 'ride' && this.ride) {
+      const s = this.ride.shareInfo;
+      p.set('ride', `${s.route}.${s.dirSign === 1 ? 'u' : 'd'}.${s.originId}.${s.prog.toFixed(2)}`);
+    } else if (this.mode === 'bus' && this.busRide && !this.ridingTram) {
+      const b = this.buses.rideShare;
+      if (b) p.set('bus', `${b.route}.${b.dirIdx}.${b.k}.${b.tau}`);
+    } else if (this.mode === 'station' && this.currentStationSpec) {
+      p.set('station', this.currentStationSpec.id);
+    } else {
+      // street / fly / bike / on a rooftop — the tram degrades to its street
+      // position (its cabins aren't addressable by a stable key)
+      const lat = (ORIGIN.lat - this.pos.z / M_PER_DEG_LAT).toFixed(6);
+      const lon = (ORIGIN.lon + this.pos.x / M_PER_DEG_LON).toFixed(6);
+      p.set('at', `${lat},${lon}`);
+      const g = heightAt(this.pos.x, this.pos.z);
+      if (this.controls.fly) {
+        p.set('mode', 'fly');
+        p.set('alt', this.pos.y.toFixed(1));
+      } else if (this.riding) {
+        p.set('mode', 'bike');
+      } else if (this.pos.y - g > 2) {
+        p.set('alt', this.pos.y.toFixed(1)); // standing on a rooftop
+      }
+    }
+    return `${location.origin}/?${p.toString()}`;
+  }
+
+  /** Restore a shared mid-ride subway view: `<route>.<u|d>.<originStop>.<prog>`. */
+  private restoreRideLink(spec: string) {
+    const m = spec.match(/^([A-Za-z0-9]+)\.([ud])\.([^.]+)\.([\d.]+)$/);
+    if (!m || !this.network) return;
+    const route = m[1];
+    const dirSign: 1 | -1 = m[2] === 'u' ? 1 : -1;
+    const originId = m[3];
+    const prog = Math.min(0.99, Number(m[4]) || 0);
+    if (!this.network.routes[route]?.stops.includes(originId)) return;
+    // seed the station context so stepping off returns somewhere sensible
+    const stSpec = this.entrances.stationsMap.get(originId);
+    if (stSpec) {
+      const ent = this.entrances.entranceFor(stSpec);
+      this.returnPos.set(ent[0] + 2.2, 0, ent[1] + 2.2);
+      this.currentStationSpec = stSpec;
+    }
+    this.ride = new RideWorld(route, dirSign, originId, this.network, this.entrances.stationsMap, this.envTex);
+    this.ride.jumpTo(prog);
+    this.mode = 'ride';
+    this.pos.set(0, 0, 0);
+    this.hud.mode = 'ride';
+    this.lastEnterGuard = performance.now();
+    this.pushHud();
+  }
+
+  /** Restore a shared bus ride: `<routeId>.<dirIdx>.<k>.<tau>`. */
+  private async restoreBusLink(spec: string) {
+    const m = spec.match(/^([A-Za-z0-9+-]+)\.(\d+)\.(\d+)\.(\d+)$/);
+    if (!m) return;
+    const h = this.buses.restoreRide(m[1], Number(m[2]), Number(m[3]), Number(m[4]));
+    if (h) await this.enterTransit(h, false);
   }
 
   private async loadNetwork() {
