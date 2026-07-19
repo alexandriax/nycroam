@@ -968,23 +968,25 @@ export class World {
 
   private async beginRide(route: string, dirSign: 1 | -1, startIdOverride?: string) {
     if (this.transitioning || !this.network || !this.currentStationSpec) return;
+    // In a complex the ride starts from the GROUP the player boarded at
+    // (e.g. the [7] platforms inside Times Sq), not the member station whose
+    // entrance they happened to walk in through.
+    const startId = startIdOverride ?? this.currentStationSpec.id;
+    // Validate BEFORE the fade starts: a station can claim a route whose
+    // modeled stop list doesn't actually include it (data mismatch) — starting
+    // that ride would silently teleport the run to the route's first stop.
+    const rStops = this.network.routes[route]?.stops;
+    const si = rStops ? rStops.indexOf(startId) : -1;
+    if (!rStops || si < 0) return;
+    // At a terminal of the MODELED route (incl. both shuttle ends), the only
+    // ride is toward the other end — otherwise the ride is born at "Last
+    // stop", stuck dwelling until the auto-exit dumps the player back where
+    // they started (the "boarded a downtown 1 at South Ferry" trap).
+    dirSign = this.rideDirFor(route, startId, dirSign);
     this.transitioning = true;
     try {
       this.onFade?.(true);
       await wait(420);
-      // In a complex the ride starts from the GROUP the player boarded at
-      // (e.g. the [7] platforms inside Times Sq), not the member station whose
-      // entrance they happened to walk in through.
-      const startId = startIdOverride ?? this.currentStationSpec.id;
-      // The 42nd St shuttle is a terminal at BOTH ends (only Times Sq <-> Grand
-      // Central): whichever platform you board, the sole destination is the other
-      // stop. Force the direction toward it so a 2-stop line never boards you into
-      // an instant "Last stop" (dirSign +1 rides toward stops[last]).
-      const rStops = this.network.routes[route]?.stops;
-      if (rStops && rStops.length <= 2) {
-        const i = rStops.indexOf(startId);
-        if (i >= 0) dirSign = i === 0 ? 1 : -1;
-      }
       this.scheduler?.dispose();
       this.scheduler = null;
       this.station?.dispose();
@@ -1065,6 +1067,20 @@ export class World {
     // its own timer (reads the live scheduler each call, so it survives rebuilds).
     (this.station as { arrivalsFn?: () => Arrival[] }).arrivalsFn = () => this.scheduler?.arrivals() ?? [];
     this.currentStationSpec = spec;
+  }
+
+  /**
+   * Direction a ride from `startId` can actually run: at the modeled route's
+   * terminals (either end, incl. both shuttle ends) the only way is toward
+   * the rest of the line; elsewhere the requested direction stands.
+   */
+  private rideDirFor(route: string, startId: string, dirSign: 1 | -1): 1 | -1 {
+    const rStops = this.network?.routes[route]?.stops;
+    if (!rStops) return dirSign;
+    const i = rStops.indexOf(startId);
+    if (i === 0) return 1;
+    if (i >= 0 && i === rStops.length - 1) return -1;
+    return dirSign;
   }
 
   /**
@@ -1456,7 +1472,10 @@ export class World {
         this.hud.prompt = 'Exit to street';
         this.hud.promptRoutes = [];
       } else if (b) {
-        this.hud.prompt = `Board — ${boardLabel([b.route], b.dirSign, st.name)}`;
+        // label with the direction the ride will ACTUALLY run (terminals
+        // clamp toward the line, so "downtown" at South Ferry reads Uptown)
+        const effDir = this.rideDirFor(b.route, b.startId, b.dirSign);
+        this.hud.prompt = `Board — ${boardLabel([b.route], effDir, st.name)}`;
         this.hud.promptRoutes = [b.route];
         // Walk-in boarding: stepping up to the open doors boards you, no key
         // needed — the same "walk into it" affordance as a street entrance (E

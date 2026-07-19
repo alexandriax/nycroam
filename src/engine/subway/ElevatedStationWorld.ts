@@ -3,6 +3,7 @@ import type { StationSpec, TrackInfo, Arrival } from './types';
 import { crossSection, rectSubtract, TRACK_W, PlatformCountdown, pickBoardPositions } from './StationWorld';
 import type { ExitZone } from './StationWorld';
 import { makeHangingSignTexture, makeColumnSignTexture, makeExitSignTexture } from './signage';
+import { directionLabel } from './directions';
 import { buildBench, buildTrashCan, buildRailing, buildStairs, buildTurnstileRow, buildBooth } from './props';
 import type { WalkBox } from '../collision';
 import { quality } from '../quality';
@@ -129,6 +130,18 @@ export class ElevatedStationWorld {
       this.box(0.5, 0.55, W - 1.2, steel, x, 7.05, 0);
     }
 
+    // ---- stopping tracks + the direction each serves ----
+    // Hoisted above the platform loop: the direction signs read from the SAME
+    // arrays the scheduler gets (trackInfo below), so a platform's sign always
+    // matches the trains that actually stop beside it. Dual-island gives each
+    // island one direction; other layouts alternate uptown/downtown.
+    const dualIsland = spec.layout.type === 'dual-island' && cs.tracks.length === 4;
+    const elevStopping = dualIsland
+      ? [...cs.tracks]
+      : cs.tracks.length > 1 ? [cs.tracks[0], cs.tracks[cs.tracks.length - 1]] : [...cs.tracks];
+    const elevDirs: (1 | -1)[] = elevStopping.map((_, i) =>
+      dualIsland ? (i < 2 ? 1 : -1) : (i % 2 === 0 ? 1 : -1));
+
     // ---- platforms ----
     const stairW = 2.6, stairRun = 11;
     const stairFeet: { minX: number; maxX: number; minZ: number; maxZ: number }[] = [];
@@ -173,17 +186,38 @@ export class ElevatedStationWorld {
         can.position.set(bx + 2.5, PLAT_Y, pc);
         this.scene.add(can);
       }
-      // hanging signs under the canopy
-      const up = makeHangingSignTexture({ routes: spec.routes, text: 'Uptown & The Bronx', arrow: 'left' });
-      const dn = makeHangingSignTexture({ routes: spec.routes, text: 'Downtown & Brooklyn', arrow: 'right' });
-      this.track(up.texture); this.track(dn.texture);
-      for (const [sx, info] of [[-L / 5, up], [L / 5, dn]] as [number, { texture: THREE.Texture; aspect: number }][]) {
-        const mat = this.track(new THREE.MeshLambertMaterial({ map: info.texture, side: THREE.DoubleSide }));
-        const sign = new THREE.Mesh(this.track(new THREE.PlaneGeometry(0.5 * info.aspect, 0.5)), mat);
-        sign.position.set(sx, PLAT_Y + 2.6, pc);
-        sign.matrixAutoUpdate = false; sign.updateMatrix();
-        this.scene.add(sign);
-      }
+      // hanging direction signs under the canopy: one per adjacent stopping
+      // track, hung over that platform edge with its face PARALLEL to the
+      // track, labeled with the direction that track really serves (the old
+      // signs hardcoded "Uptown & The Bronx"/"Downtown & Brooklyn" on every
+      // platform — wrong text for most routes, and both directions shown even
+      // on single-direction side platforms — on a mirrored DoubleSide plane).
+      elevStopping.forEach((tz, ti) => {
+        const nearMin = Math.abs(tz - p.zMin) < TRACK_W * 0.8;
+        const nearMax = Math.abs(tz - p.zMax) < TRACK_W * 0.8;
+        if (!nearMin && !nearMax) return;
+        const edgeZ = nearMin ? p.zMin + 0.5 : p.zMax - 0.5;
+        const info = makeHangingSignTexture({
+          routes: spec.routes,
+          text: directionLabel(spec.routes, elevDirs[ti], spec.name),
+          arrow: 'none',
+        });
+        this.track(info.texture);
+        const mat = this.track(new THREE.MeshBasicMaterial({ map: info.texture }));
+        const h = 0.5, w = Math.min(h * info.aspect, 5.2);
+        const geo = this.track(new THREE.PlaneGeometry(w, h));
+        for (const sx of [-L / 5, L / 5]) {
+          const g = new THREE.Group();
+          const a = new THREE.Mesh(geo, mat);
+          const b = new THREE.Mesh(geo, mat);
+          a.position.z = 0.012;
+          b.rotation.y = Math.PI; b.position.z = -0.012;
+          g.add(a, b);
+          g.position.set(sx, PLAT_Y + 2.6, edgeZ);
+          g.traverse((o) => { o.matrixAutoUpdate = false; o.updateMatrix(); });
+          this.scene.add(g);
+        }
+      });
 
       // stairs down to the street (two per platform), descending toward +x
       for (const sx of stairXs) {
@@ -241,18 +275,17 @@ export class ElevatedStationWorld {
     this.platformSpawn.set(4, PLAT_Y, (p0.zMin + p0.zMax) / 2);
 
     const isSidePass = spec.layout.type === 'side' && spec.layout.passTracks > 0 && cs.tracks.length > 2;
-    const elevStopping = cs.tracks.length > 1 ? [cs.tracks[0], cs.tracks[cs.tracks.length - 1]] : [...cs.tracks];
+    // trackZs/trackDirs come from the hoisted arrays the signs already used —
+    // the old code reassigned dual-island trackZs to all 4 tracks AFTER
+    // computing trackDirs from 2, leaving the arrays out of step.
     this.trackInfo = {
       trackZs: elevStopping,
-      trackDirs: elevStopping.map((_, i) => (i % 2 === 0 ? 1 : -1)) as (1 | -1)[],
-      passTrackZs: isSidePass ? cs.tracks.slice(1, -1) : undefined,
+      trackDirs: elevDirs,
+      passTrackZs: isSidePass && !dualIsland ? cs.tracks.slice(1, -1) : undefined,
       railY: RAIL_Y,
       half,
       portal: half + 45,
     };
-    if (spec.layout.type === 'dual-island' && cs.tracks.length === 4) {
-      this.trackInfo.trackZs = [...cs.tracks];
-    }
     // Which z-side each stopping track's platform sits on (nearest platform
     // center vs the track z). Derived from the same geometry StationWorld uses,
     // aligned with the FINAL trackZs so doors open on the platform side only.

@@ -606,7 +606,7 @@ async function main() {
     // the bespoke chase-hq landmark owns the whole site. r=50 stays clear of
     // 277 Park's parts ~88m northeast.
     ['chase-hq', 40.7558, -73.9755, 50],
-    ['dakota', 40.7765, -73.9761, 42], ['carnegie-hall', 40.7651, -73.9799, 35],
+    ['dakota', 40.7765, -73.9761, 50], ['carnegie-hall', 40.7651, -73.9799, 35],
     ['whitney', 40.7397, -74.0089, 35], ['vessel', 40.7538, -74.0022, 40],
     ['little-island', 40.742, -74.01, 70], ['belvedere', 40.7794, -73.9692, 28],
     ['grants-tomb', 40.8134, -73.963, 32], ['riverside-church', 40.8119, -73.9633, 42],

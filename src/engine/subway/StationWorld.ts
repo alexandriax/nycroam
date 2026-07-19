@@ -726,14 +726,30 @@ export class StationWorld {
       g.traverse((o) => { o.matrixAutoUpdate = false; o.updateMatrix(); });
       root.add(g);
     };
+    // Routes that actually stop on track i — mirrors the scheduler's
+    // assignment (4 stopping tracks: first route on the outer/local pair, the
+    // rest on the inner/express pair), so the sign over the local edge reads
+    // "1 · Uptown & The Bronx" while the express edge reads "2 3 · …".
+    const trackRoutesFor = (i: number): string[] => {
+      if (stoppingZs.length >= 4) {
+        const outer = i === 0 || i === stoppingZs.length - 1;
+        const rs = outer ? [spec.routes[0]] : spec.routes.slice(1);
+        if (rs.length) return rs;
+      }
+      return spec.routes;
+    };
     for (const p of cs.platforms) {
       stoppingZs.forEach((tz, i) => {
         const nearMin = Math.abs(tz - p.zMin) < TRACK_W * 0.8;
         const nearMax = Math.abs(tz - p.zMax) < TRACK_W * 0.8;
         if (!nearMin && !nearMax) return;
         const edgeZ = nearMin ? p.zMin + 0.55 : p.zMax - 0.55;
-        for (const sx of [-L / 4, 0, L / 4]) {
-          hangSign(spec.routes, dirLabel(trackDirs[i]), sx, CEIL - 0.55, edgeZ, true);
+        const rts = trackRoutesFor(i);
+        const label = directionLabel(rts, trackDirs[i], spec.name);
+        // MTA-style: the board's face runs PARALLEL to its track, over the
+        // platform edge, so it reads from the platform (and across the tracks)
+        for (const sx of [(-3 * L) / 8, -L / 8, L / 8, (3 * L) / 8]) {
+          hangSign(rts, label, sx, CEIL - 0.55, edgeZ, false);
         }
       });
     }
