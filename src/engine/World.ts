@@ -773,6 +773,23 @@ export class World {
   }
 
   /**
+   * True if any footprint sample lands inside a PREMIUM LANDMARK ring at street
+   * level. Split from footprintInBuilding because the two read differently in
+   * the world: grazing low-res tile massing is a tolerable last resort for a
+   * kit, but half-sinking into a modeled landmark (the Times Square billboard
+   * block, Hearst's base) is exactly the overlap bug — never acceptable.
+   */
+  private footprintInLandmark(px: number, pz: number, fp: KitFootprint, frame: [number, number, number, number]): boolean {
+    const sets = this.landmarks.collisionNear(px, pz);
+    if (!sets.length) return false;
+    const [tx, tz, nx, nz] = frame, y = heightAt(px, pz);
+    for (const [al, pe] of fpSamples(fp.hL, fp.pR)) {
+      if (pointInBuildings(px + al * tx + pe * nx, pz + al * tz + pe * nz, sets, y)) return true;
+    }
+    return false;
+  }
+
+  /**
    * Push a kit's WHOLE footprint out of every roadbed ribbon (greedy on the
    * deepest-penetrating sample, iterated), so a long shelter/rack end clears a
    * crossing or curving lane — not just the anchor. `frameFixed` (bus stops) keeps
@@ -841,11 +858,19 @@ export class World {
       px = rx; pz = rz;
       if (moved < 0.05) break;
     }
-    if (this.footprintClear(paths, px, pz, fp, frameFixed ?? this.roadFrame(paths, px, pz))) return [px, pz];
+    // accept only if the footprint is clear of the LANE and not swallowed by a
+    // building: the alternating solve can oscillate (building push out, road
+    // push back in, net movement ~0) and a point fully inside a tower base is
+    // trivially "road-clear" — the Hearst entrance bug. Unhealthy sites fall
+    // through to the spiral, which prefers genuinely clear ground.
+    const frame1 = frameFixed ?? this.roadFrame(paths, px, pz);
+    if (this.footprintClear(paths, px, pz, fp, frame1) && !this.footprintInBuilding(px, pz, fp, frame1)) return [px, pz];
     // 2) spiral from the RAW point for the nearest fully-clear seat
     let clearX = 0, clearZ = 0, clearD = Infinity, hasClear = false;
     let grazeX = 0, grazeZ = 0, grazeD = Infinity, hasGraze = false;
-    for (let ring = 1; ring <= 24 && !hasClear; ring++) {
+    // 36 m radius: a full-block landmark base (Hearst) beside a wide avenue can
+    // leave no legal seat within 24 m of the mapped point
+    for (let ring = 1; ring <= 36 && !hasClear; ring++) {
       const steps = Math.max(6, ring * 4);
       for (let a = 0; a < steps; a++) {
         const ang = (a / steps) * Math.PI * 2;
@@ -853,6 +878,8 @@ export class World {
         [cx, cz] = resolveBuildingCollision(cx, cz, Math.min(fp.bldgClear, 0.6), this.colNear(cx, cz), heightAt(cx, cz));
         const fr = frameFixed ?? this.roadFrame(paths, cx, cz);
         if (!this.footprintClear(paths, cx, cz, fp, fr)) continue;
+        // a premium landmark is never an acceptable graze — tile massing only
+        if (this.footprintInLandmark(cx, cz, fp, fr)) continue;
         const d = Math.hypot(cx - x, cz - z);
         if (this.footprintInBuilding(cx, cz, fp, fr)) {
           if (d < grazeD) { grazeD = d; grazeX = cx; grazeZ = cz; hasGraze = true; }
@@ -863,8 +890,12 @@ export class World {
     if (hasGraze) return [grazeX, grazeZ];
     // 3) fail-safe: shove the footprint out of the lane, wall-graze if need be
     const [rx, rz] = this.ejectFootprint(paths, px, pz, fp, frameFixed);
-    if (fp.drop && !this.footprintClear(paths, rx, rz, fp, frameFixed ?? this.roadFrame(paths, rx, rz))) {
+    const frame3 = frameFixed ?? this.roadFrame(paths, rx, rz);
+    if (fp.drop && !this.footprintClear(paths, rx, rz, fp, frame3)) {
       return null; // can't seat clear of the lane (highway/no-sidewalk pin) — skip it, don't render it in traffic
+    }
+    if (this.footprintInLandmark(rx, rz, fp, frame3)) {
+      return null; // never seat ANY kit inside a landmark — defer instead (a late kit beats one inside Hearst's lobby)
     }
     return [rx, rz];
   }
