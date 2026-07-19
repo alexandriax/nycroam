@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import {
   type LandmarkCtx,
   LIMESTONE, GRANITE, DARKSTONE, MARBLE, GOLD, STEEL_LM, GLASS_LM, WHITE_LM, BRONZE, GREEN_PATINA,
@@ -24,7 +25,13 @@ const WARM_STEEL = new THREE.MeshStandardMaterial({ color: '#9a9184', metalness:
 // metalness > ~0.5 without one renders near-black (same lesson as the trains).
 // The slight emissive keeps shaded faces reading warm bronze, not chocolate.
 const BRONZE_GLASS = new THREE.MeshStandardMaterial({
-  color: '#96805f', metalness: 0.35, roughness: 0.34, emissive: '#221a11',
+  color: '#a8906a', metalness: 0.35, roughness: 0.3, emissive: '#3d2f1c',
+});
+// Chase's fins/braces: warmer + slightly emissive vs the kit BRONZE so the
+// shaded faces keep reading as champagne metal over glass, not near-black
+// slats (verified by shooting the shade side — kit BRONZE goes chocolate).
+const CHASE_BRONZE = new THREE.MeshStandardMaterial({
+  color: '#9c7c4f', metalness: 0.35, roughness: 0.38, emissive: '#2a1e10',
 });
 
 // Tapered 4-leg lattice tower (X-braced), origin at ground; reused by the bridge towers.
@@ -58,6 +65,38 @@ function chryslerEagle(): THREE.Group {
   beak.rotation.z = -Math.PI / 2;
   e.add(beak);
   return e;
+}
+
+/**
+ * Pre-merge a same-material batch of throwaway meshes (never added to a
+ * parent) into ONE BufferGeometry mesh. mergeByMaterial already collapses a
+ * landmark to one draw call per material at render time, but that still means
+ * constructing + matrix-baking hundreds of tiny meshes on every approach —
+ * this does it once, up front, for repeated elements (fin rows, brace
+ * struts). Same clone-then-applyMatrix4 technique as EntranceManager's
+ * mergeByMaterial, just scoped to a caller-chosen batch instead of a whole
+ * group, so the caller controls what stays geometrically "thin" for
+ * deriveCollision (see the chase-hq tier loop for why that matters).
+ */
+function mergeBatch(meshes: THREE.Mesh[], mat: THREE.Material): THREE.Mesh {
+  const geos = meshes.map((m) => {
+    m.updateMatrix();
+    return (m.geometry as THREE.BufferGeometry).clone().applyMatrix4(m.matrix);
+  });
+  const merged = mergeGeometries(geos, false) ?? geos[0];
+  for (const gm of geos) if (gm !== merged) gm.dispose();
+  for (const m of meshes) m.geometry.dispose();
+  return new THREE.Mesh(merged, mat);
+}
+
+// Low hedge/planter cluster for a setback terrace: three uneven dark-green
+// boxes, not a single lollipop blob — reuses the plaza's own GREEN_PATINA.
+function terraceGreen(x: number, z: number, y: number): THREE.Mesh[] {
+  return [
+    box(2.6, 1.0, 2.2, GREEN_PATINA, x, y + 0.5, z),
+    box(1.6, 0.7, 1.8, GREEN_PATINA, x + 1.8, y + 0.35, z + 0.6),
+    box(1.8, 0.8, 1.4, GREEN_PATINA, x - 1.5, y + 0.4, z - 0.8),
+  ];
 }
 
 export const builders: Record<string, (ctx: LandmarkCtx) => THREE.Group> = {
@@ -255,15 +294,34 @@ export const builders: Record<string, (ctx: LandmarkCtx) => THREE.Group> = {
     return g;
   },
 
-  // Chase HQ (270 Park Ave): full replacement, plaza to spire — vertical corner
-  // megacolumns plus two angled bronze fan/V arrangements per Park-Ave face
-  // lift the tower off an open plaza; a dark transfer-truss band hands off to
-  // a three-volume bronze-glass shaft with fin ribs and floor bands; an open
-  // fin crown with a beacon tops it at 423m.
+  // Chase HQ (270 Park Ave): full replacement, plaza to spire. The real
+  // building's defining trait is a stepped ziggurat massing — six nested
+  // tiers that step IN on ALTERNATING faces at staggered heights, not a
+  // symmetric pyramid: each tier is its own independent [x0,x1]x[z0,z1] plan
+  // box (not a shared half-extent), so setback ledges land off-center from
+  // each other and the silhouette reads as an irregular cascading stack with
+  // one shoulder higher than the other. Fan mega-columns + a transfer truss
+  // still lift it off the plaza (kept from the old build, proportions
+  // refined); every tier face then carries a giant bronze X-brace megapanel
+  // (Foster's expressed diagrid, storeys tall — NOT a fine repeating lattice)
+  // sitting proud of closely-spaced bronze mullion fins over glass. Flat
+  // parapet top: no spire, no crown ornament.
   'chase-hq': () => {
     const g = new THREE.Group();
-    const HX = 30, HZ = 37.5; // footprint half-extents: 60m (cross-street x) x 75m (Park Ave z)
-    const BASE_H = 24; // colonnade height
+
+    // Six tiers, LOCAL PLAN BOUNDS (not half-extents) so faces can step
+    // independently — see the header comment. T1's footprint matches the
+    // measured OSM massing this replaces (60m cross-street x 75m along Park
+    // Ave, same as the old HX/HZ); total height 423m, unchanged.
+    const TIERS = [
+      { y0: 32, y1: 150, x0: -30, x1: 30, z0: -37.5, z1: 37.5 }, // T1 full footprint
+      { y0: 150, y1: 225, x0: -22, x1: 30, z0: -37.5, z1: 30.5 }, // T2: -x face + +z face step in
+      { y0: 225, y1: 285, x0: -22, x1: 21, z0: -29.5, z1: 30.5 }, // T3: +x face + -z face step in
+      { y0: 285, y1: 340, x0: -17, x1: 21, z0: -29.5, z1: 22.5 }, // T4: -x face + +z face step in again
+      { y0: 340, y1: 385, x0: -17, x1: 14, z0: -22.5, z1: 22.5 }, // T5: +x face + -z face step in again
+      { y0: 385, y1: 423, x0: -11, x1: 14, z0: -12.5, z1: 12.5 }, // T6: near-square crown
+    ];
+    const T1 = TIERS[0];
 
     // plaza: paved slab, low step/planter blocks, open beneath the tower
     g.add(box(70, 0.3, 88, GRANITE, 0, 0.15, 0)); // paving, proud of the footprint on all sides
@@ -272,98 +330,111 @@ export const builders: Record<string, (ctx: LandmarkCtx) => THREE.Group> = {
       g.add(box(2.4, 0.9, 2.4, GREEN_PATINA, px, 1.65, pz)); // planting
     }
 
-    // lift-off base: vertical corner megacolumns + two fan/V arrangements per Park-Ave face
-    for (const cx of [-HX, HX]) for (const cz of [-HZ, HZ]) {
-      g.add(cyl(1.7, 1.7, BASE_H, BRONZE, cx, BASE_H / 2, cz, 10)); // corner megacolumn
+    // lift-off base 0-26m: vertical corner megacolumns + splaying fan/V
+    // mega-columns on the two long (Park-Ave-facing) faces — tall enough to
+    // read as the dramatic V-column base real photos show before handing off
+    // to the transfer truss.
+    const BASE_H = 26;
+    for (const cx of [T1.x0, T1.x1]) for (const cz of [T1.z0, T1.z1]) {
+      g.add(cyl(1.8, 1.8, BASE_H, CHASE_BRONZE, cx, BASE_H / 2, cz, 10)); // corner megacolumn
     }
-    for (const sx of [-1, 1]) { // the two Park-Ave-facing long faces
-      const faceX = sx * HX;
-      for (const fz of [-20, 20]) { // two fans per face
-        const apex = new THREE.Vector3(faceX - sx * 7, 22, fz); // common node ~22m up, inset ~7m
+    for (const faceX of [T1.x0, T1.x1]) {
+      const sx = Math.sign(faceX);
+      for (const fz of [-20, 20]) { // two fans per long face
+        const apex = new THREE.Vector3(faceX - sx * 7, BASE_H, fz); // common node at the transfer, inset ~7m
         for (const dz of [-7, 7]) {
-          g.add(strut(new THREE.Vector3(faceX, 0, fz + dz), apex, 1.6, BRONZE)); // angled mega-column
+          g.add(strut(new THREE.Vector3(faceX, 0, fz + dz), apex, 1.7, CHASE_BRONZE)); // splayed V leg
         }
       }
     }
 
-    // transfer-truss band y24..30: dark steel box + diagonal lattice on all four faces
-    const TT0 = 24, TT1 = 30;
-    g.add(box(HX * 2, TT1 - TT0, HZ * 2, DARKSTONE, 0, (TT0 + TT1) / 2, 0));
+    // transfer truss 26-32m: dark steel band + diagonal X on all four faces
+    const TT0 = BASE_H, TT1 = BASE_H + 6;
+    g.add(box(T1.x1 - T1.x0, TT1 - TT0, T1.z1 - T1.z0, DARKSTONE, 0, (TT0 + TT1) / 2, 0));
     for (const [a, b] of [
-      [new THREE.Vector3(HX, TT0, -HZ), new THREE.Vector3(HX, TT1, HZ)],
-      [new THREE.Vector3(HX, TT0, HZ), new THREE.Vector3(HX, TT1, -HZ)],
-      [new THREE.Vector3(-HX, TT0, -HZ), new THREE.Vector3(-HX, TT1, HZ)],
-      [new THREE.Vector3(-HX, TT0, HZ), new THREE.Vector3(-HX, TT1, -HZ)],
-      [new THREE.Vector3(-HX, TT0, HZ), new THREE.Vector3(HX, TT1, HZ)],
-      [new THREE.Vector3(HX, TT0, HZ), new THREE.Vector3(-HX, TT1, HZ)],
-      [new THREE.Vector3(-HX, TT0, -HZ), new THREE.Vector3(HX, TT1, -HZ)],
-      [new THREE.Vector3(HX, TT0, -HZ), new THREE.Vector3(-HX, TT1, -HZ)],
+      [new THREE.Vector3(T1.x1, TT0, T1.z0), new THREE.Vector3(T1.x1, TT1, T1.z1)],
+      [new THREE.Vector3(T1.x1, TT0, T1.z1), new THREE.Vector3(T1.x1, TT1, T1.z0)],
+      [new THREE.Vector3(T1.x0, TT0, T1.z0), new THREE.Vector3(T1.x0, TT1, T1.z1)],
+      [new THREE.Vector3(T1.x0, TT0, T1.z1), new THREE.Vector3(T1.x0, TT1, T1.z0)],
+      [new THREE.Vector3(T1.x0, TT0, T1.z1), new THREE.Vector3(T1.x1, TT1, T1.z1)],
+      [new THREE.Vector3(T1.x1, TT0, T1.z1), new THREE.Vector3(T1.x0, TT1, T1.z1)],
+      [new THREE.Vector3(T1.x0, TT0, T1.z0), new THREE.Vector3(T1.x1, TT1, T1.z0)],
+      [new THREE.Vector3(T1.x1, TT0, T1.z0), new THREE.Vector3(T1.x0, TT1, T1.z0)],
     ]) g.add(strut(a, b, 0.25, STEEL_LM)); // X-brace per face
 
     // ground detail: double-height lobby core inside the colonnade + avenue entrance canopies
     g.add(box(30, 18, 40, GLASS_LM, 0, 9, 0)); // lobby core
-    for (const sx of [-1, 1]) g.add(box(6, 0.6, 14, STEEL_LM, sx * (HX + 3), 5, 0)); // entrance canopy
+    for (const sx of [-1, 1]) g.add(box(6, 0.6, 14, STEEL_LM, sx * (T1.x1 + 3), 5, 0)); // entrance canopy
 
-    // shaft: three bronze-glass volumes with two setbacks, fin ribs + floor bands
-    const volumes = [
-      { y0: 30, y1: 210, hx: HX, hz: HZ }, // volume A: full footprint
-      { y0: 210, y1: 330, hx: HX - 6, hz: HZ - 6 }, // volume B: inset 6m each side
-      { y0: 330, y1: 410, hx: HX - 7, hz: HZ - 7 }, // volume C: inset ~14m total
-    ];
-    for (const v of volumes) {
-      const cy = (v.y0 + v.y1) / 2, h = v.y1 - v.y0;
-      g.add(box(v.hx * 2, h, v.hz * 2, BRONZE_GLASS, 0, cy, 0));
-      const finN = Math.round((v.hz * 2) / 7);
-      for (let i = 0; i <= finN; i++) {
-        const fz = -v.hz + (i * v.hz * 2) / finN;
-        for (const sx of [-1, 1]) g.add(box(0.35, h, 0.45, BRONZE, sx * (v.hx + 0.2), cy, fz)); // slim fin rib
-      }
-      // Foster's signature EXPRESSED DIAGRID: big bronze diamonds across both
-      // Park Ave faces (and the ends), proud of the glass so they read from
-      // the street — the fan base visually continues up the shaft
-      const rows = Math.max(1, Math.round(h / 60));
-      const rh = h / rows;
-      const facets: [number, number, 'x' | 'z'][] = [
-        [v.hx + 0.7, v.hz, 'x'], [-(v.hx + 0.7), v.hz, 'x'], // long faces
-        [v.hz + 0.7, v.hx, 'z'], [-(v.hz + 0.7), v.hx, 'z'], // end faces
+    // Tiers: bronze-glass volume + a giant per-face X-brace megapanel (1
+    // module, or 2 side by side on wide lower faces) + a dense row of
+    // vertical bronze fins recessed just behind the braces. Fins and braces
+    // are pre-merged into ONE mesh per face (mergeBatch): at ~2.3m fin
+    // spacing a 75m-wide face is ~30 raw meshes before merging, x4 faces x6
+    // tiers. Each batch is scoped to a single tier FACE, not pooled across
+    // faces or tiers — deriveCollision (LandmarkManager) treats a merged
+    // batch as passable strut-work by its MINIMUM horizontal AABB dimension,
+    // and only a per-face batch stays thin in its offset axis; pooling
+    // multiple faces would inflate that axis into a false solid wall.
+    const braceR = 1.3;
+    for (const t of TIERS) {
+      const cx = (t.x0 + t.x1) / 2, cz = (t.z0 + t.z1) / 2;
+      const w = t.x1 - t.x0, d = t.z1 - t.z0, h = t.y1 - t.y0, cy = (t.y0 + t.y1) / 2;
+      g.add(box(w, h, d, BRONZE_GLASS, cx, cy, cz));
+
+      const faceDefs: { axis: 'x' | 'z'; sign: 1 | -1; off0: number; lo: number; hi: number }[] = [
+        { axis: 'x', sign: 1, off0: t.x1, lo: t.z0, hi: t.z1 }, // +x face, spans z
+        { axis: 'x', sign: -1, off0: t.x0, lo: t.z0, hi: t.z1 }, // -x face, spans z
+        { axis: 'z', sign: 1, off0: t.z1, lo: t.x0, hi: t.x1 }, // +z face, spans x
+        { axis: 'z', sign: -1, off0: t.z0, lo: t.x0, hi: t.x1 }, // -z face, spans x
       ];
-      for (const [off, half, axis] of facets) {
-        const cols = Math.max(2, Math.round((half * 2) / 32));
-        const cw = (half * 2) / cols;
-        const P = (u: number, y: number) =>
-          axis === 'x' ? new THREE.Vector3(off, y, u) : new THREE.Vector3(u, y, off);
-        for (let r = 0; r < rows; r++) {
-          const yb = v.y0 + r * rh, yt = yb + rh, ym = (yb + yt) / 2;
-          for (let c = 0; c < cols; c++) {
-            const u0 = -half + c * cw, u1 = u0 + cw, um = (u0 + u1) / 2;
-            g.add(strut(P(um, yb), P(u1, ym), 0.85, BRONZE, 5)); // diamond: 4 legs
-            g.add(strut(P(u1, ym), P(um, yt), 0.85, BRONZE, 5));
-            g.add(strut(P(um, yt), P(u0, ym), 0.85, BRONZE, 5));
-            g.add(strut(P(u0, ym), P(um, yb), 0.85, BRONZE, 5));
-          }
+      for (const fd of faceDefs) {
+        const span = fd.hi - fd.lo;
+        const P = (off: number) => (u: number, y: number) =>
+          fd.axis === 'x' ? new THREE.Vector3(off, y, u) : new THREE.Vector3(u, y, off);
+
+        // giant X-brace megapanel(s): full tier height, proud of the glass
+        const braceOff = fd.off0 + fd.sign * 0.95;
+        const Pb = P(braceOff);
+        const mods = span > 45 ? 2 : 1; // very wide lower faces get 2 X's side by side
+        const mw = span / mods;
+        const braceStruts: THREE.Mesh[] = [];
+        for (let m = 0; m < mods; m++) {
+          const u0 = fd.lo + m * mw, u1 = u0 + mw;
+          braceStruts.push(strut(Pb(u0, t.y0), Pb(u1, t.y1), braceR, CHASE_BRONZE));
+          braceStruts.push(strut(Pb(u1, t.y0), Pb(u0, t.y1), braceR, CHASE_BRONZE));
         }
+        g.add(mergeBatch(braceStruts, CHASE_BRONZE));
+
+        // closely-spaced vertical bronze fins, recessed behind the braces —
+        // the dominant facade texture; horizontals stay minimal (floor band only)
+        const finOff = fd.off0 + fd.sign * 0.4;
+        const Pf = P(finOff);
+        const n = Math.max(2, Math.round(span / 3.0));
+        const fins: THREE.Mesh[] = [];
+        for (let i = 0; i <= n; i++) {
+          const p = Pf(fd.lo + (i * span) / n, cy);
+          fins.push(fd.axis === 'x'
+            ? box(0.32, h, 0.26, CHASE_BRONZE, p.x, p.y, p.z)
+            : box(0.26, h, 0.32, CHASE_BRONZE, p.x, p.y, p.z));
+        }
+        g.add(mergeBatch(fins, CHASE_BRONZE));
       }
-    }
-    for (let y = 54; y < 410; y += 24) {
-      const v = y < 210 ? volumes[0] : y < 330 ? volumes[1] : volumes[2];
-      g.add(box(v.hx * 2 + 0.4, 1.2, v.hz * 2 + 0.4, STEEL_LM, 0, y, 0)); // floor band
+
+      // parapet/floor-band lip at this tier's own top: mostly hidden under
+      // the next tier except the exposed setback rim (or, on T6, the flat top)
+      g.add(box(w + 0.5, 1.0, d + 0.5, STEEL_LM, cx, t.y1, cz));
     }
 
-    // crown y410..423: open frame + tapering fins past the roofline + beacon
-    const vC = volumes[2], C0 = 410, C1 = 423;
-    for (const cx of [-1, 1]) for (const cz of [-1, 1]) {
-      g.add(box(0.8, C1 - C0, 0.8, BRONZE, cx * vC.hx, (C0 + C1) / 2, cz * vC.hz)); // corner post
+    // low terrace greenery on the two big lower setbacks (visible in photos):
+    // sample points sit in the exposed L-shaped ring between one tier's
+    // footprint and the next tier's smaller one, inset from the parapet lip
+    for (const [gx, gz] of [[-26, 0], [-26, 20], [0, 34], [10, 34]] as const) {
+      g.add(mergeBatch(terraceGreen(gx, gz, TIERS[0].y1), GREEN_PATINA));
     }
-    for (const cz of [-1, 1]) g.add(box(vC.hx * 2 + 0.8, 0.6, 0.8, BRONZE, 0, C1, cz * vC.hz)); // ring beam +-z
-    for (const cx of [-1, 1]) g.add(box(0.8, 0.6, vC.hz * 2 + 0.8, BRONZE, cx * vC.hx, C1, 0)); // ring beam +-x
-    const finNC = Math.round((vC.hz * 2) / 7);
-    for (let i = 0; i <= finNC; i++) {
-      const fz = -vC.hz + (i * vC.hz * 2) / finNC;
-      for (const sx of [-1, 1]) g.add(cyl(0.05, 0.3, C1 - C0, BRONZE, sx * (vC.hx + 0.25), (C0 + C1) / 2, fz, 6)); // tapering fin
+    for (const [gx, gz] of [[25, 0], [0, -33]] as const) {
+      g.add(mergeBatch(terraceGreen(gx, gz, TIERS[1].y1), GREEN_PATINA));
     }
-    const beacon = new THREE.Mesh(new THREE.SphereGeometry(0.6, 8, 6), new THREE.MeshBasicMaterial({ color: '#ffffff' }));
-    beacon.position.set(0, 423, 0);
-    g.add(beacon); // subtle beacon
 
     return g;
   },

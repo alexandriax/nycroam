@@ -440,6 +440,18 @@ function randomizedDuration(base: number): number {
   return base * (0.8 + Math.random() * 0.4);
 }
 
+// Hidden and approach run for their EXACT base durations (no jitter). The
+// platform countdown estimates a not-yet-spawned train as `cooldown + hidden +
+// approach` and then hands off to the live train's own phase clock; any jitter
+// in those two phases would make a board row jump the instant a train spawns or
+// emerges from the tunnel. Dwell and depart keep a little jitter (visual
+// variety) — they don't gate the countdown handoff.
+function stateDur(state: TrainState): number {
+  return state === 'hidden' || state === 'approach'
+    ? BASE_DURATION[state]
+    : randomizedDuration(BASE_DURATION[state]);
+}
+
 function easeOutQuad(t: number): number {
   return 1 - (1 - t) * (1 - t);
 }
@@ -483,7 +495,7 @@ export class Train {
 
   private state: TrainState = 'hidden';
   private stateTime = 0;
-  private stateDuration = randomizedDuration(BASE_DURATION.hidden);
+  private stateDuration = stateDur('hidden'); // deterministic (see stateDur)
   private doorOffset = 0;
 
   constructor(opts: TrainOpts) {
@@ -912,15 +924,27 @@ export class Train {
   }
 
   /**
-   * Estimated seconds until this train is DWELLING at the platform, for the
-   * platform countdown clocks: 0 while dwelling, the remaining approach time
-   * while approaching, and a large sentinel (Infinity) while hidden/departing or
-   * before it ever arrives, so a train that isn't inbound is ignored.
+   * INTERNAL seconds until this train is DWELLING at the platform, for the
+   * platform countdown clocks (the scheduler divides by the slot's timeScale to
+   * get real seconds): 0 while dwelling, the remaining approach time while
+   * approaching, and — crucially — the remaining hidden time PLUS the fixed
+   * approach that follows while still hidden, so the estimate keeps descending
+   * smoothly from before the train is even visible right into its approach
+   * instead of reading Infinity and snapping (the board bug where the row counts
+   * to "now", jumps back up, and only THEN a train appears). Departing returns
+   * Infinity — that train is leaving, so the scheduler anchors on the next one.
    */
   get secondsToArrival(): number {
     if (this.state === 'dwell') return 0;
     if (this.state === 'approach') return Math.max(0, this.stateDuration - this.stateTime);
+    if (this.state === 'hidden') return (this.stateDuration - this.stateTime) + BASE_DURATION.approach;
     return Infinity;
+  }
+
+  /** INTERNAL seconds left in the current phase. The scheduler reads this while
+   *  a train departs (adds the recycle + spawn budget) to time the NEXT train. */
+  get stateRemaining(): number {
+    return Math.max(0, this.stateDuration - this.stateTime);
   }
 
   /** Advance the arrive -> dwell -> depart cycle by dt seconds. */
@@ -960,10 +984,30 @@ export class Train {
     const idx = STATE_ORDER.indexOf(this.state);
     const next = STATE_ORDER[(idx + 1) % STATE_ORDER.length];
     this.state = next;
-    this.stateDuration = randomizedDuration(BASE_DURATION[next]);
+    this.stateDuration = stateDur(next);
     if (next === 'approach') {
       this.group.position.x = this.fromX;
     }
+  }
+
+  /**
+   * Force this train into an immediate doors-OPEN dwell parked at the platform
+   * stop, holding the doors open for `openInternal` more (internal) seconds
+   * before they close and it departs on the normal cycle. Used when the player
+   * steps off a ride: the train they rode is re-seeded standing at the platform,
+   * doors open, ready to re-board, then closes up and pulls out like any other.
+   */
+  forceDwell(openInternal: number): void {
+    this.state = 'dwell';
+    // park the clock just past the door-open slide so the doors read fully open
+    // NOW, and size the dwell so updateDoors holds them open for openInternal
+    // more seconds (it starts closing 1.2s before stateDuration ends).
+    const openStart = 0.7, slideDur = 0.8;
+    this.stateTime = openStart + slideDur;
+    this.stateDuration = this.stateTime + Math.max(2, openInternal) + 1.2;
+    this.group.visible = true;
+    this.group.position.x = this.stopX;
+    this.updateDoors();
   }
 
   private updateDoors(): void {

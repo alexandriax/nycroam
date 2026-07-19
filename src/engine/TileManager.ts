@@ -47,12 +47,14 @@ export class TileManager {
   private trunkGeo = new THREE.CylinderGeometry(0.11, 0.16, 2.4, 5);
   private canopyGeo: THREE.BufferGeometry;
   private pendingAdd: BuildResponse[] = [];
+  private compile: ((g: THREE.Object3D) => Promise<void>) | null;
   loadRadius = 1100;
   unloadRadius = 1400;
   ready = false;
 
-  constructor(scene: THREE.Scene, workerCount = 2) {
+  constructor(scene: THREE.Scene, workerCount = 2, compile: ((g: THREE.Object3D) => Promise<void>) | null = null) {
     this.scene = scene;
+    this.compile = compile;
     // organic canopy: main crown + offset lobe, vertices displaced by hash noise
     const crown = new THREE.IcosahedronGeometry(1.5, 1);
     crown.scale(1, 1.2, 1);
@@ -294,7 +296,21 @@ export class TileManager {
     rec.roadPaths = res.roadPaths;
     rec.signs = res.signs;
     rec.state = 'ready';
-    this.scene.add(group);
+    // Collision / readiness are set above so gameplay never waits on the GPU;
+    // only the VISIBLE add is deferred. The first frame a fresh material combo
+    // is drawn otherwise compiles its shader programs synchronously inside
+    // renderer.render() (measured ~82ms for the opening tile ring). Pre-warm the
+    // programs off the render frame, then reveal. If the tile unloaded while the
+    // compile was in flight (the player kept moving), drop it — dispose() has
+    // already freed the geometry, so skipping the add leaks nothing.
+    if (this.compile) {
+      const key = res.key;
+      void this.compile(group).then(() => {
+        if (this.records.get(key) === rec && rec.group === group) this.scene.add(group);
+      });
+    } else {
+      this.scene.add(group);
+    }
   }
 
   private dispose(rec: TileRecord) {

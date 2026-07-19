@@ -98,7 +98,10 @@ const CROSS_STOP_GAP = 1.6;// hold this much daylight short of the blocking body
 // lateral safety net
 const SEP_TRIG = 13.5;     // consider a pair only within this center distance (m)
 const SEP_STREET_COS = 0.6;// only same-street pairs (|cos|>this); perpendicular crossings are out of scope
-const SEP_MARGIN = 0.5;    // extra daylight beyond footprint contact (m)
+const SEP_MARGIN = 1.0;    // daylight beyond footprint contact (m) — the net now
+                           // carries all terminal/shared-stop berthing (the old
+                           // backward-yield that used to open those gaps is gone),
+                           // so a fuller meter keeps co-dwelling buses clearly apart
 const SEP_MAX = 7.0;       // cap on lateral nudge (m)
 const SEP_PASSES = 12;     // relaxation passes (resolves 3-way clusters)
 const GOLDEN = 0.6180339887498949;
@@ -645,22 +648,18 @@ export class BusSystem {
     const rfx = new Float64Array(n), rfz = new Float64Array(n);
     const done = new Uint8Array(n), onStack = new Uint8Array(n);
 
-    // per-bus run advancement: +1 at its terminal (finishing), −1 at its start,
-    // 0 mid-route. Many routes share a terminal (Columbus Circle, etc.); a bus
-    // ending its run must not dwell on the exact point where another route's bus
-    // ORIGINATES — the start bus is floored at s=0 and cannot back up, so the
-    // finishing bus is the one that must give way. Advancement drives that.
-    const adv = new Int8Array(n);
+    // (1) nearest same-lane leader AHEAD, on DESIRED positions (stable, lag-free).
+    // A bus only ever holds behind something in FRONT of it — the follower waits,
+    // a leader is never moved by what trails it, and no bus is ever driven
+    // backward. (A prior "terminal hand-off" let the more-advanced bus YIELD to
+    // one BEHIND it — literally reversing a finishing/ridden bus off a shared
+    // terminal. That reverse is the leapfrog/shove the rider reported, so it's
+    // gone. The finishing-on-originating stack is now resolved with zero backward
+    // motion: the stationary originating bus is the natural follower and simply
+    // holds its ground, and the lateral safety net (3) berths the pair apart.)
     for (let i = 0; i < n; i++) {
-      const a = vis[i];
-      adv[i] = a.sDes >= a.dir.total - 2 ? 1 : a.sDes <= 2 ? -1 : 0;
-    }
-
-    // (1) nearest same-lane leader ahead, on DESIRED positions (stable, lag-free)
-    for (let i = 0; i < n; i++) {
-      const a = vis[i], fx = a.fx, fz = a.fz, xi = a.desX, zi = a.desZ, ki = a.keyNum, ai = adv[i];
+      const a = vis[i], fx = a.fx, fz = a.fz, xi = a.desX, zi = a.desZ, ki = a.keyNum;
       let bestAhead = -1, bestAlong = Infinity, bestColoc = -1, bestColocKey = -Infinity;
-      let termLeader = -1, termAdv = 2; // most-advanced-below-i wins → nearest in the order
       for (let j = 0; j < n; j++) {
         if (j === i) continue;
         const b = vis[j];
@@ -682,16 +681,11 @@ export class BusSystem {
         if (cosH <= SAME_DIR_COS) continue; // only queue behind same travel heading
         if (along > CO_EPS) { if (along < bestAlong) { bestAlong = along; bestAhead = j; } }
         else if (along > -CO_EPS && b.keyNum < ki) { if (b.keyNum > bestColocKey) { bestColocKey = b.keyNum; bestColoc = j; } }
-        // terminal/start override: if i is strictly MORE advanced than j and they
-        // share this spot (within a bus length, ahead OR behind), i yields to j.
-        // This is antisymmetric (only the more-advanced side fires), so no
-        // deadlock; it catches the finishing-on-originating overlap the ahead/
-        // co-located branches miss when the pair straddles the co-located epsilon.
-        if (ai > adv[j] && Math.abs(along) < BUS.length && adv[j] < termAdv) {
-          termAdv = adv[j]; termLeader = j;
-        }
       }
-      a.leaderIdx = termLeader >= 0 ? termLeader : bestColoc >= 0 ? bestColoc : bestAhead;
+      // an exactly-co-located lower-key bus (two bunched on the same shape) leads
+      // so the pair queues nose-to-tail; otherwise the nearest bus ahead. Both are
+      // ahead-or-here, never behind — a follower can only be held, not shoved back.
+      a.leaderIdx = bestColoc >= 0 ? bestColoc : bestAhead;
     }
 
     // (1b) cross-traffic yield: no bus drives its nose into another bus's body,
@@ -757,12 +751,19 @@ export class BusSystem {
       if (target < 0) target = 0;
       // ease rs toward target with a per-frame speed cap → smooth accel/decel,
       // never a snap. Seed exactly on mesh-in so a fresh bus doesn't glide in.
+      // INVARIANT: rs is MONOTONIC non-decreasing — a bus never renders backward.
+      // Every cap above (leader gap, cross-traffic nose, route-start floor) can
+      // only LOWER `target`; a target behind the current arc means "hold here and
+      // wait", never "reverse". That is what makes a trailing bus queue like real
+      // traffic instead of shoving the bus ahead — or the one you're riding —
+      // backward. A finished run only ever resets its arc by despawning and
+      // re-meshing fresh at its origin, never by sliding rs down.
       if (!a.init) {
         a.rs = target;
       } else {
         let step = (target - a.rs) * Math.min(1, dt * FOLLOW_K);
         const cap = V_MAX * dt;
-        if (step > cap) step = cap; else if (step < -cap) step = -cap;
+        if (step > cap) step = cap; else if (step < 0) step = 0;
         a.rs += step;
       }
       this.pointAt(a.dir, a.rs, _pt);
@@ -821,7 +822,16 @@ export class BusSystem {
           const rb = Math.abs(px * fxj + pz * fzj) * hL + Math.abs(px * -fzj + pz * fxj) * hW;
           const overlap = ra + rb + SEP_MARGIN - Math.abs(proj);
           if (overlap <= 0) continue;
-          const half = (overlap / 2) * (proj >= 0 ? 1 : -1);
+          // Split direction. Normally follow the existing offset sign(proj). But a
+          // near-coincident stack — two buses dwelling on ONE shared stop, centres
+          // ~0 apart — has a DEGENERATE sign: proj is pure render noise that flips
+          // frame-to-frame, so the offset averages to zero and they never unstack
+          // (monotonic rs won't let the rear one slide back into a nose-to-tail
+          // gap). Break that tie deterministically by the key-sorted pass order (i
+          // precedes j), so the pair berths to stable opposite sides instead of
+          // oscillating on top of each other.
+          const sgn = proj > 1e-2 ? 1 : proj < -1e-2 ? -1 : 1;
+          const half = (overlap / 2) * sgn;
           sepTx[j] += px * half; sepTz[j] += pz * half;   // push both apart
           sepTx[i] -= px * half; sepTz[i] -= pz * half;
         }

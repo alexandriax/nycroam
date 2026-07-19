@@ -708,25 +708,10 @@ export class ComplexStationWorld {
       }
     }
 
-    // ---- per-track hanging direction signs (ONLY that track's routes) ----
-    const stopTracks = cs.tracks.filter((t) => !t.spec.pass);
-    for (const p of cs.platforms) {
-      for (const t of stopTracks) {
-        const nearMin = Math.abs(t.z - p.zMin) < TRACK_W * 0.8;
-        const nearMax = Math.abs(t.z - p.zMax) < TRACK_W * 0.8;
-        if (!nearMin && !nearMax) continue;
-        const edgeZ = nearMin ? p.zMin + 0.55 : p.zMax - 0.55;
-        const label = directionLabel(t.spec.routes, t.spec.dir, g.name);
-        for (const sx of [-L / 4, 0, L / 4]) {
-          if (localHoles.some((h) => sx > h.minX - 1 && sx < h.maxX + 1
-            && edgeZ > h.minZ - 1 && edgeZ < h.maxZ + 1)) continue;
-          this.hangSign(node, t.spec.routes, label, sx, CEIL - 0.55, edgeZ, 'z');
-        }
-      }
-    }
-
-    // ---- countdown boards ----
-    const countdown = new PlatformCountdown(g.name);
+    // ---- board + sign x-positions (group-local x, picked together) ----
+    // Boards run a ~33m cadence; the 4-5 per-edge direction signs a ~40m cadence,
+    // so their bases stagger and the blocked() predicate slides off any residual
+    // collision, the pillar lines and the stair wells.
     const pillarBlocked = (x: number) => {
       const nearestPillar = -half + 6 + Math.round((x - (-half + 6)) / 4.6) * 4.6;
       return Math.abs(x - nearestPillar) < 0.6;
@@ -737,6 +722,34 @@ export class ComplexStationWorld {
     const boardXs = pickBoardPositions(
       half, boardCount, (x) => pillarBlocked(x) || stairBlockedX(x), half - 4,
     );
+    const signCount = Math.max(4, Math.round(L / 40));
+    const signXs = pickBoardPositions(
+      half, signCount,
+      (x) => stairBlockedX(x) || boardXs.some((bx) => Math.abs(x - bx) < 2.4),
+      half - 4,
+    );
+
+    // ---- per-track hanging direction signs (ONLY that track's routes) ----
+    // Face PARALLEL to the track (span 'x' => normal on z), readable standing on
+    // the platform looking across it; 4-5 evenly along the platform per edge.
+    const stopTracks = cs.tracks.filter((t) => !t.spec.pass);
+    for (const p of cs.platforms) {
+      for (const t of stopTracks) {
+        const nearMin = Math.abs(t.z - p.zMin) < TRACK_W * 0.8;
+        const nearMax = Math.abs(t.z - p.zMax) < TRACK_W * 0.8;
+        if (!nearMin && !nearMax) continue;
+        const edgeZ = nearMin ? p.zMin + 0.55 : p.zMax - 0.55;
+        const label = directionLabel(t.spec.routes, t.spec.dir, g.name);
+        for (const sx of signXs) {
+          if (localHoles.some((h) => sx > h.minX - 1 && sx < h.maxX + 1
+            && edgeZ > h.minZ - 1 && edgeZ < h.maxZ + 1)) continue;
+          this.hangSign(node, t.spec.routes, label, sx, CEIL - 0.55, edgeZ, 'x');
+        }
+      }
+    }
+
+    // ---- countdown boards ----
+    const countdown = new PlatformCountdown(g.name);
     for (const p of cs.platforms) {
       const dirs = new Set<1 | -1>();
       for (const t of stopTracks) {
@@ -1562,6 +1575,26 @@ export class ComplexStationWorld {
       g.scheduler = new TrainScheduler(g.node, g.stationSpec, g.trackInfo, network);
       g.scheduler.onArrive = () => this.onArrive?.();
     }
+  }
+
+  /**
+   * Seed the group serving `stationId` with a doors-OPEN train on the (route,
+   * dirSign) track and return a world-frame platform spawn beside it, so a rider
+   * stepping off a ride finds the train they rode still standing at the platform,
+   * re-boardable, before it closes up and departs. Returns null (caller falls
+   * back to platformSpawnFor) when the group or track can't be matched.
+   */
+  seedRideExit(stationId: string, route: string, dirSign: 1 | -1): THREE.Vector3 | null {
+    const g = this.groups.find((gg) => gg.spec.id === stationId);
+    if (!g || !g.scheduler) return null;
+    const tz = g.scheduler.seedDwell(route, dirSign);
+    if (tz === null) return null;
+    // platform adjacent to the seeded local track z, then group-local -> world
+    const pl = g.platLocals.find((p) => Math.abs(tz - p.zMin) < TRACK_W * 0.9 || Math.abs(tz - p.zMax) < TRACK_W * 0.9)
+      ?? g.platLocals[0];
+    if (!pl) return null;
+    const [wx, wz] = groupToWorld(g.spec, 4, (pl.zMin + pl.zMax) / 2);
+    return new THREE.Vector3(wx, g.spec.y, wz);
   }
 
   /** A dwelling, doors-open train near the player. Player pos is WORLD; each

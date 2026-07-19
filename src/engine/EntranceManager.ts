@@ -109,15 +109,18 @@ export class EntranceManager {
   private timer = 0;
   private eject: ((x: number, z: number) => [number, number] | null) | null;
   private wallDir: ((x: number, z: number) => [number, number] | null) | null;
+  private compile: ((g: THREE.Object3D) => Promise<void>) | null;
 
   constructor(
     scene: THREE.Scene,
     eject: ((x: number, z: number) => [number, number] | null) | null = null,
     wallDir: ((x: number, z: number) => [number, number] | null) | null = null,
+    compile: ((g: THREE.Object3D) => Promise<void>) | null = null,
   ) {
     this.wallDir = wallDir;
     this.scene = scene;
     this.eject = eject;
+    this.compile = compile;
   }
 
   async init(): Promise<boolean> {
@@ -230,9 +233,22 @@ export class EntranceManager {
         const beacon = makeBeacon();
         beacon.position.set(0, 3.1, 0);
         group.add(beacon);
-        this.scene.add(group);
-        this.placed.set(i, { spec: e, station, group, pos });
+        // Claim the slot synchronously (budget + dedup below rely on it), but
+        // defer the VISIBLE add until the kit's shaders are pre-warmed off the
+        // render frame — the first kit's material combo otherwise compiles
+        // inside the render that first shows it. If the kit was evicted while
+        // the compile was in flight, placed[i] no longer holds this record and
+        // disposeGroup already freed it, so skip the add.
+        const rec: PlacedEntrance = { spec: e, station, group, pos };
+        this.placed.set(i, rec);
         built++;
+        if (this.compile) {
+          void this.compile(group).then(() => {
+            if (this.placed.get(i) === rec) this.scene.add(group);
+          });
+        } else {
+          this.scene.add(group);
+        }
       } else if (!inRange && existing) {
         this.scene.remove(existing.group);
         disposeGroup(existing.group);
