@@ -66,13 +66,26 @@ export const builders: Record<string, (ctx: LandmarkCtx) => THREE.Group> = {
       fig.position.set(sx * 5.0, 9.8, D / 2 + 0.55);
       g.add(fig); // pier figure (Washington at War / at Peace)
     }
-    const basin = lathe([[8, 0], [8.15, 0.5], [7.7, 0.55]], GRANITE, 16); // fountain plaza ring
-    basin.position.set(0, 0, 16);
-    g.add(basin);
-    const water = new THREE.Mesh(new THREE.CircleGeometry(7.5, 16), WATER_LM);
-    water.rotation.x = -Math.PI / 2;
-    water.position.set(0, 0.42, 16);
-    g.add(water);
+    // Washington Square Fountain: the real basin sits ~55 m down the 5th Ave
+    // axis (local +z), centred over the park's baked water polygon — NOT right
+    // at the arch. A wide granite basin with a raised centre and a jet, so it
+    // reads as a fountain instead of a flat disc.
+    const fx = -4, fz = 55;
+    const water = (r: number, y: number) => {
+      const m = new THREE.Mesh(new THREE.CircleGeometry(r, 32), WATER_LM);
+      m.rotation.x = -Math.PI / 2; m.position.set(fx, y, fz); return m;
+    };
+    const ring = (prof: [number, number][]) => { const m = lathe(prof, GRANITE, 40); m.position.set(fx, 0, fz); return m; };
+    const R = 10.6; // outer basin radius (matches the baked ~11 m water polygon)
+    g.add(ring([[R, 0], [R + 0.35, 0.6], [R - 0.2, 0.65], [R - 0.9, 0.45], [R - 0.9, 0]])); // outer curb rim
+    g.add(water(R - 0.8, 0.4));      // main pool
+    g.add(ring([[4.2, 0.4], [4.4, 0.8], [3.7, 0.85], [3.7, 0.4]])); // inner tier wall
+    g.add(water(3.6, 0.6));          // upper basin pool
+    g.add(cyl(1.1, 1.5, 1.3, GRANITE, fx, 0.4, fz, 20)); // centre pedestal
+    g.add(ring([[1.9, 1.65], [2.2, 1.9], [1.7, 2.0], [1.7, 1.7]])); // top bowl rim
+    g.add(water(1.6, 1.9));          // top bowl
+    g.add(cyl(0.1, 0.16, 4.4, WHITE_LM, fx, 1.9, fz, 8));  // central jet plume (white = spray)
+    g.add(cyl(0.6, 0.03, 1.1, WHITE_LM, fx, 5.7, fz, 12)); // spray crown fanning out
     return g;
   },
 
