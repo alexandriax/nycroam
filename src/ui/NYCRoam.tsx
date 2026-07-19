@@ -186,7 +186,10 @@ export default function NYCRoam() {
         </div>
         {/* current street, styled like the blade signs on the corners */}
         {(hud?.mode === 'street' || hud?.mode === 'bus') && hud?.street && (
-          <span className="street-blade">{abbreviateStreet(hud.street)}</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+            <span className="street-blade">{abbreviateStreet(hud.street)}</span>
+            {hud.cross && <span className="street-blade cross">{abbreviateStreet(hud.cross)}</span>}
+          </div>
         )}
       </div>
 

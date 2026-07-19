@@ -80,6 +80,7 @@ export interface HudState {
   riding: boolean; // on a bike
   area: string | null; // current neighborhood (street mode)
   street: string | null; // street the player is standing on (street/bus mode)
+  cross: string | null; // nearest cross street to that position
   stationName: string | null;
   stationRoutes: string[];
   ride: RideHud | null;
@@ -158,7 +159,7 @@ export class World {
   private flyVel = new THREE.Vector3();
   private flyTarget = new THREE.Vector3();
   hud: HudState = {
-    mode: 'street', fly: false, prompt: null, promptRoutes: [], promptBus: [], promptHint: null, riding: false, area: null, street: null, stationName: null,
+    mode: 'street', fly: false, prompt: null, promptRoutes: [], promptBus: [], promptHint: null, riding: false, area: null, street: null, cross: null, stationName: null,
     stationRoutes: [], ride: null, bus: null, tilesLoaded: 0, tilesPending: 0, fps: 0, loading: true, error: null,
   };
   onHud: ((h: HudState) => void) | null = null;
@@ -351,13 +352,14 @@ export class World {
   }
 
   /**
-   * Name of the street at (x,z): nearest street centerline within its ribbon
-   * (+ a sidewalk margin), named by the surrounding corner signs — each sign
-   * blade carries a street name and that street's bearing, so the blade whose
-   * line best passes through the player, running parallel to the road they're
-   * on, is the street they're standing on.
+   * Street at (x,z) plus its nearest cross street: nearest street centerline
+   * within its ribbon (+ a sidewalk margin), named by the surrounding corner
+   * signs — each sign blade carries a street name and that street's bearing.
+   * The blade whose line best passes through the player, running PARALLEL to
+   * the road they're on, is the street they're standing on; the nearest
+   * corner's CROSSING blade names the cross street ("Broadway / W 72 St").
    */
-  private streetAt(x: number, z: number): string | null {
+  private streetAt(x: number, z: number): { street: string | null; cross: string | null } {
     const paths = this.tiles.roadPathsNear(x, z, 1);
     let best = Infinity; // distance beyond acceptance, for tie-breaks
     let tanX = 0, tanZ = 0;
@@ -379,10 +381,12 @@ export class World {
         }
       }
     }
-    if (best > 0) return null; // not on/near any street
+    if (best > 0) return { street: null, cross: null }; // not on/near any street
     const roadAng = Math.atan2(tanZ, tanX);
     let bestScore = Infinity;
     let name: string | null = null;
+    let bestCrossD = Infinity;
+    let cross: string | null = null;
     for (const s of this.tiles.signsNear(x, z)) {
       const dSign = Math.hypot(s.x - x, s.z - z);
       if (dSign > 170) continue;
@@ -391,15 +395,21 @@ export class World {
         // parallel-ness to the road under the player (mod 180°)
         let dAng = Math.abs(roadAng - blade) % Math.PI;
         if (dAng > Math.PI / 2) dAng = Math.PI - dAng;
-        if (dAng > 0.55) continue; // ~31°: not this street's direction
-        // perpendicular distance from the player to the blade's street line
-        const px = x - s.x, pz = z - s.z;
-        const perp = Math.abs(px * -Math.sin(blade) + pz * Math.cos(blade));
-        const score = perp + dSign * 0.18 + dAng * 12;
-        if (score < bestScore) { bestScore = score; name = s.names[b]; }
+        if (dAng <= 0.55) { // ~31°: runs with our street — candidate for its name
+          // perpendicular distance from the player to the blade's street line
+          const px = x - s.x, pz = z - s.z;
+          const perp = Math.abs(px * -Math.sin(blade) + pz * Math.cos(blade));
+          const score = perp + dSign * 0.18 + dAng * 12;
+          if (score < bestScore) { bestScore = score; name = s.names[b]; }
+        } else if (dAng >= 0.9 && dSign < bestCrossD) {
+          // ≥ ~52°: a street CROSSING ours — the nearest corner names it
+          bestCrossD = dSign;
+          cross = s.names[b];
+        }
       }
     }
-    return name;
+    if (cross !== null && cross === name) cross = null;
+    return { street: name, cross };
   }
 
   /** Neighborhood containing (x,z) — even-odd over all rings, so holes work. */
@@ -1270,7 +1280,9 @@ export class World {
         // flying, not standing on a rooftop
         const grounded = !this.controls.fly
           && this.pos.y - heightAt(this.pos.x, this.pos.z) < 3;
-        this.hud.street = grounded ? this.streetAt(this.pos.x, this.pos.z) : null;
+        const at = grounded ? this.streetAt(this.pos.x, this.pos.z) : { street: null, cross: null };
+        this.hud.street = at.street;
+        this.hud.cross = at.cross;
       }
 
       // proximity prompts. On a bike the subway is out of reach (dock first),
@@ -1383,7 +1395,9 @@ export class World {
         if (this.hoodTimer <= 0) {
           this.hoodTimer = 1.0;
           this.hud.area = this.hoodAt(this.pos.x, this.pos.z);
-          this.hud.street = this.streetAt(this.pos.x, this.pos.z); // the street the bus is on
+          const at = this.streetAt(this.pos.x, this.pos.z); // the street the bus is on
+          this.hud.street = at.street;
+          this.hud.cross = at.cross;
         }
         this.hud.bus = h.hud;
         this.hud.prompt = null;
