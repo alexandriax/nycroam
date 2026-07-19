@@ -758,6 +758,34 @@ function buildTile(tile: TileJson): BuildResponse {
   };
 
   // ---- trees ----
+  // water triangles (world) + bbox, so a trunk never sprouts inside a fountain
+  // or pond — the pipeline culls trees from roads/buildings but not water.
+  const waterTris: number[] = [];
+  let wMinX = Infinity, wMinZ = Infinity, wMaxX = -Infinity, wMaxZ = -Infinity;
+  if (tile.areas?.water) {
+    const st = v2 ? 3 : 2;
+    const wv = tile.areas.water;
+    for (let i = 0; i + 3 * st <= wv.length; i += 3 * st) {
+      const ax = toWorld(wv[i], ox), az = toWorld(wv[i + 1], oz);
+      const bx = toWorld(wv[i + st], ox), bz = toWorld(wv[i + st + 1], oz);
+      const cx = toWorld(wv[i + 2 * st], ox), cz = toWorld(wv[i + 2 * st + 1], oz);
+      waterTris.push(ax, az, bx, bz, cx, cz);
+      wMinX = Math.min(wMinX, ax, bx, cx); wMaxX = Math.max(wMaxX, ax, bx, cx);
+      wMinZ = Math.min(wMinZ, az, bz, cz); wMaxZ = Math.max(wMaxZ, az, bz, cz);
+    }
+  }
+  const inWater = (x: number, z: number): boolean => {
+    if (!waterTris.length || x < wMinX || x > wMaxX || z < wMinZ || z > wMaxZ) return false;
+    for (let t = 0; t < waterTris.length; t += 6) {
+      const ax = waterTris[t], az = waterTris[t + 1], bx = waterTris[t + 2];
+      const bz = waterTris[t + 3], cx = waterTris[t + 4], cz = waterTris[t + 5];
+      const d1 = (x - bx) * (az - bz) - (ax - bx) * (z - bz);
+      const d2 = (x - cx) * (bz - cz) - (bx - cx) * (z - cz);
+      const d3 = (x - ax) * (cz - az) - (cx - ax) * (z - az);
+      if (!((d1 < 0 || d2 < 0 || d3 < 0) && (d1 > 0 || d2 > 0 || d3 > 0))) return true;
+    }
+    return false;
+  };
   let trees: Float32Array | null = null;
   if (tile.trees && tile.trees.length >= 2) {
     const stride = v2 ? 3 : 2;
@@ -771,6 +799,7 @@ function buildTile(tile: TileJson): BuildResponse {
       const z = toWorld(tile.trees[si + 1], oz);
       // a trunk in the middle of a painted lane is an obstruction — skip it
       if (bikePaths.length && bikePen(x, z, 0.45)[0] > 0) continue;
+      if (inWater(x, z)) continue; // no trunks in fountains / ponds
       const ey = v2 ? tile.trees[si + 2] / 10 : 0;
       const s = 0.75 + hash01(seedBase + i) * 0.7;
       kept.push(x, ey, z, s, hash01(seedBase + i + 99));

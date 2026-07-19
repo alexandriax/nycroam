@@ -180,6 +180,15 @@ function charSum(s: string): number {
 
 const signMatCache = new Map<string, THREE.Material>();
 
+// Merged static hull (exterior + interior + route/dest signs) keyed by its full
+// visual content. Every field the build reads — route, dest, sbs — is in the key,
+// and the builders are pure (no randomness), so all buses on a route+direction
+// share ONE merged geometry. New instances clone it (meshes share the cached
+// geometry + materials), turning a ~8 ms rebuild-and-merge into a cheap clone.
+// Templates are never disposed (bounded to route×dest×sbs), same as the shared
+// door/axle geometries above.
+const hullCache = new Map<string, THREE.Group>();
+
 function cachedCanvasMat(
   key: string,
   w: number,
@@ -591,11 +600,18 @@ export class BusModel implements BusModelLike {
     this.group = new THREE.Group();
     this.group.name = `Bus ${opts.route}`;
 
-    const build = new THREE.Group();
-    buildExterior(build, opts.sbs);
-    buildInterior(build);
-    addStaticSigns(build, opts);
-    const merged = mergeByMaterial(build);
+    const hullKey = `${opts.route}|${opts.dest}|${opts.sbs ? 1 : 0}`;
+    let template = hullCache.get(hullKey);
+    if (!template) {
+      const build = new THREE.Group();
+      buildExterior(build, opts.sbs);
+      buildInterior(build);
+      addStaticSigns(build, opts);
+      template = mergeByMaterial(build);
+      hullCache.set(hullKey, template);
+    }
+    // clone shares the cached geometry + materials — dispose() must not free them
+    const merged = template.clone();
     this.mergedMeshes = merged.children.filter((c): c is THREE.Mesh => c instanceof THREE.Mesh);
     for (const m of this.mergedMeshes) {
       if (SHADOW_MATS.has(m.material as THREE.Material)) {
@@ -731,7 +747,9 @@ export class BusModel implements BusModelLike {
    * (bikes.ts documents the same pattern). */
   dispose(): void {
     this.group.removeFromParent();
-    for (const m of this.mergedMeshes) m.geometry.dispose();
+    // the merged hull geometry + materials are shared from hullCache (this bus is
+    // a clone) — freeing them would break every other bus on the route. Only the
+    // per-instance LED is ours to dispose.
     this.ledGeo.dispose();
     this.ledTexture.dispose();
     this.ledMaterial.dispose();

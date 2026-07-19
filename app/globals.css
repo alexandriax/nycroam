@@ -95,6 +95,9 @@ canvas { display: block; touch-action: none; }
     inset 0 1px 0 rgba(255, 255, 255, 0.06);
 }
 
+/* a row of top-right controls kept on one line (jump-to + link, fps + mute) */
+.hud-row { display: flex; align-items: center; gap: 8px; }
+
 /* current-street readout, styled after the corner blade signs */
 .street-blade {
   align-self: flex-start;
@@ -131,6 +134,8 @@ canvas { display: block; touch-action: none; }
   border-color: rgba(70, 220, 140, 0.35);
   color: #eafff3;
 }
+/* sound muted: dim the speaker so the crossed-out state reads at a glance */
+.share-btn.muted { color: rgba(255, 255, 255, 0.4); }
 
 /* the nearest cross street rides along as a second, quieter blade */
 .street-blade.cross {
@@ -244,6 +249,26 @@ kbd {
 .heli-btn.on .heli-ico { filter: none; }
 /* touch: same pill, but a 44px-tall tap target */
 .heli-btn.touch { padding: 12px 14px; font-size: 13px; }
+
+/* ---- walk/run toggle (touch only) ---- */
+.run-btn {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 12px 14px;
+  font-size: 13px;
+  letter-spacing: 0.2px;
+  color: rgba(255, 255, 255, 0.85);
+  cursor: pointer;
+  touch-action: manipulation;
+  transition: border-color 0.15s ease, color 0.15s ease, background 0.15s ease;
+}
+.run-ico { font-size: 13px; line-height: 1; }
+.run-btn.on {
+  background: rgba(13, 92, 51, 0.6);
+  border-color: rgba(70, 220, 140, 0.35);
+  color: #eafff3;
+}
 
 /* ---- altitude pair (touch, under the heli button) ---- */
 .alt-pair { display: flex; gap: 6px; }

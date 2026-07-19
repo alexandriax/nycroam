@@ -906,6 +906,11 @@ export class Train {
     return this.doorOffset > 0.001;
   }
 
+  /** Where in the arrive -> dwell -> depart cycle this train is. */
+  get phase(): TrainState {
+    return this.state;
+  }
+
   /**
    * Estimated seconds until this train is DWELLING at the platform, for the
    * platform countdown clocks: 0 while dwelling, the remaining approach time

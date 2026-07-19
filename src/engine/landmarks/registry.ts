@@ -93,7 +93,7 @@ export const LANDMARKS_REG: LandmarkEntry[] = [
   // ---- village / chelsea / hudson yards ----
   // anchored on the arch's own OSM footprint centroid; OSM also maps the arch
   // as a 20m building, which `clear` suppresses so the replica stands alone
-  { id: 'washington-arch', name: 'Washington Square Arch', lat: 40.731235, lon: -73.997102, set: 'village', r: 500, rot: 0.05, clear: 13 },
+  { id: 'washington-arch', name: 'Washington Square Arch', lat: 40.731235, lon: -73.997102, set: 'village', r: 500, rot: GRID, clear: 13 },
   { id: 'stonewall', name: 'Stonewall National Monument', lat: 40.7338, lon: -74.0021, set: 'village', r: 350, rot: 1.0 },
   // bespoke anchor/rot measured from the baked triangle itself (apex-north axis
   // from the OSM footprint); the obb fit was dropped — a triangle's longest-edge
