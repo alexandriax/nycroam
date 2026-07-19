@@ -337,8 +337,9 @@ export default function NYCRoam() {
             >▼</button>
           </div>
         )}
-        {/* walk/run toggle — touch has no Shift key, so sprint needs a button */}
-        {isTouch && hud?.mode === 'street' && !hud?.riding && !hud?.fly && (
+        {/* walk/run toggle — touch has no Shift key, so sprint needs a button.
+            Shown on the street AND on subway platforms (both honour sprint). */}
+        {isTouch && (hud?.mode === 'street' || hud?.mode === 'station') && !hud?.riding && !hud?.fly && (
           <button
             onClick={toggleRun}
             className={`hud-panel run-btn${running ? ' on' : ''}`}

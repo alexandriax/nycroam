@@ -155,15 +155,17 @@ export class AudioManager {
     const def = MANIFEST[name];
     const buf = this.buffers.get(def.file);
     if (!buf) return;
-    const src = this.ctx.createBufferSource();
-    src.buffer = buf;
-    src.playbackRate.value = opts.rate ?? 1;
-    const g = this.ctx.createGain();
-    g.gain.value = def.gain * (opts.volume ?? 1);
-    src.connect(g);
-    g.connect(this.master);
-    src.onended = () => { src.disconnect(); g.disconnect(); };
-    src.start();
+    try {
+      const src = this.ctx.createBufferSource();
+      src.buffer = buf;
+      src.playbackRate.value = opts.rate ?? 1;
+      const g = this.ctx.createGain();
+      g.gain.value = def.gain * (opts.volume ?? 1);
+      src.connect(g);
+      g.connect(this.master);
+      src.onended = () => { src.disconnect(); g.disconnect(); };
+      src.start();
+    } catch { /* a Web Audio failure must never crash the app — just stay silent */ }
   }
 
   /** Ease every loop's live gain/rate toward its target. Call once per frame. */
@@ -171,24 +173,26 @@ export class AudioManager {
     if (!this.ctx || this.ctx.state !== 'running') return;
     const k = Math.min(1, dt * 6);
     for (const [name, st] of this.loops) {
-      const def = MANIFEST[name];
-      // start the persistent source lazily, once its buffer has decoded
-      if (!st.source && st.targetVol > 0) {
-        const buf = this.buffers.get(def.file);
-        if (buf) {
-          const src = this.ctx.createBufferSource();
-          src.buffer = buf;
-          src.loop = true;
-          src.connect(st.gainNode);
-          src.start();
-          st.source = src;
+      try {
+        const def = MANIFEST[name];
+        // start the persistent source lazily, once its buffer has decoded
+        if (!st.source && st.targetVol > 0) {
+          const buf = this.buffers.get(def.file);
+          if (buf) {
+            const src = this.ctx.createBufferSource();
+            src.buffer = buf;
+            src.loop = true;
+            src.connect(st.gainNode);
+            src.start();
+            st.source = src;
+          }
         }
-      }
-      st.curVol += (st.targetVol - st.curVol) * k;
-      st.curRate += (st.targetRate - st.curRate) * k;
-      // square the fader for a more natural taper
-      st.gainNode.gain.value = def.gain * st.curVol * st.curVol;
-      if (st.source) st.source.playbackRate.value = st.curRate;
+        st.curVol += (st.targetVol - st.curVol) * k;
+        st.curRate += (st.targetRate - st.curRate) * k;
+        // square the fader for a more natural taper
+        st.gainNode.gain.value = def.gain * st.curVol * st.curVol;
+        if (st.source) st.source.playbackRate.value = st.curRate;
+      } catch { /* one loop misbehaving must not stall the others or the app */ }
     }
   }
 

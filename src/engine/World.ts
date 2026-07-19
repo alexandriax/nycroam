@@ -1748,6 +1748,18 @@ export class World {
    * mode you just left fades out instead of cutting.
    */
   private updateAudio(dt: number, preX: number, preZ: number) {
+    try { this.updateAudioInner(dt, preX, preZ); }
+    catch (e) {
+      // sound + the cosmetic bob are non-essential — a failure here must never
+      // take down the render loop (e.g. boarding a train). Degrade silently.
+      this.onFootBob = false;
+      if (!this.audioWarned) { this.audioWarned = true; console.warn('[audio] disabled after error:', e); }
+    }
+  }
+
+  private audioWarned = false;
+
+  private updateAudioInner(dt: number, preX: number, preZ: number) {
     const a = this.audio;
     const moved = Math.hypot(this.pos.x - preX, this.pos.z - preZ);
     // a teleport / mode swap jumps the position — don't read that as speed
