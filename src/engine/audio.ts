@@ -24,11 +24,12 @@ interface SoundDef { file: string; loop: boolean; gain: number; }
 
 // Base per-sound gains bake in the relative loudness so callers pass a clean
 // 0..1 intensity. Files live in public/audio/.
-// Loops are WAV (gapless) except train.mp3, a supplied sample. MP3 carries
-// encoder-delay padding that can tick on loop, so loop sources trim it via
-// loopStart/loopEnd (see update()). One-shots stay MP3. Gains are the mix.
+// Loops are WAV (gapless) except bike.mp3 / train.mp3, supplied samples. MP3
+// carries encoder-delay padding that can tick on loop, so loop sources trim it
+// via loopStart/loopEnd (see update()). One-shots stay MP3. Gains are the mix
+// (bike's is high because the supplied sample is quiet).
 const MANIFEST: Record<LoopName | OneShotName, SoundDef> = {
-  bike: { file: 'bike.wav', loop: true, gain: 0.6 },
+  bike: { file: 'bike.mp3', loop: true, gain: 4.0 }, // supplied sample is quiet — gain lifts it to the mix
   bus: { file: 'bus.wav', loop: true, gain: 0.5 },
   train: { file: 'train.mp3', loop: true, gain: 0.6 },
   helicopter: { file: 'helicopter.wav', loop: true, gain: 0.7 },
