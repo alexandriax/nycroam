@@ -32,7 +32,7 @@ const MANIFEST: Record<LoopName | OneShotName, SoundDef> = {
   bike: { file: 'bike.mp3', loop: true, gain: 2.0 }, // supplied sample is quiet — gain lifts it to the mix
   bus: { file: 'bus.wav', loop: true, gain: 0.5 },
   train: { file: 'train.mp3', loop: true, gain: 0.6 },
-  helicopter: { file: 'helicopter.wav', loop: true, gain: 0.7 },
+  helicopter: { file: 'helicopter.wav', loop: true, gain: 0.35 },
   footstep: { file: 'footstep.mp3', loop: false, gain: 0.45 },
   busDoors: { file: 'bus-doors.mp3', loop: false, gain: 0.35 },
   trainArrive: { file: 'train-arrive.mp3', loop: false, gain: 0.75 },

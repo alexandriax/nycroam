@@ -7,6 +7,8 @@ import { LANDMARKS_REG } from '../engine/landmarks/registry';
 import { abbreviateStreet } from '../engine/streetFurniture';
 import MiniMap from './MiniMap';
 import GoalsModal, { TrophyIcon } from './GoalsModal';
+import InfoModal from './InfoModal';
+import type { PlaqueInfo } from '../engine/PlaqueManager';
 
 // Every premium landmark (skip alias entries — they resolve to another's build),
 // sorted, for the "Jump to…" menu. Pairs with the ?landmark=<id> deep link.
@@ -142,6 +144,7 @@ export default function NYCRoam() {
   const [copied, setCopied] = useState(false);
   const copiedTimer = useRef(0);
   const [goalsOpen, setGoalsOpen] = useState(false);
+  const [infoTarget, setInfoTarget] = useState<PlaqueInfo | null>(null); // building-info modal
   const [goalsDone, setGoalsDone] = useState(false); // all goals complete → gold trophy
   const [flashes, setFlashes] = useState<{ id: number; text: string }[]>([]);
   const flashId = useRef(0);
@@ -177,6 +180,7 @@ export default function NYCRoam() {
     (window as unknown as { __nyc: World }).__nyc = world;
     world.onHud = setHud;
     world.onFade = setFade;
+    world.onInfo = (info) => setInfoTarget(info);
     world.init();
     setMuted(world.audio.isMuted);
     // goals: flash messages (queued, max 2 pending) + the all-complete tint
@@ -530,6 +534,23 @@ export default function NYCRoam() {
         </div>
       )}
 
+      {/* building-info plaque within reach — separate affordance from the transit
+          prompt, so both can show. Tap/click opens the modal; desktop also has `i`. */}
+      {hud?.nearInfo && hud.mode === 'street' && !infoTarget && (
+        <button
+          className={`hud-panel info-chip-hud${hud.nearInfo.lm ? ' lm' : ''}`}
+          onClick={() => worldRef.current?.info()}
+          style={{
+            position: 'absolute', bottom: isTouch ? 222 : 140, left: '50%', transform: 'translateX(-50%)',
+          }}
+          aria-label={`Info: ${hud.nearInfo.label}`}
+        >
+          <span className="info-chip-glyph">ⓘ</span>
+          <span className="info-chip-label">{hud.nearInfo.label}</span>
+          <span className="info-chip-key">{isTouch ? 'tap' : 'press i'}</span>
+        </button>
+      )}
+
       {/* touch buttons */}
       {isTouch && worldRef.current && (
         <>
@@ -573,6 +594,11 @@ export default function NYCRoam() {
               An explorable <b>Manhattan</b> built from real map &amp; transit
               data. Ride any <b>subway</b>, <b>bus</b>, or <b>bike</b> along its true routes
               &amp; stops, or take <b>helicopter mode</b> and fly above the city to explore.
+            </p>
+            <p className="intro-msg intro-new">
+              <span className="intro-new-pill">New</span> Every building wears its
+              <b> address plaque</b>: walk up for its story, with <b>Wikipedia</b> info
+              &amp; historic photos from <b>Old&nbsp;NYC</b>.
             </p>
             {loading ? (
               <button className="intro-cta loading" disabled>
@@ -620,6 +646,11 @@ export default function NYCRoam() {
       {/* goals / achievements modal */}
       {goalsOpen && worldRef.current && (
         <GoalsModal tracker={worldRef.current.goals} onClose={() => setGoalsOpen(false)} />
+      )}
+
+      {/* building-info modal */}
+      {infoTarget && (
+        <InfoModal info={infoTarget} onClose={() => setInfoTarget(null)} />
       )}
     </div>
   );

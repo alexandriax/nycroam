@@ -1,0 +1,5 @@
+Historical-photo deep links point to OldNYC (https://www.oldnyc.org/).
+OldNYC is by Dan Vanderkam (github.com/danvk/oldnyc, github.com/oldnyc/oldnyc.github.io),
+Apache-2.0. Photos are from the NYPL Milstein Collection and remain NYPL's; this app
+redistributes no images and only links out. Marker coordinates (facts) are used under
+Apache-2.0 to construct #g:lat,lon deep links.

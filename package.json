@@ -2,6 +2,7 @@
   "name": "nycroam",
   "version": "0.1.0",
   "private": true,
+  "license": "MIT",
   "scripts": {
     "dev": "next dev",
     "build": "next build",
@@ -11,10 +12,12 @@
     "data:tiles": "node scripts/build-tiles.mjs",
     "data:subway": "node scripts/fetch-subway.mjs",
     "data:network": "node scripts/fetch-network.mjs",
-    "data:all": "node scripts/fetch-osm.mjs && node scripts/fetch-terrain.mjs && node scripts/build-tiles.mjs && node scripts/fetch-subway.mjs && node scripts/fetch-network.mjs && node scripts/fetch-bikes.mjs && node scripts/fetch-buses.mjs && node scripts/fetch-hoods.mjs",
+    "data:all": "node scripts/fetch-osm.mjs && node scripts/fetch-terrain.mjs && node scripts/build-tiles.mjs && node scripts/fetch-subway.mjs && node scripts/fetch-network.mjs && node scripts/fetch-bikes.mjs && node scripts/fetch-buses.mjs && node scripts/fetch-hoods.mjs && node scripts/fetch-oldnyc.mjs && node scripts/build-plaques.mjs",
     "data:bikes": "node scripts/fetch-bikes.mjs",
     "data:buses": "node scripts/fetch-buses.mjs",
-    "data:hoods": "node scripts/fetch-hoods.mjs"
+    "data:hoods": "node scripts/fetch-hoods.mjs",
+    "data:oldnyc": "node scripts/fetch-oldnyc.mjs",
+    "data:plaques": "node scripts/fetch-oldnyc.mjs && node scripts/build-plaques.mjs"
   },
   "dependencies": {
     "earcut": "^2.2.4",
