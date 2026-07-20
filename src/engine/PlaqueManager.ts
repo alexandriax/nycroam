@@ -25,6 +25,7 @@ interface RawPlaque {
 /** Resolved plaque with world coords — what the info modal consumes. */
 export interface PlaqueInfo {
   x: number; z: number; // world metres
+  a: number; // outward wall-facing bearing, degrees (atan2(nz,nx) convention)
   num?: string; st?: string; nm?: string; k?: string; lv?: number;
   wd?: string; wp?: string; web?: string; o?: string; lm?: boolean;
 }
@@ -202,7 +203,7 @@ export class PlaqueManager {
     const ox = rec.tx * TILE_SIZE, oz = rec.tz * TILE_SIZE;
     for (const p of raw) {
       rec.plaques.push({
-        x: ox + p.x / 10, z: oz + p.z / 10,
+        x: ox + p.x / 10, z: oz + p.z / 10, a: p.a,
         num: p.num, st: p.st, nm: p.nm, k: p.k, lv: p.lv,
         wd: p.wd, wp: p.wp, web: p.web, o: p.o, lm: p.lm === 1,
       });

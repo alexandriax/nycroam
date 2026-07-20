@@ -457,28 +457,77 @@ export class World {
   }
 
   /**
+   * Street View URL for (x,z) facing headingDeg (compass, 0=north) at tiltDeg
+   * (measured from nadir: 90=level, >90=up). Shared by the HUD button (player
+   * position + gaze) and the building-info modal (a plaque's own position +
+   * facade-facing heading).
+   *
+   * The viewpoint snaps to the nearest vehicular centerline (within 30m): the
+   * panoramas were shot from the roadway, and our stylized street widths mean
+   * a game-world point can project to a spot inside the real building line,
+   * where Google's nearest-pano pick is often an indoor/plaza photosphere with
+   * an uncalibrated compass. Centerlines are true OSM geometry, so snapping
+   * lands on the road imagery. The URL is the exact camera form Maps itself
+   * emits (…/@lat,lng,3a,{fov}y,{heading}h,{tilt}t) — unlike the documented
+   * api=1 pano action, it reliably honors the camera after snapping.
+   */
+  private streetViewUrl(x: number, z: number, headingDeg: number, tiltDeg: number): string {
+    let sx = x, sz = z, bestD2 = 30 * 30;
+    for (const rp of this.tiles.roadPathsNear(x, z, 1)) {
+      const roadCount = rp.start.length - 1;
+      for (let r = 0; r < roadCount; r++) {
+        if (rp.kind[r] !== PATH_KIND_ROAD) continue;
+        const a = rp.start[r], b = rp.start[r + 1];
+        for (let j = a; j < b - 1; j++) {
+          const x1 = rp.pts[j * 2], z1 = rp.pts[j * 2 + 1];
+          const x2 = rp.pts[(j + 1) * 2], z2 = rp.pts[(j + 1) * 2 + 1];
+          const dx = x2 - x1, dz = z2 - z1, l2 = dx * dx + dz * dz;
+          if (l2 < 1e-6) continue;
+          let t = ((x - x1) * dx + (z - z1) * dz) / l2;
+          t = t < 0 ? 0 : t > 1 ? 1 : t;
+          const px = x1 + t * dx, pz = z1 + t * dz;
+          const d2 = (x - px) ** 2 + (z - pz) ** 2;
+          if (d2 < bestD2) { bestD2 = d2; sx = px; sz = pz; }
+        }
+      }
+    }
+    const [lon, lat] = xzToLonLat(sx, sz);
+    return (
+      `https://www.google.com/maps/@${lat.toFixed(6)},${lon.toFixed(6)},3a,75y,` +
+      `${headingDeg.toFixed(1)}h,${tiltDeg.toFixed(1)}t/data=!3m1!1e1`
+    );
+  }
+
+  /**
    * Google Street View from the current spot and gaze. Compass heading comes
    * from the horizontal facing (yaw 0 = north = -z). While flying this anchors
    * to the ground below with a level gaze: panoramas only exist at street
    * level, and a bird's-eye pitch aimed at the pavement would show nothing.
-   *
-   * Not currently wired to any UI (disabled pending a placement rework —
-   * the viewpoint doesn't reliably land on the matching real-world spot/gaze).
    */
   streetViewLink(): string | null {
     if (this.mode !== 'street') return null;
-    const lat = (ORIGIN.lat - this.pos.z / M_PER_DEG_LAT).toFixed(6);
-    const lon = (ORIGIN.lon + this.pos.x / M_PER_DEG_LON).toFixed(6);
     const { fwd } = this.controls.basis();
     let heading = (Math.atan2(fwd.x, -fwd.z) * 180) / Math.PI;
     if (heading < 0) heading += 360;
     const pitch = this.controls.fly
       ? 0
       : Math.max(-85, Math.min(85, (this.controls.pitch * 180) / Math.PI));
-    return (
-      'https://www.google.com/maps/@?api=1&map_action=pano' +
-      `&viewpoint=${lat}%2C${lon}&heading=${heading.toFixed(1)}&pitch=${pitch.toFixed(1)}&fov=80`
-    );
+    return this.streetViewUrl(this.pos.x, this.pos.z, heading, 90 + pitch);
+  }
+
+  /**
+   * Street View facing a building's own street-facing wall (used by the info
+   * modal, so the shot always shows the facade regardless of where the player
+   * was standing when they opened it). `outwardBearingDeg` is a plaque's
+   * baked facing angle — atan2(nz,nx) of the wall's outward normal, the same
+   * convention PlaqueManager uses to orient the plate — so the camera looks
+   * the opposite way, back at the wall: heading = outward + 180, converted
+   * from that math angle to compass via the same +90 offset streetViewLink
+   * uses for the player's facing.
+   */
+  streetViewLinkForPlaque(x: number, z: number, outwardBearingDeg: number): string {
+    const heading = ((outwardBearingDeg - 90) % 360 + 360) % 360;
+    return this.streetViewUrl(x, z, heading, 90);
   }
 
   /** Restore a shared mid-ride subway view: `<route>.<u|d>.<originStop>.<prog>`. */

@@ -5,6 +5,7 @@ import type { PlaqueInfo } from '../engine/PlaqueManager';
 import { oldNycUrl } from '../engine/PlaqueManager';
 import { fetchWiki, type WikiSummary } from '../engine/wiki';
 import { xzToLonLat, googleMapsUrl } from '../engine/geo';
+import type { World } from '../engine/World';
 
 /** Prettify an OSM building=* value for display ("apartments" -> "Apartments"). */
 const KIND_LABEL: Record<string, string> = {
@@ -43,7 +44,7 @@ function InfoIcon({ lm }: { lm?: boolean }) {
   );
 }
 
-export default function InfoModal({ info, onClose }: { info: PlaqueInfo; onClose: () => void }) {
+export default function InfoModal({ info, world, onClose }: { info: PlaqueInfo; world: World | null; onClose: () => void }) {
   const [wiki, setWiki] = useState<WikiSummary | null>(null);
   const [wikiState, setWikiState] = useState<'idle' | 'loading' | 'done' | 'none'>('idle');
 
@@ -75,6 +76,7 @@ export default function InfoModal({ info, onClose }: { info: PlaqueInfo; onClose
   const oldnyc = oldNycUrl(info.o);
   const [lon, lat] = xzToLonLat(info.x, info.z);
   const maps = googleMapsUrl(lat, lon);
+  const streetView = world?.streetViewLinkForPlaque(info.x, info.z, info.a) ?? null;
 
   return (
     <div className="info-backdrop" onClick={onClose}>
@@ -118,6 +120,13 @@ export default function InfoModal({ info, onClose }: { info: PlaqueInfo; onClose
               <span><strong>Open in Google Maps</strong></span>
               <span className="info-arrow">↗</span>
             </a>
+            {streetView && (
+              <a className="info-linkcard" href={streetView} target="_blank" rel="noopener noreferrer">
+                <span className="info-linkcard-icon">👁️</span>
+                <span><strong>See it in Street View</strong></span>
+                <span className="info-arrow">↗</span>
+              </a>
+            )}
             {oldnyc && (
               <a className="info-linkcard" href={oldnyc} target="_blank" rel="noopener noreferrer">
                 <span className="info-linkcard-icon">🖼️</span>
