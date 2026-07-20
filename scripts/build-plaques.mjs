@@ -9,14 +9,20 @@
 // shows. Also snaps each building to the nearest OldNYC historical-photo marker.
 //
 // Output: public/geo/plaques/index.json  + public/geo/plaques/{tx}_{tz}.json
-//   plaque record: { x, z, e, a, num?, st?, nm?, k?, lv?, wd?, wp?, web?, o?, lm? }
+//   plaque record: { x, z, e, a, num?, st?, nm?, k?, lv?, wd?, wp?, o?, lm? }
 //     x,z  decimetres relative to the tile origin (tile chosen by centroid, as
 //          in build-tiles.mjs); e = plaque-centre elevation in decimetres
 //     a    outward facing bearing in integer degrees (atan2(nz,nx))
 //     num  house number   st street   nm display name   k building kind
-//     lv   levels   wd wikidata Q-id   wp wikipedia "lang:Title"   web website
+//     lv   levels   wd wikidata Q-id   wp wikipedia "lang:Title"
 //     o    OldNYC "lat,lon" marker key (exact string; omit if none within range)
 //     lm   1 for a curated landmark (info glyph instead of a number)
+//
+//   Deliberately NOT baked: OSM's free-form `website` tag. It's present on
+//   ~1,449 buildings citywide and is unreliably stale (Hearst Tower's, e.g.,
+//   403s) with no cheap way to validate at build time — a live HTTP check
+//   would have plenty of false negatives from bot-blocking (confirmed on
+//   Hearst's own dead link) and false positives from rot after the check.
 //
 // This is a self-contained data step (no existing tile is rebuilt). The shared
 // geometry/road machinery mirrors scripts/build-tiles.mjs — keep the constants,
@@ -648,7 +654,6 @@ async function main() {
     if (opts.lv) rec.lv = opts.lv;
     if (opts.wd) rec.wd = opts.wd;
     if (opts.wp) rec.wp = opts.wp;
-    if (opts.web) rec.web = opts.web;
     if (opts.lm) rec.lm = 1;
     const o = snapOldNyc(b.centroid[0], b.centroid[1]);
     if (o) { rec.o = o; oldnycLinks++; }
@@ -664,7 +669,7 @@ async function main() {
     // Fit landmarks: match at the measured obb CENTER, not the registry anchor —
     // anchors are tuned for the bespoke build and can sit off the real footprint
     // (Hearst's anchor is ~60m east of the tower; anchor-matching grabbed the
-    // neighbouring Sheffield apartment slab and its address/website).
+    // neighbouring Sheffield apartment slab and its address).
     const fit = fits[lm.id];
     const b = fit ? matchLandmark(fit.cx, fit.cz) : matchLandmark(lm.x, lm.z);
     if (!b) { console.warn(`  landmark ${lm.id}: no building within ${LANDMARK_MATCH_M}m`); continue; }
@@ -687,7 +692,7 @@ async function main() {
       k: t.building && t.building !== 'yes' ? t.building : undefined,
       lv: Number.isFinite(lv) ? lv : undefined,
       wd: t.wikidata, wp: t.wikipedia || (lm.wiki ? `en:${lm.wiki}` : undefined),
-      web: t.website, lm: true,
+      lm: true,
     })) landmarkCount++;
   }
 
@@ -704,7 +709,7 @@ async function main() {
       num, st: t['addr:street'], nm: t.name,
       k: t.building && t.building !== 'yes' ? t.building : undefined,
       lv: Number.isFinite(lv) ? lv : undefined,
-      wd: t.wikidata, wp: t.wikipedia, web: t.website,
+      wd: t.wikidata, wp: t.wikipedia,
     })) ordinaryCount++;
   }
 

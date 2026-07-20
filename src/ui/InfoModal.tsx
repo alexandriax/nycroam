@@ -55,6 +55,16 @@ export default function InfoModal({ info, world, onClose }: { info: PlaqueInfo; 
     return () => window.removeEventListener('keydown', onKey);
   }, [onClose]);
 
+  // Release pointer lock while the modal is open so its links are clickable
+  // with a normal cursor, and restore it on close if the player had been
+  // click-to-look (mirrors PlayerControls' own lock/drag state, not the
+  // modal's — this only touches the lock, never movement/keys).
+  useEffect(() => {
+    const controls = world?.controlsRef;
+    const wasLocked = controls?.releasePointerLock() ?? false;
+    return () => { if (wasLocked) controls?.requestPointerLock(); };
+  }, [world]);
+
   // live Wikipedia lookup (only when there's something to look up)
   useEffect(() => {
     const hasHint = info.wp || info.wd || (info.lm && info.nm);
@@ -134,13 +144,6 @@ export default function InfoModal({ info, world, onClose }: { info: PlaqueInfo; 
                   <strong>Historic photos nearby</strong>
                   <em>Old NYC · NYPL collection</em>
                 </span>
-                <span className="info-arrow">↗</span>
-              </a>
-            )}
-            {info.web && (
-              <a className="info-linkcard" href={info.web} target="_blank" rel="noopener noreferrer">
-                <span className="info-linkcard-icon">🌐</span>
-                <span><strong>Official website</strong></span>
                 <span className="info-arrow">↗</span>
               </a>
             )}
