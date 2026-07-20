@@ -507,7 +507,13 @@ async function main() {
     { id: 'hearst-tower', lat: 40.7666, lon: -73.9836, r: 55, clearAboveH: 5 },
     { id: 'chrysler', lat: 40.7516, lon: -73.9755, r: 45, clearAboveMin: 184, clearAboveH: 270 },
     { id: 'empire-state', lat: 40.7484, lon: -73.9857, r: 40, clearAboveMin: 325 },
-    { id: 'one-vanderbilt', lat: 40.7529, lon: -73.9787, r: 40 },
+    // minH: obb over the tall shaft only, so the crown centers on the tower
+    // (not the block-wide base). clearAboveH: OSM's own crown prisms (h=397)
+    // and 3m-wide spire stick (h=427) are full-height extrusions (base ~18m),
+    // so clearAboveMin can't catch them — drop by TOP height instead; the
+    // bespoke faceted-glass crown replaces them above the kept 350m setbacks.
+    // r 48: a 350m part centroid sits 39.9m out (the hearst boundary lesson).
+    { id: 'one-vanderbilt', lat: 40.7529, lon: -73.9787, r: 48, minH: 340, clearAboveH: 380 },
     // minH: the 120m base obb centered the crown 13m off the tower shaft — the
     // verdigris crown floated beside the top (the "topper near City Hall" bug)
     { id: 'woolworth', lat: 40.7124, lon: -74.0083, r: 40, minH: 150 },
@@ -1081,12 +1087,35 @@ async function main() {
     return null;
   }
   const WATER_AREA_CAP = 1500000; // m^2 - drop rivers, keep park lakes/reservoir
+  const LAKE_AREA = 20000; // m^2 - at/above this a water body is "lake-scale": gets the
+  // interior-clearing water level (below) and culls the trees baked inside it. Below it,
+  // ponds/fountains keep the plain grade-level rule so they stay flush with the ground.
 
   const VEGETATION_KINDS = new Set(['wood', 'park', 'grass', 'cemetery']);
   const tileAreas = new Map(); // key -> Map<kind, number[]> (triples x,z,e per vertex; e = absolute decimeters)
   const areaPolysByKind = new Map(); // kind -> array of {outer,holes} world-meter rings (wood/park/grass/cemetery only, for procedural trees)
   for (const k of VEGETATION_KINDS) areaPolysByKind.set(k, []);
+  const lakeWaterPolys = []; // { poly:{outer,holes}, bbox } for lake-scale water — trees inside are culled below
   let areaPolyCount = 0, areaTriCount = 0, waterDropped = 0;
+
+  // Highest terrain elevation (m) inside a lake polygon. Samples the subdivided triangle
+  // vertices (all interior to the ring+holes) plus a coarse ~12m grid over the bbox
+  // (point-in-polygon filtered) so a berm crest falling between subdivided vertices still
+  // registers. The reservoir's DEM tops its shoreline mean inside the retaining berm, so
+  // this is what the water surface must clear. Lake-scale water only (few polygons, cheap).
+  function lakeInteriorMax(poly, tris) {
+    let maxE = -Infinity;
+    for (const t of tris) for (const p of t) { const e = terrainAt(p[0], p[1]); if (e > maxE) maxE = e; }
+    const bbox = polyBBox(poly.outer);
+    for (let x = bbox.minX; x <= bbox.maxX; x += 12) {
+      for (let z = bbox.minZ; z <= bbox.maxZ; z += 12) {
+        if (!pointInPolygonWithHoles([x, z], poly)) continue;
+        const e = terrainAt(x, z);
+        if (e > maxE) maxE = e;
+      }
+    }
+    return maxE;
+  }
   for (const el of areasMap.values()) {
     const tags = el.tags || {};
     const kind = classifyArea(tags);
@@ -1107,23 +1136,39 @@ async function main() {
 
       if (VEGETATION_KINDS.has(kind)) areaPolysByKind.get(kind).push(poly);
 
-      // Water: flatten every triangle of this SOURCE polygon to one constant level so
-      // ponds/lakes render dead flat instead of following the (noisy, bilinear-sampled) terrain.
-      // Level = mean shoreline elevation + 0.3 so it clears DEM noise inside the basin.
+      areaPolyCount++;
+      // Subdivide EVERY area kind (incl. water) so per-vertex elevations follow the terrain
+      // instead of a giant flat triangle slicing through hills (which buried most of Central
+      // Park's lawns). subdivideAll is hoisted from the ground-mesh section below. Water keeps
+      // ONE constant level across all its (now many) vertices so it stays dead flat — and
+      // subdividing it is exactly what lets centroid-binning spread a big body across every
+      // tile it covers. The reservoir was ~153 giant slivers binned into a handful of tiles,
+      // so most covered tiles streamed in with no water triangles (holes) and the runtime
+      // per-tile tree cull saw no water to cull against.
+      const trisRaw = triangulatePolygon(poly.outer, poly.holes);
+      const tris = subdivideAll(trisRaw, 45);
+
+      // Water: flatten every triangle of this polygon to one constant level so ponds/lakes
+      // render dead flat instead of following the (noisy, bilinear-sampled) terrain.
       let waterLevelDm = null;
       if (kind === 'water') {
         let sumE = 0;
         for (const v of poly.outer) sumE += terrainAt(v[0], v[1]);
-        waterLevelDm = Math.round((sumE / poly.outer.length + 0.3) * 10);
+        const shorelineLevel = sumE / poly.outer.length + 0.3; // +0.3 clears DEM noise in the basin
+        let level = shorelineLevel;
+        if (netArea >= LAKE_AREA) {
+          // Lake-scale bodies (reservoir, Central Park lakes): the DEM inside the berm TOPS
+          // the shoreline mean — the reservoir samples up to ~1m ABOVE mean-shoreline+0.3, so
+          // the old rule left terrain (and the park polygon that covers the reservoir with no
+          // hole) poking ABOVE the water plane, showing green through/above the water. Lift the
+          // surface to clear the highest interior DEM sample. Small ponds keep the grade rule.
+          const interiorMax = lakeInteriorMax(poly, tris);
+          level = Math.max(shorelineLevel, interiorMax + 0.25);
+          lakeWaterPolys.push({ poly, bbox: polyBBox(poly.outer) });
+        }
+        waterLevelDm = Math.round(level * 10);
       }
 
-      areaPolyCount++;
-      // Subdivide so per-vertex elevations follow the terrain instead of a giant flat
-      // triangle slicing through hills (which buried most of Central Park's lawns).
-      // subdivideAll is hoisted from the ground-mesh section below. Water stays flat,
-      // so skip subdividing it (constant level regardless of vertex count).
-      const trisRaw = triangulatePolygon(poly.outer, poly.holes);
-      const tris = kind === 'water' ? trisRaw : subdivideAll(trisRaw, 45);
       for (const [p0, p1, p2] of tris) {
         const cx = (p0[0] + p1[0] + p2[0]) / 3;
         const cz = (p0[1] + p1[1] + p2[1]) / 3;
@@ -1143,6 +1188,20 @@ async function main() {
     }
   }
   console.log(`  areas: ${areaPolyCount} polygons -> ${areaTriCount} triangles (${waterDropped} large water polygons dropped as rivers)`);
+  console.log(`  lake-scale water bodies (>= ${LAKE_AREA} m^2): ${lakeWaterPolys.length} (trees inside are culled below)`);
+
+  // True when (x,z) falls inside any lake-scale water body. Mirrors the global road-index
+  // cull: bbox prefilter, then point-in-polygon-with-holes (an island in a lake keeps its
+  // trees). Trees inside a reservoir/lake would stand in the water — the roads/buildings
+  // culls never covered water. The runtime per-tile cull in tileWorker stays as belt-and-
+  // braces for small ponds, which aren't collected here.
+  function inLakeWater(x, z) {
+    for (const { poly, bbox } of lakeWaterPolys) {
+      if (x < bbox.minX || x > bbox.maxX || z < bbox.minZ || z > bbox.maxZ) continue;
+      if (pointInPolygonWithHoles([x, z], poly)) return true;
+    }
+    return false;
+  }
 
   // ---- TREES: real OSM nodes -----------------------------------------------------------
   console.log('Processing trees...');
@@ -1200,11 +1259,12 @@ async function main() {
 
   const realTreesByTile = new Map(); // key -> array of [x,z] world meters, capped at 800 (unchanged from v1)
   let treeTilesSampled = 0;
-  let realCulledAtEntrances = 0, realCulledInRoad = 0, realCulledInBuilding = 0;
+  let realCulledAtEntrances = 0, realCulledInRoad = 0, realCulledInBuilding = 0, realCulledInWater = 0;
   for (const [key, rawList] of treesByTile) {
     const buildings = tileBuildingFootprints.get(key) || [];
     const list = rawList.filter(([x, z]) => {
       if (nearEntrance(x, z)) { realCulledAtEntrances++; return false; }
+      if (inLakeWater(x, z)) { realCulledInWater++; return false; } // no tree standing in a reservoir/lake
       if (inVehicularRoad(x, z, TREE_ROAD_MARGIN)) { realCulledInRoad++; return false; }
       // a tree node inside a building footprint would spear the building
       for (const bpoly of buildings) {
@@ -1219,6 +1279,7 @@ async function main() {
   console.log(`  real OSM trees: ${treeCount} nodes across ${treesByTile.size} tiles (${treeTilesSampled} tiles capped at 800)`);
   if (realCulledAtEntrances) console.log(`  real OSM trees: ${realCulledAtEntrances} culled at subway entrances`);
   if (realCulledInRoad || realCulledInBuilding) console.log(`  real OSM trees: ${realCulledInRoad} culled in roadway, ${realCulledInBuilding} culled inside buildings`);
+  if (realCulledInWater) console.log(`  real OSM trees: ${realCulledInWater} culled inside lake-scale water`);
 
   // ---- PROCEDURAL VEGETATION -------------------------------------------------------------
   // Scattered inside wood/park/grass/cemetery polygons (deterministic hex/grid lattice +
@@ -1310,6 +1371,7 @@ async function main() {
       const buildings = tileBuildingFootprints.get(key) || [];
       const kept = [];
       for (const [x, z, clearance] of list) {
+        if (inLakeWater(x, z)) continue; // global: no procedural tree standing in a reservoir/lake
         if (pointToPolylinesDist([x, z], roadPolylines) < clearance) continue; // per-tile: keep off footpaths too
         if (inVehicularRoad(x, z, TREE_ROAD_MARGIN)) continue; // global: no procedural tree in a vehicular roadbed
         if (nearEntrance(x, z)) continue;

@@ -60,7 +60,8 @@ export interface BuildResponse {
   buildings: MeshPayload | null;
   roads: MeshPayload | null; // asphalt family, uv'd for texturing
   walks: MeshPayload | null; // concrete family (sidewalks/paths), uv'd
-  areas: MeshPayload | null; // parks/water/plazas
+  areas: MeshPayload | null; // parks/plazas (flat vertex-colored ground)
+  water: MeshPayload | null; // water bodies — own mesh, animated water material
   markings: MeshPayload | null; // lane lines + crosswalk bars
   trees: Float32Array | null; // [x,y,z, scale, hueJitter] * n  (world coords)
   hydrants: Float32Array | null; // [x,y,z,rotY] * n (world coords)

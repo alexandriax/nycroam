@@ -15,6 +15,7 @@ import { LANDMARKS_REG } from './landmarks/registry';
 import { BikeView } from './bikeview';
 import { WalkBob } from './walkbob';
 import { AudioManager } from './audio';
+import { GoalTracker } from './goals';
 import { BusSystem, type BusRideHandle } from './bus/BusSystem';
 import { TramSystem, type TramRideHandle } from './tram';
 import { BusModel } from './bus/model';
@@ -127,6 +128,8 @@ export class World {
   private onFootBob = false; // apply the walk-bob to the camera this frame
   /** Diegetic sound: footsteps, bike/bus/train/heli ambiences, doors, arrivals. */
   readonly audio = new AudioManager();
+  /** Goals / achievements: transit events + a per-frame spatial/motion sample. */
+  readonly goals = new GoalTracker();
   private prevBusHudState: string | null = null; // ridden-bus door-open edge
   private lastArriveSound = 0; // throttle the "train pulling in" one-shot
   private footstepsEnabled = true; // footstep SFX (uses the updated sample)
@@ -1067,6 +1070,7 @@ export class World {
   /** Mount / dismount: the view model, the seated eye height, and the HUD flag. */
   private setRiding(on: boolean) {
     this.riding = on;
+    if (on) this.goals.onBikeMount(); // bike mount (bike-on-bus re-mount is idempotent)
     this.hud.riding = on;
     this.eyeHeight = on ? BikeView.eyeHeight : WALK_EYE;
     if (on) {
@@ -1103,6 +1107,7 @@ export class World {
       this.broughtBike = broughtBike;
       this.busRide = h;
       this.ridingTram = tram;
+      if (tram) this.goals.onTramBoard(); else this.goals.onBusBoard();
       this.mode = 'bus';
       this.hud.mode = 'bus';
       this.controls.fly = false;
@@ -1220,6 +1225,7 @@ export class World {
       this.station?.dispose();
       this.station = null;
       this.ride = new RideWorld(route, dirSign, startId, this.network, this.entrances.stationsMap, this.envTex);
+      this.goals.onTrainBoard(route); // board a train (route id known here)
       this.mode = 'ride';
       this.pos.set(0, 0, 0);
       this.controls.fly = false;
@@ -1267,6 +1273,7 @@ export class World {
         const ent = this.entrances.entranceFor(spec);
         this.returnPos.set(ent[0] + 2.2, 0, ent[1] + 2.2);
         this.mode = 'station';
+        this.goals.onTrainWalkOff(); // stepped off inside a station — arm a transfer
         this.hud.mode = 'station';
         this.hud.stationName = this.station instanceof ComplexStationWorld ? this.station.name : spec.name;
         this.hud.stationRoutes = this.station instanceof ComplexStationWorld ? this.station.routesUnion : spec.routes;
@@ -1389,6 +1396,7 @@ export class World {
     this.station = null;
     this.currentStationSpec = null;
     this.mode = 'street';
+    this.goals.onStationLeave(); // out to the street — cancel any armed transfer
     this.pos.copy(this.returnPos);
     this.spawnResolve = true; // entrances sit against buildings — eject if inside one
     this.hud.mode = 'street';
@@ -1744,6 +1752,22 @@ export class World {
 
     // sound + the on-foot head-bob (writes walkBob.bobY/swayX/roll and onFootBob)
     this.updateAudio(dt, preX, preZ);
+
+    // goals: spatial visits + run/heli/reservoir motion. Street (incl. bike/heli)
+    // and bus only — subway rides teleport through tunnels, so no sightseeing
+    // credit there. onFoot mirrors the walk-bob condition; groundSpeed is the
+    // same per-frame move used for footsteps.
+    if (this.mode === 'street' || this.mode === 'bus') {
+      const moved = Math.hypot(this.pos.x - preX, this.pos.z - preZ);
+      const groundSpeed = moved > 3 ? 0 : moved / Math.max(dt, 1e-4);
+      const onFoot = this.mode === 'street' && !this.controls.fly && !this.riding;
+      this.goals.update(dt, this.pos.x, this.pos.z, {
+        onFoot,
+        speed: groundSpeed,
+        flying: this.controls.fly && this.mode === 'street',
+        altAboveGround: this.pos.y - heightAt(this.pos.x, this.pos.z),
+      });
+    }
 
     const eye = this._eye; // reused each frame — no per-frame Vector3 garbage
     if (this.mode === 'bus' && this.busRide) {

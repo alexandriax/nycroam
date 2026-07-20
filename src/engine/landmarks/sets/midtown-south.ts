@@ -3,7 +3,7 @@ import {
   type LandmarkCtx,
   LIMESTONE, GRANITE, DARKSTONE, MARBLE, GOLD, STEEL_LM, GLASS_LM, WHITE_LM,
   WATER_LM, GREEN_PATINA,
-  box, cyl, strut, colonnade, lathe, figure, twoSidedPanel,
+  box, cyl, strut, lathe, figure, twoSidedPanel,
   billboardTexture, billboardMaterial,
 } from '../kit';
 
@@ -15,20 +15,56 @@ import {
  * builders add only the signature crown/skin that OSM lacks.
  */
 
-// Reclining marble lion (Patience / Fortitude) on a granite plinth, facing +z.
+// Warm pink-Tennessee-marble tint for the lions (Patience & Fortitude).
+const LION_MARBLE = new THREE.MeshLambertMaterial({ color: '#ece0cf' });
+
+// Scaled-sphere ellipsoid (semi-axes rx,ry,rz) — the organic masses of the lions.
+function blob(rx: number, ry: number, rz: number, mat: THREE.Material, x: number, y: number, z: number): THREE.Mesh {
+  const m = new THREE.Mesh(new THREE.SphereGeometry(1, 10, 8), mat);
+  m.scale.set(rx, ry, rz);
+  m.position.set(x, y, z);
+  return m;
+}
+
+// Reclining marble lion (Patience / Fortitude) on a tall granite plinth, facing +z:
+// hindquarters low at the rear (-z), chest raised and head held high at the front,
+// both forelegs stretched forward to paws, layered mane, tail curled on the flank.
 function lion(): THREE.Group {
   const g = new THREE.Group();
-  g.add(box(2.4, 1.4, 5.4, GRANITE, 0, 0.7, 0)); // plinth
-  g.add(box(1.3, 1.05, 3.2, MARBLE, 0, 2.0, -0.4)); // body
-  const haunch = new THREE.Mesh(new THREE.SphereGeometry(0.8, 8, 6), MARBLE);
-  haunch.position.set(0, 2.05, -1.7);
-  g.add(haunch); // rear haunch
-  g.add(box(1.25, 0.95, 1.0, MARBLE, 0, 1.95, 1.15)); // chest
-  for (const px of [-0.38, 0.38]) g.add(box(0.36, 0.32, 1.7, MARBLE, px, 1.55, 2.15)); // outstretched forepaws
-  const mane = new THREE.Mesh(new THREE.SphereGeometry(0.72, 10, 8), MARBLE);
-  mane.position.set(0, 2.55, 1.5);
-  g.add(mane); // maned head
-  g.add(box(0.5, 0.5, 0.6, MARBLE, 0, 2.5, 2.05)); // muzzle
+  // stepped granite plinth (~4.2 m so the ~3.6 m lion rests fully on it)
+  g.add(box(2.4, 0.45, 4.2, GRANITE, 0, 0.225, 0));        // base slab
+  g.add(box(2.0, 1.15, 3.75, GRANITE, 0, 1.02, 0));        // die
+  g.add(box(2.3, 0.34, 4.05, GRANITE, 0, 1.76, 0));        // cornice cap
+  const PT = 1.93;                                          // plinth top the lion rests on
+  // Proportions per the real pair: ~3.4 m nose-to-rump, head held at ~1.8 m
+  // over the plinth, and the MANE reads as a collar around a distinct head —
+  // an oversized mane ball swallows the whole animal from the front.
+  // body barrel: one long low ellipsoid, clearly the dominant mass
+  g.add(blob(0.60, 0.62, 1.35, LION_MARBLE, 0, PT + 0.92, -0.30));    // body barrel
+  g.add(blob(0.46, 0.58, 0.70, LION_MARBLE, 0.40, PT + 0.72, -1.30)); // right haunch
+  g.add(blob(0.46, 0.58, 0.70, LION_MARBLE, -0.40, PT + 0.72, -1.30));// left haunch
+  for (const sx of [-0.56, 0.56])
+    g.add(box(0.26, 0.30, 0.9, LION_MARBLE, sx, PT + 0.24, -0.95));   // folded hind shanks
+  g.add(blob(0.52, 0.66, 0.52, LION_MARBLE, 0, PT + 1.10, 0.55));     // deep raised chest
+  // forelegs stretched straight to paws at the plinth edge
+  for (const sx of [-0.33, 0.33]) {
+    g.add(box(0.28, 0.32, 1.35, LION_MARBLE, sx, PT + 0.18, 1.10));   // foreleg
+    g.add(box(0.36, 0.24, 0.52, LION_MARBLE, sx, PT + 0.12, 1.88));   // paw
+  }
+  // head group: skull + muzzle proud of the mane ruff
+  g.add(blob(0.30, 0.32, 0.30, LION_MARBLE, 0, PT + 1.80, 1.28));     // skull
+  g.add(blob(0.19, 0.16, 0.26, LION_MARBLE, 0, PT + 1.72, 1.56));     // rounded muzzle
+  g.add(blob(0.24, 0.09, 0.14, LION_MARBLE, 0, PT + 1.95, 1.44));     // heavy brow
+  for (const sx of [-0.22, 0.22]) g.add(box(0.14, 0.18, 0.12, LION_MARBLE, sx, PT + 2.04, 1.14)); // ears
+  // mane: ONE consolidated ruff behind the head sloping into the chest — a
+  // ring of separate lobes reads as poodle pom-poms from the avenue
+  g.add(blob(0.54, 0.58, 0.30, LION_MARBLE, 0, PT + 1.74, 1.02));     // face ruff disc
+  g.add(blob(0.46, 0.54, 0.44, LION_MARBLE, 0, PT + 1.52, 0.78));     // mane body into shoulders
+  g.add(blob(0.34, 0.46, 0.28, LION_MARBLE, 0, PT + 1.12, 0.96));     // chest bib
+  // tail curled forward along the right flank, resting on the plinth
+  g.add(strut(new THREE.Vector3(0.1, PT + 0.62, -1.85), new THREE.Vector3(0.62, PT + 0.5, -1.0), 0.10, LION_MARBLE, 6));
+  g.add(strut(new THREE.Vector3(0.62, PT + 0.5, -1.0), new THREE.Vector3(0.66, PT + 0.40, -0.1), 0.10, LION_MARBLE, 6));
+  g.add(blob(0.15, 0.15, 0.19, LION_MARBLE, 0.66, PT + 0.40, 0.0));   // tail tuft
   return g;
 }
 
@@ -61,6 +97,35 @@ function lampPost(): THREE.Group {
   return g;
 }
 
+// Round-arched opening (portico arch or wing window): a dark recess + a
+// semicircular shadowed head + a marble archivolt ring, all facing +z. `cx`
+// is the local-x center, `sill` the bottom y, `w` the opening width, `rectH`
+// the straight jamb height below the semicircle, `z` the wall plane.
+function archOpening(cx: number, sill: number, w: number, rectH: number, z: number): THREE.Group {
+  const g = new THREE.Group();
+  const r = w / 2;
+  const spring = sill + rectH;                                              // where the semicircle starts
+  g.add(box(w, rectH, 0.4, DARKSTONE, cx, sill + rectH / 2, z));            // rectangular recess
+  const head = cyl(r, r, 0.4, DARKSTONE, cx, spring, z, 14);               // disc → arched head
+  head.rotation.x = Math.PI / 2;                                           // face the avenue
+  g.add(head);
+  const ring = new THREE.Mesh(new THREE.TorusGeometry(r + 0.24, 0.26, 6, 14, Math.PI), MARBLE);
+  ring.position.set(cx, spring, z + 0.2);                                  // marble archivolt (top half)
+  g.add(ring);
+  return g;
+}
+
+// One monumental Corinthian column (base, tapered shaft, flared capital, abacus)
+// standing on the terrace at local-x `cx`, projected forward to `z`.
+function corinthianColumn(cx: number, z: number): THREE.Group {
+  const c = new THREE.Group();
+  c.add(box(1.9, 0.6, 1.9, MARBLE, cx, 3.0, z));            // base plinth (y 2.7..3.3)
+  c.add(cyl(0.78, 0.92, 13.7, MARBLE, cx, 10.15, z, 12));   // shaft (y 3.3..17)
+  c.add(cyl(0.98, 0.8, 1.1, MARBLE, cx, 17.55, z, 12));     // capital bell (y 17..18.1)
+  c.add(box(1.9, 0.4, 1.9, MARBLE, cx, 18.3, z));           // abacus (y 18.1..18.5)
+  return c;
+}
+
 export const builders: Record<string, (ctx: LandmarkCtx) => THREE.Group> = {
   // Empire State: art-deco crown + dirigible mast only (OSM builds the shaft below y=373)
   'empire-state': (ctx) => {
@@ -90,32 +155,112 @@ export const builders: Record<string, (ctx: LandmarkCtx) => THREE.Group> = {
     return g;
   },
 
-  // NYPL main branch: marble Beaux-Arts portico, grand stair, Patience & Fortitude
+  // NYPL main branch (Carrère & Hastings, 1911): white-marble Beaux-Arts Fifth
+  // Ave facade — triple-arch portico, arcaded wings, balustraded parapet, wall
+  // fountains, flagpoles, a granite terrace stair, and Patience & Fortitude.
+  // A pure facade fronting the kept OSM massing (front wall z=-21, 22 m tall,
+  // ~113 m frontage). Composition centered on that massing at local x=6.5.
   'nypl': () => {
     const g = new THREE.Group();
-    // podium the portico stands on (terrace top at y=3)
-    g.add(box(46, 3, 22, MARBLE, 0, 1.5, -6));
-    // main facade wall behind the colonnade
-    g.add(box(40, 17, 4, MARBLE, 0, 11.5, -6));
-    // six-column Corinthian portico
-    const cols = colonnade(6, 6, 0.95, 12, MARBLE, 3);
-    cols.position.z = -1;
-    g.add(cols);
-    // entablature + attic story crowned with allegorical figures
-    g.add(box(42, 3, 5, MARBLE, 0, 16.5, -3.5));
-    g.add(box(40, 3.5, 4, MARBLE, 0, 19.7, -4.5));
-    for (const fx of [-16, -8, 0, 8, 16]) {
+    const FC = 6.5;          // frontage center (the OSM front face runs x -50..+63)
+    const HW = 57;           // half of the 114 m Fifth-Avenue frontage
+    const WZ = -19;          // front plane of the marble facade wall (OSM wall at z=-21)
+    const TERR = 2.7;        // terrace top height
+    const CORN = 22;         // main cornice line — caps the 22 m OSM box
+    // OSM models the library's projecting central pavilion as its own part
+    // reaching z=-14.9 — 4 m PROUD of the wing wall plane. The whole portico
+    // composition sits on that pavilion (as on the real building), fronted by
+    // a solid marble block that swallows the tan OSM faces; anything left at
+    // the WZ plane in the centre would be hidden behind it.
+    const PAV = -13.9;       // front plane of the portico pavilion cladding
+
+    // ---- raised terrace / podium and the marble facade wall behind it ----
+    g.add(box(2 * HW, TERR, 15, GRANITE, FC, TERR / 2, -12));        // terrace platform (z -19.5..-4.5)
+    g.add(box(2 * HW, 0.5, 0.6, MARBLE, FC, TERR - 0.25, -4.5));     // marble front nosing
+    g.add(box(2 * HW, CORN - TERR, 2, MARBLE, FC, (CORN + TERR) / 2, WZ - 1)); // wall, y 2.7..22, z -21..-19
+    // solid pavilion block: clads the OSM part (x -17.1..26.2, front -14.9)
+    // front AND flanks so no window-grid face survives inside the portico
+    g.add(box(45, CORN - TERR, 5.5, MARBLE, 4.5, (CORN + TERR) / 2, PAV - 2.75));
+
+    // ---- flanking wings: tall round-arched windows between engaged pilasters ----
+    for (const wc of [-31, 44]) {
+      for (const dx of [-11.7, -3.9, 3.9, 11.7]) g.add(archOpening(wc + dx, 7, 3.2, 8, WZ + 0.1));
+      for (const dx of [-15.6, -7.8, 0, 7.8, 15.6]) g.add(box(0.9, 15.3, 0.6, MARBLE, wc + dx, 10.35, WZ + 0.3));
+    }
+    // ---- end pavilions, slightly proud, each with a tall niche ----
+    for (const cx of [-48, 61]) {
+      g.add(box(6, CORN - TERR, 1.0, MARBLE, cx, (CORN + TERR) / 2, WZ + 0.5));
+      g.add(box(6.5, 1.3, 1.6, MARBLE, cx, 22.0, WZ + 0.7));
+      g.add(archOpening(cx, 8, 2.6, 5.5, WZ + 0.6));
+    }
+
+    // ---- central triple-arch portico: six Corinthian columns, three arches ----
+    // (all on the pavilion plane, proud of the wings like the real porch)
+    for (const cx of [-7.5, 1.1, 2.9, 10.1, 11.9, 20.5]) g.add(corinthianColumn(cx, PAV + 2));
+    for (const cx of [-3.2, 6.5, 16.2]) g.add(archOpening(cx, TERR, 6, 8.3, PAV + 0.1));
+
+    // ---- entablature: continuous frieze + cornice, breaking forward at the portico ----
+    g.add(box(2 * HW, 2.2, 1.0, MARBLE, FC, 20.4, WZ + 0.0));        // wing frieze
+    g.add(box(2 * HW + 1, 1.1, 1.8, MARBLE, FC, 21.95, WZ + 0.4));   // wing cornice (top 22.5 caps OSM)
+    g.add(box(46, 2.2, 1.6, MARBLE, 4.5, 20.4, PAV + 2.2));         // portico frieze (over columns)
+    g.add(box(47, 1.2, 2.0, MARBLE, 4.5, 22.0, PAV + 2.6));         // portico cornice, projecting
+
+    // ---- inscribed attic over the portico, crowned by six allegorical figures ----
+    g.add(box(44, 5, 2, MARBLE, 4.5, 25, PAV + 1.5));               // attic block y 22.5..27.5
+    g.add(box(45, 0.6, 2.4, MARBLE, 4.5, 27.8, PAV + 1.7));         // attic cornice cap
+    g.add(box(33, 1.6, 0.3, DARKSTONE, 4.5, 24.6, PAV + 2.5));      // suggested inscription band
+    for (const cx of [-8.5, -2.5, 3.5, 9.5, 15.5, 21.5]) {
       const f = figure(3, MARBLE);
-      f.position.set(fx, 21.4, -4.5);
+      f.position.set(cx, 28.1, PAV + 1.7);
       g.add(f);
     }
-    // grand staircase cascading to the street (+z)
-    for (let i = 0; i < 12; i++) g.add(box(34, 0.28, 0.95, GRANITE, 0, 2.86 - i * 0.25, 1 + i * 0.9));
-    for (const cx of [-17.6, 17.6]) g.add(box(1.4, 3.2, 12, MARBLE, cx, 1.6, 6)); // stair cheeks
-    // the two lions flanking the steps, facing the avenue
-    for (const lx of [-19.5, 19.5]) {
+    // ---- low green-copper hip roof peeking behind the parapet center ----
+    const roof = cyl(0.3, 15, 4, GREEN_PATINA, FC, 24.2, -32, 4);
+    roof.rotation.y = Math.PI / 4;
+    roof.scale.set(1.5, 1, 0.9);
+    g.add(roof);
+
+    // ---- balustraded parapet along the wing rooflines ----
+    for (const [x0, x1] of [[-49, -13], [26, 62]] as const) {
+      const w = x1 - x0, xc = (x0 + x1) / 2;
+      g.add(box(w, 0.4, 0.9, MARBLE, xc, 22.8, WZ + 0.5));          // bottom rail
+      g.add(box(w, 0.4, 1.0, MARBLE, xc, 24.1, WZ + 0.5));          // coping
+      for (let x = x0 + 1.4; x <= x1 - 1; x += 3.2) g.add(cyl(0.15, 0.19, 0.9, MARBLE, x, 23.45, WZ + 0.5, 6));
+    }
+
+    // ---- two wall fountains (Truth / Beauty) set into the wings just clear
+    // of the projecting pavilion (block spans x -18..27) ----
+    for (const sx of [-24, 33]) {
+      g.add(box(3.4, 2.6, 0.8, MARBLE, sx, TERR + 1.3, WZ + 0.4));  // pylon backing
+      g.add(box(3.0, 0.7, 1.6, MARBLE, sx, TERR + 0.35, WZ + 1.4)); // basin
+      const water = new THREE.Mesh(new THREE.CircleGeometry(1.2, 12), WATER_LM);
+      water.rotation.x = -Math.PI / 2;
+      water.position.set(sx, TERR + 0.3, WZ + 1.4);
+      g.add(water);
+    }
+    // ---- flagpoles with gilt finials on the terrace ----
+    for (const sx of [-9.5, 22.5]) {
+      g.add(box(1.8, 1.4, 1.8, DARKSTONE, sx, TERR + 0.7, -7));     // ornate bronze base
+      g.add(cyl(0.16, 0.22, 13, STEEL_LM, sx, TERR + 7.9, -7, 8));  // pole (y 4.1..17.1)
+      const fin = new THREE.Mesh(new THREE.SphereGeometry(0.32, 8, 6), GOLD);
+      fin.position.set(sx, TERR + 14.7, -7);
+      g.add(fin);
+    }
+
+    // ---- grand granite stair descending toward the avenue (+z), with cheeks ----
+    for (let i = 0; i < 9; i++) g.add(box(20, 0.32, 0.75, GRANITE, FC, 2.56 - i * 0.30, -4.2 + i * 0.72));
+    for (const sx of [-4.5, 17.5]) {
+      g.add(box(2.2, 3.0, 7, GRANITE, sx, 1.5, -1.2));              // cheek wall
+      g.add(box(2.6, 0.6, 7.4, MARBLE, sx, 3.1, -1.2));            // cheek coping
+      const urn = lathe([[0.2, 0], [0.45, 0.2], [0.55, 0.5], [0.35, 0.8], [0.5, 1.0], [0.2, 1.15]], MARBLE, 10);
+      urn.position.set(sx, 3.4, 1.5);
+      g.add(urn);
+    }
+
+    // ---- Patience & Fortitude on tall granite plinths at the sidewalk, facing +z ----
+    for (const sx of [-7, 20]) {
       const l = lion();
-      l.position.set(lx, 0, 10.5);
+      l.position.set(sx, 0, 1.5);
       g.add(l);
     }
     return g;
