@@ -6,6 +6,7 @@ import { routeColor, bulletTextColor } from '../engine/subway/types';
 import { LANDMARKS_REG } from '../engine/landmarks/registry';
 import { abbreviateStreet } from '../engine/streetFurniture';
 import MiniMap from './MiniMap';
+import GoalsModal, { TrophyIcon } from './GoalsModal';
 
 // Every premium landmark (skip alias entries — they resolve to another's build),
 // sorted, for the "Jump to…" menu. Pairs with the ?landmark=<id> deep link.
@@ -140,6 +141,10 @@ export default function NYCRoam() {
   const [running, setRunning] = useState(false);
   const [copied, setCopied] = useState(false);
   const copiedTimer = useRef(0);
+  const [goalsOpen, setGoalsOpen] = useState(false);
+  const [goalsDone, setGoalsDone] = useState(false); // all goals complete → gold trophy
+  const [flashes, setFlashes] = useState<{ id: number; text: string }[]>([]);
+  const flashId = useRef(0);
 
   const copyShareLink = async () => {
     const url = worldRef.current?.shareLink();
@@ -174,8 +179,29 @@ export default function NYCRoam() {
     world.onFade = setFade;
     world.init();
     setMuted(world.audio.isMuted);
-    return () => { world.destroy(); worldRef.current = null; };
+    // goals: flash messages (queued, max 2 pending) + the all-complete tint
+    const unsubProgress = world.goals.onProgress((text) => {
+      setFlashes((q) => {
+        const next = [...q, { id: ++flashId.current, text }];
+        return next.length > 3 ? next.slice(next.length - 3) : next; // 1 shown + 2 pending
+      });
+    });
+    const syncDone = () => setGoalsDone(world.goals.allComplete());
+    const unsubChange = world.goals.onChange(syncDone);
+    syncDone();
+    return () => {
+      unsubProgress(); unsubChange();
+      world.destroy(); worldRef.current = null;
+    };
   }, []);
+
+  // flash auto-dismiss: 4s per message, restarted only when the head changes
+  const flashHead = flashes[0];
+  useEffect(() => {
+    if (!flashHead) return;
+    const t = window.setTimeout(() => setFlashes((q) => q.slice(1)), 4000);
+    return () => window.clearTimeout(t);
+  }, [flashHead?.id]);
 
   const loading = hud?.loading ?? true;
   const error = hud?.error ?? null;
@@ -331,6 +357,15 @@ export default function NYCRoam() {
         <div className="hud-panel stats">
           {hud ? `${hud.fps} fps · ${hud.tilesLoaded} tiles${hud.tilesPending ? ` (+${hud.tilesPending})` : ''}${hud.fly ? ' · HELI' : ''}${hud.riding ? ' · BIKE' : ''}${hud.mode === 'bus' ? ' · BUS' : ''}` : '—'}
         </div>
+        {/* goals / achievements — opens the checklist modal */}
+        <button
+          className={`hud-panel share-btn goals-btn${goalsDone ? ' complete' : ''}`}
+          onClick={() => setGoalsOpen(true)}
+          title="Goals"
+          aria-label="Goals"
+        >
+          <TrophyIcon size={15} />
+        </button>
         {/* sound on/off — the world's footsteps, engines, doors & rotors */}
         <button
           className={`hud-panel share-btn${muted ? ' muted' : ''}`}
@@ -566,6 +601,25 @@ export default function NYCRoam() {
             </p>
           </div>
         </div>
+      )}
+
+      {/* goal progress flash — click to open the Goals modal */}
+      {flashHead && (
+        <div className="goal-flash-wrap">
+          <button
+            key={flashHead.id}
+            className="goal-flash"
+            onClick={() => { setGoalsOpen(true); setFlashes([]); }}
+          >
+            <TrophyIcon size={15} />
+            <span>{flashHead.text}</span>
+          </button>
+        </div>
+      )}
+
+      {/* goals / achievements modal */}
+      {goalsOpen && worldRef.current && (
+        <GoalsModal tracker={worldRef.current.goals} onClose={() => setGoalsOpen(false)} />
       )}
     </div>
   );
