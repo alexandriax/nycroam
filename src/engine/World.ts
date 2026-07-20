@@ -462,20 +462,51 @@ export class World {
    * from the horizontal facing (yaw 0 = north = -z). While flying this anchors
    * to the ground below with a level gaze: panoramas only exist at street
    * level, and a bird's-eye pitch aimed at the pavement would show nothing.
+   *
+   * The viewpoint snaps to the nearest vehicular centerline (within 30m): the
+   * panoramas were shot from the roadway, and our stylized street widths mean
+   * an in-game sidewalk spot can project to a point inside the real building
+   * line, where Google picks whichever pano is nearest — often an indoor or
+   * plaza photosphere with an uncalibrated compass. Centerlines are true OSM
+   * geometry, so snapping lands on the road imagery. The URL is the exact
+   * camera form Maps itself emits (…/@lat,lng,3a,{fov}y,{heading}h,{tilt}t):
+   * unlike the api=1 pano action, it honors the camera after snapping. Tilt is
+   * measured from nadir, so level = 90 and looking up is >90.
    */
   streetViewLink(): string | null {
     if (this.mode !== 'street') return null;
-    const lat = (ORIGIN.lat - this.pos.z / M_PER_DEG_LAT).toFixed(6);
-    const lon = (ORIGIN.lon + this.pos.x / M_PER_DEG_LON).toFixed(6);
+    // nearest vehicular-centerline point (the roadPaths convention of streetAt)
+    let sx = this.pos.x, sz = this.pos.z, bestD2 = 30 * 30;
+    for (const rp of this.tiles.roadPathsNear(this.pos.x, this.pos.z, 1)) {
+      const roadCount = rp.start.length - 1;
+      for (let r = 0; r < roadCount; r++) {
+        if (rp.kind[r] !== PATH_KIND_ROAD) continue;
+        const a = rp.start[r], b = rp.start[r + 1];
+        for (let j = a; j < b - 1; j++) {
+          const x1 = rp.pts[j * 2], z1 = rp.pts[j * 2 + 1];
+          const x2 = rp.pts[(j + 1) * 2], z2 = rp.pts[(j + 1) * 2 + 1];
+          const dx = x2 - x1, dz = z2 - z1, l2 = dx * dx + dz * dz;
+          if (l2 < 1e-6) continue;
+          let t = ((this.pos.x - x1) * dx + (this.pos.z - z1) * dz) / l2;
+          t = t < 0 ? 0 : t > 1 ? 1 : t;
+          const px = x1 + t * dx, pz = z1 + t * dz;
+          const d2 = (this.pos.x - px) ** 2 + (this.pos.z - pz) ** 2;
+          if (d2 < bestD2) { bestD2 = d2; sx = px; sz = pz; }
+        }
+      }
+    }
+    const lat = (ORIGIN.lat - sz / M_PER_DEG_LAT).toFixed(6);
+    const lon = (ORIGIN.lon + sx / M_PER_DEG_LON).toFixed(6);
     const { fwd } = this.controls.basis();
     let heading = (Math.atan2(fwd.x, -fwd.z) * 180) / Math.PI;
     if (heading < 0) heading += 360;
     const pitch = this.controls.fly
       ? 0
       : Math.max(-85, Math.min(85, (this.controls.pitch * 180) / Math.PI));
+    const tilt = 90 + pitch;
     return (
-      'https://www.google.com/maps/@?api=1&map_action=pano' +
-      `&viewpoint=${lat}%2C${lon}&heading=${heading.toFixed(1)}&pitch=${pitch.toFixed(1)}&fov=80`
+      `https://www.google.com/maps/@${lat},${lon},3a,75y,` +
+      `${heading.toFixed(1)}h,${tilt.toFixed(1)}t/data=!3m1!1e1`
     );
   }
 
