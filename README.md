@@ -127,3 +127,13 @@ Mobile keeps a lean shadowless tier automatically.
   platform set rather than full passageway networks; procedural trees approximate
   real planting.
 - Headways are gamified (~30 s per direction) rather than schedule-accurate.
+
+## License
+
+The code is [MIT](LICENSE). The generated world data (`public/tiles/`,
+`public/geo/`, `public/subway/`) rides on its own licenses regardless of the
+code license: the tiles are a derivative database of OpenStreetMap
+(© OpenStreetMap contributors, [ODbL](https://www.openstreetmap.org/copyright)),
+the self-hosted fonts are SIL OFL, the Old NYC marker coordinates are
+Apache-2.0 (photos remain NYPL's; the app links out and redistributes none),
+and terrain/transit data carry the terms of the sources listed above.
