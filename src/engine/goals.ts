@@ -27,6 +27,17 @@ const SAVE_MIN_MS = 2000; // throttle floor between localStorage writes
 const TWO_PI = Math.PI * 2;
 const RES_MILESTONES = [25, 50, 75];
 
+const MILE_M = 1609.344;
+const DIST_MILESTONES_MI = [1, 10, 100];
+const DIST_MODES: DistMode[] = ['walk', 'run', 'bike', 'bus', 'subway', 'heli'];
+const DIST_LABEL: Record<DistMode, string> = {
+  walk: 'Walk', run: 'Run', bike: 'Bike', bus: 'Bus', subway: 'Subway', heli: 'Helicopter',
+};
+const DIST_GOAL_LABEL: Record<DistMode, string> = {
+  walk: 'Walk 100 miles', run: 'Run 100 miles', bike: 'Bike 100 miles',
+  bus: 'Ride the bus 100 miles', subway: 'Ride the subway 100 miles', heli: 'Fly 100 miles',
+};
+
 export interface GoalItem { name: string; done: boolean }
 export interface Goal {
   id: string;
@@ -39,6 +50,7 @@ export interface Goal {
 }
 
 type Mode = 'subway' | 'bus' | 'tram' | 'bike' | 'heli';
+type DistMode = 'walk' | 'run' | 'bike' | 'bus' | 'subway' | 'heli';
 
 interface Ring { pts: [number, number][]; minX: number; minZ: number; maxX: number; maxZ: number }
 interface Area { id: string; name: string; rings: Ring[]; minX: number; minZ: number; maxX: number; maxZ: number }
@@ -83,6 +95,14 @@ export class GoalTracker {
   private reservoirProgress = 0;             // signed radians, net
   private reservoirDone = false;
   private firedMilestones = new Set<number>();
+  // cumulative distance per mode of travel (meters); milestones at 1/10/100 mi
+  private distM: Record<DistMode, number> = { walk: 0, run: 0, bike: 0, bus: 0, subway: 0, heli: 0 };
+  private distMilestones: Record<DistMode, Set<number>> = {
+    walk: new Set(), run: new Set(), bike: new Set(), bus: new Set(), subway: new Set(), heli: new Set(),
+  };
+  private distDone: Record<DistMode, boolean> = {
+    walk: false, run: false, bike: false, bus: false, subway: false, heli: false,
+  };
 
   // ---- transient (not persisted) ----
   private runAccum = 0;
@@ -134,6 +154,13 @@ export class GoalTracker {
       if (typeof s.reservoirProgress === 'number') this.reservoirProgress = s.reservoirProgress;
       this.reservoirDone = !!s.reservoirDone;
       if (Array.isArray(s.reservoirMilestones)) this.firedMilestones = new Set(s.reservoirMilestones);
+      if (s.distM && typeof s.distM === 'object') {
+        for (const m of DIST_MODES) {
+          if (typeof s.distM[m] === 'number') this.distM[m] = s.distM[m];
+          if (Array.isArray(s.distMilestones?.[m])) this.distMilestones[m] = new Set(s.distMilestones[m]);
+          this.distDone[m] = !!s.distDone?.[m];
+        }
+      }
     } catch { /* SSR, private-mode throw, or corrupt JSON — start fresh */ }
   }
 
@@ -151,6 +178,9 @@ export class GoalTracker {
         reservoirProgress: this.reservoirProgress,
         reservoirDone: this.reservoirDone,
         reservoirMilestones: [...this.firedMilestones],
+        distM: this.distM,
+        distMilestones: Object.fromEntries(DIST_MODES.map((m) => [m, [...this.distMilestones[m]]])),
+        distDone: this.distDone,
       }));
     } catch { /* quota / private mode — the run just won't persist */ }
   }
@@ -258,10 +288,61 @@ export class GoalTracker {
     if (ch) this.touch();
   }
 
+  /**
+   * Add distance to one mode's lifetime total and fire 1/10/100-mile
+   * milestone toasts (mirrors the reservoir's percent-milestone pattern:
+   * accumulation never stops at "done", so the hint keeps counting up, but
+   * each milestone only toasts once). Returns true only the instant the
+   * 100-mile cap is first crossed, so callers know to touch() immediately
+   * rather than wait for the throttled autosave.
+   */
+  private addDistance(mode: DistMode, meters: number): boolean {
+    if (meters <= 0) return false;
+    this.distM[mode] += meters;
+    this.dirty = true;
+    let justCompleted = false;
+    const miles = this.distM[mode] / MILE_M;
+    for (const m of DIST_MILESTONES_MI) {
+      if (miles >= m && !this.distMilestones[mode].has(m)) {
+        this.distMilestones[mode].add(m);
+        this.emit(`${DIST_LABEL[mode]}: ${m} ${m === 1 ? 'mile' : 'miles'}`);
+        if (m === 100) { this.distDone[mode] = true; justCompleted = true; }
+      }
+    }
+    return justCompleted;
+  }
+
+  /** Subway mileage: ride mode is a stylized, non-positional tunnel scroll, so
+   *  World feeds the ride's own per-frame scroll distance here instead of
+   *  going through update()'s position-delta sample (which 'ride' never calls). */
+  onRideDistance(meters: number) {
+    if (this.addDistance('subway', meters)) this.touch();
+    else this.flush(false);
+  }
+
   // ---- per-frame sample ----
 
-  update(dt: number, x: number, z: number, s: { onFoot: boolean; speed: number; flying: boolean; altAboveGround: number }) {
+  update(
+    dt: number, x: number, z: number,
+    s: { onFoot: boolean; speed: number; flying: boolean; altAboveGround: number; busRiding: boolean },
+  ) {
     let changed = false;
+
+    // Distance goals: street (walk/run/bike/heli) and bus share this sample.
+    // `s.speed` is already the real per-frame ground delta / dt (World zeroes
+    // it for teleport-sized jumps), so speed*dt is metres actually traveled
+    // this tick under normal motion and 0 across a teleport/board/exit.
+    const distThisFrame = s.speed * dt;
+    if (s.busRiding) {
+      if (this.addDistance('bus', distThisFrame)) changed = true;
+    } else if (s.flying) {
+      if (this.addDistance('heli', distThisFrame)) changed = true;
+    } else if (s.onFoot) {
+      if (this.addDistance(s.speed >= RUN_SPEED ? 'run' : 'walk', distThisFrame)) changed = true;
+    } else {
+      // street mode, not on foot, not flying: riding a Citi Bike
+      if (this.addDistance('bike', distThisFrame)) changed = true;
+    }
 
     // "Break into a run": >=8 m/s on foot, held 2.5s continuously.
     if (s.onFoot && s.speed >= RUN_SPEED) {
@@ -377,6 +458,19 @@ export class GoalTracker {
     const have = (it: GoalItem[]) => it.filter((i) => i.done).length;
     const allDone = (it: GoalItem[]) => it.length > 0 && it.every((i) => i.done);
     const resPct = Math.round(Math.min(1, Math.abs(this.reservoirProgress) / TWO_PI) * 100);
+    const distItems = (mode: DistMode): GoalItem[] => DIST_MILESTONES_MI.map((m) => ({
+      name: `${m} ${m === 1 ? 'mile' : 'miles'}`, done: this.distMilestones[mode].has(m),
+    }));
+    const distGoal = (id: string, mode: DistMode): Goal => {
+      const miles = this.distM[mode] / MILE_M;
+      return {
+        id, label: DIST_GOAL_LABEL[mode], done: this.distDone[mode],
+        count: { have: this.distMilestones[mode].size, total: DIST_MILESTONES_MI.length },
+        items: distItems(mode),
+        hint: this.distDone[mode] || miles < 0.1 ? undefined : `${miles.toFixed(1)} mi`,
+        resettable: this.distM[mode] > 0,
+      };
+    };
 
     return [
       { id: 'subway', label: 'Take the subway', done: this.subway, resettable: this.subway },
@@ -385,6 +479,12 @@ export class GoalTracker {
       { id: 'run', label: 'Break into a run', done: this.run, resettable: this.run },
       { id: 'heli', label: 'Fly in a helicopter', done: this.heli, resettable: this.heli },
       { id: 'transfer', label: 'Make a subway transfer', done: this.transfer, resettable: this.transfer },
+      distGoal('dist-walk', 'walk'),
+      distGoal('dist-run', 'run'),
+      distGoal('dist-bike', 'bike'),
+      distGoal('dist-bus', 'bus'),
+      distGoal('dist-subway', 'subway'),
+      distGoal('dist-heli', 'heli'),
       {
         id: 'neighborhoods', label: 'Visit every neighborhood', done: allDone(hoodItems),
         count: { have: have(hoodItems), total: hoodItems.length }, items: hoodItems, resettable: have(hoodItems) > 0,
@@ -430,12 +530,22 @@ export class GoalTracker {
         this.firedMilestones.clear(); this.resLastAngle = null; break;
       case 'parks': this.visitedParks.clear(); break;
       case 'landmarks': this.visitedLandmarks.clear(); break;
+      case 'dist-walk': this.resetDistance('walk'); break;
+      case 'dist-run': this.resetDistance('run'); break;
+      case 'dist-bike': this.resetDistance('bike'); break;
+      case 'dist-bus': this.resetDistance('bus'); break;
+      case 'dist-subway': this.resetDistance('subway'); break;
+      case 'dist-heli': this.resetDistance('heli'); break;
       default: return;
     }
     this.completed.delete(id); // let it re-toast when re-earned
     this.dirty = true;
     for (const cb of this.changeCbs) cb();
     this.flush(true);
+  }
+
+  private resetDistance(mode: DistMode) {
+    this.distM[mode] = 0; this.distMilestones[mode].clear(); this.distDone[mode] = false;
   }
 
   /** Wipe all goal progress. */
@@ -446,6 +556,7 @@ export class GoalTracker {
     this.modes.clear();
     this.visitedHoods.clear(); this.visitedParks.clear(); this.visitedLandmarks.clear();
     this.reservoirProgress = 0; this.reservoirDone = false; this.firedMilestones.clear();
+    for (const m of DIST_MODES) this.resetDistance(m);
     this.completed.clear();
     this.dirty = true;
     for (const cb of this.changeCbs) cb();

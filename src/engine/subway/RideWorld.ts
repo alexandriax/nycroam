@@ -161,6 +161,10 @@ export class RideWorld {
   private sidePos = new THREE.Group();   // +z (door/platform) side — tunnel while moving
   private sideNeg = new THREE.Group();   // -z side — opposing track, always visible
   private scrollOffset = 0;
+  /** Meters advanced THIS tick (0 unless moving) — the tunnel scroll speed is
+   *  the only notion of "distance traveled" a stylized, non-positional ride
+   *  has; World reads it once per frame for the subway-mileage goal. */
+  distanceThisFrame = 0;
   private scrollers: { mesh: THREE.InstancedMesh; rest: THREE.Matrix4[]; baseX: number[]; span: number; factor: number }[] = [];
   private expressStation = new THREE.Group();
   private expressNameMat!: THREE.MeshLambertMaterial;
@@ -726,6 +730,7 @@ export class RideWorld {
   }
 
   update(dt: number) {
+    this.distanceThisFrame = 0;
     this.t += dt;
 
     if (this.state === 'dwell') {
@@ -767,6 +772,7 @@ export class RideWorld {
       const p = Math.min(1, this.t / this.stateLen);
       const speed = 24 * Math.pow(Math.sin(Math.PI * p), 0.7);
       this.scrollOffset += speed * dt; // world slides backward past the windows
+      this.distanceThisFrame = speed * dt;
       this.updateScroll();
 
       const BW = 32;                       // backdrop wall half-width (PlaneGeometry(64,..))

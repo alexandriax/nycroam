@@ -1732,6 +1732,7 @@ export class World {
         this.exitRide();
       }
       this.ride.update(dt);
+      this.goals.onRideDistance(this.ride.distanceThisFrame); // subway mileage: ride mode never calls goals.update()
       this.hud.ride = this.ride.hudInfo;
       this.hud.prompt = null;
       this.hud.promptRoutes = [];
@@ -1905,6 +1906,7 @@ export class World {
         speed: groundSpeed,
         flying: this.controls.fly && this.mode === 'street',
         altAboveGround: this.pos.y - heightAt(this.pos.x, this.pos.z),
+        busRiding: this.mode === 'bus',
       });
     }
 
