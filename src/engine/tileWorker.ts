@@ -591,6 +591,7 @@ function buildTile(tile: TileJson): BuildResponse {
 
   // ---- flat layers: areas, asphalt roads (uv'd), concrete walks (uv'd), markings ----
   const aAcc = new MeshAcc();
+  const wtrAcc = new MeshAcc(); // water only — rendered with the animated water material
   const rAcc = new MeshAcc(true);
   const wAcc = new MeshAcc(true);
   const mAcc = new MeshAcc();
@@ -602,13 +603,18 @@ function buildTile(tile: TileJson): BuildResponse {
     for (const kind of Object.keys(tile.areas)) {
       const style = AREA_STYLE[kind] ?? AREA_STYLE.grass;
       const tris = tile.areas[kind];
-      const base = aAcc.vcount;
+      // Water goes to its own mesh so it can carry the animated water material (waves,
+      // fresnel-to-sky, sun glint) — the same look as the ocean plane — instead of the flat
+      // teal vertex color that read as painted parkland. Everything else merges into aAcc.
+      // The style color is still written per vertex as a harmless fallback tint.
+      const acc = kind === 'water' ? wtrAcc : aAcc;
+      const base = acc.vcount;
       for (let i = 0; i < tris.length; i += stride) {
         const ey = v2 ? tris[i + 2] / 10 : 0;
-        aAcc.vertex(toWorld(tris[i], ox), ey + style.y, toWorld(tris[i + 1], oz), 0, 1, 0, style.col[0], style.col[1], style.col[2]);
+        acc.vertex(toWorld(tris[i], ox), ey + style.y, toWorld(tris[i + 1], oz), 0, 1, 0, style.col[0], style.col[1], style.col[2]);
       }
       for (let v = 0; v < tris.length / stride; v += 3) {
-        pushUpTri(aAcc, base + v, base + v + 1, base + v + 2);
+        pushUpTri(acc, base + v, base + v + 1, base + v + 2);
       }
     }
   }
@@ -857,6 +863,7 @@ function buildTile(tile: TileJson): BuildResponse {
     roads: rAcc.payload(),
     walks: wAcc.payload(),
     areas: aAcc.payload(),
+    water: wtrAcc.payload(),
     markings: mAcc.payload(),
     trees,
     hydrants,
@@ -882,7 +889,7 @@ self.onmessage = async (ev: MessageEvent<BuildRequest>) => {
     const tile = (await res.json()) as TileJson;
     const out = buildTile(tile);
     const transfer: Transferable[] = [];
-    for (const m of [out.buildings, out.roads, out.walks, out.areas, out.markings]) {
+    for (const m of [out.buildings, out.roads, out.walks, out.areas, out.water, out.markings]) {
       if (m) {
         transfer.push(m.position.buffer, m.normal.buffer, m.color.buffer, m.index.buffer);
         if (m.uv) transfer.push(m.uv.buffer);
@@ -907,7 +914,7 @@ self.onmessage = async (ev: MessageEvent<BuildRequest>) => {
   } catch (e) {
     (self as unknown as Worker).postMessage({
       type: 'built', key: req.key, buildings: null, roads: null, walks: null,
-      areas: null, markings: null, trees: null, hydrants: null, signs: null, collision: null,
+      areas: null, water: null, markings: null, trees: null, hydrants: null, signs: null, collision: null,
       roadPaths: null,
       error: String(e),
     } satisfies BuildResponse);

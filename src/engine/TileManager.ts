@@ -6,8 +6,9 @@ import { TILE_SIZE, tileKey } from './geo';
 import { hash01 } from './palette';
 import {
   makeFacadeMaterial, makeFlatMaterial, makeRoadMaterial, makeWalkMaterial,
-  makeMarkingsMaterial, treeTrunkMaterial, treeCanopyMaterial,
+  makeMarkingsMaterial, makeWaterMaterial, treeTrunkMaterial, treeCanopyMaterial,
 } from './materials';
+import { SKY } from './sky';
 import { buildSignsMesh, buildHydrants, hydrantMaterial } from './streetFurniture';
 
 interface TileRecord {
@@ -41,6 +42,12 @@ export class TileManager {
   private roadMat = makeRoadMaterial();
   private walkMat = makeWalkMaterial();
   private markingsMat = makeMarkingsMaterial();
+  // One shared animated water material for every tile's water (reservoir/lakes/ponds) —
+  // same waves/fresnel/glint as World's ocean plane. Its time uniform is advanced once per
+  // frame inside update() from performance.now(), so no per-frame plumbing through World is
+  // needed. Shared like the other tile materials: never disposed per tile.
+  private waterKit = makeWaterMaterial(SKY.fog.clone());
+  private lastWaterNow = 0; // performance.now() at the previous update(), for the water dt
   private hydrantMat = hydrantMaterial();
   private trunkMat = treeTrunkMaterial();
   private canopyMat = treeCanopyMaterial();
@@ -154,6 +161,13 @@ export class TileManager {
   }
 
   update(camX: number, camZ: number) {
+    // Advance the shared water material's animation. update() is called every frame (in
+    // every mode), so this keeps tile water rippling in lockstep with the ocean without
+    // World having to drive it. Clamp dt so a backgrounded tab / first frame can't jump it.
+    const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
+    if (this.lastWaterNow) this.waterKit.update(Math.min(0.1, (now - this.lastWaterNow) / 1000));
+    this.lastWaterNow = now;
+
     if (!this.ready) return;
     const ctx = Math.floor(camX / TILE_SIZE), ctz = Math.floor(camZ / TILE_SIZE);
     const rTiles = Math.ceil(this.loadRadius / TILE_SIZE);
@@ -254,6 +268,10 @@ export class TileManager {
 
     addMesh(res.buildings, this.facadeMat, { cast: true, receive: true });
     addMesh(res.areas, this.flatMat, { receive: true });
+    // Water surface sits ~0.25m above the highest interior terrain (baked), so it draws
+    // over the park polygon that covers a reservoir/lake. Shared material, no shadow — mirrors
+    // the ocean plane. The BufferGeometry is per-tile and disposed on unload; the material isn't.
+    addMesh(res.water, this.waterKit.mat);
     addMesh(res.roads, this.roadMat, { receive: true });
     addMesh(res.walks, this.walkMat, { receive: true });
     addMesh(res.markings, this.markingsMat, { receive: true, order: 1 });
