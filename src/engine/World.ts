@@ -100,7 +100,7 @@ export const LANDMARKS: { name: string; lat: number; lon: number }[] = [
   { name: 'Times Square', lat: 40.758, lon: -73.9855 },
   { name: 'Empire State Building', lat: 40.7484, lon: -73.9857 },
   { name: 'Grand Central', lat: 40.7527, lon: -73.9772 },
-  { name: 'Central Park — Bethesda', lat: 40.774, lon: -73.9708 },
+  { name: 'Central Park: Bethesda', lat: 40.774, lon: -73.9708 },
   { name: 'Columbus Circle', lat: 40.7681, lon: -73.9819 },
   { name: 'Washington Sq Park', lat: 40.7308, lon: -73.9973 },
   { name: 'Wall Street', lat: 40.7069, lon: -74.0113 },
@@ -1543,7 +1543,7 @@ export class World {
       if (boardBus) {
         this.hud.prompt = `to ${boardBus.dest}`;
         this.hud.promptBus = [{ id: boardBus.route, color: boardBus.color, sbs: boardBus.sbs }];
-        this.hud.promptHint = this.riding ? 'board — bike rides up front' : 'board the bus';
+        this.hud.promptHint = this.riding ? 'board, bike rides up front' : 'board the bus';
         const dDoor = Math.hypot(boardBus.door[0] - this.pos.x, boardBus.door[1] - this.pos.z);
         if (dDoor < 1.7 && performance.now() - this.lastEnterGuard > 2500 && !this.transitioning) {
           this.boardBus(boardBus.key);
@@ -1731,7 +1731,7 @@ export class World {
         // label with the direction the ride will ACTUALLY run (terminals
         // clamp toward the line, so "downtown" at South Ferry reads Uptown)
         const effDir = this.rideDirFor(b.route, b.startId, b.dirSign);
-        this.hud.prompt = `Board — ${boardLabel([b.route], effDir, st.name)}`;
+        this.hud.prompt = `Board: ${boardLabel([b.route], effDir, st.name)}`;
         this.hud.promptRoutes = [b.route];
         // Walk-in boarding: stepping up to the open doors boards you, no key
         // needed — the same "walk into it" affordance as a street entrance (E

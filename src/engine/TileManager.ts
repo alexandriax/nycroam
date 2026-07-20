@@ -91,7 +91,7 @@ export class TileManager {
 
   async init(): Promise<void> {
     const res = await fetch(dataUrl('/tiles/index.json'));
-    if (!res.ok) throw new Error(`tiles/index.json missing (${res.status}) — run: npm run data:all`);
+    if (!res.ok) throw new Error(`tiles/index.json missing (${res.status}): run npm run data:all`);
     const idx = await res.json();
     for (const k of idx.tiles as string[]) this.known.add(k);
     this.ready = true;

@@ -16,7 +16,7 @@ const siteUrl =
 const title = 'NYC Roam: Open-world Manhattan with realistic transit';
 const description =
   'Roam an open-world 3D Manhattan in your browser. Every street and building from OpenStreetMap, ' +
-  'real terrain and trees, and subway entrances you can walk down into — then board a train and ride the line.';
+  'real terrain and trees, and subway entrances you can walk down into, then board a train and ride the line.';
 
 export const metadata: Metadata = {
   metadataBase: new URL(siteUrl),

@@ -144,7 +144,7 @@ export const LANDMARKS_REG: LandmarkEntry[] = [
   // the tramway is a RIDEABLE World system now (src/engine/tram.ts), not a landmark
   // 270 Park (Foster + Partners JPMorganChase HQ): FULL replacement — the OSM
   // extract predates completion (h=250 stale massing, cleared by the pipeline)
-  { id: 'chase-hq', name: '270 Park Ave — JPMorganChase', lat: 40.755819, lon: -73.975652, set: 'midtown-east', r: 1400, rot: GRID },
+  { id: 'chase-hq', name: '270 Park Ave: JPMorganChase', lat: 40.755819, lon: -73.975652, set: 'midtown-east', r: 1400, rot: GRID },
   { id: 'queensboro-bridge', name: 'Ed Koch Queensboro Bridge', lat: 40.7595, lon: -73.9605, set: 'midtown-east', r: 1500, rot: GRID },
 
   // ---- uptown west (columbus circle -> UWS) + UES museums ----
@@ -190,7 +190,7 @@ export const LANDMARKS_REG: LandmarkEntry[] = [
   // ---- heights (morningside / harlem / washington heights / inwood) ----
   { id: 'apollo', name: 'Apollo Theater', lat: 40.8101, lon: -73.9499, set: 'heights', r: 450, rot: GRID },
   { id: 'st-john-divine', name: 'Cathedral of St. John the Divine', lat: 40.8038, lon: -73.9619, set: 'heights', r: 700, rot: GRID },
-  { id: 'columbia', name: 'Columbia University — Low Library', lat: 40.8081, lon: -73.9619, set: 'heights', r: 550, rot: GRID },
+  { id: 'columbia', name: 'Columbia University: Low Library', lat: 40.8081, lon: -73.9619, set: 'heights', r: 550, rot: GRID },
   { id: 'riverside-church', name: 'Riverside Church', lat: 40.8119, lon: -73.9633, set: 'heights', r: 900, rot: GRID },
   { id: 'grants-tomb', name: "Grant's Tomb", lat: 40.8134, lon: -73.963, set: 'heights', r: 550, rot: GRID },
   { id: 'grant-plaza', name: 'General Grant Memorial Plaza', lat: 40.8134, lon: -73.963, set: 'heights', r: 550, aliasOf: 'grants-tomb' },
