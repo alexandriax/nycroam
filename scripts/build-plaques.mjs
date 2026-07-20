@@ -53,6 +53,9 @@ function tileOf(pt) { return [Math.floor(pt[0] / TILE_SIZE), Math.floor(pt[1] / 
 // ---- tuning -----------------------------------------------------------------
 const PLAQUE_Y = 2.3;        // metres above the building base, clamped under short roofs
 const PLAQUE_OUT = 0.4;      // metres proud of the wall face (toward the street)
+const PLAQUE_OUT_LM = 1.1;   // landmark mounts stand further off: bespoke builds dress
+                             // their walls with pilasters/cornices proud of the face
+                             // (Hearst's ribs swallowed a 0.4m plate)
 const MIN_AREA = 14;         // m^2: skip slivers
 const ROAD_PROBE = 2.5;      // m: push a candidate wall midpoint outward before scoring vs roads
 const NO_ROAD_MAX = 95;      // m: if the nearest vehicular road is farther, fall back to longest edge
@@ -208,6 +211,51 @@ function nearestVehicularDist(px, pz) {
   return Math.sqrt(best);
 }
 
+// ---- NAMED road index: which face fronts the ADDRESSED street -----------------------
+// "Nearest street wins" mounts a corner building's plaque on the side street even
+// when its address is on the avenue (Hearst's 959 8th Av plate ended up on W 56th).
+// A second index keyed by normalized way name lets the face solver prefer the face
+// that actually fronts addr:street, falling back to nearest-street when the name
+// never matches (spelling variants, plazas, vanity addresses).
+const namedGrid = new Map(); // "gx,gz" -> [{x1,z1,x2,z2,name}]
+function normStreet(s) {
+  return String(s).toLowerCase().replace(/\./g, '').replace(/\s+/g, ' ').trim();
+}
+function addNamedSeg(x1, z1, x2, z2, name) {
+  const s = { x1, z1, x2, z2, name };
+  const gx0 = Math.floor(Math.min(x1, x2) / ROAD_CELL), gx1 = Math.floor(Math.max(x1, x2) / ROAD_CELL);
+  const gz0 = Math.floor(Math.min(z1, z2) / ROAD_CELL), gz1 = Math.floor(Math.max(z1, z2) / ROAD_CELL);
+  for (let gx = gx0; gx <= gx1; gx++) for (let gz = gz0; gz <= gz1; gz++) {
+    const k = roadCellKey(gx, gz);
+    let a = namedGrid.get(k);
+    if (!a) { a = []; namedGrid.set(k, a); }
+    a.push(s);
+  }
+}
+// Nearest centerline of a way NAMED `name` (normalized), or Infinity.
+function nearestNamedDist(px, pz, name) {
+  const gx = Math.floor(px / ROAD_CELL), gz = Math.floor(pz / ROAD_CELL);
+  let best = Infinity;
+  for (let dx = -1; dx <= 1; dx++) for (let dz = -1; dz <= 1; dz++) {
+    const a = namedGrid.get(roadCellKey(gx + dx, gz + dz));
+    if (!a) continue;
+    for (const s of a) {
+      if (s.name !== name) continue;
+      const vx = s.x2 - s.x1, vz = s.z2 - s.z1, l2 = vx * vx + vz * vz;
+      if (l2 < 1e-9) continue;
+      let t = ((px - s.x1) * vx + (pz - s.z1) * vz) / l2;
+      t = t < 0 ? 0 : t > 1 ? 1 : t;
+      const ox = px - (s.x1 + t * vx), oz = pz - (s.z1 + t * vz);
+      const d2 = ox * ox + oz * oz;
+      if (d2 < best) best = d2;
+    }
+  }
+  return Math.sqrt(best);
+}
+// m: a face "fronts" the addressed street when its probe is within this of the
+// named centerline (wall -> curb across a sidewalk + half a wide avenue)
+const ADDR_MATCH_MAX = 48;
+
 // ---- OldNYC marker snapping ---------------------------------------------------------
 const OLDNYC_CELL = 128;
 const oldnycGrid = new Map();
@@ -279,7 +327,10 @@ const LANDMARK_INFO = [
   { id: 'radio-city', name: 'Radio City Music Hall', lat: 40.7599, lon: -73.9801 },
   { id: 'moma', name: 'Museum of Modern Art', lat: 40.7616, lon: -73.9774 },
   { id: 'carnegie-hall', name: 'Carnegie Hall', lat: 40.7651, lon: -73.9799 },
-  { id: 'hearst-tower', name: 'Hearst Tower', lat: 40.7666, lon: -73.9836, wiki: 'Hearst Tower (New York City)' },
+  // addr override: OSM tags the base part "959 8th Avenue", but the tower's
+  // primary/recognized address is 300 W 57th St — mount the plaque on the 57th
+  // St face and show that address
+  { id: 'hearst-tower', name: 'Hearst Tower', lat: 40.7666, lon: -73.9836, wiki: 'Hearst Tower (New York City)', addrNum: '300', addrSt: 'West 57th Street' },
   { id: 'plaza-hotel', name: 'The Plaza Hotel', lat: 40.7644, lon: -73.9745, wiki: 'Plaza Hotel' },
   { id: 'dakota', name: 'The Dakota', lat: 40.776614, lon: -73.976125, wiki: 'The Dakota' },
   { id: 'amnh', name: 'American Museum of Natural History', lat: 40.7808, lon: -73.973 },
@@ -350,7 +401,7 @@ function loadFits() {
     return {};
   }
 }
-function solveFitFace(fit) {
+function solveFitFace(fit, street, standoff = PLAQUE_OUT) {
   const exx = Math.cos(fit.rot), exz = -Math.sin(fit.rot); // local +x in world
   const ezx = Math.sin(fit.rot), ezz = Math.cos(fit.rot);  // local +z in world
   const faces = [
@@ -359,27 +410,42 @@ function solveFitFace(fit) {
     { mx: fit.cx + (fit.d / 2) * ezx, mz: fit.cz + (fit.d / 2) * ezz, nx: ezx, nz: ezz, len: fit.w },
     { mx: fit.cx - (fit.d / 2) * ezx, mz: fit.cz - (fit.d / 2) * ezz, nx: -ezx, nz: -ezz, len: fit.w },
   ];
-  let best = null, bestScore = Infinity;
+  const name = street ? normStreet(street) : null;
+  let best = null, bestScore = Infinity, bestM = null, bestMScore = Infinity;
   for (const f of faces) {
-    const d = nearestVehicularDist(f.mx + f.nx * ROAD_PROBE, f.mz + f.nz * ROAD_PROBE);
+    const pxp = f.mx + f.nx * ROAD_PROBE, pzp = f.mz + f.nz * ROAD_PROBE;
+    const d = nearestVehicularDist(pxp, pzp);
     const score = d - Math.min(f.len, 40) * 0.15; // same frontage bias as solveWall
     if (score < bestScore) { bestScore = score; best = f; }
+    if (name) {
+      const dm = nearestNamedDist(pxp, pzp, name);
+      if (dm < ADDR_MATCH_MAX && dm - Math.min(f.len, 40) * 0.15 < bestMScore) {
+        bestMScore = dm - Math.min(f.len, 40) * 0.15;
+        bestM = f;
+      }
+    }
   }
+  const face = bestM ?? best; // the addressed street's face wins when it exists
   return {
-    x: best.mx + best.nx * PLAQUE_OUT,
-    z: best.mz + best.nz * PLAQUE_OUT,
-    nx: best.nx,
-    nz: best.nz,
+    x: face.mx + face.nx * standoff,
+    z: face.mz + face.nz * standoff,
+    nx: face.nx,
+    nz: face.nz,
   };
 }
 
 // ---- street-facing wall solve -------------------------------------------------------
-// Choose the outer-ring edge that best faces a vehicular street; return the plaque
+// Choose the outer-ring edge that fronts the building's ADDRESSED street (named
+// match), else the edge that best faces any vehicular street; return the plaque
 // anchor (just proud of that wall) + outward bearing. Falls back to the longest
-// edge when no road is near.
-function solveWall(outer, centroid) {
+// edge when no road is near. `stats` counts how often the address changed the
+// face vs the nearest-street choice.
+const wallStats = { withStreet: 0, matched: 0, moved: 0, fallback: 0 };
+function solveWall(outer, centroid, street, standoff = PLAQUE_OUT) {
   const n = outer.length;
+  const name = street ? normStreet(street) : null;
   let best = null, bestScore = Infinity, longest = null, longestLen = -1;
+  let bestM = null, bestMScore = Infinity;
   for (let i = 0; i < n; i++) {
     const a = outer[i], b = outer[(i + 1) % n];
     const ex = b[0] - a[0], ez = b[1] - a[1];
@@ -389,22 +455,42 @@ function solveWall(outer, centroid) {
     // outward normal (away from centroid)
     let nx = ez / len, nz = -ex / len;
     if ((mx - centroid[0]) * nx + (mz - centroid[1]) * nz < 0) { nx = -nx; nz = -nz; }
-    const d = nearestVehicularDist(mx + nx * ROAD_PROBE, mz + nz * ROAD_PROBE);
+    const pxp = mx + nx * ROAD_PROBE, pzp = mz + nz * ROAD_PROBE;
+    const d = nearestVehicularDist(pxp, pzp);
     // score: nearest road distance, lightly rewarding longer frontages
     const score = d - Math.min(len, 40) * 0.15;
     if (score < bestScore) { bestScore = score; best = { mx, mz, nx, nz, roadDist: d }; }
+    if (name) {
+      const dm = nearestNamedDist(pxp, pzp, name);
+      const mScore = dm - Math.min(len, 40) * 0.15;
+      if (dm < ADDR_MATCH_MAX && mScore < bestMScore) {
+        bestMScore = mScore;
+        bestM = { mx, mz, nx, nz, roadDist: dm };
+      }
+    }
+    // longest-edge fallback: buildings deep in parks (Castle Clinton) are beyond
+    // the road index's 3x3-cell scan, so `best` never sets — d comes back
+    // Infinity and Infinity < Infinity is false. Without this the plaque is
+    // silently dropped.
     if (len > longestLen) {
       longestLen = len;
-      let lnx = ez / len, lnz = -ex / len;
-      if ((mx - centroid[0]) * lnx + (mz - centroid[1]) * lnz < 0) { lnx = -lnx; lnz = -lnz; }
-      longest = { mx, mz, nx: lnx, nz: lnz, roadDist: Infinity };
+      longest = { mx, mz, nx, nz, roadDist: Infinity };
     }
   }
-  const chosen = best && best.roadDist <= NO_ROAD_MAX ? best : (best || longest);
+  if (name) {
+    wallStats.withStreet++;
+    if (bestM) {
+      wallStats.matched++;
+      if (best && (Math.abs(bestM.mx - best.mx) > 0.5 || Math.abs(bestM.mz - best.mz) > 0.5)) wallStats.moved++;
+    } else {
+      wallStats.fallback++;
+    }
+  }
+  const chosen = bestM ?? (best && best.roadDist <= NO_ROAD_MAX ? best : (best || longest));
   if (!chosen) return null;
   return {
-    x: chosen.mx + chosen.nx * PLAQUE_OUT,
-    z: chosen.mz + chosen.nz * PLAQUE_OUT,
+    x: chosen.mx + chosen.nx * standoff,
+    z: chosen.mz + chosen.nz * standoff,
     nx: chosen.nx,
     nz: chosen.nz,
   };
@@ -432,18 +518,27 @@ async function main() {
   // `service` ways are excluded: an unnamed mid-block driveway otherwise wins
   // the face choice and the plaque mounts on a back alley (Hearst's plaque
   // faced its neighbour across a service lane instead of fronting a street).
+  let namedWays = 0;
   for (const el of roadsMap.values()) {
     if (el.type !== 'way') continue;
     const tags = el.tags || {};
     if (!tags.highway || tags.area === 'yes' || tags.tunnel === 'yes') continue;
+    if (!el.geometry || el.geometry.length < 2) continue;
+    const pts = el.geometry.filter((p) => typeof p.lat === 'number' && typeof p.lon === 'number').map((p) => lonLatToXZ(p.lon, p.lat));
+    if (pts.length < 2) continue;
+    // named index: every NAMED way of any class (incl. pedestrian streets and
+    // named service mews) — matching by name makes odd classes safe to include
+    if (tags.name) {
+      const nm = normStreet(tags.name);
+      for (let i = 0; i < pts.length - 1; i++) addNamedSeg(pts[i][0], pts[i][1], pts[i + 1][0], pts[i + 1][1], nm);
+      namedWays++;
+    }
     if (tags.highway === 'service') continue;
     const half = VEHICULAR_HALF[tags.highway];
     if (half === undefined) continue;
-    if (!el.geometry || el.geometry.length < 2) continue;
-    const pts = el.geometry.filter((p) => typeof p.lat === 'number' && typeof p.lon === 'number').map((p) => lonLatToXZ(p.lon, p.lat));
     for (let i = 0; i < pts.length - 1; i++) addRoadSeg(pts[i][0], pts[i][1], pts[i + 1][0], pts[i + 1][1], half);
   }
-  console.log(`  vehicular road index: ${roadGrid.size} cells`);
+  console.log(`  vehicular road index: ${roadGrid.size} cells, ${namedWays} named ways`);
 
   // ---- extract building footprints + tags ----
   console.log('Extracting buildings...');
@@ -535,7 +630,7 @@ async function main() {
   let landmarkCount = 0, ordinaryCount = 0, oldnycLinks = 0;
 
   function emit(b, opts) {
-    const wall = opts.mount ?? solveWall(b.outer, b.centroid);
+    const wall = opts.mount ?? solveWall(b.outer, b.centroid, opts.st, opts.lm ? PLAQUE_OUT_LM : PLAQUE_OUT);
     if (!wall) return false;
     const base = terrainAt(wall.x, wall.z);
     const [tx, tz] = tileOf([wall.x, wall.z]);
@@ -575,16 +670,20 @@ async function main() {
     if (!b) { console.warn(`  landmark ${lm.id}: no building within ${LANDMARK_MATCH_M}m`); continue; }
     if (used.has(b)) continue;
     used.add(b);
-    // fit-measured hosts: mount on the obb street face the bespoke build erects,
-    // not the (possibly cleared) OSM wall
-    const mount = fits[lm.id] ? solveFitFace(fits[lm.id]) : undefined;
     const t = b.tags;
+    // curated addr overrides (Hearst: 300 W 57th, not the base part's 959 8th Av)
+    const num = lm.addrNum ?? t['addr:housenumber'];
+    const st = lm.addrSt ?? t['addr:street'];
+    // fit-measured hosts: mount on the obb face fronting the ADDRESSED street
+    // (else the nearest street), with the landmark standoff so pilasters and
+    // cornices proud of the bespoke wall never swallow the plate
+    const mount = fits[lm.id] ? solveFitFace(fits[lm.id], st, PLAQUE_OUT_LM) : undefined;
     // levels from a building:part describe that part (Hearst's 6-storey base),
     // not the whole landmark — drop the chip rather than show a wrong floor count
     const lv = !b.isPart && t['building:levels'] ? parseInt(t['building:levels'], 10) : undefined;
     if (emit(b, {
       mount,
-      num: t['addr:housenumber'], st: t['addr:street'], nm: lm.name,
+      num, st, nm: lm.name,
       k: t.building && t.building !== 'yes' ? t.building : undefined,
       lv: Number.isFinite(lv) ? lv : undefined,
       wd: t.wikidata, wp: t.wikipedia || (lm.wiki ? `en:${lm.wiki}` : undefined),
@@ -630,6 +729,10 @@ async function main() {
     'redistributes no images and only links out. Marker coordinates (facts) are used under\n' +
     'Apache-2.0 to construct #g:lat,lon deep links.\n');
 
+  console.log(
+    `  addressed-face matching: ${wallStats.matched}/${wallStats.withStreet} matched their addr:street ` +
+      `(${wallStats.moved} moved off the nearest-street face; ${wallStats.fallback} fell back, no named road within ${ADDR_MATCH_MAX}m)`,
+  );
   console.log(
     `\nWrote ${index.length} plaque tiles, ${recCount} plaques ` +
       `(${landmarkCount} landmarks + ${ordinaryCount} numbered), ${oldnycLinks} OldNYC links ` +
