@@ -502,8 +502,10 @@ async function main() {
   // drops the parts our build replaces (e.g. Hearst's tower above its 1928
   // base) while keeping the rest of the building.
   const LANDMARK_FIT = [
-    // r 55 (was 45): two ~150m Hearst tower parts have centroids 45.2m out and
-    // survived the clear, interpenetrating the diagrid build
+    // r 55 (was 45): NOTE the "~150m parts at 45.2m" that motivated the bump
+    // were actually The Sheffield 57's towers next door — site grouping now
+    // excludes them from the measure AND from the clear (the r only bounds the
+    // candidate search; ownership decides what belongs to Hearst).
     { id: 'hearst-tower', lat: 40.7666, lon: -73.9836, r: 55, clearAboveH: 5 },
     { id: 'chrysler', lat: 40.7516, lon: -73.9755, r: 45, clearAboveMin: 184, clearAboveH: 270 },
     { id: 'empire-state', lat: 40.7484, lon: -73.9857, r: 40, clearAboveMin: 325 },
@@ -530,12 +532,60 @@ async function main() {
   const fitOut = {};
   const fitCleared = new Set(); // building object refs to drop
   for (const lf of LANDMARK_FIT) {
-    const cands = keptBuildings.filter((b) => {
+    const rawCands = keptBuildings.filter((b) => {
       if (lf.minH !== undefined && b.height < lf.minH) return false; // obb of the tall shaft only
       const dx = b.centroid[0] - lf.x, dz = b.centroid[1] - lf.z;
       return dx * dx + dz * dz < lf.r * lf.r;
     });
-    if (!cands.length) { console.warn(`  fit ${lf.id}: NO building found at anchor`); continue; }
+    if (!rawCands.length) { console.warn(`  fit ${lf.id}: NO building found at anchor`); continue; }
+
+    // ---- SITE GROUPING: measure only the HOST building's massing -------------
+    // A radius alone can't separate abutting Manhattan lots: Hearst's r=55
+    // circle also caught The Sheffield 57 next door (incl. its 146m/154m tower
+    // parts), inflating the obb from the true ~60x49m site to 103x67 — the
+    // bespoke base built from those numbers paved over the sidewalk, and the
+    // clear erased the Sheffield itself. Ownership fixes this: a building:part
+    // belongs to the plain-building OUTLINE that contains its centroid (using
+    // pre-suppression outlines, since part-covered outlines are dropped from
+    // keptBuildings), and the site is the ownership group at the anchor point.
+    // Parts with no containing outline are orphans (Hearst is mapped as parts
+    // only) and group together. Falls back to the un-grouped candidate set if
+    // grouping ever leaves the site empty.
+    const outlineR2 = (lf.r + 80) * (lf.r + 80);
+    const outlines = buildingElements.filter((b) => {
+      if (b.isPart) return false;
+      const dx = b.centroid[0] - lf.x, dz = b.centroid[1] - lf.z;
+      return dx * dx + dz * dz < outlineR2;
+    });
+    const ownerOf = (b) => {
+      if (!b.isPart) return b; // a plain building owns itself
+      for (const o of outlines) if (pointInPolygon(b.centroid, o.outer)) return o;
+      return null; // orphan part (no containing outline)
+    };
+    let seedOwner;
+    let seeded = false;
+    for (const o of outlines) {
+      if (pointInPolygon([lf.x, lf.z], o.outer)) { seedOwner = o; seeded = true; break; }
+    }
+    if (!seeded) {
+      for (const b of rawCands) {
+        if (b.isPart && pointInPolygon([lf.x, lf.z], b.outer)) { seedOwner = ownerOf(b); seeded = true; break; }
+      }
+    }
+    if (!seeded) {
+      let best = null, bestD = Infinity;
+      for (const b of rawCands) {
+        const dx = b.centroid[0] - lf.x, dz = b.centroid[1] - lf.z;
+        const d2 = dx * dx + dz * dz;
+        if (d2 < bestD) { bestD = d2; best = b; }
+      }
+      seedOwner = best ? ownerOf(best) : undefined;
+    }
+    const siteCands = rawCands.filter((b) => ownerOf(b) === seedOwner);
+    const cands = siteCands.length ? siteCands : rawCands;
+    if (cands.length !== rawCands.length) {
+      console.log(`  fit ${lf.id}: site grouping excluded ${rawCands.length - cands.length}/${rawCands.length} foreign parts`);
+    }
     // dominant orientation: longest edge of the largest footprint
     const largest = cands.reduce((a, b) => (b.area > a.area ? b : a));
     let ex = 1, ez = 0, bestLen = 0;
@@ -600,7 +650,17 @@ async function main() {
     ['trinity-church', 40.7081, -74.0121, 40], ['federal-hall', 40.7074, -74.0102, 30],
     ['castle-clinton', 40.7033, -74.017, 38], ['fraunces-tavern', 40.7034, -74.0113, 18],
     ['whitehall-terminal', 40.7013, -74.0131, 45], ['city-hall', 40.7128, -74.006, 50],
-    ['st-patricks', 40.7586, -73.9758, 62], ['guggenheim', 40.783, -73.959, 40],
+    // st-patricks was ONE r=62 circle anchored near the Madison end — it erased
+    // seven neighbours ACROSS Madison Av + E 51st (460/488 Madison incl. the
+    // Look Building, 5/7/11 E 51st) that the bespoke cathedral never replaces.
+    // Two block-shaped circles cover exactly the cathedral's own block: the
+    // nave + Lady-chapel end, and the small Madison/50th rectory corner.
+    ['st-patricks', 40.758495, -73.976191, 42], ['st-patricks-rectory', 40.758063, -73.975696, 14],
+    // OSM also maps the twin 100.5m front spires as their own parts at the 5th
+    // Av corners — outside both circles above, they survived as free-standing
+    // slivers DUPLICATING the replica's spires
+    ['st-patricks-spires', 40.758720, -73.976689, 16],
+    ['guggenheim', 40.783, -73.959, 40],
     // Times Square's bowtie is our billboard-stack canyon; drop the generic
     // brick OSM massing in the core so the spectaculars stand free instead of
     // spearing through buildings (the district's real towers beyond r remain).

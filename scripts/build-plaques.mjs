@@ -306,7 +306,9 @@ const LANDMARK_CLEAR = [
   ['trinity-church', 40.7081, -74.0121, 40], ['federal-hall', 40.7074, -74.0102, 30],
   ['castle-clinton', 40.7033, -74.017, 38], ['fraunces-tavern', 40.7034, -74.0113, 18],
   ['whitehall-terminal', 40.7013, -74.0131, 45], ['city-hall', 40.7128, -74.006, 50],
-  ['st-patricks', 40.7586, -73.9758, 62], ['guggenheim', 40.783, -73.959, 40],
+  ['st-patricks', 40.758495, -73.976191, 42], ['st-patricks-rectory', 40.758063, -73.975696, 14],
+  ['st-patricks-spires', 40.758720, -73.976689, 16],
+  ['guggenheim', 40.783, -73.959, 40],
   ['times-square', 40.758, -73.9855, 55],
   ['un-secretariat', 40.7489, -73.9681, 60], ['un-ga', 40.7501, -73.9677, 50],
   ['chase-hq', 40.7558, -73.9755, 50],
@@ -317,13 +319,11 @@ const LANDMARK_CLEAR = [
   ['columbia-low', 40.8081, -73.9619, 42], ['st-john-divine', 40.8038, -73.9619, 55],
   ['cloisters', 40.8649, -73.9317, 55], ['hamilton-grange', 40.8214, -73.9469, 18],
   ['morris-jumel', 40.8345, -73.9386, 20], ['dyckman-farmhouse', 40.8668, -73.9229, 18],
-  // hearst-tower is a LANDMARK_FIT site whose clearAboveH:5 drops effectively ALL
-  // OSM massing within r=55 (keptH=2 in landmarks-fit.json) — the bespoke diagrid
-  // replaces the whole block face. Ordinary plaques here would mount on walls
-  // that no longer exist (buried inside / floating beside the bespoke build).
-  // The other fit sites keep their base massing (clearAboveMin only drops crowns),
-  // so their street walls — and plaques — survive.
-  ['hearst-tower', 40.7666, -73.9836, 55],
+  // (hearst-tower needs no entry here: the pipeline's fit clear is now
+  // site-grouped, so only Hearst's own building:part rings are dropped — every
+  // neighbouring building keeps its massing and its plaque. Hearst itself is
+  // parts-only in OSM, so the ordinary loop never plaques it; the curated
+  // landmark plaque mounts on the fit obb face.)
 ].map(([id, lat, lon, r]) => { const [x, z] = lonLatToXZ(lon, lat); return { id, x, z, r2: r * r }; });
 function inLandmarkClear(cx, cz) {
   for (const lc of LANDMARK_CLEAR) {
@@ -428,10 +428,15 @@ async function main() {
   const roadsMap = loadLayer('roads');
 
   // ---- build vehicular road index ----
+  // This index only SCORES candidate wall faces (nearest-street distance), so
+  // `service` ways are excluded: an unnamed mid-block driveway otherwise wins
+  // the face choice and the plaque mounts on a back alley (Hearst's plaque
+  // faced its neighbour across a service lane instead of fronting a street).
   for (const el of roadsMap.values()) {
     if (el.type !== 'way') continue;
     const tags = el.tags || {};
     if (!tags.highway || tags.area === 'yes' || tags.tunnel === 'yes') continue;
+    if (tags.highway === 'service') continue;
     const half = VEHICULAR_HALF[tags.highway];
     if (half === undefined) continue;
     if (!el.geometry || el.geometry.length < 2) continue;
