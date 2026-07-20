@@ -675,7 +675,7 @@ export class RideWorld {
     if (this.streaks) this.streaks.visible = false;
     this.setStrip();
     const thisName = this.names.get(this.stops[this.idx]) ?? '';
-    this.setNextSign(this.atEnd ? `(${this.route}) LAST STOP — ${thisName}` : `(${this.route}) THIS IS ${thisName}`);
+    this.setNextSign(this.atEnd ? `(${this.route}) LAST STOP: ${thisName}` : `(${this.route}) THIS IS ${thisName}`);
   }
 
   get currentStationId() { return this.stops[this.idx]; }

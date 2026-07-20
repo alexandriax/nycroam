@@ -232,7 +232,7 @@ export default function NYCRoam() {
         <div style={{ fontSize: 12, opacity: 0.65 }}>to {hud.ride.terminal}</div>
         <div style={{ fontSize: isTouch ? 14 : 15 }}>
           {hud.ride.state === 'dwell' && (hud.ride.atEnd
-            ? <>Last stop — <b>{hud.ride.thisStop}</b></>
+            ? <>Last stop: <b>{hud.ride.thisStop}</b></>
             : <>This is <b>{hud.ride.thisStop}</b></>)}
           {hud.ride.state === 'closing' && <span className="pulse">Stand clear of the closing doors</span>}
           {hud.ride.state === 'moving' && <>Next stop: <b>{hud.ride.thisStop}</b></>}
@@ -249,7 +249,7 @@ export default function NYCRoam() {
         <div style={{ fontSize: 12, opacity: 0.65 }}>to {hud.bus.dest}</div>
         <div style={{ fontSize: isTouch ? 14 : 15 }}>
           {hud.bus.state === 'dwell' && (hud.bus.atEnd
-            ? <>Last stop — <b>{hud.bus.thisStop}</b></>
+            ? <>Last stop: <b>{hud.bus.thisStop}</b></>
             : <>This is <b>{hud.bus.thisStop}</b></>)}
           {hud.bus.state === 'closing' && <span className="pulse">Doors closing</span>}
           {hud.bus.state === 'moving' && <>Next stop: <b>{hud.bus.thisStop}</b></>}
@@ -355,7 +355,7 @@ export default function NYCRoam() {
         {/* row 2: fps readout + sound on/off on one line */}
         <div className="hud-row">
         <div className="hud-panel stats">
-          {hud ? `${hud.fps} fps · ${hud.tilesLoaded} tiles${hud.tilesPending ? ` (+${hud.tilesPending})` : ''}${hud.fly ? ' · HELI' : ''}${hud.riding ? ' · BIKE' : ''}${hud.mode === 'bus' ? ' · BUS' : ''}` : '—'}
+          {hud ? `${hud.fps} fps · ${hud.tilesLoaded} tiles${hud.tilesPending ? ` (+${hud.tilesPending})` : ''}${hud.fly ? ' · HELI' : ''}${hud.riding ? ' · BIKE' : ''}${hud.mode === 'bus' ? ' · BUS' : ''}` : '–'}
         </div>
         {/* goals / achievements — opens the checklist modal */}
         <button
@@ -370,7 +370,7 @@ export default function NYCRoam() {
         <button
           className={`hud-panel share-btn${muted ? ' muted' : ''}`}
           onClick={toggleMute}
-          title={muted ? 'Sound off — click to unmute' : 'Sound on — click to mute'}
+          title={muted ? 'Sound off: click to unmute' : 'Sound on: click to mute'}
           aria-label={muted ? 'Unmute sound' : 'Mute sound'}
         >
           <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">

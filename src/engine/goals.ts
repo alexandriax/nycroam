@@ -196,7 +196,7 @@ export class GoalTracker {
       if (g.done && !this.completed.has(g.id)) {
         this.completed.add(g.id);
         this.justCompleted = true;
-        this.emit(`Goal complete — ${g.label}`);
+        this.emit(`Goal complete: ${g.label}`);
       }
     }
   }

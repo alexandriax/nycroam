@@ -219,7 +219,7 @@ export class PlatformCountdown {
    *  one is still hidden in the tunnel a minute out. Minutes floor at 1 so a
    *  ~20s ETA never renders the nonsensical "0 MIN". */
   private minsInfo(seconds: number): { big: string; unit: string } {
-    if (!Number.isFinite(seconds)) return { big: '—', unit: '' };
+    if (!Number.isFinite(seconds)) return { big: '–', unit: '' };
     if (seconds < 7) return { big: 'Now', unit: '' };
     return { big: String(Math.max(1, Math.round(seconds / 60))), unit: 'MIN' };
   }
