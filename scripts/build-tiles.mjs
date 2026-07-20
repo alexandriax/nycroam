@@ -507,7 +507,13 @@ async function main() {
     { id: 'hearst-tower', lat: 40.7666, lon: -73.9836, r: 55, clearAboveH: 5 },
     { id: 'chrysler', lat: 40.7516, lon: -73.9755, r: 45, clearAboveMin: 184, clearAboveH: 270 },
     { id: 'empire-state', lat: 40.7484, lon: -73.9857, r: 40, clearAboveMin: 325 },
-    { id: 'one-vanderbilt', lat: 40.7529, lon: -73.9787, r: 40 },
+    // minH: obb over the tall shaft only, so the crown centers on the tower
+    // (not the block-wide base). clearAboveH: OSM's own crown prisms (h=397)
+    // and 3m-wide spire stick (h=427) are full-height extrusions (base ~18m),
+    // so clearAboveMin can't catch them — drop by TOP height instead; the
+    // bespoke faceted-glass crown replaces them above the kept 350m setbacks.
+    // r 48: a 350m part centroid sits 39.9m out (the hearst boundary lesson).
+    { id: 'one-vanderbilt', lat: 40.7529, lon: -73.9787, r: 48, minH: 340, clearAboveH: 380 },
     // minH: the 120m base obb centered the crown 13m off the tower shaft — the
     // verdigris crown floated beside the top (the "topper near City Hall" bug)
     { id: 'woolworth', lat: 40.7124, lon: -74.0083, r: 40, minH: 150 },

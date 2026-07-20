@@ -34,6 +34,17 @@ const CHASE_BRONZE = new THREE.MeshStandardMaterial({
   color: '#9c7c4f', metalness: 0.35, roughness: 0.38, emissive: '#2a1e10',
 });
 
+// One Vanderbilt's crown glass: kit GLASS_LM at metalness 0.6 reads near-black
+// against the sky (no envmap in streetScene — the Chase bronze lesson), and the
+// real crown is LIGHTER than the shaft. Low metalness + slight emissive keeps
+// shaded facets silvery.
+const ONE_V_GLASS = new THREE.MeshStandardMaterial({
+  color: '#b9d2e2', metalness: 0.3, roughness: 0.16, emissive: '#2e3f4a',
+  // flat facets: without this the 4-segment frustums smooth-shade into a
+  // rounded bullet nose instead of crisp angled glass planes
+  flatShading: true,
+});
+
 // Tapered 4-leg lattice tower (X-braced), origin at ground; reused by the bridge towers.
 function latticeTower(h: number, baseHalf: number, topHalf: number, mat: THREE.Material, legR: number, levels: number): THREE.Group {
   const t = new THREE.Group();
@@ -213,33 +224,48 @@ export const builders: Record<string, (ctx: LandmarkCtx) => THREE.Group> = {
     return g;
   },
 
-  // One Vanderbilt crown: four tapering glass fins to a point at 427m + the Summit deck band
-  'one-vanderbilt': () => {
+  // One Vanderbilt crown. The OSM prisms above 380m (five 397m crown pieces +
+  // a 3m-wide spire stick to 427m) are cleared at bake time (LANDMARK_FIT
+  // clearAboveH) — kept, they interpenetrated the old glass-fin build, whose
+  // fins and floating 44m parapet ring hung ~7m off the real crown cluster.
+  // This replaces them with the tower's actual read: a faceted glass crown
+  // tapering from the kept 350m setbacks to the 427m point. Everything here is
+  // four-fold symmetric on purpose — the fit rot may map local +x onto either
+  // grid axis depending on which shaft edge measures longest.
+  'one-vanderbilt': (ctx) => {
     const g = new THREE.Group();
-    const apex = new THREE.Vector3(0, 427, 0);
-    const yBase = 397, rBase = 16, halfW = 5;
-    for (let k = 0; k < 4; k++) {
-      const phi = (k * Math.PI) / 2;
-      const cx = Math.sin(phi), cz = Math.cos(phi); // radial
-      const tx = Math.cos(phi), tz = -Math.sin(phi); // tangential
-      const mid = new THREE.Vector3(rBase * cx, yBase, rBase * cz);
-      const bl = new THREE.Vector3(mid.x + tx * halfW, yBase, mid.z + tz * halfW);
-      const br = new THREE.Vector3(mid.x - tx * halfW, yBase, mid.z - tz * halfW);
-      const dir = apex.clone().sub(mid);
-      const fin = box(halfW * 1.7, dir.length(), 0.4, GLASS_LM); // angled glass slab
-      fin.position.copy(mid).add(apex).multiplyScalar(0.5);
-      fin.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir.clone().normalize());
-      g.add(fin);
-      g.add(strut(bl, apex, 0.2, STEEL_LM)); // steel edge ribs converging to the point
-      g.add(strut(br, apex, 0.2, STEEL_LM));
+    const roof = ctx.fit?.keptH ?? 350; // tallest kept OSM setback
+    const tip = ctx.fit?.roofH ?? 427; // OSM's cleared spire reached here
+    const rise = tip - roof;
+    // three tapering square tiers: [side at base, side at top, rise fractions].
+    // Near-constant taper — increasing slopes read as a bulging bullet nose.
+    const tiers: [number, number, number, number][] = [
+      [26, 15.5, 0, 0.47],
+      [15.5, 8.5, 0.47, 0.75],
+      [8.5, 0.9, 0.75, 1],
+    ];
+    for (const [s0, s1, f0, f1] of tiers) {
+      const y0 = roof + rise * f0, y1 = roof + rise * f1;
+      const t = cyl(s1 * Math.SQRT1_2, s0 * Math.SQRT1_2, y1 - y0, ONE_V_GLASS, 0, (y0 + y1) / 2, 0, 4);
+      t.rotation.y = Math.PI / 4; // square facets facing local ±x/±z
+      g.add(t);
+      // steel hip ribs up the four corners of each tier
+      for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
+        g.add(strut(
+          new THREE.Vector3((sx * s0) / 2, y0, (sz * s0) / 2),
+          new THREE.Vector3((sx * s1) / 2, y1, (sz * s1) / 2),
+          0.22, STEEL_LM,
+        ));
+      }
     }
-    // Summit deck band at y=369: glass parapet ring over a mirrored steel band
-    const parapet = new THREE.Mesh(new THREE.CylinderGeometry(22, 22, 3, 16, 1, true), GLASS_LM);
-    parapet.position.y = 370.5;
-    g.add(parapet);
-    const mirror = new THREE.Mesh(new THREE.CylinderGeometry(22.3, 22.3, 1.6, 16, 1, true), STEEL_LM);
-    mirror.position.y = 368.4;
-    g.add(mirror);
+    // Summit deck band: a pale glow wrapping the crown base at the roofline
+    // (the old free-floating r=22 parapet ring is gone with the fins)
+    const band = new THREE.Mesh(
+      new THREE.BoxGeometry(27.2, 2.4, 27.2),
+      new THREE.MeshBasicMaterial({ color: '#d9ecf7' }),
+    );
+    band.position.y = roof + 1.6;
+    g.add(band);
     return g;
   },
 
