@@ -370,39 +370,23 @@ export default function NYCRoam() {
         >
           <TrophyIcon size={15} />
         </button>
-        {/* the same spot on the real map, and the real view from this corner */}
+        {/* the same spot on the real map */}
         {hud?.mode === 'street' && (
-          <>
-            <button
-              className="hud-panel share-btn"
-              onClick={() => {
-                const u = worldRef.current?.mapsLink();
-                if (u) window.open(u, '_blank', 'noopener');
-              }}
-              title="Open this spot in Google Maps"
-              aria-label="Open this spot in Google Maps"
-            >
-              <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M1.5 4.2 5.8 2.4 10.2 4.2 14.5 2.4 V11.8 L10.2 13.6 5.8 11.8 1.5 13.6 Z" />
-                <line x1="5.8" y1="2.4" x2="5.8" y2="11.8" />
-                <line x1="10.2" y1="4.2" x2="10.2" y2="13.6" />
-              </svg>
-            </button>
-            <button
-              className="hud-panel share-btn"
-              onClick={() => {
-                const u = worldRef.current?.streetViewLink();
-                if (u) window.open(u, '_blank', 'noopener');
-              }}
-              title="See the real view here in Google Street View"
-              aria-label="See the real view here in Google Street View"
-            >
-              <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M1.5 8 C3.2 4.9 5.4 3.4 8 3.4 C10.6 3.4 12.8 4.9 14.5 8 C12.8 11.1 10.6 12.6 8 12.6 C5.4 12.6 3.2 11.1 1.5 8 Z" />
-                <circle cx="8" cy="8" r="2.1" fill="currentColor" stroke="none" />
-              </svg>
-            </button>
-          </>
+          <button
+            className="hud-panel share-btn"
+            onClick={() => {
+              const u = worldRef.current?.mapsLink();
+              if (u) window.open(u, '_blank', 'noopener');
+            }}
+            title="Open this spot in Google Maps"
+            aria-label="Open this spot in Google Maps"
+          >
+            <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M1.5 4.2 5.8 2.4 10.2 4.2 14.5 2.4 V11.8 L10.2 13.6 5.8 11.8 1.5 13.6 Z" />
+              <line x1="5.8" y1="2.4" x2="5.8" y2="11.8" />
+              <line x1="10.2" y1="4.2" x2="10.2" y2="13.6" />
+            </svg>
+          </button>
         )}
         {/* sound on/off — the world's footsteps, engines, doors & rotors */}
         <button

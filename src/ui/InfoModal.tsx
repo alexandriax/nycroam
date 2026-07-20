@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import type { PlaqueInfo } from '../engine/PlaqueManager';
 import { oldNycUrl } from '../engine/PlaqueManager';
 import { fetchWiki, type WikiSummary } from '../engine/wiki';
+import { xzToLonLat, googleMapsUrl } from '../engine/geo';
 
 /** Prettify an OSM building=* value for display ("apartments" -> "Apartments"). */
 const KIND_LABEL: Record<string, string> = {
@@ -72,6 +73,8 @@ export default function InfoModal({ info, onClose }: { info: PlaqueInfo; onClose
   const subtitle = info.nm && address ? address : null;
   const kind = kindLabel(info.k);
   const oldnyc = oldNycUrl(info.o);
+  const [lon, lat] = xzToLonLat(info.x, info.z);
+  const maps = googleMapsUrl(lat, lon);
 
   return (
     <div className="info-backdrop" onClick={onClose}>
@@ -110,6 +113,11 @@ export default function InfoModal({ info, onClose }: { info: PlaqueInfo; onClose
           )}
 
           <div className="info-links">
+            <a className="info-linkcard" href={maps} target="_blank" rel="noopener noreferrer">
+              <span className="info-linkcard-icon">🗺️</span>
+              <span><strong>Open in Google Maps</strong></span>
+              <span className="info-arrow">↗</span>
+            </a>
             {oldnyc && (
               <a className="info-linkcard" href={oldnyc} target="_blank" rel="noopener noreferrer">
                 <span className="info-linkcard-icon">🖼️</span>

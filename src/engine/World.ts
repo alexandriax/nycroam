@@ -32,7 +32,7 @@ import { RideWorld, type RideHud } from './subway/RideWorld';
 import type { StationSpec, NetworkData, Arrival } from './subway/types';
 import { routeColor } from './subway/types';
 import { boardLabel } from './subway/directions';
-import { lonLatToXZ, ORIGIN, M_PER_DEG_LAT, M_PER_DEG_LON } from './geo';
+import { lonLatToXZ, xzToLonLat, googleMapsUrl, ORIGIN, M_PER_DEG_LAT, M_PER_DEG_LON } from './geo';
 import { loadTerrain, heightAt } from './terrain';
 
 const SAVE_KEY = 'nycroam';
@@ -452,9 +452,8 @@ export class World {
   /** Google Maps pin at the current spot (street mode, incl. bike and fly). */
   mapsLink(): string | null {
     if (this.mode !== 'street') return null;
-    const lat = (ORIGIN.lat - this.pos.z / M_PER_DEG_LAT).toFixed(6);
-    const lon = (ORIGIN.lon + this.pos.x / M_PER_DEG_LON).toFixed(6);
-    return `https://www.google.com/maps/search/?api=1&query=${lat}%2C${lon}`;
+    const [lon, lat] = xzToLonLat(this.pos.x, this.pos.z);
+    return googleMapsUrl(lat, lon);
   }
 
   /**
@@ -462,6 +461,9 @@ export class World {
    * from the horizontal facing (yaw 0 = north = -z). While flying this anchors
    * to the ground below with a level gaze: panoramas only exist at street
    * level, and a bird's-eye pitch aimed at the pavement would show nothing.
+   *
+   * Not currently wired to any UI (disabled pending a placement rework —
+   * the viewpoint doesn't reliably land on the matching real-world spot/gaze).
    */
   streetViewLink(): string | null {
     if (this.mode !== 'street') return null;

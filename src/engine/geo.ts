@@ -13,6 +13,18 @@ export function lonLatToXZ(lon: number, lat: number): [number, number] {
   ];
 }
 
+export function xzToLonLat(x: number, z: number): [number, number] {
+  return [
+    ORIGIN.lon + x / M_PER_DEG_LON,
+    ORIGIN.lat - z / M_PER_DEG_LAT,
+  ];
+}
+
+/** Google Maps pin for a lat/lon (the "open this spot in Maps" link everywhere). */
+export function googleMapsUrl(lat: number, lon: number): string {
+  return `https://www.google.com/maps/search/?api=1&query=${lat.toFixed(6)}%2C${lon.toFixed(6)}`;
+}
+
 export function tileKey(tx: number, tz: number): string {
   return `${tx}_${tz}`;
 }
