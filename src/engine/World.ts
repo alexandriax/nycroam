@@ -9,6 +9,7 @@ import { setupSky, setupLights, followSun, SKY } from './sky';
 import { quality } from './quality';
 import { makeSkylineMaterial, makeFlatMaterial, makeWaterMaterial } from './materials';
 import { EntranceManager, disposeGroup } from './EntranceManager';
+import { PlaqueManager, type PlaqueInfo } from './PlaqueManager';
 import { BikeManager, buildMountedBike } from './bikes';
 import { LandmarkManager } from './landmarks/LandmarkManager';
 import { LANDMARKS_REG } from './landmarks/registry';
@@ -87,6 +88,7 @@ export interface HudState {
   cross: string | null; // nearest cross street to that position
   stationName: string | null;
   stationRoutes: string[];
+  nearInfo: { label: string; lm: boolean } | null; // building plaque within reach — press i / tap ⓘ
   ride: RideHud | null;
   bus: BusHud | null; // set while riding a bus (mode 'bus')
   tilesLoaded: number;
@@ -118,6 +120,8 @@ export class World {
   private streetScene = new THREE.Scene();
   private tiles: TileManager;
   private entrances: EntranceManager;
+  private plaques: PlaqueManager;
+  private nearPlaque: PlaqueInfo | null = null; // building whose plaque is in reach (street mode)
   private bikes: BikeManager;
   private landmarks: LandmarkManager;
   private hoods: { n: string; rings: number[][]; bbox: [number, number, number, number] }[] | null = null;
@@ -174,10 +178,11 @@ export class World {
   private _eye = new THREE.Vector3(); // reused camera-eye scratch (per-frame, hot path)
   hud: HudState = {
     mode: 'street', fly: false, prompt: null, promptRoutes: [], promptBus: [], promptHint: null, riding: false, area: null, street: null, cross: null, stationName: null,
-    stationRoutes: [], ride: null, bus: null, tilesLoaded: 0, tilesPending: 0, fps: 0, loading: true, error: null,
+    stationRoutes: [], nearInfo: null, ride: null, bus: null, tilesLoaded: 0, tilesPending: 0, fps: 0, loading: true, error: null,
   };
   onHud: ((h: HudState) => void) | null = null;
   onFade: ((opaque: boolean) => void) | null = null;
+  onInfo: ((info: PlaqueInfo) => void) | null = null; // open the building-info modal (i key / mobile button)
 
   constructor(canvas: HTMLCanvasElement) {
     this.isMobile = /Android|iPhone|iPad|Mobile/i.test(navigator.userAgent) || navigator.maxTouchPoints > 1;
@@ -264,12 +269,17 @@ export class World {
     // Roosevelt Island Tramway: always-simulated shuttle, rideable both ways
     this.tram = new TramSystem(this.streetScene);
 
+    // address plaques: numbered plates on every building's street-facing wall,
+    // streamed like tiles; walk up + press i for the building-info modal
+    this.plaques = new PlaqueManager(this.streetScene, (g) => this.compileGroup(g));
+
     this.controls = new PlayerControls(canvas);
     this.controls.onToggleFly = () => {
       if (this.riding || this.mode === 'bus') return; // dock the bike / step off first
       this.controls.fly = !this.controls.fly; // allowed everywhere (rescue hatch in stations)
     };
     this.controls.onAction = () => this.tryAction();
+    this.controls.onInfo = () => this.tryInfo();
 
     // water plane: animated waves + fresnel (subdivided so lighting varies)
     const waterKit = makeWaterMaterial(SKY.fog.clone());
@@ -317,6 +327,7 @@ export class World {
       this.loadNetwork(),
       this.tiles.init(),
       this.entrances.init(),
+      this.plaques.init(),
       this.bikes.init(),
       this.loadHoods(),
       this.loadGround(),
@@ -1433,6 +1444,11 @@ export class World {
     let dx = (fwd.x * input.forward + right.x * input.strafe) * speed * dt;
     let dz = (fwd.z * input.forward + right.z * input.strafe) * speed * dt;
 
+    // Building-info reach is street-only; clear it before the mode dispatch so a
+    // stale plaque prompt never lingers after entering a station/vehicle.
+    this.hud.nearInfo = null;
+    this.nearPlaque = null;
+
     if (this.mode === 'street') {
       // safe spawn: after a teleport / exit we may have landed inside a building
       // footprint (entrances hug walls, jump targets are raw lat/lon). Once the
@@ -1500,6 +1516,7 @@ export class World {
       this.waterUpdate?.(dt);
       this.tiles.update(this.pos.x, this.pos.z);
       this.entrances.update(this.pos.x, this.pos.z, dt);
+      this.plaques.update(this.pos.x, this.pos.z, dt);
       this.bikes.update(this.pos.x, this.pos.z, dt);
       this.buses.update(this.pos.x, this.pos.z, dt);
       this.tram.update(this.pos.x, this.pos.z, dt);
@@ -1580,6 +1597,16 @@ export class World {
           this.hud.promptBus = [{ id: 'TRAM', color: '#c8102e', sbs: false }];
           this.hud.promptHint = tstn.seconds < 20 ? 'tram due' : `tram in ${Math.round(tstn.seconds)}s`;
         }
+      }
+
+      // Building-info plaque within reach — a separate affordance from the transit
+      // prompt (press i / tap the ⓘ button), so it coexists with a bus/dock prompt.
+      if (!this.controls.fly) {
+        const np = this.plaques.nearest(this.pos.x, this.pos.z, 7);
+        this.nearPlaque = np?.info ?? null;
+        this.hud.nearInfo = np
+          ? { label: np.info.nm || [np.info.num, np.info.st].filter(Boolean).join(' ') || 'this building', lm: !!np.info.lm }
+          : null;
       }
     } else if (this.mode === 'ride' && this.ride) {
       // constrained walking inside the car
@@ -1924,6 +1951,18 @@ export class World {
 
   action() { this.tryAction(); }
 
+  /**
+   * Open the building-info modal for the plaque in reach (i key / mobile ⓘ
+   * button). Captured on press so the modal content is decoupled from the ~2Hz
+   * HUD throttle. No-op unless a plaque is nearby in street mode.
+   */
+  private tryInfo() {
+    if (this.mode !== 'street' || !this.nearPlaque) return;
+    this.onInfo?.(this.nearPlaque);
+  }
+
+  info() { this.tryInfo(); }
+
   /** Debug/scripting hook: place the player (feet) and optionally aim. */
   setPos(x: number, y: number, z: number, yaw?: number, pitch?: number) {
     this.pos.set(x, y, z);
@@ -1980,6 +2019,7 @@ export class World {
     this.controls.dispose();
     this.tiles.destroy();
     this.entrances.destroy();
+    this.plaques.destroy();
     this.bikes.destroy();
     this.buses.dispose();
     this.tram.destroy();

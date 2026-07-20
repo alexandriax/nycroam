@@ -26,6 +26,7 @@ export class PlayerControls {
   private pointerLockAvailable = true;
   onAction: (() => void) | null = null; // E key / action button
   onToggleFly: (() => void) | null = null;
+  onInfo: (() => void) | null = null; // i key / mobile info button — open building-info modal
 
   constructor(el: HTMLElement) {
     this.el = el;
@@ -74,6 +75,7 @@ export class PlayerControls {
     this.keys.add(k);
     if (k === 'f') this.onToggleFly?.();
     if (k === 'e' || k === 'enter') this.onAction?.();
+    if (k === 'i') this.onInfo?.();
   };
 
   private onKeyUp = (e: KeyboardEvent) => {

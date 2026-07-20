@@ -753,3 +753,129 @@ select, button {
   background: rgba(120, 32, 26, 0.5);
   border-color: rgba(220, 90, 78, 0.5);
 }
+
+/* ---- building-info: proximity chip + modal ------------------------------- */
+.info-chip-hud {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  font-size: 14px;
+  white-space: nowrap;
+  cursor: pointer;
+  color: #eef1f4;
+  animation: infoChipIn 0.18s ease;
+}
+.info-chip-hud .info-chip-glyph { color: #b9975b; font-size: 15px; }
+.info-chip-hud.lm .info-chip-glyph { color: #e0be6a; }
+.info-chip-label { max-width: 46vw; overflow: hidden; text-overflow: ellipsis; }
+.info-chip-key {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.5);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 5px;
+  padding: 1px 6px;
+}
+@keyframes infoChipIn { from { opacity: 0; transform: translate(-50%, 6px); } to { opacity: 1; transform: translate(-50%, 0); } }
+
+.info-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 92;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: rgba(6, 8, 12, 0.55);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+}
+.info-modal {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: 440px;
+  max-height: 80vh;
+  border-radius: 16px;
+  background: rgba(13, 16, 21, 0.94);
+  backdrop-filter: blur(22px) saturate(112%);
+  -webkit-backdrop-filter: blur(22px) saturate(112%);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.6), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  color: #e8eaed;
+  overflow: hidden;
+}
+.info-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 15px 16px 13px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+.info-head svg { color: #b9975b; margin-top: 2px; flex: none; }
+.info-head.lm svg { color: #e0be6a; }
+.info-title-wrap { flex: 1; min-width: 0; }
+.info-head h2 { font-size: 17px; font-weight: 400; letter-spacing: 0.3px; line-height: 1.25; }
+.info-sub { font-size: 12.5px; color: rgba(255, 255, 255, 0.5); margin-top: 3px; }
+.info-close {
+  width: 28px; height: 28px; flex: none;
+  display: flex; align-items: center; justify-content: center;
+  padding: 0; font-size: 20px; line-height: 1;
+  color: rgba(255, 255, 255, 0.55);
+  background: transparent; border: none; border-radius: 8px; cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+.info-close:hover { background: rgba(255, 255, 255, 0.1); color: #fff; }
+
+.info-body { overflow-y: auto; -webkit-overflow-scrolling: touch; padding: 14px 16px 16px; }
+.info-meta { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
+.info-chip {
+  font-size: 11.5px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.07);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: rgba(255, 255, 255, 0.8);
+}
+.info-chip.lm { background: rgba(74, 108, 158, 0.28); border-color: rgba(120, 160, 220, 0.4); color: #dbe6f6; }
+
+.info-wiki-loading { font-size: 13px; color: rgba(255, 255, 255, 0.45); padding: 4px 0 8px; }
+.info-wiki { margin-bottom: 14px; }
+.info-thumb {
+  float: right;
+  width: 108px;
+  margin: 0 0 8px 12px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+}
+.info-extract { font-size: 13.5px; line-height: 1.5; color: rgba(255, 255, 255, 0.82); }
+.info-link {
+  display: inline-block;
+  margin-top: 8px;
+  font-size: 13px;
+  color: #8ab4f8;
+  text-decoration: none;
+}
+.info-link:hover { text-decoration: underline; }
+.info-arrow { font-size: 0.85em; opacity: 0.75; }
+
+.info-links { display: flex; flex-direction: column; gap: 8px; clear: both; }
+.info-linkcard {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 10px 12px;
+  border-radius: 11px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  color: #e8eaed;
+  text-decoration: none;
+  transition: background 0.12s ease, border-color 0.12s ease;
+}
+.info-linkcard:hover { background: rgba(255, 255, 255, 0.09); border-color: rgba(255, 255, 255, 0.18); }
+.info-linkcard-icon { font-size: 18px; flex: none; }
+.info-linkcard span:nth-child(2) { flex: 1; display: flex; flex-direction: column; }
+.info-linkcard strong { font-size: 13.5px; font-weight: 500; }
+.info-linkcard em { font-size: 11.5px; font-style: normal; color: rgba(255, 255, 255, 0.5); margin-top: 1px; }
+
+.info-attrib { margin-top: 14px; font-size: 10.5px; line-height: 1.5; color: rgba(255, 255, 255, 0.32); }
