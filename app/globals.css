@@ -508,6 +508,23 @@ select, button {
   max-width: 380px;
 }
 .intro-card .intro-msg b { color: #fff; font-weight: 700; }
+.intro-card .intro-msg.intro-new {
+  margin-top: -8px;
+  font-size: 13.5px;
+  color: rgba(255, 255, 255, 0.72);
+}
+.intro-new-pill {
+  display: inline-block;
+  margin-right: 6px;
+  padding: 1px 8px 2px;
+  border-radius: 999px;
+  font-size: 11px;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  color: #ffd989;
+  background: rgba(224, 190, 106, 0.16);
+  border: 1px solid rgba(224, 190, 106, 0.45);
+}
 
 .intro-cta {
   display: inline-flex;

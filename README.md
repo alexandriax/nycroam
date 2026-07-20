@@ -12,7 +12,15 @@ A browser-based, first-person explorable 3D Manhattan at 1:1 scale: every street
 building, and park from OpenStreetMap on real USGS terrain, with a fully rideable
 subway network: walk into any entrance, board trains on all 22 Manhattan services
 (correct bullets, strip maps, and headways), ride between real GTFS stop sequences,
-and step off at any station, underground or elevated.
+and step off at any station, underground or elevated. Every building wears its
+street-address plaque: walk up to one for the building's story, with live
+Wikipedia summaries and historic NYPL photos via [Old NYC](https://www.oldnyc.org/).
+
+<div align="center">
+
+<img src="assets/splash.png" alt="NYC Roam splash screen: welcome card over a blurred night city" width="720">
+
+</div>
 
 ## Quick start
 
@@ -37,6 +45,7 @@ resumable. Generated world data lands in `public/tiles/`, `public/geo/`, `public
 | Subway | walk into a green-globe stairway, or E | walk in, or GO button |
 | Board a train | stand by the open doors, press E | GO button |
 | Ride / exit | E during a stop steps off; ride to the end auto-exits | GO button |
+| Building info | walk up to an address plaque, I | tap the info chip |
 | Teleport | "Jump to…" menu | same |
 
 ## Architecture
@@ -69,9 +78,18 @@ resumable. Generated world data lands in `public/tiles/`, `public/geo/`, `public
   construct only when approached, then dispose on leaving; distant districts cost
   zero bytes and zero triangles. The tile pipeline suppresses generic OSM massing
   where a bespoke build replaces it.
+- **Building plaques** (`src/engine/PlaqueManager.ts` + `scripts/build-plaques.mjs`):
+  ~90k street-address plaques, one on each numbered building's street-facing wall,
+  batched as a single canvas-atlas mesh per tile. Walking up opens an info modal
+  with the address, building type, a live Wikipedia summary (via the building's
+  OSM wikidata/wikipedia tags), and a historic-photo link snapped to the nearest
+  of Old NYC's 9k geocoded markers (computed at build time, coordinates only,
+  no images redistributed).
 - **Performance**: fog-matched draw distance, mobile-specific pixel ratio/radius,
-  frustum culling, merged geometry (~2 draw calls per tile + instancing), and
-  localStorage position persistence.
+  frustum culling, merged geometry (~2 draw calls per tile + instancing),
+  velocity-led tile streaming (the loader leads fast movers by up to ~6 s of
+  travel so bikes and the helicopter stay ahead of the fog), and localStorage
+  position persistence.
 
 ## Data sources
 
@@ -97,6 +115,9 @@ Mobile keeps a lean shadowless tier automatically.
 - MTA GTFS static: route stop sequences and travel times
 - NYC bike share (GBFS station_information): public bike dock locations and capacities
 - NYC Open Data: 2020 Neighborhood Tabulation Areas (live location label)
+- [Old NYC](https://www.oldnyc.org/) (Apache-2.0): geocoded historic-photo marker
+  coordinates for the building-info deep links (link-out only; the photos are NYPL's)
+- Wikipedia / Wikidata: live building summaries in the info modal, attributed there
 
 ## Known limitations
 

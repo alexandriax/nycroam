@@ -175,6 +175,8 @@ export class World {
   private waterUpdate: ((dt: number) => void) | null = null;
   private flyVel = new THREE.Vector3();
   private flyTarget = new THREE.Vector3();
+  private velSX = 0; // smoothed ground velocity (m/s) — leads the tile stream ahead of fast movers
+  private velSZ = 0;
   private _eye = new THREE.Vector3(); // reused camera-eye scratch (per-frame, hot path)
   hud: HudState = {
     mode: 'street', fly: false, prompt: null, promptRoutes: [], promptBus: [], promptHint: null, riding: false, area: null, street: null, cross: null, stationName: null,
@@ -1502,10 +1504,34 @@ export class World {
         this.pos.x = nx; this.pos.z = nz;
       }
 
+      // Predictive streaming: lead the tile stream along the smoothed velocity
+      // so fast movers — a bike at ~22 m/s, the helicopter at up to ~130 m/s —
+      // arrive on tiles that are already resident instead of chasing the loader
+      // into the fog (the nearest-first queue then also prioritizes the tiles
+      // AHEAD, since distance is measured from the led center). Walking pace
+      // gets no lead: the base radius already covers it. A teleport resets the
+      // estimate rather than slinging the stream center across the island.
+      const frameDx = this.pos.x - prevX, frameDz = this.pos.z - prevZ;
+      if (dt > 0) {
+        if (Math.hypot(frameDx, frameDz) > 60) {
+          this.velSX = 0; this.velSZ = 0; // jump-to / station exit, not motion
+        } else {
+          const k = 1 - Math.exp(-dt * 1.6);
+          this.velSX += (frameDx / dt - this.velSX) * k;
+          this.velSZ += (frameDz / dt - this.velSZ) * k;
+        }
+      }
+      const spd = Math.hypot(this.velSX, this.velSZ);
+      const lead = spd > 7 ? Math.min(420, spd * 6) : 0; // ~6s of travel, capped
+      const leadX = lead > 0 ? this.pos.x + (this.velSX / spd) * lead : this.pos.x;
+      const leadZ = lead > 0 ? this.pos.z + (this.velSZ / spd) * lead : this.pos.z;
+
       // widen fog + streaming with altitude so flying shows more of the island
       const altBoost = Math.min(500, Math.max(0, this.pos.y - 60)) * 1.6;
       this.tiles.loadRadius = this.baseLoadRadius + altBoost;
-      this.tiles.unloadRadius = this.tiles.loadRadius + 300;
+      // + lead so the trailing edge (measured from the LED center) never
+      // unloads tiles that are still within view behind the player
+      this.tiles.unloadRadius = this.tiles.loadRadius + 300 + lead;
       const fog = this.streetScene.fog as THREE.Fog | null;
       if (fog) {
         fog.near = (this.baseLoadRadius + altBoost) * 0.38;
@@ -1514,9 +1540,14 @@ export class World {
 
       if (this.sun) followSun(this.sun, this.pos.x, this.pos.z);
       this.waterUpdate?.(dt);
-      this.tiles.update(this.pos.x, this.pos.z);
+      // tiles + plaques stream around the led point (their unload margins beat
+      // the lead); kit managers (entrances/bikes) keep the true position — their
+      // evict radii are small enough that leading would despawn kits still in
+      // view just behind
+      this.tiles.update(leadX, leadZ);
       this.entrances.update(this.pos.x, this.pos.z, dt);
-      this.plaques.update(this.pos.x, this.pos.z, dt);
+      this.plaques.unloadRadius = 440 + lead; // same trailing-edge guard as tiles
+      this.plaques.update(leadX, leadZ, dt);
       this.bikes.update(this.pos.x, this.pos.z, dt);
       this.buses.update(this.pos.x, this.pos.z, dt);
       this.tram.update(this.pos.x, this.pos.z, dt);
