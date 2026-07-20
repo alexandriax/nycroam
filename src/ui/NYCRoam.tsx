@@ -596,9 +596,8 @@ export default function NYCRoam() {
               &amp; stops, or take <b>helicopter mode</b> and fly above the city to explore.
             </p>
             <p className="intro-msg intro-new">
-              <span className="intro-new-pill">New</span> Every building wears its
-              <b> address plaque</b>: walk up for its story, with <b>Wikipedia</b> info
-              &amp; historic photos from <b>Old&nbsp;NYC</b>.
+              Every building wears its <b>address plaque</b>: walk up for its story,
+              with <b>Wikipedia</b> info &amp; historic photos from <b>Old&nbsp;NYC</b>.
             </p>
             {loading ? (
               <button className="intro-cta loading" disabled>
