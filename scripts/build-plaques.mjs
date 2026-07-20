@@ -36,6 +36,7 @@ const GEO_DIR = path.join(ROOT, 'public', 'geo');
 const PLAQUE_DIR = path.join(GEO_DIR, 'plaques');
 const TERRAIN_FILE = path.join(GEO_DIR, 'terrain.json');
 const OLDNYC_FILE = path.join(CACHE_DIR, 'oldnyc-markers.json');
+const FIT_FILE = path.join(GEO_DIR, 'landmarks-fit.json');
 
 // ---- shared constants (must match src/engine/geo.ts / build-tiles.mjs) ----------------
 const ORIGIN = { lat: 40.758, lon: -73.9855 };
@@ -316,6 +317,13 @@ const LANDMARK_CLEAR = [
   ['columbia-low', 40.8081, -73.9619, 42], ['st-john-divine', 40.8038, -73.9619, 55],
   ['cloisters', 40.8649, -73.9317, 55], ['hamilton-grange', 40.8214, -73.9469, 18],
   ['morris-jumel', 40.8345, -73.9386, 20], ['dyckman-farmhouse', 40.8668, -73.9229, 18],
+  // hearst-tower is a LANDMARK_FIT site whose clearAboveH:5 drops effectively ALL
+  // OSM massing within r=55 (keptH=2 in landmarks-fit.json) — the bespoke diagrid
+  // replaces the whole block face. Ordinary plaques here would mount on walls
+  // that no longer exist (buried inside / floating beside the bespoke build).
+  // The other fit sites keep their base massing (clearAboveMin only drops crowns),
+  // so their street walls — and plaques — survive.
+  ['hearst-tower', 40.7666, -73.9836, 55],
 ].map(([id, lat, lon, r]) => { const [x, z] = lonLatToXZ(lon, lat); return { id, x, z, r2: r * r }; });
 function inLandmarkClear(cx, cz) {
   for (const lc of LANDMARK_CLEAR) {
@@ -323,6 +331,46 @@ function inLandmarkClear(cx, cz) {
     if (dx * dx + dz * dz < lc.r2) return true;
   }
   return false;
+}
+
+// ---- fit-obb mounting (fit-measured landmark hosts) ---------------------------------
+// LANDMARK_FIT sites (build-tiles.mjs) replace/augment their OSM massing with a
+// bespoke build sized from the measured oriented bounding box in
+// public/geo/landmarks-fit.json. A plaque mounted on the original OSM wall can
+// end up INSIDE that build (Hearst's diagrid swallowed its own plaque), so for
+// these ids we mount on the obb's street-facing FACE instead — that face is the
+// wall the bespoke builder actually erects. Local axes per the pipeline's
+// rotation convention: local +x -> (cos r, -sin r), local +z -> (sin r, cos r).
+function loadFits() {
+  try {
+    const j = JSON.parse(fs.readFileSync(FIT_FILE, 'utf8'));
+    return j.fits ?? {};
+  } catch {
+    console.warn(`  WARN: ${path.relative(ROOT, FIT_FILE)} missing — fit landmarks mount on OSM walls`);
+    return {};
+  }
+}
+function solveFitFace(fit) {
+  const exx = Math.cos(fit.rot), exz = -Math.sin(fit.rot); // local +x in world
+  const ezx = Math.sin(fit.rot), ezz = Math.cos(fit.rot);  // local +z in world
+  const faces = [
+    { mx: fit.cx + (fit.w / 2) * exx, mz: fit.cz + (fit.w / 2) * exz, nx: exx, nz: exz, len: fit.d },
+    { mx: fit.cx - (fit.w / 2) * exx, mz: fit.cz - (fit.w / 2) * exz, nx: -exx, nz: -exz, len: fit.d },
+    { mx: fit.cx + (fit.d / 2) * ezx, mz: fit.cz + (fit.d / 2) * ezz, nx: ezx, nz: ezz, len: fit.w },
+    { mx: fit.cx - (fit.d / 2) * ezx, mz: fit.cz - (fit.d / 2) * ezz, nx: -ezx, nz: -ezz, len: fit.w },
+  ];
+  let best = null, bestScore = Infinity;
+  for (const f of faces) {
+    const d = nearestVehicularDist(f.mx + f.nx * ROAD_PROBE, f.mz + f.nz * ROAD_PROBE);
+    const score = d - Math.min(f.len, 40) * 0.15; // same frontage bias as solveWall
+    if (score < bestScore) { bestScore = score; best = f; }
+  }
+  return {
+    x: best.mx + best.nx * PLAQUE_OUT,
+    z: best.mz + best.nz * PLAQUE_OUT,
+    nx: best.nx,
+    nz: best.nz,
+  };
 }
 
 // ---- street-facing wall solve -------------------------------------------------------
@@ -365,6 +413,11 @@ function solveWall(outer, centroid) {
 // ======================================================================================
 async function main() {
   fs.mkdirSync(PLAQUE_DIR, { recursive: true });
+  // clean stale outputs: a re-run that bins plaques differently would otherwise
+  // leave orphan tiles on disk that the fresh index no longer references
+  for (const f of fs.readdirSync(PLAQUE_DIR)) {
+    if (f.endsWith('.json')) fs.unlinkSync(path.join(PLAQUE_DIR, f));
+  }
   console.log('Loading terrain...');
   TERRAIN = loadTerrain();
   console.log('Loading OldNYC markers...');
@@ -395,7 +448,10 @@ async function main() {
     const buildingVal = tags['building'];
     const isPart = tags['building:part'] !== undefined && tags['building:part'] !== 'no';
     const isBuilding = !isPart && buildingVal !== undefined && buildingVal !== 'no';
-    if (!isBuilding) continue; // plaque real buildings, not parts
+    // Parts are kept for LANDMARK matching only (some landmarks — Hearst — exist
+    // in OSM purely as building:part rings with the tags on a part); the ordinary
+    // numbered loop skips them so a host building never gets duplicate plaques.
+    if (!isBuilding && !isPart) continue;
     const layerNum = parseFloat(tags.layer);
     if (tags.location === 'underground' || (buildingVal === 'train_station' && layerNum < 0)) continue;
 
@@ -414,7 +470,7 @@ async function main() {
         if (x < minX) minX = x; if (x > maxX) maxX = x;
         if (z < minZ) minZ = z; if (z > maxZ) maxZ = z;
       }
-      bldgs.push({ outer: poly.outer, centroid: centroidOf(poly.outer), area, tags, bbox: { minX, maxX, minZ, maxZ } });
+      bldgs.push({ outer: poly.outer, centroid: centroidOf(poly.outer), area, tags, isPart, bbox: { minX, maxX, minZ, maxZ } });
     }
   }
   console.log(`  ${bldgs.length} building polygons`);
@@ -423,6 +479,7 @@ async function main() {
   const BCELL = 64;
   const bGrid = new Map();
   for (const b of bldgs) {
+    if (b.isPart) continue; // parts are containment-only; a giant part must not win largest-near
     const gx = Math.floor(b.centroid[0] / BCELL), gz = Math.floor(b.centroid[1] / BCELL);
     const k = `${gx},${gz}`;
     let a = bGrid.get(k);
@@ -433,12 +490,17 @@ async function main() {
   // (One WTC, the Met, AMNH) whose centroid sits far from any point anchor.
   // Linear scan (bbox-pruned) is fine for the ~45 landmark queries.
   function buildingContaining(px, pz) {
-    let best = null, bestArea = Infinity;
+    // Prefer the richest-tagged containing footprint (name/wikidata/address often
+    // live on a building:part — Hearst has NO main building polygon at all),
+    // tie-broken by tightest area.
+    const tagScore = (t) => (t.name ? 4 : 0) + (t.wikidata || t.wikipedia ? 2 : 0) + (t['addr:housenumber'] ? 1 : 0);
+    let best = null, bestScore = -1, bestArea = Infinity;
     for (const b of bldgs) {
       const bb = b.bbox;
       if (px < bb.minX || px > bb.maxX || pz < bb.minZ || pz > bb.maxZ) continue;
       if (!pointInPolygon([px, pz], b.outer)) continue;
-      if (b.area < bestArea) { bestArea = b.area; best = b; } // tightest containing footprint
+      const s = tagScore(b.tags);
+      if (s > bestScore || (s === bestScore && b.area < bestArea)) { bestScore = s; bestArea = b.area; best = b; }
     }
     return best;
   }
@@ -468,10 +530,10 @@ async function main() {
   let landmarkCount = 0, ordinaryCount = 0, oldnycLinks = 0;
 
   function emit(b, opts) {
-    const wall = solveWall(b.outer, b.centroid);
+    const wall = opts.mount ?? solveWall(b.outer, b.centroid);
     if (!wall) return false;
-    const base = terrainAt(b.centroid[0], b.centroid[1]);
-    const [tx, tz] = tileOf(b.centroid);
+    const base = terrainAt(wall.x, wall.z);
+    const [tx, tz] = tileOf([wall.x, wall.z]);
     const ox = tx * TILE_SIZE, oz = tz * TILE_SIZE;
     const rec = {
       x: Math.round((wall.x - ox) * 10),
@@ -497,14 +559,26 @@ async function main() {
   }
 
   // curated landmark plaques first (exempt from LANDMARK_CLEAR)
+  const fits = loadFits();
   for (const lm of LANDMARK_INFO) {
-    const b = matchLandmark(lm.x, lm.z);
+    // Fit landmarks: match at the measured obb CENTER, not the registry anchor —
+    // anchors are tuned for the bespoke build and can sit off the real footprint
+    // (Hearst's anchor is ~60m east of the tower; anchor-matching grabbed the
+    // neighbouring Sheffield apartment slab and its address/website).
+    const fit = fits[lm.id];
+    const b = fit ? matchLandmark(fit.cx, fit.cz) : matchLandmark(lm.x, lm.z);
     if (!b) { console.warn(`  landmark ${lm.id}: no building within ${LANDMARK_MATCH_M}m`); continue; }
     if (used.has(b)) continue;
     used.add(b);
+    // fit-measured hosts: mount on the obb street face the bespoke build erects,
+    // not the (possibly cleared) OSM wall
+    const mount = fits[lm.id] ? solveFitFace(fits[lm.id]) : undefined;
     const t = b.tags;
-    const lv = t['building:levels'] ? parseInt(t['building:levels'], 10) : undefined;
+    // levels from a building:part describe that part (Hearst's 6-storey base),
+    // not the whole landmark — drop the chip rather than show a wrong floor count
+    const lv = !b.isPart && t['building:levels'] ? parseInt(t['building:levels'], 10) : undefined;
     if (emit(b, {
+      mount,
       num: t['addr:housenumber'], st: t['addr:street'], nm: lm.name,
       k: t.building && t.building !== 'yes' ? t.building : undefined,
       lv: Number.isFinite(lv) ? lv : undefined,
@@ -515,6 +589,7 @@ async function main() {
 
   // ordinary numbered buildings
   for (const b of bldgs) {
+    if (b.isPart) continue; // parts exist for landmark matching only
     if (used.has(b)) continue;
     const t = b.tags;
     const num = t['addr:housenumber'];

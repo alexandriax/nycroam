@@ -237,7 +237,12 @@ export class PlaqueManager {
       const wx = ox + p.x / 10, wz = oz + p.z / 10, wy = p.e / 10;
       const ang = (p.a * Math.PI) / 180;
       const nx = Math.cos(ang), nz = Math.sin(ang);   // outward facing
-      const tx = -nz, tz = nx;                         // wall tangent (horizontal)
+      // Wall tangent = the street viewer's screen-RIGHT. For a viewer looking
+      // along -n (at the wall), right = (-n)×up = (nz,0,-nx). Then t×up = +n, so
+      // the CCW front face of the quad points outward and the atlas text reads
+      // left-to-right from the street. The first cut used t=(-nz,nx), whose
+      // front face pointed INTO the building — every number read mirrored.
+      const tx = nz, tz = -nx;
       const hw = PLAQUE_W / 2, hh = PLAQUE_H / 2;
       const base = pos.length / 3;
       const corners: [number, number, number][] = [
@@ -270,8 +275,11 @@ export class PlaqueManager {
     geo.setIndex(idx);
     geo.computeBoundingSphere();
 
+    // FrontSide on purpose: the back of a plaque faces the wall and must never
+    // draw — with DoubleSide, any plaque whose normal ends up inward would show
+    // its mirrored back to the street, which reads as a glaring bug.
     const mat = new THREE.MeshLambertMaterial({
-      map: texture, transparent: true, alphaTest: 0.4, side: THREE.DoubleSide,
+      map: texture, transparent: true, alphaTest: 0.4, side: THREE.FrontSide,
       emissive: new THREE.Color(0x0c0c0e), // lift out of full shadow so numbers stay legible
     });
     const mesh = new THREE.Mesh(geo, mat);
