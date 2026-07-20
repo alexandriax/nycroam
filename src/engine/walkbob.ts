@@ -18,11 +18,18 @@
  * the caller uses to trigger a footstep sound.
  */
 
-const AMP_Y = 0.032; // vertical bob, metres (peak-to-centre)
-const AMP_X = 0.026; // lateral sway, metres
-const AMP_ROLL = 0.007; // head roll, radians (~0.4 deg)
+const AMP_Y = 0.032; // vertical bob at a full run, metres (peak-to-centre)
+const AMP_X = 0.026; // lateral sway at a full run, metres
+const AMP_ROLL = 0.007; // head roll at a full run, radians (~0.4 deg)
 const CADENCE = 0.42; // steps per second per m/s of ground speed
 const MAX_STEPS = 6; // cap cadence so a sprint doesn't buzz
+// The full jostle is reserved for running: walking keeps only a whisper of it.
+// Ground speeds are 5.2 m/s walking and 10.9 sprinting (World.step), so the
+// ramp spans the gap — at or below walking pace the offsets sit at WALK_SCALE
+// of full amplitude, easing to 1 as speed climbs through a run.
+const WALK_SCALE = 0.22;
+const RUN_LO = 6.0; // m/s where the ramp leaves the walk floor
+const RUN_HI = 9.5; // m/s where the full run jostle is reached
 
 export class WalkBob {
   bobY = 0;
@@ -31,6 +38,7 @@ export class WalkBob {
 
   private phase = 0; // stride phase, radians; one footfall every PI
   private amp = 0; // eases 0..1 with movement so a standstill is dead still
+  private runMix = 0; // eases 0 (walk) .. 1 (run) off ground speed
   private footIndex = 0; // integer part of phase/PI, for footfall edges
 
   /**
@@ -43,6 +51,10 @@ export class WalkBob {
     const moving = active && speed > 0.25;
     const target = moving ? 1 : 0;
     this.amp += (target - this.amp) * Math.min(1, dt * 7);
+    // ease between the subtle walk bob and the full run jostle so a shift
+    // press doesn't step the amplitude
+    const runT = Math.min(1, Math.max(0, (speed - RUN_LO) / (RUN_HI - RUN_LO)));
+    this.runMix += (runT - this.runMix) * Math.min(1, dt * 5);
 
     let footfall = false;
     if (moving) {
@@ -56,7 +68,7 @@ export class WalkBob {
       if (this.footIndex !== prevFoot && this.amp > 0.35) footfall = true;
     }
 
-    const a = this.amp;
+    const a = this.amp * (WALK_SCALE + (1 - WALK_SCALE) * this.runMix);
     // vertical: lowest at footfall (phase = 0, PI), highest mid-stance
     this.bobY = -AMP_Y * Math.cos(2 * this.phase) * a;
     // lateral + roll: one cycle per stride, zero at footfalls
@@ -70,6 +82,7 @@ export class WalkBob {
     this.phase = 0;
     this.footIndex = 0;
     this.amp = 0;
+    this.runMix = 0;
     this.bobY = this.swayX = this.roll = 0;
   }
 }
