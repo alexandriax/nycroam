@@ -449,6 +449,36 @@ export class World {
     return `${location.origin}/?${p.toString()}`;
   }
 
+  /** Google Maps pin at the current spot (street mode, incl. bike and fly). */
+  mapsLink(): string | null {
+    if (this.mode !== 'street') return null;
+    const lat = (ORIGIN.lat - this.pos.z / M_PER_DEG_LAT).toFixed(6);
+    const lon = (ORIGIN.lon + this.pos.x / M_PER_DEG_LON).toFixed(6);
+    return `https://www.google.com/maps/search/?api=1&query=${lat}%2C${lon}`;
+  }
+
+  /**
+   * Google Street View from the current spot and gaze. Compass heading comes
+   * from the horizontal facing (yaw 0 = north = -z). While flying this anchors
+   * to the ground below with a level gaze: panoramas only exist at street
+   * level, and a bird's-eye pitch aimed at the pavement would show nothing.
+   */
+  streetViewLink(): string | null {
+    if (this.mode !== 'street') return null;
+    const lat = (ORIGIN.lat - this.pos.z / M_PER_DEG_LAT).toFixed(6);
+    const lon = (ORIGIN.lon + this.pos.x / M_PER_DEG_LON).toFixed(6);
+    const { fwd } = this.controls.basis();
+    let heading = (Math.atan2(fwd.x, -fwd.z) * 180) / Math.PI;
+    if (heading < 0) heading += 360;
+    const pitch = this.controls.fly
+      ? 0
+      : Math.max(-85, Math.min(85, (this.controls.pitch * 180) / Math.PI));
+    return (
+      'https://www.google.com/maps/@?api=1&map_action=pano' +
+      `&viewpoint=${lat}%2C${lon}&heading=${heading.toFixed(1)}&pitch=${pitch.toFixed(1)}&fov=80`
+    );
+  }
+
   /** Restore a shared mid-ride subway view: `<route>.<u|d>.<originStop>.<prog>`. */
   private restoreRideLink(spec: string) {
     const m = spec.match(/^([A-Za-z0-9]+)\.([ud])\.([^.]+)\.([\d.]+)$/);
