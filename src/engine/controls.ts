@@ -118,6 +118,22 @@ export class PlayerControls {
     if (roll) cam.rotateZ(roll); // subtle walk sway; 0 everywhere else
   }
 
+  /**
+   * Release pointer lock so a modal's links/buttons are clickable with a
+   * normal visible cursor. Returns whether it was actually held, so the
+   * caller knows whether to call requestPointerLock() again on close.
+   */
+  releasePointerLock(): boolean {
+    const wasLocked = document.pointerLockElement === this.el;
+    if (wasLocked) document.exitPointerLock();
+    return wasLocked;
+  }
+
+  /** Re-acquire pointer lock (used after closing a modal that released it). */
+  requestPointerLock() {
+    if (this.pointerLockAvailable && !document.pointerLockElement) this.el.requestPointerLock?.();
+  }
+
   dispose() {
     this.el.removeEventListener('mousedown', this.onMouseDown);
     document.removeEventListener('mousemove', this.onMouseMove);

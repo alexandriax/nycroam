@@ -683,7 +683,7 @@ export default function NYCRoam() {
 
       {/* building-info modal */}
       {infoTarget && (
-        <InfoModal info={infoTarget} onClose={() => setInfoTarget(null)} />
+        <InfoModal info={infoTarget} world={worldRef.current} onClose={() => setInfoTarget(null)} />
       )}
     </div>
   );

@@ -19,14 +19,15 @@ import { BLACK, SANS } from './fonts';
 interface RawPlaque {
   x: number; z: number; e: number; a: number; // pos dm + centre elev dm + facing degrees
   num?: string; st?: string; nm?: string; k?: string; lv?: number;
-  wd?: string; wp?: string; web?: string; o?: string; lm?: 1;
+  wd?: string; wp?: string; o?: string; lm?: 1;
 }
 
 /** Resolved plaque with world coords — what the info modal consumes. */
 export interface PlaqueInfo {
   x: number; z: number; // world metres
+  a: number; // outward wall-facing bearing, degrees (atan2(nz,nx) convention)
   num?: string; st?: string; nm?: string; k?: string; lv?: number;
-  wd?: string; wp?: string; web?: string; o?: string; lm?: boolean;
+  wd?: string; wp?: string; o?: string; lm?: boolean;
 }
 
 /** OldNYC deep link for a plaque's snapped marker key ("lat,lon"), or null. */
@@ -202,9 +203,9 @@ export class PlaqueManager {
     const ox = rec.tx * TILE_SIZE, oz = rec.tz * TILE_SIZE;
     for (const p of raw) {
       rec.plaques.push({
-        x: ox + p.x / 10, z: oz + p.z / 10,
+        x: ox + p.x / 10, z: oz + p.z / 10, a: p.a,
         num: p.num, st: p.st, nm: p.nm, k: p.k, lv: p.lv,
-        wd: p.wd, wp: p.wp, web: p.web, o: p.o, lm: p.lm === 1,
+        wd: p.wd, wp: p.wp, o: p.o, lm: p.lm === 1,
       });
     }
     this.build(rec, raw, ox, oz);

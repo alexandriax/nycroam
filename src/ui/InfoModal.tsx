@@ -4,6 +4,8 @@ import { useEffect, useState } from 'react';
 import type { PlaqueInfo } from '../engine/PlaqueManager';
 import { oldNycUrl } from '../engine/PlaqueManager';
 import { fetchWiki, type WikiSummary } from '../engine/wiki';
+import { xzToLonLat, googleMapsUrl } from '../engine/geo';
+import type { World } from '../engine/World';
 
 /** Prettify an OSM building=* value for display ("apartments" -> "Apartments"). */
 const KIND_LABEL: Record<string, string> = {
@@ -42,7 +44,7 @@ function InfoIcon({ lm }: { lm?: boolean }) {
   );
 }
 
-export default function InfoModal({ info, onClose }: { info: PlaqueInfo; onClose: () => void }) {
+export default function InfoModal({ info, world, onClose }: { info: PlaqueInfo; world: World | null; onClose: () => void }) {
   const [wiki, setWiki] = useState<WikiSummary | null>(null);
   const [wikiState, setWikiState] = useState<'idle' | 'loading' | 'done' | 'none'>('idle');
 
@@ -52,6 +54,16 @@ export default function InfoModal({ info, onClose }: { info: PlaqueInfo; onClose
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [onClose]);
+
+  // Release pointer lock while the modal is open so its links are clickable
+  // with a normal cursor, and restore it on close if the player had been
+  // click-to-look (mirrors PlayerControls' own lock/drag state, not the
+  // modal's — this only touches the lock, never movement/keys).
+  useEffect(() => {
+    const controls = world?.controlsRef;
+    const wasLocked = controls?.releasePointerLock() ?? false;
+    return () => { if (wasLocked) controls?.requestPointerLock(); };
+  }, [world]);
 
   // live Wikipedia lookup (only when there's something to look up)
   useEffect(() => {
@@ -72,6 +84,9 @@ export default function InfoModal({ info, onClose }: { info: PlaqueInfo; onClose
   const subtitle = info.nm && address ? address : null;
   const kind = kindLabel(info.k);
   const oldnyc = oldNycUrl(info.o);
+  const [lon, lat] = xzToLonLat(info.x, info.z);
+  const maps = googleMapsUrl(lat, lon);
+  const streetView = world?.streetViewLinkForPlaque(info.x, info.z, info.a) ?? null;
 
   return (
     <div className="info-backdrop" onClick={onClose}>
@@ -110,6 +125,18 @@ export default function InfoModal({ info, onClose }: { info: PlaqueInfo; onClose
           )}
 
           <div className="info-links">
+            <a className="info-linkcard" href={maps} target="_blank" rel="noopener noreferrer">
+              <span className="info-linkcard-icon">🗺️</span>
+              <span><strong>Open in Google Maps</strong></span>
+              <span className="info-arrow">↗</span>
+            </a>
+            {streetView && (
+              <a className="info-linkcard" href={streetView} target="_blank" rel="noopener noreferrer">
+                <span className="info-linkcard-icon">👁️</span>
+                <span><strong>See it in Street View</strong></span>
+                <span className="info-arrow">↗</span>
+              </a>
+            )}
             {oldnyc && (
               <a className="info-linkcard" href={oldnyc} target="_blank" rel="noopener noreferrer">
                 <span className="info-linkcard-icon">🖼️</span>
@@ -117,13 +144,6 @@ export default function InfoModal({ info, onClose }: { info: PlaqueInfo; onClose
                   <strong>Historic photos nearby</strong>
                   <em>Old NYC · NYPL collection</em>
                 </span>
-                <span className="info-arrow">↗</span>
-              </a>
-            )}
-            {info.web && (
-              <a className="info-linkcard" href={info.web} target="_blank" rel="noopener noreferrer">
-                <span className="info-linkcard-icon">🌐</span>
-                <span><strong>Official website</strong></span>
                 <span className="info-arrow">↗</span>
               </a>
             )}
