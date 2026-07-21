@@ -165,9 +165,10 @@ export const LANDMARKS_REG: LandmarkEntry[] = [
   { id: 'dakota', name: 'The Dakota', lat: 40.776614, lon: -73.976125, set: 'uptown', r: 450, rot: GRID },
   // On the WEST side of Central Park West facing EAST toward the park, like NYPL
   // fronts 5th Ave from the west: rot GRID+90deg so the Roosevelt Memorial facade
-  // (+z) faces the avenue. Anchored on the CPW frontage of the (now cleared) OSM
-  // block. clear covers the flat OSM slab (build-tiles LANDMARK_CLEAR).
-  { id: 'amnh', name: 'American Museum of Natural History', lat: 40.781150, lon: -73.973400, set: 'uptown', r: 600, rot: GRID + Math.PI / 2 },
+  // (+z) faces the avenue. Anchored on the CPW frontage at the 79th St axis (the
+  // real arch position, dead center of the 77th-81st block) so the full 224m
+  // quadrangle clears both cross streets. clear covers the flat OSM slab.
+  { id: 'amnh', name: 'American Museum of Natural History', lat: 40.780977, lon: -73.973527, set: 'uptown', r: 600, rot: GRID + Math.PI / 2 },
   { id: 'met-museum', name: 'Metropolitan Museum of Art', lat: 40.779391, lon: -73.962542, set: 'uptown', r: 600, rot: GRID },
   { id: 'guggenheim', name: 'Guggenheim Museum', lat: 40.783, lon: -73.959, set: 'uptown', r: 550, rot: GRID },
   // moored IN the Hudson off Pier 86 (the old anchor sat on the pier building
