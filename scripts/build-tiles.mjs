@@ -473,6 +473,49 @@ async function main() {
     return keys;
   }
 
+  // ---- coincident-wall cleanup (z-fighting) --------------------------------
+  // OSM maps a stepped tower or a podium-plus-towers complex as a pile of
+  // building:part shells, and almost never tags min_height on them. Every part
+  // therefore extrudes from y=0 through all the others, and wherever two of
+  // them trace the SAME street frontage (they share OSM nodes) their walls are
+  // exactly coplanar, so the depth buffer cannot order them: the facade
+  // flickers and shows patches of the neighbouring part's palette colour.
+  //
+  // Two passes fix it by removing only geometry that is buried anyway:
+  //   (1) give each untagged nested tier a real base, so a stepped tower
+  //       renders as true stacked segments instead of nested full-height boxes;
+  //   (2) drop a building whose own volume is already filled by TALLER
+  //       neighbours overlapping its height band (a low podium tiled by the
+  //       towers rising through it).
+  // Silhouettes are unchanged; only invisible, fighting geometry goes away.
+  //
+  // NOT attempted here: two partially-overlapping outlines that each stick out
+  // of the other. Nudging one inward was tried and reverted -- in a cluster
+  // every member has a taller neighbour, so they all shift together and the
+  // shared wall stays coincident, and it moved 542 real footprints for no
+  // measurable gain. Note that abutting party walls (endemic in Manhattan row
+  // blocks) are NOT a problem: their faces have opposite normals, so backface
+  // culling always hides one.
+
+  // (1) setback tiers: base = height of the tallest SHORTER part containing it
+  let basedParts = 0;
+  for (const p of buildingElements) {
+    if (!p.isPart || p.minHeight > 0) continue; // never clobber an authored min_height
+    const [tx, tz] = tileOf(p.centroid);
+    let base = 0;
+    for (const key of neighborKeys(tx, tz)) {
+      const candidates = partsByTile.get(key);
+      if (!candidates) continue;
+      for (const q of candidates) {
+        if (q === p || q.height >= p.height) continue; // only strictly shorter tiers
+        if (q.height <= base || q.area < p.area) continue; // a container is at least as big
+        if (!pointInPolygon(p.centroid, q.outer)) continue;
+        base = q.height;
+      }
+    }
+    if (base > 0) { p.minHeight = base; basedParts++; }
+  }
+
   const keptBuildings = [];
   let suppressedCount = 0;
   for (const b of buildingElements) {
@@ -490,46 +533,92 @@ async function main() {
     keptBuildings.push(b);
   }
 
+  // (2) buildings fully buried inside taller overlapping neighbours.
+  // Runs LAST, over the survivors only. Order matters: a stepped tower often
+  // has BOTH a full-height plain outline and its setback parts, and the plain
+  // outline covers every tier. Run before the plain-vs-parts suppression below
+  // and the outline eats all the setbacks, flattening the tower into a box
+  // (measured: 834 buildings lost off the skyline). The suppression drops the
+  // outline first; burial then only removes what is genuinely enclosed.
+  // This runs over EVERY building, not just building:part. The Rockefeller
+  // podium case ("One Rockefeller Plaza", 18m, brick) is a plain `building`
+  // way tiled by three plain 138-149m glass towers that also rise from y=0,
+  // so neither the part rule above nor the plain-vs-parts suppression below
+  // sees it — yet its street wall is coplanar with theirs and fights.
+  //
+  // Coverage is grid-sampled rather than summed from candidate areas: summing
+  // double-counts where candidates overlap each other, which would delete a
+  // stepped tower's own ground-level base (its eight tiers each cover most of
+  // it). Sampling measures the true union and cannot over-count.
+  const bboxOf = (ring) => {
+    let x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity;
+    for (const [x, z] of ring) {
+      if (x < x0) x0 = x; if (x > x1) x1 = x;
+      if (z < z0) z0 = z; if (z > z1) z1 = z;
+    }
+    return [x0, z0, x1, z1];
+  };
+  // precompute bbox + tile bin once; the bbox reject below is what keeps this
+  // affordable, since almost every building has no overlapping taller neighbour
+  const bbAll = new Array(keptBuildings.length);
+  const allByTile = new Map();
+  keptBuildings.forEach((b, i) => {
+    b._idx = i;
+    bbAll[i] = bboxOf(b.outer);
+    const [tx, tz] = tileOf(b.centroid);
+    const key = tileKeyOf(tx, tz);
+    if (!allByTile.has(key)) allByTile.set(key, []);
+    allByTile.get(key).push(b);
+  });
+  const buried = new Set();
+  let droppedParts = 0;
+  for (const p of keptBuildings) {
+    const pb = bbAll[p._idx];
+    const [tx, tz] = tileOf(p.centroid);
+    const cands = [];
+    for (const key of neighborKeys(tx, tz)) {
+      const list = allByTile.get(key);
+      if (!list) continue;
+      for (const q of list) {
+        if (q === p || buried.has(q)) continue;
+        // strictly taller, or an exact-height twin resolved by index so a
+        // duplicated footprint drops one copy instead of fighting forever
+        if (q.height < p.height) continue;
+        if (q.height === p.height && q._idx > p._idx) continue;
+        if (q.minHeight >= p.height || q.height <= p.minHeight) continue; // bands must overlap
+        const qb = bbAll[q._idx];
+        if (qb[2] < pb[0] || qb[0] > pb[2] || qb[3] < pb[1] || qb[1] > pb[3]) continue; // bbox reject
+        cands.push({ q, bb: qb });
+      }
+    }
+    if (!cands.length) continue;
+    const N = 10;
+    let inside = 0, covered = 0;
+    for (let i = 0; i < N; i++) {
+      const x = pb[0] + ((i + 0.5) / N) * (pb[2] - pb[0]);
+      for (let j = 0; j < N; j++) {
+        const z = pb[1] + ((j + 0.5) / N) * (pb[3] - pb[1]);
+        if (!pointInPolygon([x, z], p.outer)) continue;
+        inside++;
+        for (const { q, bb } of cands) {
+          if (x < bb[0] || x > bb[2] || z < bb[1] || z > bb[3]) continue;
+          if (pointInPolygon([x, z], q.outer)) { covered++; break; }
+        }
+      }
+    }
+    if (inside >= 12 && covered / inside > 0.9) { buried.add(p); droppedParts++; }
+  }
+
+  for (let i = keptBuildings.length - 1; i >= 0; i--) {
+    if (buried.has(keptBuildings[i])) keptBuildings.splice(i, 1);
+  }
+
   console.log(
     `  buildings: ${wayCount} ways, ${relCount} relations, ${skippedDegenerate} degenerate skipped, ` +
       `${suppressedCount} plain buildings suppressed by parts, ${keptBuildings.length} kept polygons`
   );
+  console.log(`  z-fight cleanup: ${basedParts} setback tiers based, ${droppedParts} buried buildings dropped`);
 
-  // ---- setback-tier bases (z-fighting fix) --------------------------------
-  // A stepped tower is mapped as a stack of building:part shells, and OSM
-  // almost never tags min_height on them: 30 Rock is NINE parts (45,125,133,
-  // 175,190,220,235,245,260m) all extruded from y=0 inside one another. Where
-  // two tiers have near-identical footprints (30 Rock's 175 vs 190 are both
-  // 95x64 with centroids 1m apart; 220 vs 235 likewise) their walls are
-  // coplanar for their whole shared height, so the depth buffer can't order
-  // them: the shaft flickers and shows patches of the neighbouring part's
-  // palette colour.
-  //
-  // Give every untagged nested tier a real base = the height of the TALLEST
-  // SHORTER part that contains it. The tower then renders as true stacked
-  // segments (45..125, 125..133, 133..175, ...) with no overlapping shells at
-  // all. The silhouette is identical — only the buried, fighting geometry goes
-  // away — and roofs/collision improve too, since each setback roof now sits
-  // at its own base rather than every tier reaching the ground.
-  let basedParts = 0;
-  for (const p of buildingElements) {
-    if (!p.isPart || p.minHeight > 0) continue; // never clobber an authored min_height
-    const [tx, tz] = tileOf(p.centroid);
-    let base = 0;
-    for (const key of neighborKeys(tx, tz)) {
-      const candidates = partsByTile.get(key);
-      if (!candidates) continue;
-      for (const q of candidates) {
-        if (q === p || q.height >= p.height) continue;   // only strictly shorter tiers
-        if (q.height <= base) continue;                  // already beaten
-        if (q.area < p.area) continue;                   // a container is at least as big
-        if (!pointInPolygon(p.centroid, q.outer)) continue;
-        base = q.height;
-      }
-    }
-    if (base > 0) { p.minHeight = base; basedParts++; }
-  }
-  console.log(`  setback tiers given a base from their container: ${basedParts}`);
 
   // Building-attached landmarks (crowns, the Hearst diagrid tower...) must sit
   // on the REAL massing, not at a hand-typed coordinate: measure each host
