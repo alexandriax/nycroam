@@ -495,6 +495,42 @@ async function main() {
       `${suppressedCount} plain buildings suppressed by parts, ${keptBuildings.length} kept polygons`
   );
 
+  // ---- setback-tier bases (z-fighting fix) --------------------------------
+  // A stepped tower is mapped as a stack of building:part shells, and OSM
+  // almost never tags min_height on them: 30 Rock is NINE parts (45,125,133,
+  // 175,190,220,235,245,260m) all extruded from y=0 inside one another. Where
+  // two tiers have near-identical footprints (30 Rock's 175 vs 190 are both
+  // 95x64 with centroids 1m apart; 220 vs 235 likewise) their walls are
+  // coplanar for their whole shared height, so the depth buffer can't order
+  // them: the shaft flickers and shows patches of the neighbouring part's
+  // palette colour.
+  //
+  // Give every untagged nested tier a real base = the height of the TALLEST
+  // SHORTER part that contains it. The tower then renders as true stacked
+  // segments (45..125, 125..133, 133..175, ...) with no overlapping shells at
+  // all. The silhouette is identical — only the buried, fighting geometry goes
+  // away — and roofs/collision improve too, since each setback roof now sits
+  // at its own base rather than every tier reaching the ground.
+  let basedParts = 0;
+  for (const p of buildingElements) {
+    if (!p.isPart || p.minHeight > 0) continue; // never clobber an authored min_height
+    const [tx, tz] = tileOf(p.centroid);
+    let base = 0;
+    for (const key of neighborKeys(tx, tz)) {
+      const candidates = partsByTile.get(key);
+      if (!candidates) continue;
+      for (const q of candidates) {
+        if (q === p || q.height >= p.height) continue;   // only strictly shorter tiers
+        if (q.height <= base) continue;                  // already beaten
+        if (q.area < p.area) continue;                   // a container is at least as big
+        if (!pointInPolygon(p.centroid, q.outer)) continue;
+        base = q.height;
+      }
+    }
+    if (base > 0) { p.minHeight = base; basedParts++; }
+  }
+  console.log(`  setback tiers given a base from their container: ${basedParts}`);
+
   // Building-attached landmarks (crowns, the Hearst diagrid tower...) must sit
   // on the REAL massing, not at a hand-typed coordinate: measure each host
   // building's oriented footprint and heights into public/geo/landmarks-fit.json,
