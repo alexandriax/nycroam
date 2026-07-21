@@ -479,12 +479,6 @@ export class GoalTracker {
       { id: 'run', label: 'Break into a run', done: this.run, resettable: this.run },
       { id: 'heli', label: 'Fly in a helicopter', done: this.heli, resettable: this.heli },
       { id: 'transfer', label: 'Make a subway transfer', done: this.transfer, resettable: this.transfer },
-      distGoal('dist-walk', 'walk'),
-      distGoal('dist-run', 'run'),
-      distGoal('dist-bike', 'bike'),
-      distGoal('dist-bus', 'bus'),
-      distGoal('dist-subway', 'subway'),
-      distGoal('dist-heli', 'heli'),
       {
         id: 'neighborhoods', label: 'Visit every neighborhood', done: allDone(hoodItems),
         count: { have: have(hoodItems), total: hoodItems.length }, items: hoodItems, resettable: have(hoodItems) > 0,
@@ -506,6 +500,14 @@ export class GoalTracker {
         id: 'landmarks', label: 'Visit every landmark', done: allDone(lmItems),
         count: { have: have(lmItems), total: lmItems.length }, items: lmItems, resettable: have(lmItems) > 0,
       },
+      // distance goals sit at the bottom: they're long-haul grinds, kept below
+      // the one-shot achievements and the collect-'em-all sets
+      distGoal('dist-walk', 'walk'),
+      distGoal('dist-run', 'run'),
+      distGoal('dist-bike', 'bike'),
+      distGoal('dist-bus', 'bus'),
+      distGoal('dist-subway', 'subway'),
+      distGoal('dist-heli', 'heli'),
     ];
   }
 
