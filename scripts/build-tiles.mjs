@@ -1325,6 +1325,20 @@ async function main() {
   // Footways/paths/crossings are absent from the index, so trees keep their sidewalks/plazas.
   const TREE_ROAD_MARGIN = 1.2;
 
+  // Bespoke-landmark tree keep-outs. OSM plots street trees straight down
+  // Rockefeller's Lower Plaza and Channel Gardens, where they spear the
+  // Prometheus fountain and bury the pools — the real plaza has clipped beds,
+  // not London planes. Applied to real AND procedural trees at the merge below.
+  const TREE_KEEPOUT = [
+    ['rockefeller-lower-plaza', 40.758743, -73.978668, 26],
+    ['rockefeller-channel-gardens-w', 40.758517, -73.978129, 16],
+    ['rockefeller-channel-gardens-e', 40.758418, -73.977800, 20],
+  ].map((e) => { const [x, z] = lonLatToXZ(e[2], e[1]); return { id: e[0], x, z, r2: e[3] * e[3] }; });
+  const inTreeKeepout = (x, z) => TREE_KEEPOUT.some((k) => {
+    const dx = x - k.x, dz = z - k.z;
+    return dx * dx + dz * dz < k.r2;
+  });
+
   const realTreesByTile = new Map(); // key -> array of [x,z] world meters, capped at 800 (unchanged from v1)
   let treeTilesSampled = 0;
   let realCulledAtEntrances = 0, realCulledInRoad = 0, realCulledInBuilding = 0, realCulledInWater = 0;
@@ -1467,6 +1481,7 @@ async function main() {
       const real = realTreesByTile.get(key) || [];
       const proc = proceduralByTile.get(key) || [];
       let combined = real.concat(proc); // real OSM trees first, procedural after (per spec)
+      combined = combined.filter(([x, z]) => !inTreeKeepout(x, z));
       if (combined.length > 1400) { combined = sampleEveryNth(combined, 1400); tilesCappedAt1400++; }
       const ox = tx * TILE_SIZE, oz = tz * TILE_SIZE;
       const flat = new Array(combined.length * 3);
