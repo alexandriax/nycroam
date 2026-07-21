@@ -143,8 +143,10 @@ export const LANDMARKS_REG: LandmarkEntry[] = [
   { id: 'united-nations', name: 'United Nations Headquarters', lat: 40.7489, lon: -73.9681, set: 'midtown-east', r: 800, rot: -2.072 },
   // the tramway is a RIDEABLE World system now (src/engine/tram.ts), not a landmark
   // 270 Park (Foster + Partners JPMorganChase HQ): FULL replacement — the OSM
-  // extract predates completion (h=250 stale massing, cleared by the pipeline)
-  { id: 'chase-hq', name: '270 Park Ave: JPMorganChase', lat: 40.755819, lon: -73.975652, set: 'midtown-east', r: 1400, rot: GRID },
+  // extract predates completion (stale stepped massing, cleared by the pipeline).
+  // Anchored on the measured "270 Park Avenue" OSM outline centroid (was ~33m SE,
+  // which left the build offset from the real footprint).
+  { id: 'chase-hq', name: '270 Park Ave: JPMorganChase', lat: 40.755980, lon: -73.975987, set: 'midtown-east', r: 1400, rot: GRID },
   { id: 'queensboro-bridge', name: 'Ed Koch Queensboro Bridge', lat: 40.7595, lon: -73.9605, set: 'midtown-east', r: 1500, rot: GRID },
 
   // ---- uptown west (columbus circle -> UWS) + UES museums ----
@@ -161,7 +163,11 @@ export const LANDMARKS_REG: LandmarkEntry[] = [
   // against the baked road ribbons); this sits every corner ≥10m clear of the
   // CPW centerline and ≥50m from the nearest surviving building
   { id: 'dakota', name: 'The Dakota', lat: 40.776614, lon: -73.976125, set: 'uptown', r: 450, rot: GRID },
-  { id: 'amnh', name: 'American Museum of Natural History', lat: 40.7808, lon: -73.973, set: 'uptown', r: 600, rot: GRID },
+  // On the WEST side of Central Park West facing EAST toward the park, like NYPL
+  // fronts 5th Ave from the west: rot GRID+90deg so the Roosevelt Memorial facade
+  // (+z) faces the avenue. Anchored on the CPW frontage of the (now cleared) OSM
+  // block. clear covers the flat OSM slab (build-tiles LANDMARK_CLEAR).
+  { id: 'amnh', name: 'American Museum of Natural History', lat: 40.781150, lon: -73.973400, set: 'uptown', r: 600, rot: GRID + Math.PI / 2 },
   { id: 'met-museum', name: 'Metropolitan Museum of Art', lat: 40.779391, lon: -73.962542, set: 'uptown', r: 600, rot: GRID },
   { id: 'guggenheim', name: 'Guggenheim Museum', lat: 40.783, lon: -73.959, set: 'uptown', r: 550, rot: GRID },
   // moored IN the Hudson off Pier 86 (the old anchor sat on the pier building

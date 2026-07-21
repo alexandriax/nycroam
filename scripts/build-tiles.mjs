@@ -661,6 +661,11 @@ async function main() {
     // slivers DUPLICATING the replica's spires
     ['st-patricks-spires', 40.758720, -73.976689, 16],
     ['guggenheim', 40.783, -73.959, 40],
+    // AMNH is one huge flat 46m OSM slab (267x237m) — clearing its centroid drops
+    // the whole single building so the bespoke Roosevelt-Memorial/Rose-Center
+    // build stands alone. r=30 catches only that centroid; Hayden House (190m NE)
+    // and everything across CPW/Columbus survive.
+    ['amnh', 40.780962, -73.974258, 30],
     // Times Square's bowtie is our billboard-stack canyon; drop the generic
     // brick OSM massing in the core so the spectaculars stand free instead of
     // spearing through buildings (the district's real towers beyond r remain).
@@ -668,10 +673,13 @@ async function main() {
     // recentered on the measured OSM centroids: the old circles sat 50-90m off
     // and left the real 156m Secretariat slab + GA hall standing through the build
     ['un-secretariat', 40.7489, -73.9681, 60], ['un-ga', 40.7501, -73.9677, 50],
-    // 270 Park: OSM predates the finished Foster tower (stale 250m massing);
-    // the bespoke chase-hq landmark owns the whole site. r=50 stays clear of
-    // 277 Park's parts ~88m northeast.
-    ['chase-hq', 40.7558, -73.9755, 50],
+    // 270 Park (Foster JPMorganChase HQ): the bespoke chase-hq landmark owns the
+    // whole site. The old clear/anchor sat ~33m SE of the real footprint, leaving
+    // the OSM tower's WEST parts (a 382m stub) standing beside the bespoke build.
+    // Recentered on the measured "270 Park Avenue" OSM outline centroid; r=55
+    // covers all its stepped parts and stays clear of the named neighbours
+    // (280 Park 85m, Postum/250 Park 87m, 383 Madison tower 87m).
+    ['chase-hq', 40.755980, -73.975987, 55],
     ['dakota', 40.7765, -73.9761, 50], ['carnegie-hall', 40.7651, -73.9799, 35],
     ['whitney', 40.7397, -74.0089, 35], ['vessel', 40.7538, -74.0022, 40],
     ['little-island', 40.742, -74.01, 70], ['belvedere', 40.7794, -73.9692, 28],

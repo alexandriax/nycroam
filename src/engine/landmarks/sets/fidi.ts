@@ -325,7 +325,8 @@ export const builders: Record<string, (ctx: LandmarkCtx) => THREE.Group> = {
     return g;
   },
 
-  // Statue of Liberty: star-fort base, 27m pedestal, 34m verdigris figure, gold torch, 7-ray crown (~93m)
+  // Statue of Liberty: Fort Wood star base, Hunt pedestal w/ loggia colonnade,
+  // lathe-robed verdigris figure, 7-spike crown, raised gold torch (~93m to flame)
   'liberty-statue': () => {
     const g = new THREE.Group();
     // The statue stands 2.8km out in the harbor — far beyond the fog's far
@@ -333,43 +334,84 @@ export const builders: Record<string, (ctx: LandmarkCtx) => THREE.Group> = {
     // (fog: false) and pre-bake the atmospheric haze into their colors so it
     // still sits believably behind the air, like the skyline layer does.
     const VERDIGRIS_FAR = new THREE.MeshLambertMaterial({ color: '#8fb5ad', fog: false });
+    const VERDIGRIS_DK = new THREE.MeshLambertMaterial({ color: '#7ba39b', fog: false }); // drapery/tablet shadow
     const GRANITE_FAR = new THREE.MeshLambertMaterial({ color: '#a9b0b8', fog: false });
+    const GRANITE_DK = new THREE.MeshLambertMaterial({ color: '#8d949d', fog: false }); // recessed panels/joints
     const GOLD_FAR = new THREE.MeshLambertMaterial({ color: '#d6c07a', fog: false });
-    const s1 = starPrism(11, 20, 13, 8, GRANITE_FAR); // wide star fort
+    const FLAME_FAR = new THREE.MeshBasicMaterial({ color: '#f4dc93', fog: false }); // unlit: reads as a lit torch
+
+    // --- Fort Wood: 11-point granite star ramparts ---
+    const s1 = starPrism(11, 22, 15, 9, GRANITE_FAR);
     s1.position.y = -2;
     g.add(s1);
-    const s2 = starPrism(11, 15, 10, 3, GRANITE_FAR);
-    s2.position.y = 6;
+    const s2 = starPrism(11, 16, 11, 4, GRANITE_DK); // inner rampart terrace (darker course)
+    s2.position.y = 7;
     g.add(s2);
-    g.add(box(20, 3, 20, GRANITE_FAR, 0, 10.5, 0)); // pedestal base course
-    g.add(box(16, 24, 16, GRANITE_FAR, 0, 24, 0)); // tapering pedestal shaft (~27m band)
-    g.add(box(18, 2, 18, GRANITE_FAR, 0, 37, 0)); // cornice
-    g.add(box(13, 7, 13, GRANITE_FAR, 0, 41.5, 0)); // upper pedestal (feet rest at y=45)
-    const f = new THREE.Group(); // verdigris figure, heel at local 0
-    f.add(cyl(3.2, 6.5, 14, VERDIGRIS_FAR, 0, 7, 0, 12)); // flared gown
-    f.add(cyl(2.4, 3.2, 12, VERDIGRIS_FAR, 0, 20, 0, 12)); // upper robe
-    f.add(box(5.5, 3, 3.2, VERDIGRIS_FAR, 0, 27.5, 0)); // shoulders
-    f.add(cyl(1.0, 1.1, 1.5, VERDIGRIS_FAR, 0, 29.7, 0.2, 8)); // neck
-    const head = new THREE.Mesh(new THREE.SphereGeometry(2.1, 12, 10), VERDIGRIS_FAR);
-    head.position.set(0, 31.6, 0.3);
-    f.add(head);
-    for (let i = 0; i < 7; i++) { // 7-ray crown
-      const a = (i / 6 - 0.5) * 2.6;
-      const ray = new THREE.Mesh(new THREE.BoxGeometry(0.35, 3.4, 0.4), VERDIGRIS_FAR);
-      ray.position.set(Math.sin(a) * 2.6, 32.2 + Math.cos(a) * 2.6, 0.3);
-      ray.rotation.z = -a;
-      f.add(ray);
+
+    // --- Richard Morris Hunt pedestal (square granite tower) ---
+    g.add(box(21, 3, 21, GRANITE_FAR, 0, 11.5, 0)); // base plinth
+    g.add(box(17, 21, 17, GRANITE_FAR, 0, 23.5, 0)); // main shaft
+    for (const sx of [-1, 1]) for (const sz of [-1, 1]) // corner pilasters
+      g.add(box(2.2, 21, 2.2, GRANITE_DK, sx * 8, 23.5, sz * 8));
+    for (const s of [-1, 1]) { // recessed panel on each of the 4 faces
+      g.add(box(9, 13, 0.6, GRANITE_DK, 0, 23, s * 8.6));
+      g.add(box(0.6, 13, 9, GRANITE_DK, s * 8.6, 23, 0));
     }
-    const S = new THREE.Vector3(2.6, 28.5, 0.3), E = new THREE.Vector3(4.6, 36, 0.5), W = new THREE.Vector3(5.2, 43, 0.3);
-    f.add(strut(S, E, 1.0, VERDIGRIS_FAR, 8)); // raised right arm
-    f.add(strut(E, W, 0.8, VERDIGRIS_FAR, 8));
-    f.add(cyl(0.4, 0.5, 2, GOLD_FAR, 5.2, 44, 0.3, 8)); // torch handle
-    f.add(cyl(0, 1.1, 2.4, GOLD_FAR, 5.2, 46.2, 0.3, 8)); // gold flame (tip ~47 -> ~92m world)
-    const tablet = box(3.2, 4.5, 0.7, VERDIGRIS_FAR, -3.2, 24, 1.6); // tablet arm at the side
-    tablet.rotation.z = 0.35;
-    tablet.rotation.x = -0.2;
+    // loggia: a short Doric colonnade ringing the top of the shaft
+    const colH = 5, colY = 30;
+    for (const s of [-1, 1]) for (const t of [-6, -2, 2, 6]) {
+      g.add(cyl(0.85, 0.95, colH, GRANITE_FAR, t, colY + colH / 2, s * 8.7, 8)); // front/back faces
+      g.add(cyl(0.85, 0.95, colH, GRANITE_FAR, s * 8.7, colY + colH / 2, t, 8)); // side faces
+    }
+    g.add(box(20, 2.2, 20, GRANITE_FAR, 0, 36.3, 0)); // projecting cornice over the colonnade
+    g.add(box(14, 4, 14, GRANITE_FAR, 0, 39.5, 0)); // attic band
+    g.add(box(16, 1.6, 16, GRANITE_FAR, 0, 42.3, 0)); // observation balcony deck
+    for (const s of [-1, 1]) { // low parapet ring around the deck
+      g.add(box(16, 1.3, 0.6, GRANITE_DK, 0, 43.7, s * 7.7));
+      g.add(box(0.6, 1.3, 16, GRANITE_DK, s * 7.7, 43.7, 0));
+    }
+
+    // --- Verdigris figure (heel at local 0), feet on the pedestal deck ---
+    const f = new THREE.Group();
+    f.add(lathe([ // flowing robe: flared hem tapering to the shoulders
+      [0.0, 0], [4.4, 0.5], [3.9, 1.8], [3.5, 4], [3.2, 8], [3.05, 12],
+      [2.95, 16], [2.85, 20], [2.85, 23], [2.95, 25], [2.4, 26.6], [1.55, 27.6],
+    ], VERDIGRIS_FAR, 18));
+    for (const fa of [-0.9, -0.3, 0.3, 0.9]) // vertical drapery folds down the front
+      f.add(box(0.5, 22, 0.5, VERDIGRIS_DK, Math.sin(fa) * 2.7, 12, Math.cos(fa) * 2.7 + 0.1));
+    // palla (cloak) slung from the left shoulder across the body
+    const cloak = box(5.6, 9, 0.8, VERDIGRIS_DK, -0.6, 21, 2.5);
+    cloak.rotation.z = 0.25;
+    f.add(cloak);
+    f.add(cyl(0.85, 1.05, 1.8, VERDIGRIS_FAR, 0, 28.4, 0.15, 8)); // neck
+    const head = new THREE.Mesh(new THREE.SphereGeometry(1.9, 12, 10), VERDIGRIS_FAR);
+    head.position.set(0, 30.4, 0.35);
+    head.scale.set(0.9, 1.15, 1.0); // slight ovoid
+    f.add(head);
+    f.add(box(1.9, 0.9, 1.9, VERDIGRIS_FAR, 0, 31.5, 0.35)); // crown band/diadem
+    for (let i = 0; i < 7; i++) { // 7 sharp crown spikes fanned over the head
+      const a = (i / 6 - 0.5) * 2.5;
+      const spike = cyl(0, 0.4, 3.8, VERDIGRIS_FAR, 0, 0, 0, 6);
+      spike.position.set(Math.sin(a) * 2.0, 32.0 + Math.cos(a) * 2.0, 0.35);
+      spike.rotation.z = -a;
+      f.add(spike);
+    }
+    // raised right arm bearing the torch
+    const A0 = new THREE.Vector3(2.2, 25.5, 0.3), A1 = new THREE.Vector3(3.4, 32, 0.4), A2 = new THREE.Vector3(4.3, 40, 0.4);
+    f.add(strut(A0, A1, 1.0, VERDIGRIS_FAR, 8)); // upper arm
+    f.add(strut(A1, A2, 0.8, VERDIGRIS_FAR, 8)); // forearm
+    f.add(cyl(0.45, 0.6, 3, GOLD_FAR, 4.5, 41.4, 0.4, 8)); // torch handle
+    f.add(cyl(1.4, 0.8, 1.3, GOLD_FAR, 4.6, 43.4, 0.4, 10)); // torch cup / balcony
+    f.add(cyl(0, 1.3, 3.2, FLAME_FAR, 4.6, 45.5, 0.4, 10)); // flame (tip ~47 -> ~90m world)
+    // left arm cradling the tablet against the body
+    const L0 = new THREE.Vector3(-2.2, 25.2, 0.3), L1 = new THREE.Vector3(-2.7, 21.5, 1.4), L2 = new THREE.Vector3(-0.9, 19.5, 2.4);
+    f.add(strut(L0, L1, 0.95, VERDIGRIS_FAR, 8)); // upper arm
+    f.add(strut(L1, L2, 0.8, VERDIGRIS_FAR, 8)); // forearm across the body
+    const tablet = box(2.7, 5.2, 0.7, VERDIGRIS_DK, -2.3, 21.5, 1.8); // TABULA held tilted
+    tablet.rotation.z = 0.4;
+    tablet.rotation.x = -0.18;
     f.add(tablet);
-    f.position.y = 45;
+    f.position.y = 43;
     g.add(f);
     return g;
   },

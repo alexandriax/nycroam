@@ -349,48 +349,71 @@ export const builders: Record<string, (ctx: LandmarkCtx) => THREE.Group> = {
     ];
     const T1 = TIERS[0];
 
-    // plaza: paved slab, low step/planter blocks, open beneath the tower
-    g.add(box(70, 0.3, 88, GRANITE, 0, 0.15, 0)); // paving, proud of the footprint on all sides
-    for (const [px, pz] of [[-22, 30], [22, 30], [-22, -30], [22, -30]] as const) {
-      g.add(box(3, 1.2, 3, GRANITE, px, 0.6, pz)); // low step/planter wall
-      g.add(box(2.4, 0.9, 2.4, GREEN_PATINA, px, 1.65, pz)); // planting
+    // ---- iconic lifted base (0-32m) ----------------------------------------
+    // 270 Park's signature: the whole tower stands on a handful of dramatic
+    // splayed fan-columns, freeing a column-free glass lobby and public plaza.
+    // Rebuilt for clarity/boldness: a set-back glass lobby the tower floats
+    // over, bold tapered bronze fan-columns (two legs per unit meeting at an
+    // apex node under the transfer truss), tapered corner columns, and a clean
+    // granite plaza — replacing the old thin-strut tangle.
+    const BASE_H = 26;
+    const HW = T1.x1, HD = T1.z1; // 30 x 37.5 half-extents
+
+    // granite plaza, proud of the footprint; low planters at the corners
+    g.add(box(74, 0.3, 92, GRANITE, 0, 0.15, 0));
+    g.add(box(64, 0.5, 82, GRANITE, 0, 0.55, 0)); // raised inner terrace
+    for (const [px, pz] of [[-26, 34], [26, 34], [-26, -34], [26, -34]] as const) {
+      g.add(box(5, 1.1, 5, GRANITE, px, 0.9, pz));
+      g.add(box(4.2, 0.9, 4.2, GREEN_PATINA, px, 1.85, pz));
     }
 
-    // lift-off base 0-26m: vertical corner megacolumns + splaying fan/V
-    // mega-columns on the two long (Park-Ave-facing) faces — tall enough to
-    // read as the dramatic V-column base real photos show before handing off
-    // to the transfer truss.
-    const BASE_H = 26;
-    for (const cx of [T1.x0, T1.x1]) for (const cz of [T1.z0, T1.z1]) {
-      g.add(cyl(1.8, 1.8, BASE_H, CHASE_BRONZE, cx, BASE_H / 2, cz, 10)); // corner megacolumn
-    }
+    // set-back double-height glass lobby the tower floats above; the columns
+    // land OUTSIDE it, so it reads as fully glazed and column-free
+    const LOBBY_H = 22;
+    g.add(box(2 * HW - 16, LOBBY_H, 2 * HD - 18, GLASS_LM, 0, LOBBY_H / 2 + 0.8, 0));
+    for (let mx = -(HW - 8); mx <= HW - 8; mx += 4) // lobby mullions, long faces
+      for (const mz of [-(HD - 9), HD - 9]) g.add(box(0.4, LOBBY_H, 0.4, STEEL_LM, mx, LOBBY_H / 2 + 0.8, mz));
+    g.add(box(2 * HW - 15, 1.4, 2 * HD - 17, DARKSTONE, 0, LOBBY_H + 1.5, 0)); // lobby soffit
+
+    // tapered fan-column: two bold legs splaying from plaza feet up to a shared
+    // apex node at the transfer level. `taperLeg` orients a truncated cone
+    // (wide base, narrower top) along the leg like strut() does.
+    const taperLeg = (a: THREE.Vector3, b: THREE.Vector3, rBot: number, rTop: number) => {
+      const m = new THREE.Mesh(new THREE.CylinderGeometry(rTop, rBot, a.distanceTo(b), 12), CHASE_BRONZE);
+      m.position.copy(a).add(b).multiplyScalar(0.5);
+      m.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), b.clone().sub(a).normalize());
+      return m;
+    };
     for (const faceX of [T1.x0, T1.x1]) {
       const sx = Math.sign(faceX);
-      for (const fz of [-20, 20]) { // two fans per long face
-        const apex = new THREE.Vector3(faceX - sx * 7, BASE_H, fz); // common node at the transfer, inset ~7m
-        for (const dz of [-7, 7]) {
-          g.add(strut(new THREE.Vector3(faceX, 0, fz + dz), apex, 1.7, CHASE_BRONZE)); // splayed V leg
+      for (const fz of [-25, 0, 25]) { // three fan-columns per long (Park-Ave) face
+        const apex = new THREE.Vector3(faceX - sx * 4, BASE_H, fz);
+        g.add(box(6, 5, 6, CHASE_BRONZE, apex.x, BASE_H + 0.5, fz)); // apex capital under the truss
+        for (const dz of [-9, 9]) {
+          const foot = new THREE.Vector3(faceX, 0, fz + dz);
+          g.add(taperLeg(foot, apex, 3.0, 1.7)); // bold splayed leg
+          g.add(box(5, 1.2, 5, DARKSTONE, foot.x, 0.6, foot.z)); // granite footing pad
         }
       }
     }
+    // tapered vertical corner columns
+    for (const cx of [T1.x0, T1.x1]) for (const cz of [T1.z0, T1.z1])
+      g.add(cyl(1.9, 2.6, BASE_H, CHASE_BRONZE, cx, BASE_H / 2, cz, 12));
 
-    // transfer truss 26-32m: dark steel band + diagonal X on all four faces
+    // transfer truss 26-32m: deep dark band + a clean diagonal X per face
     const TT0 = BASE_H, TT1 = BASE_H + 6;
-    g.add(box(T1.x1 - T1.x0, TT1 - TT0, T1.z1 - T1.z0, DARKSTONE, 0, (TT0 + TT1) / 2, 0));
-    for (const [a, b] of [
-      [new THREE.Vector3(T1.x1, TT0, T1.z0), new THREE.Vector3(T1.x1, TT1, T1.z1)],
-      [new THREE.Vector3(T1.x1, TT0, T1.z1), new THREE.Vector3(T1.x1, TT1, T1.z0)],
-      [new THREE.Vector3(T1.x0, TT0, T1.z0), new THREE.Vector3(T1.x0, TT1, T1.z1)],
-      [new THREE.Vector3(T1.x0, TT0, T1.z1), new THREE.Vector3(T1.x0, TT1, T1.z0)],
-      [new THREE.Vector3(T1.x0, TT0, T1.z1), new THREE.Vector3(T1.x1, TT1, T1.z1)],
-      [new THREE.Vector3(T1.x1, TT0, T1.z1), new THREE.Vector3(T1.x0, TT1, T1.z1)],
-      [new THREE.Vector3(T1.x0, TT0, T1.z0), new THREE.Vector3(T1.x1, TT1, T1.z0)],
-      [new THREE.Vector3(T1.x1, TT0, T1.z0), new THREE.Vector3(T1.x0, TT1, T1.z0)],
-    ]) g.add(strut(a, b, 0.25, STEEL_LM)); // X-brace per face
+    g.add(box(2 * HW + 1, TT1 - TT0, 2 * HD + 1, DARKSTONE, 0, (TT0 + TT1) / 2, 0));
+    for (const faceX of [T1.x0, T1.x1]) {
+      g.add(strut(new THREE.Vector3(faceX, TT0, T1.z0), new THREE.Vector3(faceX, TT1, T1.z1), 0.45, STEEL_LM));
+      g.add(strut(new THREE.Vector3(faceX, TT0, T1.z1), new THREE.Vector3(faceX, TT1, T1.z0), 0.45, STEEL_LM));
+    }
+    for (const faceZ of [T1.z0, T1.z1]) {
+      g.add(strut(new THREE.Vector3(T1.x0, TT0, faceZ), new THREE.Vector3(T1.x1, TT1, faceZ), 0.45, STEEL_LM));
+      g.add(strut(new THREE.Vector3(T1.x1, TT0, faceZ), new THREE.Vector3(T1.x0, TT1, faceZ), 0.45, STEEL_LM));
+    }
 
-    // ground detail: double-height lobby core inside the colonnade + avenue entrance canopies
-    g.add(box(30, 18, 40, GLASS_LM, 0, 9, 0)); // lobby core
-    for (const sx of [-1, 1]) g.add(box(6, 0.6, 14, STEEL_LM, sx * (T1.x1 + 3), 5, 0)); // entrance canopy
+    // entrance canopies projecting over the avenue sidewalks
+    for (const sx of [-1, 1]) g.add(box(8, 0.6, 22, STEEL_LM, sx * (HW + 4), 6, 0));
 
     // Tiers: bronze-glass volume + a giant per-face X-brace megapanel (1
     // module, or 2 side by side on wide lower faces) + a dense row of
