@@ -449,10 +449,14 @@ export const builders: Record<string, (ctx: LandmarkCtx) => THREE.Group> = {
     g.add(box(NW - 6, 13, 14, MARBLE, CX, 6.5, NZ0 - 7));     // choir
     g.add(box(NW - 18, 21, 14, MARBLE, CX, 10.5, NZ0 - 7));
     ridge(NW - 18, 14, 7, CX, 21, NZ0 - 7);
-    g.add(box(14, 16, 12, MARBLE, CX, 8, NZ0 - 19));          // Lady Chapel
-    const apse = cyl(7, 7, 16, MARBLE, CX, 8, NZ0 - 25, 10);  // rounded apse end
+    // Lady Chapel + rounded apse held to the Madison Ave building line (~z=-55):
+    // Madison here is a 14m "secondary" (7m half-roadbed), and the earlier
+    // NZ0-19/NZ0-25 layout pushed the apse out to z~-66 — 11m into the avenue,
+    // so the choir's rounded back read as spilling across the Madison roadbed.
+    g.add(box(14, 16, 12, MARBLE, CX, 8, NZ0 - 10));          // Lady Chapel
+    const apse = cyl(6, 6, 16, MARBLE, CX, 8, NZ0 - 15, 10);  // rounded apse end, at the building line
     g.add(apse);
-    g.add(cyl(0.2, 7.6, 5, DARKSTONE, CX, 18.5, NZ0 - 25, 10)); // apse cone roof
+    g.add(cyl(0.2, 6.5, 5, DARKSTONE, CX, 18.5, NZ0 - 15, 10)); // apse cone roof
 
     // ---- west front on the avenue: twin towers, spires to 100.5m ----
     for (const sx of [-1, 1]) {
