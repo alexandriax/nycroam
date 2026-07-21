@@ -27,9 +27,6 @@ const ICE_WHITE = new THREE.MeshLambertMaterial({ color: '#dfe9f2' });
 const FIRE_GOLD = new THREE.MeshBasicMaterial({ color: '#ffd97a' });
 // planting green (GREEN_PATINA is verdigris — it reads as teal plastic on a hedge)
 const FOLIAGE = new THREE.MeshLambertMaterial({ color: '#2f5c2b' });
-// solid coat colours for the skaters on the rink
-const SKATER_COATS = ['#c0392b', '#2471a3', '#f1c40f', '#ecf0f1', '#8e44ad', '#27ae60', '#e67e22']
-  .map((c) => new THREE.MeshLambertMaterial({ color: c }));
 
 /** Thin two-sided solid-colour flag jutting +x from a vertical pole. */
 function flagpole(h: number, flagMat: THREE.Material): THREE.Group {
@@ -206,14 +203,6 @@ export const builders: Record<string, (ctx: LandmarkCtx) => THREE.Group> = {
     for (const sz of [-1, 1]) for (let i = 0; i < 4; i++) {
       g.add(box(1.1, 0.34, 5.0, GRANITE, IX1 + 0.55 + i * 1.1, TH - 0.17 - i * 0.34, sz * 5.0));
     }
-    // skaters circling the ice
-    for (let i = 0; i < 10; i++) {
-      const a = i * 2.39;
-      const sk = figure(1.72, SKATER_COATS[i % SKATER_COATS.length]);
-      sk.position.set(13 + Math.cos(a) * 12, 0.12, Math.sin(a * 1.7) * 6.4);
-      sk.rotation.y = a * 1.3;
-      g.add(sk);
-    }
 
     // ---- Prometheus: gilded bronze over the west fountain wall ----
     const PZ = IZ;
@@ -387,46 +376,115 @@ export const builders: Record<string, (ctx: LandmarkCtx) => THREE.Group> = {
     return g;
   },
 
-  // St. Patrick's: twin marble spires to 100m, rose window in a pointed arch, triple portals
+  // St. Patrick's at full block scale. The old build was a 20x50 box whose
+  // front sat at local z=+9 — but the cleared block runs from the 5th Ave
+  // frontage at z~+70 back to z~-55 by Madison (the OSM spire parts stood at
+  // z=63, r=16 clear), so the replica floated 60m back on an empty apron and
+  // read toy-sized from the street. Rebuilt to the measured envelope: 124m
+  // front-to-apse, 53m across the transepts, centred on the block (x=+7),
+  // with the west front ON the avenue building line. Real proportions: nave
+  // ridge ~34m, twin spires 100.5m.
   'st-patricks': () => {
     const g = new THREE.Group();
-    // nave body behind the west front
-    g.add(box(20, 26, 50, MARBLE, 0, 13, -18));
-    g.add(box(20, 3, 50, MARBLE, 0, 27.5, -18)); // roof band
-    // twin square towers rising to octagonal openwork spires (~100m)
-    for (const sx of [-12, 12]) {
-      g.add(box(9, 52, 9, MARBLE, sx, 26, 7));
-      g.add(cyl(0.4, 4.4, 46, MARBLE, sx, 75, 7, 8)); // spire
-      for (const [px, pz] of [[-3.4, -3.4], [3.4, -3.4], [-3.4, 3.4], [3.4, 3.4]] as const)
-        g.add(cyl(0.05, 0.55, 4, MARBLE, sx + px, 54, 7 + pz, 4)); // base pinnacles
+    const CX = 7;        // block centreline (measured from the clears)
+    const FZ = 68;       // west-front plane, on the 5th Ave building line
+    const NW = 33;       // nave-with-aisles width
+    // gabled roof as a true triangular prism (the stretched-pyramid trick used
+    // on small hipped roofs splays into a flat sheet at nave length: scale is
+    // applied before rotation, so the stretch lands on a diagonal)
+    const ridge = (w: number, len: number, h: number, x: number, y: number, z: number, alongX = false): void => {
+      const shp = new THREE.Shape();
+      shp.moveTo(-w / 2, 0);
+      shp.lineTo(w / 2, 0);
+      shp.lineTo(0, h);
+      shp.closePath();
+      const geo = new THREE.ExtrudeGeometry(shp, { depth: len, bevelEnabled: false });
+      geo.translate(0, 0, -len / 2);
+      const m = new THREE.Mesh(geo, DARKSTONE);
+      if (alongX) m.rotation.y = Math.PI / 2;
+      m.position.set(x, y, z);
+      g.add(m);
+    };
+
+    // ---- nave: aisles + clerestory running the full block ----
+    const NZ0 = -34, NZ1 = FZ - 2;               // nave extent, front to crossing-past-choir
+    const NLEN = NZ1 - NZ0, NMID = (NZ0 + NZ1) / 2;
+    g.add(box(NW, 15, NLEN, MARBLE, CX, 7.5, NMID));          // aisle band
+    g.add(box(NW - 12, 25, NLEN, MARBLE, CX, 12.5, NMID));    // clerestory
+    ridge(NW - 12, NLEN, 9, CX, 25, NMID);                    // steep nave roof to ~34m
+    for (const sx of [-1, 1]) {                               // aisle roofs (sloped slabs)
+      const ar = box(7.2, 0.7, NLEN, DARKSTONE, CX + sx * (NW / 2 - 3.4), 16.4, NMID);
+      ar.rotation.z = sx * 0.32;
+      g.add(ar);
     }
-    // west facade backing wall between the towers
-    g.add(box(16, 30, 1.2, MARBLE, 0, 15, 8.0));
-    // rose window (stained glass) set into a pointed-arch surround
-    const roseArch = archWall(15, 17, 0.6, 9, 13.5, MARBLE);
-    roseArch.position.set(0, 12, 8.9);
-    g.add(roseArch);
-    const rose = new THREE.Mesh(new THREE.CircleGeometry(4.2, 24), new THREE.MeshBasicMaterial({ map: roseTexture() }));
-    rose.position.set(0, 21, 9.05);
+    // buttress piers + pinnacles marching down both aisles
+    for (let z = NZ1 - 8; z > NZ0 + 2; z -= 8.5) for (const sx of [-1, 1]) {
+      const bx = CX + sx * (NW / 2 + 0.4);
+      g.add(box(1.6, 15, 2.2, MARBLE, bx, 7.5, z));
+      g.add(cyl(0.05, 0.7, 4.2, MARBLE, bx, 17.1, z, 4));
+      g.add(strut(new THREE.Vector3(bx, 14.5, z), new THREE.Vector3(CX + sx * (NW / 2 - 6.2), 24, z), 0.35, MARBLE, 6)); // flyer
+    }
+    // clerestory + aisle windows: dark pointed lancets
+    for (let z = NZ1 - 10; z > NZ0 + 4; z -= 8.5) for (const sx of [-1, 1]) {
+      g.add(box(0.3, 7, 2.4, DARKSTONE, CX + sx * (NW / 2 - 5.9), 20, z - 4.2));
+      g.add(box(0.3, 8, 3.2, DARKSTONE, CX + sx * (NW / 2 + 0.05), 8, z - 4.2));
+    }
+
+    // ---- transepts: the 53m cross-arms ----
+    const TZ = 6, TW = 53;                        // transept centreline + full width
+    g.add(box(TW, 15, 18, MARBLE, CX, 7.5, TZ));
+    g.add(box(TW, 25, 12, MARBLE, CX, 12.5, TZ));
+    ridge(12, TW, 8, CX, 25, TZ, true);
+    for (const sx of [-1, 1]) {                   // transept gable fronts: rose + portal
+      const tx = CX + sx * (TW / 2 - 0.6);
+      const trose = new THREE.Mesh(new THREE.CircleGeometry(3.4, 20), new THREE.MeshBasicMaterial({ map: roseTexture() }));
+      trose.position.set(tx + sx * 0.45, 20, TZ);
+      trose.rotation.y = sx * Math.PI / 2;
+      g.add(trose);
+      g.add(box(0.4, 8, 5, DARKSTONE, tx + sx * 0.15, 4, TZ));
+      for (const dz of [-5, 5]) g.add(cyl(0.05, 0.8, 5, MARBLE, tx, 27.5, TZ + dz, 4)); // gable pinnacles
+    }
+
+    // ---- choir + Lady Chapel apse toward Madison ----
+    g.add(box(NW - 6, 13, 14, MARBLE, CX, 6.5, NZ0 - 7));     // choir
+    g.add(box(NW - 18, 21, 14, MARBLE, CX, 10.5, NZ0 - 7));
+    ridge(NW - 18, 14, 7, CX, 21, NZ0 - 7);
+    g.add(box(14, 16, 12, MARBLE, CX, 8, NZ0 - 19));          // Lady Chapel
+    const apse = cyl(7, 7, 16, MARBLE, CX, 8, NZ0 - 25, 10);  // rounded apse end
+    g.add(apse);
+    g.add(cyl(0.2, 7.6, 5, DARKSTONE, CX, 18.5, NZ0 - 25, 10)); // apse cone roof
+
+    // ---- west front on the avenue: twin towers, spires to 100.5m ----
+    for (const sx of [-1, 1]) {
+      const tx = CX + sx * 13.5;
+      g.add(box(10, 55, 10, MARBLE, tx, 27.5, FZ - 5));       // square tower
+      g.add(box(11, 1.2, 11, MARBLE, tx, 55.6, FZ - 5));      // cornice
+      g.add(cyl(0.4, 4.6, 44, MARBLE, tx, 78.5, FZ - 5, 8));  // octagonal spire (tip 100.5)
+      for (const [px, pz] of [[-4, -4], [4, -4], [-4, 4], [4, 4]] as const)
+        g.add(cyl(0.05, 0.7, 6, MARBLE, tx + px, 59, FZ - 5 + pz, 4)); // corner pinnacles
+      for (const wy of [12, 26, 40]) g.add(box(3.4, 6.5, 0.4, DARKSTONE, tx, wy, FZ - 0.15)); // tower lancets
+    }
+    g.add(box(19, 34, 3, MARBLE, CX, 17, FZ - 1.5));          // gabled centre bay
+    const rose = new THREE.Mesh(new THREE.CircleGeometry(4.6, 24), new THREE.MeshBasicMaterial({ map: roseTexture() }));
+    rose.position.set(CX, 22.5, FZ + 0.06);
     g.add(rose);
-    // triple pointed-arch portals with dark recesses
-    for (const px of [-5, 0, 5]) {
-      const p = archWall(4.6, 9, 0.7, 2.6, 7, MARBLE);
-      p.position.set(px, 0, 9.1);
-      g.add(p);
-      g.add(box(2.4, 6.8, 0.3, DARKSTONE, px, 3.6, 8.7));
-    }
-    // pointed gable peak above the rose
-    for (const s of [-1, 1]) {
-      const gb = box(0.9, 12, 1.0, MARBLE, s * 4.2, 33, 8.2);
-      gb.rotation.z = s * 0.6;
+    const roseArch = archWall(13, 15, 0.7, 10.2, 14, MARBLE); // pointed surround over the rose
+    roseArch.position.set(CX, 14, FZ + 0.2);
+    g.add(roseArch);
+    for (const s of [-1, 1]) {                                // centre gable peak
+      const gb = box(1.0, 13, 1.1, MARBLE, CX + s * 4.6, 37.5, FZ - 1.2);
+      gb.rotation.z = s * 0.62;
       g.add(gb);
     }
-    // pinnacles marching along the nave sides
-    for (let z = 4; z >= -40; z -= 8) for (const sx of [-10.5, 10.5]) {
-      g.add(box(0.9, 0.9, 0.9, MARBLE, sx, 26.5, z));
-      g.add(cyl(0.05, 0.55, 3.2, MARBLE, sx, 28.6, z, 4));
+    // triple pointed-arch portals with dark recesses
+    for (const [dx, pw, ph] of [[-8, 5.4, 11], [0, 7, 14], [8, 5.4, 11]] as const) {
+      const p = archWall(pw, ph, 0.9, pw - 2.2, ph - 2.5, MARBLE);
+      p.position.set(CX + dx, 0, FZ + 0.3);
+      g.add(p);
+      g.add(box(pw - 2.4, ph - 3, 0.3, DARKSTONE, CX + dx, (ph - 3) / 2, FZ));
     }
+    // shallow entrance steps down to the sidewalk
+    for (let i = 0; i < 3; i++) g.add(box(30, 0.18, 1.1, GRANITE, CX, 0.09 + i * 0.0, FZ + 1.2 + i));
     return g;
   },
 
