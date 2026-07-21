@@ -126,13 +126,14 @@ export const LANDMARKS_REG: LandmarkEntry[] = [
   // gardens and the flanking facades are all symmetric about local z=0
   { id: 'rockefeller-plaza', name: 'Rockefeller Plaza', lat: 40.758743, lon: -73.978668, set: 'midtown-core', r: 550, rot: GRID },
   { id: 'prometheus', name: 'Prometheus Statue', lat: 40.758743, lon: -73.978668, set: 'midtown-core', r: 550, aliasOf: 'rockefeller-plaza' },
-  // Atlas stands in the International Building's Fifth Ave forecourt (630 5th,
-  // between W 50th and W 51st), facing the avenue and St Patrick's. The old
-  // anchor sat 32m west and 10m north of that, which put him on the sidewalk
-  // against the British Empire Building (620 5th) a whole address south.
-  // Placed on Lawrie's surveyed coordinate, 40deg45'32"N 73deg58'38"W, which
-  // measures as open forecourt in the tile data (no footprint contains it).
-  { id: 'atlas', name: 'Atlas Statue', lat: 40.758889, lon: -73.977222, set: 'midtown-core', r: 400, rot: GRID },
+  // Atlas stands before the International Building (630 5th), on axis with St
+  // Patrick's central portal across the avenue. DERIVED, not transcribed: the
+  // anchor is the point 44m along the cathedral's front-center normal (its
+  // west building line is at 50m), the westmost spot where the whole 9x9
+  // pedestal plus step apron tests clear of every building polygon. Surveyed
+  // web coordinates put him 7m off-axis into the wing notch, which read as
+  // "in a courtyard" from the air.
+  { id: 'atlas', name: 'Atlas Statue', lat: 40.758941, lon: -73.977217, set: 'midtown-core', r: 400, rot: GRID },
   { id: 'top-of-the-rock', name: 'Top of the Rock', lat: 40.7591, lon: -73.9794, set: 'midtown-core', r: 1300, rot: GRID },
   // portals (+z) face WNW toward 5th Ave — the cathedral sits on the avenue's east side
   { id: 'st-patricks', name: "St. Patrick's Cathedral", lat: 40.7585, lon: -73.976, set: 'midtown-core', r: 700, rot: GRID - Math.PI / 2 },
