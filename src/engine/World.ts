@@ -161,6 +161,14 @@ export class World {
   private fpsAcc = 0;
   private fpsFrames = 0;
   private hudTimer = 0;
+  // Adaptive resolution: render at the device's full (capped) pixel ratio and
+  // step down only when the GPU can't hold frame rate, stepping back up when
+  // headroom returns. Strong machines never leave full res; weak ones trade
+  // pixels they can't push for a steady frame rate. Quality is only ever
+  // reduced UNDER LOAD, and recovers by itself.
+  private maxPixelRatio = 2;
+  private dynPixelRatio = 2;
+  private goodTicks = 0; // consecutive fast HUD ticks before stepping back up
   private transitioning = false;
   private lastEnterGuard = 0; // avoid instant re-trigger loops
   private spawnResolve = false; // eject from a building after a teleport/exit, once tiles load
@@ -190,7 +198,9 @@ export class World {
     this.isMobile = /Android|iPhone|iPad|Mobile/i.test(navigator.userAgent) || navigator.maxTouchPoints > 1;
     const q = quality();
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, q.pixelRatioCap));
+    this.maxPixelRatio = Math.min(window.devicePixelRatio, q.pixelRatioCap);
+    this.dynPixelRatio = this.maxPixelRatio;
+    this.renderer.setPixelRatio(this.dynPixelRatio);
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 1.08;
     if (q.shadows) {
@@ -776,6 +786,7 @@ export class World {
 
   private resize = () => {
     const w = window.innerWidth, h = window.innerHeight;
+    this.renderer.setPixelRatio(this.dynPixelRatio); // keep the adaptive scale across resizes
     this.renderer.setSize(w, h, false);
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
@@ -1945,11 +1956,50 @@ export class World {
       this.hud.tilesPending = stats.pending;
       this.hud.fps = Math.round(this.fpsFrames / Math.max(0.001, this.fpsAcc));
       this.hud.fly = this.controls.fly;
+      this.adaptResolution();
       this.fpsAcc = 0; this.fpsFrames = 0;
       this.pushHud();
       this.save();
     }
   };
+
+  /**
+   * Called once per HUD tick (0.5s) with the tick's frame stats still in
+   * fpsAcc/fpsFrames. Sustained > ~22ms frames drop the render scale a notch
+   * (floor 1.0); sustained fast frames for 3s step it back toward full. The
+   * thresholds straddle 60fps with wide hysteresis so it never oscillates,
+   * and the loading fade is skipped so boot-time jank can't trigger a drop.
+   */
+  private adaptResolution() {
+    if (this.hud.loading || this.transitioning || this.fpsFrames < 8) return;
+    const avgMs = (this.fpsAcc / this.fpsFrames) * 1000;
+    if (avgMs > 22 && this.dynPixelRatio > 1.0) {
+      this.dynPixelRatio = Math.max(1.0, this.dynPixelRatio - 0.25);
+      this.goodTicks = 0;
+      this.applyResolution();
+    } else if (avgMs > 30 && this.dynPixelRatio <= 1.0 && this.sun?.castShadow && this.sun.shadow.mapSize.x > 2048) {
+      // last resort for GPUs that can't hold 1.0x either: halve the shadow map
+      // once (shadows stay on — this is a persistent device-class signal, so it
+      // never steps back up within the session)
+      this.sun.shadow.mapSize.set(2048, 2048);
+      this.sun.shadow.map?.dispose();
+      this.sun.shadow.map = null;
+      this.goodTicks = 0;
+    } else if (avgMs < 12.5 && this.dynPixelRatio < this.maxPixelRatio) {
+      if (++this.goodTicks >= 6) {
+        this.dynPixelRatio = Math.min(this.maxPixelRatio, this.dynPixelRatio + 0.25);
+        this.goodTicks = 0;
+        this.applyResolution();
+      }
+    } else {
+      this.goodTicks = 0;
+    }
+  }
+
+  private applyResolution() {
+    this.renderer.setPixelRatio(this.dynPixelRatio);
+    this.renderer.setSize(window.innerWidth, window.innerHeight, false);
+  }
 
   /**
    * Drives every diegetic sound and the on-foot head-bob from the current mode.

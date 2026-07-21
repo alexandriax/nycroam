@@ -120,9 +120,20 @@ export const LANDMARKS_REG: LandmarkEntry[] = [
   { id: 'broadway-theaters', name: 'Broadway Theater District', lat: 40.759019, lon: -73.984372, set: 'midtown-south', r: 500, rot: GRID },
 
   // ---- midtown core (rockefeller / fifth ave) ----
-  { id: 'rockefeller-plaza', name: 'Rockefeller Plaza', lat: 40.7587, lon: -73.9787, set: 'midtown-core', r: 550, rot: GRID },
-  { id: 'prometheus', name: 'Prometheus Statue', lat: 40.7587, lon: -73.9787, set: 'midtown-core', r: 550, aliasOf: 'rockefeller-plaza' },
-  { id: 'atlas', name: 'Atlas Statue', lat: 40.7588, lon: -73.9776, set: 'midtown-core', r: 400, rot: GRID },
+  // anchored on 30 Rock's centreline (measured: its OSM slab spans local z
+  // -21..+10 and the Channel Gardens gap between the two Fifth Ave blocks runs
+  // z -17..+6, both centred 5.5m off the old anchor) so the sunken plaza, the
+  // gardens and the flanking facades are all symmetric about local z=0
+  { id: 'rockefeller-plaza', name: 'Rockefeller Plaza', lat: 40.758743, lon: -73.978668, set: 'midtown-core', r: 550, rot: GRID },
+  { id: 'prometheus', name: 'Prometheus Statue', lat: 40.758743, lon: -73.978668, set: 'midtown-core', r: 550, aliasOf: 'rockefeller-plaza' },
+  // Atlas stands before the International Building (630 5th), on axis with St
+  // Patrick's central portal across the avenue. DERIVED, not transcribed: the
+  // anchor is the point 44m along the cathedral's front-center normal (its
+  // west building line is at 50m), the westmost spot where the whole 9x9
+  // pedestal plus step apron tests clear of every building polygon. Surveyed
+  // web coordinates put him 7m off-axis into the wing notch, which read as
+  // "in a courtyard" from the air.
+  { id: 'atlas', name: 'Atlas Statue', lat: 40.758941, lon: -73.977217, set: 'midtown-core', r: 400, rot: GRID },
   { id: 'top-of-the-rock', name: 'Top of the Rock', lat: 40.7591, lon: -73.9794, set: 'midtown-core', r: 1300, rot: GRID },
   // portals (+z) face WNW toward 5th Ave — the cathedral sits on the avenue's east side
   { id: 'st-patricks', name: "St. Patrick's Cathedral", lat: 40.7585, lon: -73.976, set: 'midtown-core', r: 700, rot: GRID - Math.PI / 2 },

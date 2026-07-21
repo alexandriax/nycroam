@@ -193,6 +193,13 @@ export class LandmarkManager {
   private compile: ((g: THREE.Object3D) => Promise<void>) | null;
   private placed = new Map<string, THREE.Group>();
   private building = new Set<string>();
+  // All builds run through one serial chain, and each build yields the frame
+  // between its heavy phases (builder -> collision -> merge). A bespoke
+  // landmark is thousands of primitives merged into a handful of meshes;
+  // doing two of those back-to-back inside a single frame was the biggest
+  // traversal stutter in the game. Serialized + phase-sliced, no frame ever
+  // absorbs more than one heavy phase (~a few ms each).
+  private buildChain: Promise<void> = Promise.resolve();
   private sets = new Map<string, Promise<BuilderMap | null>>();
   private colSets = new Map<string, { data: CollisionData; x0: number; z0: number; x1: number; z1: number }>();
   private timer = 0;
@@ -234,9 +241,20 @@ export class LandmarkManager {
     return this.fitsLoading;
   }
 
-  private async build(lm: Landmark) {
+  /** Queue a build on the serial chain (callers must have claimed `building`). */
+  private enqueueBuild(lm: Landmark) {
     if (this.building.has(lm.id) || this.placed.has(lm.id)) return;
     this.building.add(lm.id);
+    this.buildChain = this.buildChain.then(() => this.build(lm));
+  }
+
+  /** Yield the rest of this frame so build phases land in separate frames. */
+  private yieldFrame(): Promise<void> {
+    return new Promise((res) => setTimeout(res, 0));
+  }
+
+  private async build(lm: Landmark) {
+    if (this.placed.has(lm.id)) return;
     try {
       await this.loadFits();
       const builders = await this.loadSet(lm.set);
@@ -267,9 +285,11 @@ export class LandmarkManager {
       };
       const raw = make(ctx);
       const gy = heightAt(px, pz);
+      await this.yieldFrame(); // builder allocated the primitive tree; give the frame back
       // collision comes from the raw primitive tree — the merge below
       // collapses everything into one geometry per material
       const collision = deriveCollision(raw, px, gy, pz, rot);
+      await this.yieldFrame(); // collision walked the whole tree; merge in a fresh frame
       const group = mergeByMaterial(raw);
       group.position.set(px, gy, pz);
       group.rotation.y = rot;
@@ -316,7 +336,7 @@ export class LandmarkManager {
 
     if (!this.initialPlaced) {
       this.initialPlaced = true;
-      for (const lm of LANDMARKS_PLACED) if (lm.alwaysOn) void this.build(lm);
+      for (const lm of LANDMARKS_PLACED) if (lm.alwaysOn) this.enqueueBuild(lm);
     }
 
     let started = 0;
@@ -327,9 +347,10 @@ export class LandmarkManager {
       const has = this.placed.has(lm.id);
       if (!has && d2 < lm.r * lm.r) {
         // stagger builds so approaching a dense district doesn't hitch a frame
+        // (the serial chain then spaces their heavy phases across frames)
         if (started < 2 && !this.building.has(lm.id)) {
           started++;
-          void this.build(lm);
+          this.enqueueBuild(lm);
         }
       } else if (has && d2 > (lm.r + 150) * (lm.r + 150)) {
         const g = this.placed.get(lm.id)!;

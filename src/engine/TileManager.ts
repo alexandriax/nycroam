@@ -22,6 +22,7 @@ interface TileRecord {
   signs: BuildResponse['signs']; // kept for the "current street" HUD lookup
   geometries: THREE.BufferGeometry[];
   textures: THREE.Texture[];
+  lod: number; // current detail bucket (0 = full .. 3 = buildings only)
 }
 
 export interface TileStats {
@@ -54,6 +55,7 @@ export class TileManager {
   private trunkGeo = new THREE.CylinderGeometry(0.11, 0.16, 2.4, 5);
   private canopyGeo: THREE.BufferGeometry;
   private pendingAdd: BuildResponse[] = [];
+  private prefetched = new Set<string>(); // JSON warmed into the HTTP cache
   private compile: ((g: THREE.Object3D) => Promise<void>) | null;
   loadRadius = 1100;
   unloadRadius = 1400;
@@ -181,7 +183,7 @@ export class TileManager {
         const cx = (tx + 0.5) * TILE_SIZE, cz = (tz + 0.5) * TILE_SIZE;
         const d = Math.hypot(cx - camX, cz - camZ);
         if (d > this.loadRadius) continue;
-        this.records.set(key, { key, tx, tz, state: 'queued', group: null, collision: null, roadPaths: null, signs: null, geometries: [], textures: [] });
+        this.records.set(key, { key, tx, tz, state: 'queued', group: null, collision: null, roadPaths: null, signs: null, geometries: [], textures: [], lod: 0 });
         this.queue.push(key);
       }
     }
@@ -213,6 +215,58 @@ export class TileManager {
       if (Math.hypot(cx - camX, cz - camZ) > this.unloadRadius) {
         this.dispose(rec);
         this.records.delete(key);
+      }
+    }
+
+    // ---- distance LOD: shed far tiles' detail draw calls -------------------
+    // Draw calls dominate the frame with a heli-sized radius (~10 meshes per
+    // tile x ~130 resident tiles, doubled by the shadow pass). Fog washes far
+    // tiles anyway, so beyond scaled thresholds whole tiers stop drawing:
+    // markings/signs/hydrants first, then trees/sidewalks, then ground/roads/
+    // water, leaving only buildings (whose massing IS the mid-distance view,
+    // handing off to the skyline layer past the load radius). Thresholds scale
+    // with loadRadius so walk, heli and mobile all shed proportionally; the
+    // 30m hysteresis band keeps tiles from flickering at a boundary.
+    const t1 = Math.max(420, this.loadRadius * 0.35);
+    const t2 = Math.max(700, this.loadRadius * 0.58);
+    const t3 = Math.max(1000, this.loadRadius * 0.82);
+    const H = 30;
+    for (const rec of this.records.values()) {
+      if (!rec.group) continue;
+      const cx = (rec.tx + 0.5) * TILE_SIZE, cz = (rec.tz + 0.5) * TILE_SIZE;
+      const d = Math.hypot(cx - camX, cz - camZ);
+      const grow = d > t3 + H ? 3 : d > t2 + H ? 2 : d > t1 + H ? 1 : 0; // bucket when moving away
+      const shrink = d < t1 - H ? 0 : d < t2 - H ? 1 : d < t3 - H ? 2 : 3; // bucket when approaching
+      let lod = rec.lod;
+      if (grow > lod) lod = grow;
+      else if (shrink < lod) lod = shrink;
+      if (lod === rec.lod) continue;
+      rec.lod = lod;
+      for (const child of rec.group.children) {
+        const tier = child.userData.lodTier as number | undefined;
+        if (tier) child.visible = tier > lod;
+      }
+    }
+
+    // ---- idle prefetch: warm the next ring of tile JSON --------------------
+    // When nothing is queued or in flight, fetch (and discard) tiles one ring
+    // beyond the load radius so the workers hit the HTTP cache instead of the
+    // network when the player carries the radius forward. Two per frame keeps
+    // it invisible; the Set makes each tile's prefetch a one-time cost.
+    if (this.queue.length === 0 && this.inFlight.size === 0) {
+      const pr = this.loadRadius + 400;
+      const prTiles = Math.ceil(pr / TILE_SIZE);
+      let started = 0;
+      for (let dx = -prTiles; dx <= prTiles && started < 2; dx++) {
+        for (let dz = -prTiles; dz <= prTiles && started < 2; dz++) {
+          const key = tileKey(ctx + dx, ctz + dz);
+          if (!this.known.has(key) || this.records.has(key) || this.prefetched.has(key)) continue;
+          const cx = (ctx + dx + 0.5) * TILE_SIZE, cz = (ctz + dz + 0.5) * TILE_SIZE;
+          if (Math.hypot(cx - camX, cz - camZ) > pr) continue;
+          this.prefetched.add(key);
+          started++;
+          void fetch(dataUrl(`/tiles/${key}.json`)).then((r) => (r.ok ? r.blob() : null)).catch(() => {});
+        }
       }
     }
   }
@@ -247,7 +301,15 @@ export class TileManager {
     if (!rec || rec.state === 'ready') return;
     const group = new THREE.Group();
 
-    const addMesh = (payload: MeshPayload | null, mat: THREE.Material, opts?: { cast?: boolean; receive?: boolean; order?: number }) => {
+    // Distance tiers (userData.lodTier): update() hides a tier once the whole
+    // tile is far enough that its content is fog-washed or sub-pixel. Draw
+    // calls are the dominant frame cost with a heli-sized load radius (~10
+    // meshes x 130 resident tiles, twice with the shadow pass); most of those
+    // tiles are far, so most of their meshes never need to be drawn at all.
+    //   tier 1: lane markings, street signs, hydrants (sub-pixel first)
+    //   tier 2: trees, sidewalks
+    //   tier 3: ground areas, roads, water (leaves buildings = the silhouette)
+    const addMesh = (payload: MeshPayload | null, mat: THREE.Material, opts?: { cast?: boolean; receive?: boolean; order?: number; tier?: number }) => {
       if (!payload) return;
       const geo = new THREE.BufferGeometry();
       geo.setAttribute('position', new THREE.BufferAttribute(payload.position, 3));
@@ -262,28 +324,32 @@ export class TileManager {
       mesh.castShadow = opts?.cast ?? false;
       mesh.receiveShadow = opts?.receive ?? false;
       if (opts?.order !== undefined) mesh.renderOrder = opts.order;
+      if (opts?.tier) mesh.userData.lodTier = opts.tier;
       group.add(mesh);
       rec.geometries.push(geo);
     };
 
     addMesh(res.buildings, this.facadeMat, { cast: true, receive: true });
-    addMesh(res.areas, this.flatMat, { receive: true });
+    addMesh(res.areas, this.flatMat, { receive: true, tier: 3 });
     // Water surface sits ~0.25m above the highest interior terrain (baked), so it draws
     // over the park polygon that covers a reservoir/lake. Shared material, no shadow — mirrors
     // the ocean plane. The BufferGeometry is per-tile and disposed on unload; the material isn't.
-    addMesh(res.water, this.waterKit.mat);
-    addMesh(res.roads, this.roadMat, { receive: true });
-    addMesh(res.walks, this.walkMat, { receive: true });
-    addMesh(res.markings, this.markingsMat, { receive: true, order: 1 });
+    addMesh(res.water, this.waterKit.mat, { tier: 3 });
+    addMesh(res.roads, this.roadMat, { receive: true, tier: 3 });
+    addMesh(res.walks, this.walkMat, { receive: true, tier: 2 });
+    addMesh(res.markings, this.markingsMat, { receive: true, order: 1, tier: 1 });
 
     if (res.signs && res.signs.length) {
       const { mesh, texture } = buildSignsMesh(res.signs);
+      mesh.userData.lodTier = 1;
       group.add(mesh);
       rec.geometries.push(mesh.geometry);
       rec.textures.push(texture);
     }
     if (res.hydrants && res.hydrants.length >= 4) {
-      group.add(buildHydrants(res.hydrants, this.hydrantMat));
+      const hyd = buildHydrants(res.hydrants, this.hydrantMat);
+      hyd.userData.lodTier = 1;
+      group.add(hyd);
     }
 
     if (res.trees && res.trees.length >= 5) {
@@ -306,6 +372,8 @@ export class TileManager {
       if (canopies.instanceColor) canopies.instanceColor.needsUpdate = true;
       canopies.castShadow = true;
       trunks.castShadow = true;
+      trunks.userData.lodTier = 2;
+      canopies.userData.lodTier = 2;
       group.add(trunks, canopies);
     }
 

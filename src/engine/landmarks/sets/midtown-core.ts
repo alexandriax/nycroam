@@ -22,7 +22,11 @@ const RADIO_RED = new THREE.MeshStandardMaterial({ color: '#7d1620', roughness: 
 // lightened warm terracotta brick for Carnegie Hall
 const TERRACOTTA = new THREE.MeshLambertMaterial({ color: '#b06a4f' });
 // ice-white rink surface (Rockefeller Plaza)
-const ICE_WHITE = new THREE.MeshLambertMaterial({ color: '#e8edf2' });
+const ICE_WHITE = new THREE.MeshLambertMaterial({ color: '#dfe9f2' });
+// unlit warm gold: Prometheus' fire reads as flame, not just polished bronze
+const FIRE_GOLD = new THREE.MeshBasicMaterial({ color: '#ffd97a' });
+// planting green (GREEN_PATINA is verdigris — it reads as teal plastic on a hedge)
+const FOLIAGE = new THREE.MeshLambertMaterial({ color: '#2f5c2b' });
 
 /** Thin two-sided solid-colour flag jutting +x from a vertical pole. */
 function flagpole(h: number, flagMat: THREE.Material): THREE.Group {
@@ -94,101 +98,252 @@ function neonTexture(): THREE.CanvasTexture {
   }, 96, 256);
 }
 
+/**
+ * Abstract gilded Art Deco relief for 30 Rock's entrance panel: a low sunburst
+ * with stacked chevrons and a seated silhouette. Deliberately non-literal (no
+ * text, no emblems) — it reads as Lawrie's limestone-and-gold screen at a
+ * glance without reproducing the carving.
+ */
+function decoReliefTexture(): THREE.CanvasTexture {
+  return canvasTexture((c, w, h) => {
+    c.fillStyle = '#b09758';
+    c.fillRect(0, 0, w, h);
+    const cx = w / 2, cy = h * 0.88;
+    for (let i = 0; i <= 14; i++) { // rays fanning from a low centre
+      const a = -Math.PI + (i / 14) * Math.PI;
+      c.strokeStyle = i % 2 ? '#8a7132' : '#d8c184';
+      c.lineWidth = w * 0.02;
+      c.beginPath();
+      c.moveTo(cx, cy);
+      c.lineTo(cx + Math.cos(a) * w, cy + Math.sin(a) * h * 1.3);
+      c.stroke();
+    }
+    c.strokeStyle = '#6d5824';
+    c.lineWidth = w * 0.028;
+    for (let k = 0; k < 4; k++) { // stacked chevrons
+      const y = h * (0.24 + k * 0.11);
+      c.beginPath();
+      c.moveTo(w * 0.1, y);
+      c.lineTo(cx, y - h * 0.08);
+      c.lineTo(w * 0.9, y);
+      c.stroke();
+    }
+    c.fillStyle = '#e6d49d'; // shoulders + head of the seated figure
+    c.beginPath();
+    c.arc(cx, cy, w * 0.19, Math.PI, 0);
+    c.fill();
+    c.beginPath();
+    c.arc(cx, cy - h * 0.19, w * 0.07, 0, Math.PI * 2);
+    c.fill();
+  }, 256, 144);
+}
+
+/** Gilded entrance cartouche for the Channel Gardens blocks: deco frame + sunburst. */
+function cartoucheTexture(): THREE.CanvasTexture {
+  return canvasTexture((c, w, h) => {
+    c.fillStyle = '#9c8446';
+    c.fillRect(0, 0, w, h);
+    c.fillStyle = '#c9ae66';
+    c.fillRect(w * 0.06, h * 0.08, w * 0.88, h * 0.84);
+    c.fillStyle = '#7d6829';
+    c.fillRect(w * 0.11, h * 0.15, w * 0.78, h * 0.7);
+    const cx = w / 2, cy = h * 0.55;
+    for (let i = 0; i < 18; i++) { // sunburst
+      const a = (i / 18) * Math.PI * 2;
+      c.strokeStyle = i % 2 ? '#e3cb8c' : '#b39a55';
+      c.lineWidth = w * 0.016;
+      c.beginPath();
+      c.moveTo(cx, cy);
+      c.lineTo(cx + Math.cos(a) * w * 0.34, cy + Math.sin(a) * h * 0.38);
+      c.stroke();
+    }
+    c.fillStyle = '#f0dda8';
+    c.beginPath();
+    c.arc(cx, cy, w * 0.1, 0, Math.PI * 2);
+    c.fill();
+  }, 192, 128);
+}
+
 export const builders: Record<string, (ctx: LandmarkCtx) => THREE.Group> = {
-  // Sunken rink court (ice floor), gilt Prometheus against the west wall, Channel Gardens running to 5th Ave (+x)
+  // Rockefeller Center's Lower Plaza: the sunken ice rink under 30 Rock's
+  // limestone cliff, gilded Prometheus over his fountain on the west wall, the
+  // flag ring, and the Channel Gardens climbing east to Fifth Avenue between
+  // the British Empire Building (-z) and La Maison Francaise (+z).
+  //
+  // The facades are registered to the MEASURED faces of the OSM blocks they
+  // dress (30 Rock's east face at local x=-13, the two Channel Gardens blocks
+  // at local z=+-11.5, all read out of the tile data), so this build is purely
+  // ADDITIVE: it needs no LANDMARK_CLEAR and cannot leave a hole in the block
+  // if the OSM extract shifts under it. Local +x runs to Fifth Ave; the whole
+  // complex is symmetric about z=0 (the anchor sits on 30 Rock's centreline).
   'rockefeller-plaza': () => {
     const g = new THREE.Group();
-    // 1. sunken rink court (26 x 18, floor 3.5m below grade) — granite retaining walls, ice-white floor
-    g.add(box(26, 0.3, 18, ICE_WHITE, 0, -3.65, 0));
-    g.add(box(0.6, 3.5, 18, GRANITE, -13, -1.75, 0)); // west wall (Prometheus side)
-    g.add(box(0.6, 3.5, 18, GRANITE, 13, -1.75, 0)); // east wall
-    g.add(box(26, 3.5, 0.6, GRANITE, 0, -1.75, 9)); // south wall (toward W 49th St)
-    g.add(box(26, 3.5, 0.6, GRANITE, 0, -1.75, -9)); // north wall (toward W 50th St)
-    // thin gold rim rail ringing the rink edge at grade
-    g.add(box(26.3, 0.15, 0.15, GOLD, 0, 0.08, 9));
-    g.add(box(26.3, 0.15, 0.15, GOLD, 0, 0.08, -9));
-    g.add(box(0.15, 0.15, 18.3, GOLD, 13, 0.08, 0));
-    g.add(box(0.15, 0.15, 18.3, GOLD, -13, 0.08, 0));
+    // WHY the rink sits AT grade rather than in a dug-out court: the tile ground
+    // is a solid plane at y=0 that a landmark cannot punch a hole through, so a
+    // sunken floor is simply buried and the ice never shows. The Lower Plaza's
+    // "well" is modelled the other way round instead — the ice stays at grade
+    // and the surrounding promenade is a raised granite terrace, which reads the
+    // same from every angle a player can reach.
+    const IX0 = -6, IX1 = 30;        // ice extent along the axis
+    const IZ = 9;                    // half-width of the ice
+    const TW = 8;                    // promenade terrace width
+    const TH = 1.35;                 // terrace height above the ice
 
-    // 2. gilt Prometheus reclining against the west (-x) waterfall wall, facing +x toward 5th Ave
-    g.add(box(0.1, 3.2, 16, WATER_LM, -12.6, -1.9, 0)); // waterfall sheet down the west retaining wall
-    g.add(box(5, 0.2, 16, WATER_LM, -10.5, -3.4, 0)); // small pool at his base, on the court floor
-    const zodiac = new THREE.Mesh(new THREE.TorusGeometry(3.4, 0.13, 6, 22), GOLD);
-    zodiac.rotation.y = Math.PI / 2; // hoop faces +x, behind the figure
-    zodiac.position.set(-11.7, -1.2, 0);
-    g.add(zodiac);
-    g.add(box(5.6, 0.3, 3, DARKSTONE, -9.8, -1.4, 0)); // dark plinth
-    const prom = figure(3.4, GOLD);
-    prom.rotation.z = -Math.PI / 2; // lay flat, head-to-foot along +x (facing 5th Ave)
-    prom.rotation.y = 0.12; // slight reclining twist
-    prom.position.set(-9.6, -1.2, 0);
-    g.add(prom);
+    // ---- Lower Plaza: ice sheet ringed by the raised granite promenade ----
+    g.add(box(IX1 - IX0, 0.12, IZ * 2, ICE_WHITE, (IX0 + IX1) / 2, 0.06, 0));
+    for (const sz of [-1, 1]) {      // north + south terraces
+      g.add(box(IX1 - IX0 + TW * 2, TH, TW, GRANITE, (IX0 + IX1) / 2, TH / 2, sz * (IZ + TW / 2)));
+      g.add(box(IX1 - IX0 + TW * 2, 0.35, 0.5, MARBLE, (IX0 + IX1) / 2, TH + 0.17, sz * (IZ + 0.25))); // kerb
+      g.add(box(IX1 - IX0 + TW * 2, 0.14, 0.14, GOLD, (IX0 + IX1) / 2, TH + 0.42, sz * (IZ + 0.25)));  // gold rail
+    }
+    g.add(box(TW, TH, IZ * 2, GRANITE, IX1 + TW / 2, TH / 2, 0));    // east terrace
+    g.add(box(0.5, 0.35, IZ * 2, MARBLE, IX1 + 0.25, TH + 0.17, 0));
+    g.add(box(0.14, 0.14, IZ * 2, GOLD, IX1 + 0.25, TH + 0.42, 0));
+    // twin stair flights down off the east terrace onto the ice
+    for (const sz of [-1, 1]) for (let i = 0; i < 4; i++) {
+      g.add(box(1.1, 0.34, 5.0, GRANITE, IX1 + 0.55 + i * 1.1, TH - 0.17 - i * 0.34, sz * 5.0));
+    }
 
-    // 4. flag ring around the rink rim — 16 poles, varied solid-colour flags
+    // ---- Prometheus: gilded bronze over the west fountain wall ----
+    const PZ = IZ;
+    g.add(box(1.6, 9.5, PZ * 2 + TW * 2, GRANITE, IX0 - 0.8, 4.75, 0));   // granite backdrop cliff
+    for (let i = 0; i <= 12; i++)                                          // shallow pilaster fluting
+      g.add(box(0.5, 9.5, 0.7, MARBLE, IX0 + 0.05, 4.75, -PZ - TW + (i / 12) * (PZ + TW) * 2));
+    g.add(box(2.0, 0.6, PZ * 2 + TW * 2, MARBLE, IX0 - 0.8, 9.8, 0));      // capping band
+    g.add(box(0.2, 4.6, 15, WATER_LM, IX0 + 0.35, 2.3, 0));                // waterfall sheet
+    g.add(box(5.5, 0.3, 15, WATER_LM, IX0 + 3.0, 0.15, 0));                // pool at his base
+    g.add(box(6.0, 0.5, 15.6, GRANITE, IX0 + 3.0, 0.25, 0).translateY(-0.2)); // pool kerb
+    const RC = new THREE.Vector3(IX0 + 3.4, 4.2, 0);
+    const zod = new THREE.Mesh(new THREE.TorusGeometry(4.3, 0.24, 8, 28), GOLD);
+    zod.rotation.y = Math.PI / 2; zod.position.copy(RC); g.add(zod);  // zodiac hoop behind him
+    const zod2 = new THREE.Mesh(new THREE.TorusGeometry(3.9, 0.1, 6, 24), BRONZE);
+    zod2.rotation.y = Math.PI / 2; zod2.position.copy(RC); g.add(zod2);
+    const P = new THREE.Group();     // built head-toward +x, then slanted
+    const ptorso = cyl(0.5, 0.62, 2.5, GOLD, 0, 0, 0, 10); ptorso.rotation.z = Math.PI / 2; P.add(ptorso);
+    const phead = new THREE.Mesh(new THREE.SphereGeometry(0.42, 10, 8), GOLD);
+    phead.position.set(1.6, 0.18, 0); P.add(phead);
+    P.add(strut(new THREE.Vector3(-1.2, -0.1, 0.35), new THREE.Vector3(-2.9, -0.55, 0.8), 0.32, GOLD, 8));  // trailing legs
+    P.add(strut(new THREE.Vector3(-1.2, -0.1, -0.35), new THREE.Vector3(-3.1, 0.2, -0.65), 0.32, GOLD, 8));
+    P.add(strut(new THREE.Vector3(0.9, 0.25, 0.5), new THREE.Vector3(-0.5, 0.55, 1.6), 0.22, GOLD, 8));     // trailing arm
+    P.add(strut(new THREE.Vector3(1.0, 0.3, -0.3), new THREE.Vector3(2.6, 1.5, -0.2), 0.22, GOLD, 8));      // arm bearing fire
+    P.add(cyl(0, 0.42, 1.4, FIRE_GOLD, 2.8, 2.4, -0.2, 8));
+    const drape = box(2.3, 0.14, 1.5, GOLD, -0.6, -0.4, 0); drape.rotation.z = 0.2; P.add(drape);
+    P.rotation.z = 0.28; P.position.copy(RC); g.add(P);
+
+    // ---- flag ring standing on the terrace, ringing the ice ----
     let fi = 0;
-    for (const x of [-12, -6, 0, 6, 12]) { const p = flagpole(7.5, FLAG_COLORS[fi++ % FLAG_COLORS.length]); p.position.set(x, 0, 10.5); g.add(p); }
-    for (const x of [-12, -6, 0, 6, 12]) { const p = flagpole(7.5, FLAG_COLORS[fi++ % FLAG_COLORS.length]); p.position.set(x, 0, -10.5); g.add(p); }
-    for (const z of [-6, 0, 6]) { const p = flagpole(7.5, FLAG_COLORS[fi++ % FLAG_COLORS.length]); p.position.set(14.5, 0, z); g.add(p); }
-    for (const z of [-6, 0, 6]) { const p = flagpole(7.5, FLAG_COLORS[fi++ % FLAG_COLORS.length]); p.position.set(-14.5, 0, z); g.add(p); }
-
-    // 5. upper-plaza paving frame around the rim + a wide apron connecting the rink to the gardens
-    g.add(box(29, 0.1, 3, GRANITE, 0, 0.02, 10.5));
-    g.add(box(29, 0.1, 3, GRANITE, 0, 0.02, -10.5));
-    g.add(box(2.8, 0.1, 21, GRANITE, -14.4, 0.02, 0));
-    g.add(box(2, 0.1, 21, GRANITE, 14, 0.02, 0)); // apron, rink rim (x=13) to the gardens (x=15)
-
-    // 3. Channel Gardens toward +x (5th Ave): six fountain basins between two continuous planters
-    g.add(box(37, 0.08, 14, GRANITE, 33.5, 0.04, 0)); // paved band under the whole strip
-    for (const pz of [-6, 6]) {
-      g.add(box(37, 0.5, 1.7, GRANITE, 33.5, 0.25, pz)); // planter curb
-      g.add(box(36.6, 0.22, 1.4, GREEN_PATINA, 33.5, 0.61, pz)); // planting
+    for (const sz of [-1, 1]) for (let i = 0; i < 8; i++) {
+      const p = flagpole(8, FLAG_COLORS[fi++ % FLAG_COLORS.length]);
+      p.position.set(IX0 + 2 + i * 4.4, TH, sz * (IZ + 1.6)); g.add(p);
     }
-    for (let i = 0; i < 6; i++) {
-      const bx = 18 + i * 6.2;
-      g.add(box(3.5, 0.35, 2.4, GRANITE, bx, 0.175, 0)); // fountain basin
-      g.add(box(3.2, 0.06, 2.1, WATER_LM, bx, 0.36, 0)); // water top
+    for (const pz of [-5, 0, 5]) { const p = flagpole(8, FLAG_COLORS[fi++ % FLAG_COLORS.length]); p.position.set(IX1 + 2.0, TH, pz); g.add(p); }
+
+    // ---- 30 Rock's plaza front, on the measured OSM face (x = -13) ----
+    const RX = -12.9, RH = 30, RZ = 15.5;
+    g.add(box(1.0, RH, RZ * 2, LIMESTONE, RX - 0.5, RH / 2, 0));       // backing slab
+    for (let i = 0; i <= 10; i++) {                                     // vertical limestone piers
+      g.add(box(1.6, RH, 1.5, LIMESTONE, RX + 0.4, RH / 2, -RZ + (i / 10) * RZ * 2));
     }
-    // 6. small bronze fountainhead tridents at the garden's 5th Ave end
-    for (const tz of [-2.2, 2.2]) {
-      g.add(cyl(0.05, 0.06, 1.0, BRONZE, 51, 0.5, tz, 6));
-      g.add(strut(new THREE.Vector3(51 - 0.35, 1.0, tz), new THREE.Vector3(51 + 0.35, 1.0, tz), 0.04, BRONZE));
+    for (let i = 0; i < 10; i++) {                                      // recessed glazing between piers
+      g.add(box(0.6, RH - 11, 1.55, DARKSTONE, RX + 0.5, (RH - 11) / 2 + 10, -RZ + ((i + 0.5) / 10) * RZ * 2));
+    }
+    g.add(box(1.8, 1.1, RZ * 2 + 1, MARBLE, RX + 0.5, RH + 0.55, 0));   // crowning band
+    g.add(box(1.2, 9, 13, LIMESTONE, RX + 0.6, 4.5, 0));                // entrance surround
+    for (const dz of [-4.2, 0, 4.2]) g.add(box(0.5, 5, 3.0, DARKSTONE, RX + 1.25, 2.5, dz)); // door bank
+    const wisdom = new THREE.Mesh(new THREE.PlaneGeometry(9.5, 5.2), new THREE.MeshLambertMaterial({ map: decoReliefTexture() }));
+    wisdom.rotation.y = Math.PI / 2; wisdom.position.set(RX + 1.28, 11.2, 0); g.add(wisdom);
+    g.add(box(0.6, 7, 10.5, GLASS_LM, RX + 1.0, 18, 0));                // glass screen over the panel
+
+    // ---- Channel Gardens climbing to Fifth Avenue ----
+    const GX0 = 42, GX1 = 96;
+    g.add(box(GX1 - GX0, 0.1, 22, GRANITE, (GX0 + GX1) / 2, 0.05, 0));
+    for (const pz of [-7, 7]) {
+      g.add(box(GX1 - GX0, 0.55, 2.2, GRANITE, (GX0 + GX1) / 2, 0.275, pz));      // planter curb
+      g.add(box(GX1 - GX0 - 0.8, 0.5, 1.9, FOLIAGE, (GX0 + GX1) / 2, 0.8, pz)); // clipped planting
+    }
+    for (let i = 0; i < 6; i++) {   // six basins, each with a bronze fountain figure
+      const bx = GX0 + 4 + i * 9.6;
+      g.add(box(4.2, 0.45, 3.4, GRANITE, bx, 0.225, 0));
+      g.add(box(3.8, 0.1, 3.0, WATER_LM, bx, 0.5, 0));
+      g.add(cyl(0.18, 0.26, 1.2, BRONZE, bx, 1.05, 0, 8));
+      const tri = figure(1.5, BRONZE); tri.position.set(bx, 1.6, 0); tri.rotation.y = i * 1.1; g.add(tri);
+    }
+
+    // ---- the two Channel Gardens blocks, dressed on their measured inner faces ----
+    for (const sz of [-1, 1]) {
+      const fz = sz * 11.4;
+      for (const [x0, x1, h] of [[44, 72, 29], [72, 103, 24]] as const) {
+        g.add(box(x1 - x0, h, 0.6, LIMESTONE, (x0 + x1) / 2, h / 2, fz));
+        const n = Math.round((x1 - x0) / 4);
+        for (let i = 0; i <= n; i++) {  // limestone piers standing proud of the face
+          g.add(box(1.3, h, 1.2, LIMESTONE, x0 + (i / n) * (x1 - x0), h / 2, fz - sz * 0.55));
+        }
+        for (let i = 0; i < n; i++) {   // recessed spandrel glazing between them
+          g.add(box(2.2, h - 7.5, 0.6, DARKSTONE, x0 + ((i + 0.5) / n) * (x1 - x0), (h - 7.5) / 2 + 5, fz - sz * 0.5));
+        }
+        g.add(box(x1 - x0 + 1, 1.2, 1.9, MARBLE, (x0 + x1) / 2, h + 0.6, fz - sz * 0.45));        // cornice
+        g.add(box(x1 - x0 - 2, 0.35, 1.5, FOLIAGE, (x0 + x1) / 2, h + 1.4, fz - sz * 0.45)); // roof garden
+      }
+      // gilded cartouche over the block's Channel Gardens entrance
+      const cart = new THREE.Mesh(new THREE.PlaneGeometry(6.4, 4.2), new THREE.MeshLambertMaterial({ map: cartoucheTexture() }));
+      cart.rotation.y = sz > 0 ? Math.PI : 0;
+      cart.position.set(58, 8.6, fz - sz * 0.62);
+      g.add(cart);
+      g.add(box(4.0, 5.0, 0.6, DARKSTONE, 58, 2.5, fz - sz * 0.55)); // entrance doors
     }
     return g;
   },
 
-  // Bronze Atlas kneeling, hoisting an open armillary sphere on a granite plinth
+  // Atlas at 630 Fifth: a muscular bronze kneeling under an open armillary
+  // sphere with a broad tilted zodiac belt, facing Fifth Ave (+x) and St
+  // Patrick's across the street. ~14m to the top of the sphere, like the real
+  // 45ft group, on Lawrie's stepped granite pedestal in the forecourt.
   atlas: () => {
     const g = new THREE.Group();
-    // stepped granite plinth (~3m)
-    g.add(box(6.5, 0.8, 6.5, GRANITE, 0, 0.4, 0));
-    g.add(box(4.4, 3.0, 4.4, GRANITE, 0, 2.3, 0));
-    const y0 = 3.8; // plinth top
-    // muscular bronze figure in a kneeling stance
-    g.add(box(1.1, 0.6, 0.8, BRONZE, 0, y0 + 0.9, 0)); // pelvis
-    const torso = box(1.1, 1.9, 0.7, BRONZE, 0, y0 + 2.0, -0.15);
-    torso.rotation.x = 0.2;
-    g.add(torso);
-    const head = new THREE.Mesh(new THREE.SphereGeometry(0.34, 8, 7), BRONZE);
-    head.position.set(0, y0 + 3.2, -0.25);
-    g.add(head);
-    // legs: one braced forward, one kneeling back
-    g.add(strut(new THREE.Vector3(-0.45, y0 + 0.7, 0.1), new THREE.Vector3(-0.65, y0 + 0.15, 0.9), 0.27, BRONZE));
-    g.add(strut(new THREE.Vector3(-0.65, y0 + 0.15, 0.9), new THREE.Vector3(-0.65, y0 + 0.05, 1.5), 0.24, BRONZE));
-    g.add(strut(new THREE.Vector3(0.45, y0 + 0.7, 0.1), new THREE.Vector3(0.65, y0 + 0.2, -0.5), 0.27, BRONZE));
-    g.add(strut(new THREE.Vector3(0.65, y0 + 0.2, -0.5), new THREE.Vector3(0.65, y0 + 0.05, -1.2), 0.24, BRONZE));
-    // arms raised to the sphere's underside
-    g.add(strut(new THREE.Vector3(-0.5, y0 + 2.7, -0.1), new THREE.Vector3(-1.0, y0 + 4.4, 0.3), 0.22, BRONZE));
-    g.add(strut(new THREE.Vector3(0.5, y0 + 2.7, -0.1), new THREE.Vector3(1.0, y0 + 4.4, 0.3), 0.22, BRONZE));
-    // open armillary sphere: three crossing bronze rings (r=3.5) on a tilted axis
-    const C = new THREE.Vector3(0, y0 + 7.9, 0.2);
-    const eq = new THREE.Mesh(new THREE.TorusGeometry(3.5, 0.1, 6, 18), BRONZE);
-    eq.rotation.x = Math.PI / 2; eq.position.copy(C); g.add(eq);
-    const m1 = new THREE.Mesh(new THREE.TorusGeometry(3.5, 0.1, 6, 18), BRONZE);
-    m1.position.copy(C); g.add(m1);
-    const m2 = new THREE.Mesh(new THREE.TorusGeometry(3.5, 0.1, 6, 18), BRONZE);
-    m2.rotation.y = Math.PI / 2; m2.position.copy(C); g.add(m2);
-    const axis = cyl(0.08, 0.08, 8, BRONZE, C.x, C.y, C.z, 6);
-    axis.rotation.x = 0.4; g.add(axis);
+    // stepped granite pedestal
+    g.add(box(9, 0.5, 9, GRANITE, 0, 0.25, 0));
+    g.add(box(7.4, 0.5, 7.4, GRANITE, 0, 0.75, 0));
+    g.add(box(5.6, 2.0, 5.6, GRANITE, 0, 2.0, 0));
+    g.add(box(6.2, 0.4, 6.2, DARKSTONE, 0, 3.2, 0));
+    const y0 = 3.4;
+
+    // figure + sphere built facing +z, then swung to face Fifth Ave (+x)
+    const A = new THREE.Group();
+    A.add(box(1.35, 0.75, 1.0, BRONZE, 0, y0 + 1.05, 0));                    // pelvis
+    const torso = cyl(0.92, 0.76, 2.1, BRONZE, 0, y0 + 2.35, 0.18, 10);
+    torso.rotation.x = -0.22; A.add(torso);
+    A.add(box(1.95, 0.55, 0.85, BRONZE, 0, y0 + 3.3, 0.3));                  // shoulders
+    const head = new THREE.Mesh(new THREE.SphereGeometry(0.4, 10, 8), BRONZE);
+    head.position.set(0, y0 + 3.85, 0.42); A.add(head);
+    // braced forward leg + kneeling back leg
+    A.add(strut(new THREE.Vector3(-0.55, y0 + 0.85, 0.15), new THREE.Vector3(-0.85, y0 + 0.1, 1.3), 0.33, BRONZE, 8));
+    A.add(strut(new THREE.Vector3(-0.85, y0 + 0.1, 1.3), new THREE.Vector3(-0.85, y0 - 0.05, 2.35), 0.28, BRONZE, 8));
+    A.add(box(0.75, 0.24, 1.1, BRONZE, -0.85, y0 - 0.03, 2.7));              // forward foot
+    A.add(strut(new THREE.Vector3(0.55, y0 + 0.85, 0.0), new THREE.Vector3(0.85, y0 + 0.05, -1.0), 0.33, BRONZE, 8));
+    A.add(strut(new THREE.Vector3(0.85, y0 + 0.05, -1.0), new THREE.Vector3(0.85, y0, -2.2), 0.28, BRONZE, 8));
+    // both arms thrust up and out to the sphere's underside
+    for (const sx of [-1, 1]) {
+      A.add(strut(new THREE.Vector3(sx * 0.88, y0 + 3.25, 0.25), new THREE.Vector3(sx * 1.8, y0 + 4.3, -0.1), 0.26, BRONZE, 8));
+      A.add(strut(new THREE.Vector3(sx * 1.8, y0 + 4.3, -0.1), new THREE.Vector3(sx * 1.5, y0 + 5.5, -0.35), 0.22, BRONZE, 8));
+    }
+    // open armillary sphere on a polar axis, with a broad gilded zodiac belt
+    const C = new THREE.Vector3(0, y0 + 8.0, -0.25), R = 3.2;
+    const eq = new THREE.Mesh(new THREE.TorusGeometry(R, 0.13, 8, 28), BRONZE);
+    eq.rotation.x = Math.PI / 2; eq.position.copy(C); A.add(eq);
+    for (let i = 0; i < 3; i++) { // meridians
+      const m = new THREE.Mesh(new THREE.TorusGeometry(R, 0.1, 6, 24), BRONZE);
+      m.rotation.y = (i / 3) * Math.PI; m.position.copy(C); A.add(m);
+    }
+    const belt = new THREE.Mesh(new THREE.TorusGeometry(R + 0.06, 0.45, 4, 30), GOLD);
+    belt.rotation.x = Math.PI / 2 - 0.41; belt.rotation.z = 0.22; belt.position.copy(C); A.add(belt);
+    const axis = cyl(0.11, 0.11, R * 2 + 2.6, BRONZE, C.x, C.y, C.z, 8);
+    axis.rotation.x = 0.72; A.add(axis);
+    A.rotation.y = Math.PI / 2;
+    g.add(A);
+
+    // forecourt: low granite steps and flanking kerbs out toward Fifth Ave
+    for (let i = 0; i < 3; i++) g.add(box(1.0, 0.18, 13 - i * 1.6, GRANITE, 5.2 + i, 0.09 + i * 0.0, 0));
+    for (const sz of [-1, 1]) g.add(box(11, 0.5, 1.0, GRANITE, 1.5, 0.25, sz * 6.4));
     return g;
   },
 
@@ -221,46 +376,115 @@ export const builders: Record<string, (ctx: LandmarkCtx) => THREE.Group> = {
     return g;
   },
 
-  // St. Patrick's: twin marble spires to 100m, rose window in a pointed arch, triple portals
+  // St. Patrick's at full block scale. The old build was a 20x50 box whose
+  // front sat at local z=+9 — but the cleared block runs from the 5th Ave
+  // frontage at z~+70 back to z~-55 by Madison (the OSM spire parts stood at
+  // z=63, r=16 clear), so the replica floated 60m back on an empty apron and
+  // read toy-sized from the street. Rebuilt to the measured envelope: 124m
+  // front-to-apse, 53m across the transepts, centred on the block (x=+7),
+  // with the west front ON the avenue building line. Real proportions: nave
+  // ridge ~34m, twin spires 100.5m.
   'st-patricks': () => {
     const g = new THREE.Group();
-    // nave body behind the west front
-    g.add(box(20, 26, 50, MARBLE, 0, 13, -18));
-    g.add(box(20, 3, 50, MARBLE, 0, 27.5, -18)); // roof band
-    // twin square towers rising to octagonal openwork spires (~100m)
-    for (const sx of [-12, 12]) {
-      g.add(box(9, 52, 9, MARBLE, sx, 26, 7));
-      g.add(cyl(0.4, 4.4, 46, MARBLE, sx, 75, 7, 8)); // spire
-      for (const [px, pz] of [[-3.4, -3.4], [3.4, -3.4], [-3.4, 3.4], [3.4, 3.4]] as const)
-        g.add(cyl(0.05, 0.55, 4, MARBLE, sx + px, 54, 7 + pz, 4)); // base pinnacles
+    const CX = 7;        // block centreline (measured from the clears)
+    const FZ = 68;       // west-front plane, on the 5th Ave building line
+    const NW = 33;       // nave-with-aisles width
+    // gabled roof as a true triangular prism (the stretched-pyramid trick used
+    // on small hipped roofs splays into a flat sheet at nave length: scale is
+    // applied before rotation, so the stretch lands on a diagonal)
+    const ridge = (w: number, len: number, h: number, x: number, y: number, z: number, alongX = false): void => {
+      const shp = new THREE.Shape();
+      shp.moveTo(-w / 2, 0);
+      shp.lineTo(w / 2, 0);
+      shp.lineTo(0, h);
+      shp.closePath();
+      const geo = new THREE.ExtrudeGeometry(shp, { depth: len, bevelEnabled: false });
+      geo.translate(0, 0, -len / 2);
+      const m = new THREE.Mesh(geo, DARKSTONE);
+      if (alongX) m.rotation.y = Math.PI / 2;
+      m.position.set(x, y, z);
+      g.add(m);
+    };
+
+    // ---- nave: aisles + clerestory running the full block ----
+    const NZ0 = -34, NZ1 = FZ - 2;               // nave extent, front to crossing-past-choir
+    const NLEN = NZ1 - NZ0, NMID = (NZ0 + NZ1) / 2;
+    g.add(box(NW, 15, NLEN, MARBLE, CX, 7.5, NMID));          // aisle band
+    g.add(box(NW - 12, 25, NLEN, MARBLE, CX, 12.5, NMID));    // clerestory
+    ridge(NW - 12, NLEN, 9, CX, 25, NMID);                    // steep nave roof to ~34m
+    for (const sx of [-1, 1]) {                               // aisle roofs (sloped slabs)
+      const ar = box(7.2, 0.7, NLEN, DARKSTONE, CX + sx * (NW / 2 - 3.4), 16.4, NMID);
+      ar.rotation.z = sx * 0.32;
+      g.add(ar);
     }
-    // west facade backing wall between the towers
-    g.add(box(16, 30, 1.2, MARBLE, 0, 15, 8.0));
-    // rose window (stained glass) set into a pointed-arch surround
-    const roseArch = archWall(15, 17, 0.6, 9, 13.5, MARBLE);
-    roseArch.position.set(0, 12, 8.9);
-    g.add(roseArch);
-    const rose = new THREE.Mesh(new THREE.CircleGeometry(4.2, 24), new THREE.MeshBasicMaterial({ map: roseTexture() }));
-    rose.position.set(0, 21, 9.05);
+    // buttress piers + pinnacles marching down both aisles
+    for (let z = NZ1 - 8; z > NZ0 + 2; z -= 8.5) for (const sx of [-1, 1]) {
+      const bx = CX + sx * (NW / 2 + 0.4);
+      g.add(box(1.6, 15, 2.2, MARBLE, bx, 7.5, z));
+      g.add(cyl(0.05, 0.7, 4.2, MARBLE, bx, 17.1, z, 4));
+      g.add(strut(new THREE.Vector3(bx, 14.5, z), new THREE.Vector3(CX + sx * (NW / 2 - 6.2), 24, z), 0.35, MARBLE, 6)); // flyer
+    }
+    // clerestory + aisle windows: dark pointed lancets
+    for (let z = NZ1 - 10; z > NZ0 + 4; z -= 8.5) for (const sx of [-1, 1]) {
+      g.add(box(0.3, 7, 2.4, DARKSTONE, CX + sx * (NW / 2 - 5.9), 20, z - 4.2));
+      g.add(box(0.3, 8, 3.2, DARKSTONE, CX + sx * (NW / 2 + 0.05), 8, z - 4.2));
+    }
+
+    // ---- transepts: the 53m cross-arms ----
+    const TZ = 6, TW = 53;                        // transept centreline + full width
+    g.add(box(TW, 15, 18, MARBLE, CX, 7.5, TZ));
+    g.add(box(TW, 25, 12, MARBLE, CX, 12.5, TZ));
+    ridge(12, TW, 8, CX, 25, TZ, true);
+    for (const sx of [-1, 1]) {                   // transept gable fronts: rose + portal
+      const tx = CX + sx * (TW / 2 - 0.6);
+      const trose = new THREE.Mesh(new THREE.CircleGeometry(3.4, 20), new THREE.MeshBasicMaterial({ map: roseTexture() }));
+      trose.position.set(tx + sx * 0.45, 20, TZ);
+      trose.rotation.y = sx * Math.PI / 2;
+      g.add(trose);
+      g.add(box(0.4, 8, 5, DARKSTONE, tx + sx * 0.15, 4, TZ));
+      for (const dz of [-5, 5]) g.add(cyl(0.05, 0.8, 5, MARBLE, tx, 27.5, TZ + dz, 4)); // gable pinnacles
+    }
+
+    // ---- choir + Lady Chapel apse toward Madison ----
+    g.add(box(NW - 6, 13, 14, MARBLE, CX, 6.5, NZ0 - 7));     // choir
+    g.add(box(NW - 18, 21, 14, MARBLE, CX, 10.5, NZ0 - 7));
+    ridge(NW - 18, 14, 7, CX, 21, NZ0 - 7);
+    g.add(box(14, 16, 12, MARBLE, CX, 8, NZ0 - 19));          // Lady Chapel
+    const apse = cyl(7, 7, 16, MARBLE, CX, 8, NZ0 - 25, 10);  // rounded apse end
+    g.add(apse);
+    g.add(cyl(0.2, 7.6, 5, DARKSTONE, CX, 18.5, NZ0 - 25, 10)); // apse cone roof
+
+    // ---- west front on the avenue: twin towers, spires to 100.5m ----
+    for (const sx of [-1, 1]) {
+      const tx = CX + sx * 13.5;
+      g.add(box(10, 55, 10, MARBLE, tx, 27.5, FZ - 5));       // square tower
+      g.add(box(11, 1.2, 11, MARBLE, tx, 55.6, FZ - 5));      // cornice
+      g.add(cyl(0.4, 4.6, 44, MARBLE, tx, 78.5, FZ - 5, 8));  // octagonal spire (tip 100.5)
+      for (const [px, pz] of [[-4, -4], [4, -4], [-4, 4], [4, 4]] as const)
+        g.add(cyl(0.05, 0.7, 6, MARBLE, tx + px, 59, FZ - 5 + pz, 4)); // corner pinnacles
+      for (const wy of [12, 26, 40]) g.add(box(3.4, 6.5, 0.4, DARKSTONE, tx, wy, FZ - 0.15)); // tower lancets
+    }
+    g.add(box(19, 34, 3, MARBLE, CX, 17, FZ - 1.5));          // gabled centre bay
+    const rose = new THREE.Mesh(new THREE.CircleGeometry(4.6, 24), new THREE.MeshBasicMaterial({ map: roseTexture() }));
+    rose.position.set(CX, 22.5, FZ + 0.06);
     g.add(rose);
-    // triple pointed-arch portals with dark recesses
-    for (const px of [-5, 0, 5]) {
-      const p = archWall(4.6, 9, 0.7, 2.6, 7, MARBLE);
-      p.position.set(px, 0, 9.1);
-      g.add(p);
-      g.add(box(2.4, 6.8, 0.3, DARKSTONE, px, 3.6, 8.7));
-    }
-    // pointed gable peak above the rose
-    for (const s of [-1, 1]) {
-      const gb = box(0.9, 12, 1.0, MARBLE, s * 4.2, 33, 8.2);
-      gb.rotation.z = s * 0.6;
+    const roseArch = archWall(13, 15, 0.7, 10.2, 14, MARBLE); // pointed surround over the rose
+    roseArch.position.set(CX, 14, FZ + 0.2);
+    g.add(roseArch);
+    for (const s of [-1, 1]) {                                // centre gable peak
+      const gb = box(1.0, 13, 1.1, MARBLE, CX + s * 4.6, 37.5, FZ - 1.2);
+      gb.rotation.z = s * 0.62;
       g.add(gb);
     }
-    // pinnacles marching along the nave sides
-    for (let z = 4; z >= -40; z -= 8) for (const sx of [-10.5, 10.5]) {
-      g.add(box(0.9, 0.9, 0.9, MARBLE, sx, 26.5, z));
-      g.add(cyl(0.05, 0.55, 3.2, MARBLE, sx, 28.6, z, 4));
+    // triple pointed-arch portals with dark recesses
+    for (const [dx, pw, ph] of [[-8, 5.4, 11], [0, 7, 14], [8, 5.4, 11]] as const) {
+      const p = archWall(pw, ph, 0.9, pw - 2.2, ph - 2.5, MARBLE);
+      p.position.set(CX + dx, 0, FZ + 0.3);
+      g.add(p);
+      g.add(box(pw - 2.4, ph - 3, 0.3, DARKSTONE, CX + dx, (ph - 3) / 2, FZ));
     }
+    // shallow entrance steps down to the sidewalk
+    for (let i = 0; i < 3; i++) g.add(box(30, 0.18, 1.1, GRANITE, CX, 0.09 + i * 0.0, FZ + 1.2 + i));
     return g;
   },
 
