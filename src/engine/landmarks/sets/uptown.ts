@@ -306,34 +306,149 @@ export const builders: Record<string, (ctx: LandmarkCtx) => THREE.Group> = {
     return g;
   },
 
-  // AMNH: granite center pavilion w/ arch + columns, bronze equestrian Roosevelt, wings, and the Rose Center sphere
+  // AMNH: the full four-block quadrangle (~224x176m), not just a facade strip —
+  // Roosevelt Memorial pavilion on the CPW front (+z = east, toward the park),
+  // long pink-granite perimeter ranges with round Romanesque corner towers and
+  // conical caps (the 77th St look), cross wings meeting at a pyramid-roofed
+  // central pavilion, and the Rose Center glass cube on the 81st St (north) side.
   'amnh': () => {
     const g = new THREE.Group();
-    // central Roosevelt Memorial pavilion
-    g.add(box(30, 26, 14, GRANITE, 0, 13, 8));
-    g.add(box(34, 4, 16, LIMESTONE, 0, 27, 8));  // attic
-    const arch = archWall(20, 18, 3, 7, 13, LIMESTONE); arch.position.set(0, 0, 15); g.add(arch);
-    const cols = colonnade(4, 5.5, 0.9, 17, GRANITE); cols.position.set(0, 0, 16.5); g.add(cols);
-    g.add(box(24, 2.5, 2, LIMESTONE, 0, 18.4, 16.5)); // entablature
-    for (const s of [-1, 1]) { const rake = box(11, 1.1, 1.5, LIMESTONE, s * 5, 20.5, 16.5); rake.rotation.z = -s * 0.32; g.add(rake); } // pediment rakes
-    // flanking wings with pilaster articulation
-    for (const sx of [-1, 1]) {
-      g.add(box(26, 18, 12, GRANITE, sx * 30, 9, 6));
-      for (let i = 0; i < 6; i++) g.add(box(1.0, 16, 0.6, LIMESTONE, sx * 30 - 12.5 + i * 5, 9, 12.2));
+    const PINK = new THREE.MeshLambertMaterial({ color: '#c6a091' }); // Milford pink granite
+    // cheap round-arched window: dark inset + half-sunk disk head (much lighter
+    // than archWall — the long ranges need ~100 of these)
+    const archWin = (w: number, h: number): THREE.Group => {
+      const win = new THREE.Group();
+      win.add(box(w, h, 0.3, DARKSTONE, 0, h / 2, 0));
+      const head = cyl(w / 2, w / 2, 0.3, DARKSTONE, 0, h, 0, 12);
+      head.rotation.x = Math.PI / 2;
+      win.add(head);
+      return win;
+    };
+    // round Romanesque tower with a conical DARKSTONE cap
+    const roundTower = (x: number, z: number, r: number, h: number): void => {
+      g.add(cyl(r, r + 0.5, h, PINK, x, h / 2, z, 12));
+      g.add(cyl(r + 0.5, r + 0.5, 1.2, MARBLE, x, h - 2, z, 12)); // band below the eave
+      g.add(cyl(0, r + 1.4, r * 1.7, DARKSTONE, x, h + r * 0.85, z, 12)); // conical cap
+    };
+
+    // ---- central Roosevelt Memorial pavilion (front plane at z = FZ) ----
+    const FZ = 8;      // front face of the granite wall
+    const PW = 46;     // pavilion width
+    g.add(box(PW + 6, 3, 22, GRANITE, 0, 1.5, FZ - 4));        // rusticated podium the whole pavilion sits on
+    g.add(box(PW, 34, 16, PINK, 0, 17 + 3, FZ - 8));          // main granite mass (behind the columns)
+    // deep recessed triumphal arch in the center
+    const arch = archWall(20, 30, 4, 13, 22, PINK); arch.position.set(0, 3, FZ); g.add(arch);
+    g.add(box(24, 3, 4.5, MARBLE, 0, 26, FZ + 0.3));          // sculpted archivolt band over the arch
+
+    // 4 colossal Ionic columns in front of the wall on tall pedestals
+    const COL_H = 26, COL_Y = 5;
+    for (const cxp of [-16.5, -5.5, 5.5, 16.5]) {
+      g.add(box(4, COL_Y, 4, GRANITE, cxp, COL_Y / 2 + 3, FZ + 6));      // pedestal
+      g.add(cyl(1.35, 1.55, COL_H, MARBLE, cxp, COL_Y + 3 + COL_H / 2, FZ + 6, 14)); // shaft
+      // Ionic capital: volute scrolls approximated by two side cylinders + abacus
+      const capY = COL_Y + 3 + COL_H;
+      g.add(box(4, 1.0, 2.4, MARBLE, cxp, capY + 0.5, FZ + 6));
+      for (const sx of [-1, 1]) g.add(cyl(0.7, 0.7, 0.6, MARBLE, cxp + sx * 1.5, capY + 0.5, FZ + 6, 10).rotateX(Math.PI / 2));
     }
-    // equestrian Roosevelt on a granite plinth, front and center
-    g.add(box(4, 3, 6, GRANITE, 0, 1.5, 24));
-    const teddy = equestrian(BRONZE); teddy.position.set(0, 3, 24); g.add(teddy);
-    // Rose Center behind (-z): glass cube with the great white sphere floating on struts
-    const cs = 25, cy = 15, cz = -26;
-    g.add(box(cs, cs, cs, GLASS_LM, 0, cy, cz));
-    const sphere = new THREE.Mesh(new THREE.SphereGeometry(13, 16, 12), WHITE_LM); sphere.position.set(0, cy, cz); g.add(sphere);
-    for (const a of [Math.PI / 4, 3 * Math.PI / 4, 5 * Math.PI / 4, 7 * Math.PI / 4]) {
-      const p1 = new THREE.Vector3(Math.cos(a) * 13, cy, cz + Math.sin(a) * 13);
-      const p2 = new THREE.Vector3(Math.cos(a) * cs / 2, cy, cz + Math.sin(a) * cs / 2);
-      g.add(strut(p1, p2, 0.15, STEEL_LM, 6));
+    // entablature + attic story with allegorical statues on pedestals
+    g.add(box(PW + 4, 3, 6, MARBLE, 0, COL_Y + 3 + COL_H + 2.5, FZ + 4));   // entablature
+    g.add(box(PW + 6, 10, 10, PINK, 0, COL_Y + 3 + COL_H + 9, FZ - 1));     // attic block (inscription band)
+    g.add(box(PW + 7, 1.5, 11, MARBLE, 0, COL_Y + 3 + COL_H + 14.5, FZ - 1)); // attic cornice
+    for (const sxp of [-15, 0, 15]) {                                       // 3 allegorical figures atop
+      g.add(box(4, 3, 4, MARBLE, sxp, COL_Y + 3 + COL_H + 15.2, FZ + 2));
+      const fig = figure(6, MARBLE); fig.position.set(sxp, COL_Y + 3 + COL_H + 16.7, FZ + 2); g.add(fig);
     }
-    g.add(strut(new THREE.Vector3(0, cy + 13, cz), new THREE.Vector3(0, cy + cs / 2, cz), 0.15, STEEL_LM, 6));
+
+    // grand staircase cascading toward the park (+z), flanked by cheek walls
+    for (let i = 0; i < 12; i++) g.add(box(PW - 4, 0.4, 1.3, GRANITE, 0, 0.2 + i * 0.4, FZ + 8 + i * 1.2));
+    for (const sx of [-1, 1]) g.add(box(2.5, 3.5, 16, GRANITE, sx * (PW / 2 - 1), 1.75, FZ + 14));
+
+    // equestrian Roosevelt on a granite plinth at the stair foot
+    g.add(box(5, 3.5, 8, GRANITE, 0, 1.75, FZ + 24));
+    const teddy = equestrian(BRONZE); teddy.position.set(0, 3.5, FZ + 24); g.add(teddy);
+    for (const sx of [-1, 1]) { const flag = box(0.4, 16, 0.4, DARKSTONE, sx * 10, 8, FZ + 24); g.add(flag); } // flanking flagpoles
+
+    // ---- site plan: quadrangle footprint (+x = north along CPW) ----
+    const HW = 112;          // half-width along the avenue (224m, ~the real 700ft plan)
+    const BACK = -168;       // west (Columbus-side) back plane
+    // granite terrace under the whole complex (covers the cleared OSM footprint)
+    g.add(box(HW * 2 + 8, 0.6, FZ + 10 - (BACK - 2), GRANITE, 0, 0.3, (FZ + 10 + BACK - 2) / 2));
+
+    // ---- east range: the full CPW frontage the memorial pavilion centers ----
+    g.add(box(HW * 2, 4, 22, GRANITE, 0, 2, FZ - 9));                      // rusticated base
+    g.add(box(HW * 2, 24, 20, PINK, 0, 16, FZ - 10));                      // range wall
+    g.add(box(HW * 2 + 2, 2, 22, MARBLE, 0, 29, FZ - 10));                 // cornice
+    g.add(box(HW * 2 - 8, 3, 10, DARKSTONE, 0, 31.5, FZ - 10));            // roof ridge
+    // two storeys of round-arched windows flanking the memorial (archWall here:
+    // this is the facade you approach from the park, it earns the real arches)
+    for (const sx of [-1, 1]) for (let i = 0; i < 11; i++) {
+      const ax = sx * (32 + i * 6.5);
+      for (const ay of [10, 21]) { const win = archWall(3.6, 8, 1, 2.6, 6, DARKSTONE); win.position.set(ax, ay - 4, FZ + 0.6); g.add(win); }
+    }
+    // round towers on the CPW corners (77th/81st), conical caps
+    roundTower(-(HW - 3), FZ - 10, 9, 34);
+    roundTower(HW - 3, FZ - 10, 9, 34);
+
+    // ---- south range (77th St): the long Romanesque facade ----
+    g.add(box(20, 22, 156, PINK, -(HW - 10), 13, -90));                    // range wall (z -12..-168)
+    g.add(box(22, 2, 158, MARBLE, -(HW - 10), 25, -90));                   // cornice
+    g.add(box(10, 3, 150, DARKSTONE, -(HW - 10), 27.5, -90));              // roof ridge
+    for (let i = 0; i < 17; i++) for (const wy of [7, 16]) {               // arched window rows facing 77th
+      const win = archWin(2.6, 6); win.rotation.y = -Math.PI / 2;
+      win.position.set(-HW - 0.35, wy - 3, -22 - i * 8); g.add(win);
+    }
+    // central 77th St entrance: projecting pavilion + twin round towers + arch
+    g.add(box(26, 30, 30, PINK, -(HW - 8), 15, -90));
+    g.add(box(28, 2, 32, MARBLE, -(HW - 8), 31, -90));
+    const sArch = archWall(18, 22, 4, 9, 14, PINK);
+    sArch.rotation.y = -Math.PI / 2; sArch.position.set(-(HW + 5), 0.6, -90); g.add(sArch);
+    roundTower(-(HW + 2), -90 - 17, 7, 36);
+    roundTower(-(HW + 2), -90 + 17, 7, 36);
+
+    // ---- north range (81st St) with the Rose Center glass cube ----
+    g.add(box(20, 22, 86, PINK, HW - 10, 13, -55));                        // masonry east of the cube (z -12..-98)
+    g.add(box(22, 2, 88, MARBLE, HW - 10, 25, -55));
+    g.add(box(10, 3, 82, DARKSTONE, HW - 10, 27.5, -55));
+    for (let i = 0; i < 9; i++) for (const wy of [7, 16]) {
+      const win = archWin(2.6, 6); win.rotation.y = Math.PI / 2;
+      win.position.set(HW + 0.35, wy - 3, -22 - i * 8); g.add(win);
+    }
+    // Rose Center for Earth and Space: glass cube + Hayden sphere, fronting 81st
+    const cs = 44, ccx = HW - 12, ccy = cs / 2 + 2, ccz = -120;
+    g.add(box(cs + 2, 2, cs + 2, DARKSTONE, ccx, 1, ccz));                 // dark plinth
+    g.add(box(cs, cs, cs, GLASS_LM, ccx, ccy, ccz));                       // glass cube
+    for (let mz = -cs / 2; mz <= cs / 2; mz += 4) g.add(box(0.35, cs, 0.35, STEEL_LM, ccx + cs / 2, ccy, ccz + mz)); // mullions on the north face
+    for (const my of [-cs / 4, 0, cs / 4]) g.add(box(0.3, 0.3, cs, STEEL_LM, ccx + cs / 2, ccy + my, ccz));
+    const sphere = new THREE.Mesh(new THREE.SphereGeometry(17.5, 20, 15), WHITE_LM); sphere.position.set(ccx, ccy + 1, ccz); g.add(sphere);
+    const ring = new THREE.Mesh(new THREE.TorusGeometry(21, 0.5, 6, 40), STEEL_LM); // armillary ring around the sphere
+    ring.rotation.x = Math.PI / 2; ring.position.set(ccx, ccy + 1, ccz); g.add(ring);
+
+    // ---- west range (Columbus side) closing the quadrangle ----
+    g.add(box(HW * 2, 20, 20, PINK, 0, 12, -158));                         // z -168..-148
+    g.add(box(HW * 2 + 2, 2, 22, MARBLE, 0, 23, -158));
+    g.add(box(HW * 2 - 8, 3, 10, DARKSTONE, 0, 25.5, -158));
+    for (let i = 0; i < 24; i++) for (const wy of [7, 15]) {
+      const win = archWin(2.6, 5.5); win.rotation.y = Math.PI;
+      win.position.set(-92 + i * 8, wy - 2.75, -168.35); g.add(win);
+    }
+    roundTower(-(HW - 8), -158, 7.5, 30);                                  // SW round turret
+    g.add(box(16, 30, 16, PINK, HW - 8, 15, -158));                        // NW square pavilion
+    const nwCap = cyl(0.3, 11.5, 11, DARKSTONE, HW - 8, 35, -158, 4);
+    nwCap.rotation.y = Math.PI / 4; g.add(nwCap);
+
+    // ---- cross wings meeting at a central pyramid-roofed pavilion ----
+    g.add(box(24, 20, 130, PINK, 0, 12, -85));                             // E-W spine (z -20..-150)
+    g.add(box(12, 3, 124, DARKSTONE, 0, 23.5, -85));
+    g.add(box(190, 20, 24, PINK, 0, 12, -85));                             // N-S cross wing
+    g.add(box(184, 3, 12, DARKSTONE, 0, 23.5, -85));
+    g.add(box(32, 40, 32, PINK, 0, 20, -85));                              // central pavilion
+    g.add(box(34, 2, 34, MARBLE, 0, 41, -85));
+    const cCap = cyl(0.4, 23, 14, DARKSTONE, 0, 49, -85, 4);
+    cCap.rotation.y = Math.PI / 4; g.add(cCap);
+    for (const tx of [-13, 13]) for (const tz of [-98, -72]) {             // four corner turrets
+      g.add(cyl(1.6, 1.8, 8, PINK, tx, 44, tz, 8));
+      g.add(cyl(0, 2.4, 4, DARKSTONE, tx, 50, tz, 8));
+    }
     return g;
   },
 
