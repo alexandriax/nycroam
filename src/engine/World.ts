@@ -6,6 +6,7 @@ import { PlayerControls } from './controls';
 import { resolveBuildingCollision, nearestWallDir, floorAt, floorAtAny, pointInBuildings, roofBelow } from './collision';
 import { PATH_KIND_ROAD, type RoadPaths } from './tileTypes';
 import { setupSky, setupLights, followSun, SKY } from './sky';
+import { installAtmosphere } from './atmosphere';
 import { quality } from './quality';
 import { makeSkylineMaterial, makeFlatMaterial, makeWaterMaterial } from './materials';
 import { EntranceManager, disposeGroup } from './EntranceManager';
@@ -195,6 +196,10 @@ export class World {
   onInfo: ((info: PlaqueInfo) => void) | null = null; // open the building-info modal (i key / mobile button)
 
   constructor(canvas: HTMLCanvasElement) {
+    // Rewrites three's shared fog chunks, so it must land before anything
+    // compiles a program. Materials resolve chunks at first render, not at
+    // construction, but keeping this first removes the question entirely.
+    installAtmosphere();
     this.isMobile = /Android|iPhone|iPad|Mobile/i.test(navigator.userAgent) || navigator.maxTouchPoints > 1;
     const q = quality();
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });

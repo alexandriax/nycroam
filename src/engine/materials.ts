@@ -295,33 +295,54 @@ export function makeWaterMaterial(skyColor: THREE.Color): { mat: THREE.MeshLambe
         varying vec3 vWaterPos;
         uniform float uTime;
         uniform vec3 uSky;
-        vec3 waveNormal(vec2 p, float t) {
-          float nx = sin(p.x * 0.35 + t * 1.1) * 0.10
-                   + sin((p.x + p.y) * 0.09 + t * 0.45) * 0.14
-                   + sin(p.x * 0.045 - t * 0.22) * 0.20;
-          float nz = cos(p.y * 0.31 + t * 0.9) * 0.10
-                   + cos((p.y - p.x) * 0.075 + t * 0.35) * 0.14
-                   + cos(p.y * 0.05 + t * 0.18) * 0.20;
+        // Waves are three octaves of sine, wavelengths roughly 18 m / 70 m /
+        // 140 m. The plane is 60 km across, so at the horizon a single pixel
+        // spans hundreds of metres and every one of those octaves aliases into
+        // a crawling moire -- the hatched band that used to sit across the
+        // skyline. Each octave is faded out once the pixel footprint approaches
+        // its own wavelength, which is the analytic version of a mip chain.
+        vec3 waveNormal(vec2 p, float t, float px) {
+          float f1 = 1.0 - smoothstep(2.5, 11.0, px);
+          float f2 = 1.0 - smoothstep(9.0, 42.0, px);
+          float f3 = 1.0 - smoothstep(22.0, 105.0, px);
+          float nx = sin(p.x * 0.35 + t * 1.1) * 0.10 * f1
+                   + sin((p.x + p.y) * 0.09 + t * 0.45) * 0.14 * f2
+                   + sin(p.x * 0.045 - t * 0.22) * 0.20 * f3;
+          float nz = cos(p.y * 0.31 + t * 0.9) * 0.10 * f1
+                   + cos((p.y - p.x) * 0.075 + t * 0.35) * 0.14 * f2
+                   + cos(p.y * 0.05 + t * 0.18) * 0.20 * f3;
           return normalize(vec3(nx, 1.0, nz));
+        }
+        float waterPixelSpan() {
+          return max(length(vec2(dFdx(vWaterPos.x), dFdy(vWaterPos.x))),
+                     length(vec2(dFdx(vWaterPos.z), dFdy(vWaterPos.z))));
         }`
       )
       .replace(
         '#include <normal_fragment_begin>',
         `#include <normal_fragment_begin>
-        normal = waveNormal(vWaterPos.xz, uTime);`
+        normal = waveNormal(vWaterPos.xz, uTime, waterPixelSpan());`
       )
+      // Ahead of the fog, not after it: fresnel and glint are surface response,
+      // so the haze has to sit on top of them. Injected at <dithering_fragment>
+      // they were added AFTER <fog_fragment> and the glint stayed at full
+      // strength through kilometres of air.
       .replace(
-        '#include <dithering_fragment>',
-        `#include <dithering_fragment>
-        {
+        '#include <fog_fragment>',
+        `{
+          float px = waterPixelSpan();
           vec3 V = normalize(cameraPosition - vWaterPos);
-          vec3 N = waveNormal(vWaterPos.xz, uTime);
+          vec3 N = waveNormal(vWaterPos.xz, uTime, px);
           float fres = pow(1.0 - max(dot(V, N), 0.0), 3.0);
           gl_FragColor.rgb = mix(gl_FragColor.rgb, uSky, clamp(fres * 0.7, 0.0, 0.7));
-          vec3 sunDir = normalize(vec3(-0.5, 0.62, -0.42));
+          // A pow(.,120) lobe is a sub-pixel feature almost everywhere on a
+          // 60 km plane; keep it only where the surface is actually resolved.
+          float sharp = 1.0 - smoothstep(1.5, 7.0, px);
+          vec3 sunDir = vec3(-0.5566, 0.6875, -0.4665);
           float glint = pow(max(dot(reflect(-sunDir, N), V), 0.0), 120.0);
-          gl_FragColor.rgb += vec3(1.0, 0.95, 0.82) * glint * 0.55;
-        }`
+          gl_FragColor.rgb += vec3(1.0, 0.95, 0.82) * glint * 0.55 * sharp;
+        }
+        #include <fog_fragment>`
       );
   };
   return { mat, update: (dt: number) => { uTime.value += dt; } };

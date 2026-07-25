@@ -39,10 +39,23 @@ export function setupSky(scene: THREE.Scene, loadRadius: number, farPlane: numbe
       void main() {
         float t = smoothstep(-0.05, 0.45, vDir.y);
         vec3 col = mix(horizon, zenith, t);
-        // sun glow
-        vec3 sun = normalize(vec3(-0.5, 0.62, -0.42));
-        float g = pow(max(dot(vDir, sun), 0.0), 180.0);
-        col += vec3(1.0, 0.93, 0.78) * g * 0.85;
+        // Exactly the sun the fog scatters around (SUN_OFFSET normalized), so
+        // the sky and the haze agree instead of glowing in different places.
+        const vec3 sun = vec3(-0.5566, 0.6875, -0.4665);
+        float d = max(dot(vDir, sun), 0.0);
+        // Three layers: a broad Mie halo that warms most of that quadrant, a
+        // tight aureole, and the disc itself. Without the broad term the glow
+        // reads as a sticker on a flat gradient.
+        col = mix(col, vec3(1.0, 0.95, 0.86), pow(d, 5.0) * 0.34);
+        col += vec3(1.0, 0.94, 0.80) * pow(d, 64.0) * 0.5;
+        col += vec3(1.0, 0.97, 0.90) * pow(d, 900.0) * 1.6;
+        // Horizon band: the last few degrees of air are the thickest, and this
+        // is what the fog colour hands off to at the load radius.
+        col = mix(col, horizon * 1.02, (1.0 - smoothstep(-0.02, 0.16, vDir.y)) * 0.55);
+        // Ordered dither. An 8-bit sky gradient over this many degrees bands
+        // visibly, and banding crawls as the camera turns.
+        float dither = fract(sin(dot(gl_FragCoord.xy, vec2(12.9898, 78.233))) * 43758.5453);
+        col += (dither - 0.5) / 255.0;
         gl_FragColor = vec4(col, 1.0);
       }`,
   });
