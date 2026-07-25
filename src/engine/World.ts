@@ -170,6 +170,8 @@ export class World {
   private maxPixelRatio = 2;
   private dynPixelRatio = 2;
   private goodTicks = 0; // consecutive fast HUD ticks before stepping back up
+  /** What the adaptive loop has given up so far, newest last (settings UI + debug). */
+  perfNotes: string[] = [];
   private transitioning = false;
   private lastEnterGuard = 0; // avoid instant re-trigger loops
   private spawnResolve = false; // eject from a building after a teleport/exit, once tiles load
@@ -210,7 +212,9 @@ export class World {
     this.renderer.toneMappingExposure = 1.08;
     if (q.shadows) {
       this.renderer.shadowMap.enabled = true;
-      this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+      // PCF on the low-memory tiers: soft PCF costs a 4x wider kernel for a
+      // blur that a 1536 map does not have the resolution to justify.
+      this.renderer.shadowMap.type = q.shadowMapSize >= 2048 ? THREE.PCFSoftShadowMap : THREE.PCFShadowMap;
     }
 
     // env map so metallic materials (trains, rails, turnstiles) read as steel
@@ -218,14 +222,17 @@ export class World {
     this.envTex = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
     pmrem.dispose();
 
-    const far = this.isMobile ? 4200 : 6500;
-    const loadRadius = this.isMobile ? 750 : 1150;
+    // Draw distance, streaming radius and worker count all come from the tier
+    // now, not from a UA regex: a recent tablet earns more of them than a
+    // touch-capable laptop on integrated graphics does.
+    const far = q.farPlane;
+    const loadRadius = q.loadRadius;
     this.baseLoadRadius = loadRadius;
     this.camera = new THREE.PerspectiveCamera(70, 1, 0.1, far);
     this.skyDome = setupSky(this.streetScene, loadRadius, far);
     this.sun = setupLights(this.streetScene).sun;
 
-    this.tiles = new TileManager(this.streetScene, this.isMobile ? 2 : 3, (g) => this.compileGroup(g));
+    this.tiles = new TileManager(this.streetScene, q.tileWorkers, (g) => this.compileGroup(g));
     this.tiles.loadRadius = loadRadius;
     this.tiles.unloadRadius = this.tiles.loadRadius + 300;
     this.entrances = new EntranceManager(
@@ -1985,13 +1992,12 @@ export class World {
       this.dynPixelRatio = Math.max(1.0, this.dynPixelRatio - 0.25);
       this.goodTicks = 0;
       this.applyResolution();
-    } else if (avgMs > 30 && this.dynPixelRatio <= 1.0 && this.sun?.castShadow && this.sun.shadow.mapSize.x > 2048) {
-      // last resort for GPUs that can't hold 1.0x either: halve the shadow map
-      // once (shadows stay on — this is a persistent device-class signal, so it
-      // never steps back up within the session)
-      this.sun.shadow.mapSize.set(2048, 2048);
-      this.sun.shadow.map?.dispose();
-      this.sun.shadow.map = null;
+    } else if (avgMs > 30 && this.dynPixelRatio <= 1.0) {
+      // Render scale is already at the floor, so keep walking down the cost
+      // ladder. Each rung is a persistent device-class signal, so none of them
+      // step back up within the session -- only the pixel ratio does, because
+      // that is the only rung a transient load spike can trip.
+      this.degrade();
       this.goodTicks = 0;
     } else if (avgMs < 12.5 && this.dynPixelRatio < this.maxPixelRatio) {
       if (++this.goodTicks >= 6) {
@@ -2007,6 +2013,38 @@ export class World {
   private applyResolution() {
     this.renderer.setPixelRatio(this.dynPixelRatio);
     this.renderer.setSize(window.innerWidth, window.innerHeight, false);
+  }
+
+  /**
+   * One rung down the cost ladder, for a device that cannot hold 60fps even at
+   * 1x render scale. Ordered cheapest-looking-loss first: shadow resolution,
+   * then draw distance, then shadows entirely. Stops at the bottom rung rather
+   * than degrading forever.
+   */
+  private degrade() {
+    const sun = this.sun;
+    if (sun?.castShadow && sun.shadow.mapSize.x > 1024) {
+      sun.shadow.mapSize.set(sun.shadow.mapSize.x / 2, sun.shadow.mapSize.y / 2);
+      sun.shadow.map?.dispose();
+      sun.shadow.map = null;
+      // followSun keys its bias off the map size, so let it reconfigure
+      sun.userData.shMap = -1;
+      this.perfNotes.push(`shadow map -> ${sun.shadow.mapSize.x}`);
+      return;
+    }
+    if (this.baseLoadRadius > 560) {
+      this.baseLoadRadius = Math.max(560, Math.round(this.baseLoadRadius * 0.8));
+      this.perfNotes.push(`load radius -> ${this.baseLoadRadius}`);
+      return;
+    }
+    if (sun?.castShadow) {
+      // Last rung. The scene is lit by hemi + sun + fill, so losing cast shadows
+      // flattens it but leaves it correctly exposed; bring the ambient back up
+      // the way the no-shadow tier is authored in sky.ts.
+      sun.castShadow = false;
+      this.renderer.shadowMap.enabled = false;
+      this.perfNotes.push('shadows off');
+    }
   }
 
   /**

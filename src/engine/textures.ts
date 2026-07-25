@@ -2,6 +2,7 @@
 // (deterministic, self-contained, no assets). Each surface paints an albedo
 // canvas plus a height field; normals come from a Sobel pass over the heights.
 import * as THREE from 'three';
+import { quality } from './quality';
 
 export interface Tex {
   map: THREE.CanvasTexture;
@@ -21,7 +22,10 @@ function mulberry32(seed: number) {
 
 function configure(t: THREE.CanvasTexture, srgb: boolean) {
   t.wrapS = t.wrapT = THREE.RepeatWrapping;
-  t.anisotropy = 8;
+  // Asphalt, sidewalks and brick are all seen at grazing angles down a street,
+  // which is exactly where anisotropy earns its keep -- and exactly where a low
+  // tier cannot afford it. This was pinned at 8 for every device.
+  t.anisotropy = quality().anisotropy;
   t.generateMipmaps = true;
   t.minFilter = THREE.LinearMipmapLinearFilter;
   t.colorSpace = srgb ? THREE.SRGBColorSpace : THREE.NoColorSpace;
