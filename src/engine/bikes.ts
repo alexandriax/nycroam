@@ -113,12 +113,35 @@ export function buildMountedBike(): THREE.Group {
   return mergeByMaterial(g);
 }
 
-/** One dock station: platform, per-slot posts, and `bikes` docked bikes. */
-function buildDockKit(slots: number, bikes: number, seed: number): THREE.Group {
-  const g = new THREE.Group();
+/**
+ * The one docked bike in the world, merged and shared by every rack.
+ *
+ * Bikes dominated the cost of seating a rack: an empty 18-slot dock merges in
+ * 0.31 ms, but each docked bike added ~0.69 ms, so a typical rack cost ~6.5 ms
+ * -- the largest single streaming build in the game. Almost none of that was
+ * BUILDING the bike; it was mergeByMaterial cloning and transforming its
+ * geometry into the rack's merged hull, once per bike, every time a rack came
+ * into range. One shared merged bike drawn as instances removes the per-bike
+ * work entirely, and costs no extra draw calls (three instanced meshes cover
+ * every bike on the rack, where the merged hull already used three).
+ */
+let bikeTemplate: THREE.Group | null = null;
+function sharedBike(): THREE.Group {
+  if (bikeTemplate) return bikeTemplate;
   const unit = new THREE.CylinderGeometry(1, 1, 1, 6);
   const wheelGeo = new THREE.TorusGeometry(0.31, 0.036, 6, 14);
   wheelGeo.rotateY(Math.PI / 2);
+  // Merged, so a rack draws three instanced meshes (rubber / frame / steel)
+  // rather than one per tube. buildBike returns its parts UNMERGED -- the dock's
+  // own mergeByMaterial used to collapse them, and instancing them raw would
+  // have traded 6 ms of build time for a 2.4x draw-call regression.
+  bikeTemplate = mergeByMaterial(buildBike(unit, wheelGeo));
+  return bikeTemplate;
+}
+
+/** One dock station: platform and per-slot posts, plus the occupied slot offsets. */
+function buildDockKit(slots: number, bikes: number, seed: number): { rack: THREE.Group; bikeX: number[] } {
+  const g = new THREE.Group();
   const len = slots * SLOT_PITCH + 0.5;
 
   const platform = new THREE.Mesh(new THREE.BoxGeometry(len, 0.14, 1.9), PLATFORM);
@@ -130,18 +153,32 @@ function buildDockKit(slots: number, bikes: number, seed: number): THREE.Group {
   const occupied = new Set(order.slice(0, bikes));
 
   const postGeo = new THREE.BoxGeometry(0.10, 0.72, 0.34);
+  const bikeX: number[] = [];
   for (let i = 0; i < slots; i++) {
     const x = -len / 2 + 0.55 + i * SLOT_PITCH;
     const post = new THREE.Mesh(postGeo, POST);
     post.position.set(x, 0.5, -0.55);
     g.add(post);
-    if (occupied.has(i)) {
-      const bike = buildBike(unit, wheelGeo);
-      bike.position.set(x, 0.14, 0.18);
-      g.add(bike);
-    }
+    if (occupied.has(i)) bikeX.push(x);
   }
-  return g;
+  return { rack: g, bikeX };
+}
+
+/** Add the rack's docked bikes as instances of the shared merged bike. */
+function addDockedBikes(group: THREE.Group, bikeX: number[]) {
+  if (!bikeX.length) return;
+  const m = new THREE.Matrix4();
+  for (const part of sharedBike().children) {
+    if (!(part instanceof THREE.Mesh)) continue;
+    const inst = new THREE.InstancedMesh(part.geometry, part.material as THREE.Material, bikeX.length);
+    for (let i = 0; i < bikeX.length; i++) inst.setMatrixAt(i, m.makeTranslation(bikeX[i], 0.14, 0.18));
+    inst.instanceMatrix.needsUpdate = true;
+    inst.castShadow = true;
+    // the geometry and material belong to the session-wide template; eviction
+    // must not free them out from under every other rack
+    inst.userData.shared = true;
+    group.add(inst);
+  }
 }
 
 export class BikeManager {
@@ -233,7 +270,9 @@ export class BikeManager {
   }
 
   private build(idx: number, spec: DockSpec, slots: number, bikes: number, pos: [number, number], rotY: number): PlacedDock {
-    const group = mergeByMaterial(buildDockKit(slots, bikes, idx));
+    const { rack, bikeX } = buildDockKit(slots, bikes, idx);
+    const group = mergeByMaterial(rack);
+    addDockedBikes(group, bikeX);
     group.position.set(pos[0], heightAt(pos[0], pos[1]) - 0.03, pos[1]);
     group.rotation.y = rotY;
     this.scene.add(group);

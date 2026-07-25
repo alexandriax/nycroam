@@ -303,10 +303,14 @@ export class EntranceManager {
 export function disposeGroup(g: THREE.Group) {
   g.traverse((o) => {
     if (o instanceof THREE.Mesh) {
-      if (o.userData.shared) return;
+      if (o.userData.shared) {
+        // Shares module-level geometry/material (the beacon, a rack's docked
+        // bikes). Its own per-instance buffer is still ours to free.
+        if (o instanceof THREE.InstancedMesh) o.dispose();
+        return;
+      }
       o.geometry.dispose();
       // materials are module-shared in streetprops except canvas sign textures
-      if (o.userData.shared) return; // beacon shares module-level geo/material
       const mats = Array.isArray(o.material) ? o.material : [o.material];
       for (const m of mats) {
         const std = m as THREE.MeshLambertMaterial;
