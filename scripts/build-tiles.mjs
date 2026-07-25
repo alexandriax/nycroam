@@ -977,6 +977,39 @@ async function main() {
     return piece.map(([x, z]) => round1(terrainAt(x, z)));
   }
 
+/**
+ * A roadway is HIDDEN when it does not exist as visible pavement at ground
+ * level, and must not be baked as a ribbon at all.
+ *
+ * `tunnel === 'yes'` was the whole test, which missed two large classes the
+ * audit surfaced as "roads through buildings":
+ *  - `tunnel=building_passage` (184 vehicular ways): a roadway threaded UNDER a
+ *    building. Rendered at grade it paints asphalt straight through the walls.
+ *  - `covered=yes` (318 vehicular ways, incl. 5 motorway segments of the
+ *    Trans-Manhattan Expressway, which Washington Heights is literally built
+ *    over): same situation, expressed with a different tag.
+ * Both are dropped for exactly the reason plain tunnels are: you cannot see
+ * them from the street, and drawing them puts pavement inside a building.
+ */
+function isHiddenRoad(tags) {
+  const tunnel = tags.tunnel && tags.tunnel !== 'no';
+  const covered = tags.covered && tags.covered !== 'no';
+  return Boolean(tunnel || covered);
+}
+
+/**
+ * True when the way rides above ground. OSM tags plenty of viaducts with a
+ * positive `layer` and no `bridge` at all -- 96 vehicular ways here, including
+ * the elevated FDR Drive and the Queensboro approach ramps, which the pipeline
+ * was laying at grade straight through the buildings they fly past. That
+ * cluster was the single worst source of building-in-roadbed overlap.
+ */
+function isElevatedRoad(tags) {
+  if (tags.bridge && tags.bridge !== 'no') return true;
+  const layer = Number(tags.layer);
+  return Number.isFinite(layer) && layer > 0;
+}
+
   const tileRoads = new Map();
   const tileRoadPiecesWorld = new Map(); // key -> array of {pts (world meters), cls} for tree placement filters
   let roadWayCount = 0, roadPieceCount = 0;
@@ -985,12 +1018,12 @@ async function main() {
     const tags = el.tags || {};
     if (!tags.highway) continue;
     if (tags.area === 'yes') continue;
-    if (tags.tunnel === 'yes') continue;
+    if (isHiddenRoad(tags)) continue;
     if (!el.geometry || el.geometry.length < 2) continue;
 
     let c = tags.highway;
     if (tags.footway === 'crossing' || tags.cycleway === 'crossing') c = 'crossing';
-    const bridge = tags.bridge && tags.bridge !== 'no' ? 1 : undefined;
+    const bridge = isElevatedRoad(tags) ? 1 : undefined;
 
     const pts = el.geometry.filter((p) => typeof p.lat === 'number' && typeof p.lon === 'number').map((p) => lonLatToXZ(p.lon, p.lat));
     if (pts.length < 2) continue;
@@ -1132,7 +1165,7 @@ async function main() {
     const tags = el.tags || {};
     const w = MAJOR_W[tags.highway];
     if (!w) continue;
-    if (tags.area === 'yes' || tags.tunnel === 'yes') continue;
+    if (tags.area === 'yes' || isHiddenRoad(tags)) continue;
     if (!el.geometry || el.geometry.length < 2) continue;
     const pts = el.geometry.map((g) => lonLatToXZ(g.lon, g.lat));
     majorPtsBefore += pts.length;
@@ -1157,7 +1190,7 @@ async function main() {
     if (el.type !== 'way') continue;
     const tags = el.tags || {};
     if (!tags.highway || !SIGN_CLASSES.has(tags.highway) || !tags.name) continue;
-    if (tags.tunnel === 'yes' || tags.area === 'yes') continue;
+    if (isHiddenRoad(tags) || tags.area === 'yes') continue;
     if (!el.nodes || !el.geometry || el.nodes.length !== el.geometry.length) continue;
     const pts = el.geometry.map((g) => lonLatToXZ(g.lon, g.lat));
     for (let i = 0; i < el.nodes.length; i++) {
