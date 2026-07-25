@@ -102,7 +102,11 @@ export const LANDMARKS_REG: LandmarkEntry[] = [
   { id: 'union-square', name: 'Union Square', lat: 40.7359, lon: -73.9906, set: 'village', r: 450, rot: GRID },
   { id: 'madison-sq-park', name: 'Madison Square Park', lat: 40.742, lon: -73.988, set: 'village', r: 400, rot: GRID },
   { id: 'high-line', name: 'The High Line', lat: 40.7391, lon: -74.008, set: 'village', r: 500, rot: GRID },
-  { id: 'whitney', name: 'Whitney Museum', lat: 40.7397, lon: -74.0089, set: 'village', r: 450, rot: GRID },
+  // NOT GRID: the Gansevoort/Meatpacking block is 24 degrees off the Manhattan
+  // grid, so GRID left the museum visibly skewed against its own street wall.
+  // Measured from the OSM footprint (way/288749896, edge coherence 0.82);
+  // Gansevoort St runs 0.017, which agrees.
+  { id: 'whitney', name: 'Whitney Museum', lat: 40.7397, lon: -74.0089, set: 'village', r: 450, rot: -0.085 },
   { id: 'chelsea-market', name: 'Chelsea Market', lat: 40.7425, lon: -74.0053, set: 'village', r: 400, rot: GRID },
   { id: 'little-island', name: 'Little Island', lat: 40.742, lon: -74.01, set: 'village', r: 700, rot: GRID },
   { id: 'vessel', name: 'The Vessel', lat: 40.7538, lon: -74.0022, set: 'village', r: 800, rot: GRID },
@@ -213,15 +217,23 @@ export const LANDMARKS_REG: LandmarkEntry[] = [
   { id: 'grants-tomb', name: "Grant's Tomb", lat: 40.8134, lon: -73.963, set: 'heights', r: 550, rot: GRID },
   { id: 'grant-plaza', name: 'General Grant Memorial Plaza', lat: 40.8134, lon: -73.963, set: 'heights', r: 550, aliasOf: 'grants-tomb' },
   { id: 'riverside-park', name: 'Riverside Park', lat: 40.785, lon: -73.9838, set: 'heights', r: 400, rot: GRID },
-  { id: 'hamilton-grange', name: 'Hamilton Grange', lat: 40.8214, lon: -73.9469, set: 'heights', r: 400, rot: GRID },
+  // anchor + clear circle both moved onto the measured OSM footprint (they sat
+  // 31.5 m north-east of it, so the circle deleted nothing and the real Grange
+  // stood as a generic box beside the bespoke one)
+  { id: 'hamilton-grange', name: 'Hamilton Grange', lat: 40.821391, lon: -73.947274, set: 'heights', r: 400, rot: GRID },
   { id: 'morris-jumel', name: 'Morris-Jumel Mansion', lat: 40.8345, lon: -73.9386, set: 'heights', r: 400, rot: GRID },
-  { id: 'dyckman-farmhouse', name: 'Dyckman Farmhouse', lat: 40.866852, lon: -73.922818, set: 'heights', r: 380, rot: GRID },
+  // NOT GRID: Inwood's grid is rotated ~35 degrees from midtown's. Broadway,
+  // Vermilyea Av and Cooper St all measure 0.436-0.451 here (coherence 1.00),
+  // and GRID put the farmhouse across its own block.
+  { id: 'dyckman-farmhouse', name: 'Dyckman Farmhouse', lat: 40.866858, lon: -73.922652, set: 'heights', r: 380, rot: 0.445 },
   { id: 'cloisters', name: 'The Cloisters', lat: 40.8649, lon: -73.9317, set: 'heights', r: 700, rot: 0.2 },
   { id: 'fort-tryon', name: 'Fort Tryon Park', lat: 40.8593, lon: -73.9327, set: 'heights', r: 420, rot: 0.2 },
   { id: 'inwood-hill', name: 'Inwood Hill Park', lat: 40.8712, lon: -73.9243, set: 'heights', r: 420, rot: 0 },
   { id: 'fort-washington-park', name: 'Fort Washington Park', lat: 40.8451, lon: -73.9436, set: 'heights', r: 400, rot: 0.2 },
   { id: 'gwb', name: 'George Washington Bridge', lat: 40.8505, lon: -73.9469, set: 'heights', r: 2000, rot: 1.02 },
-  { id: 'little-red-lighthouse', name: 'Little Red Lighthouse', lat: 40.8499, lon: -73.9471, set: 'heights', r: 600, rot: 0.2 },
+  // same story: the bespoke 12 m tower stood 41 m from the OSM original, which
+  // had no clear circle at all. Both now sit on the measured footprint.
+  { id: 'little-red-lighthouse', name: 'Little Red Lighthouse', lat: 40.850255, lon: -73.946963, set: 'heights', r: 600, rot: 0.2 },
 ];
 
 export interface Landmark extends LandmarkEntry {

@@ -1,7 +1,7 @@
 // Web worker: fetch tile JSON -> build merged geometry buffers (transferable).
 import earcut from 'earcut';
 import type { BuildRequest, BuildResponse, MeshPayload, TileJson, CollisionData } from './tileTypes';
-import { ROAD_STYLE, AREA_STYLE, CONCRETE_CLASSES, PATH_KIND_ROAD, PATH_KIND_BIKE } from './tileTypes';
+import { ROAD_STYLE, AREA_STYLE, CONCRETE_CLASSES, PATH_KIND_ROAD, PATH_KIND_BIKE, PATH_KIND_SERVICE } from './tileTypes';
 import { buildingColor, hash01 } from './palette';
 import { TILE_SIZE } from './geo';
 import { LANDMARKS_PLACED } from './landmarks/registry';
@@ -619,9 +619,17 @@ function buildTile(tile: TileJson): BuildResponse {
     }
   }
 
-  // minimap/eject centerlines: real streets + bike lanes — footways/steps/
-  // crossings would turn the closest zoom into hairball noise
-  const MINIMAP_SKIP = new Set(['footway', 'path', 'steps', 'crossing', 'service']);
+  // Eject centerlines: real streets + bike lanes + service lanes. Footways,
+  // steps and crossings stay out — they are places props are SUPPOSED to stand,
+  // and at the closest minimap zoom they turn the grid into hairball noise.
+  //
+  // Service lanes used to be skipped here too, which silently made the runtime
+  // placement solver blind to them: World.ejectFromRoads only sees what lands in
+  // RoadPaths, so every bus stop / bike dock / entrance kit that ended up in a
+  // driveway or parking aisle stayed there. They ride along tagged
+  // PATH_KIND_SERVICE so the solver sees them while the minimap and the
+  // street-name / curb-tangent lookups still ignore them.
+  const MINIMAP_SKIP = new Set(['footway', 'path', 'steps', 'crossing']);
   const mmStart: number[] = [0];
   const mmPts: number[] = [];
   const mmWidth: number[] = [];
@@ -665,7 +673,7 @@ function buildTile(tile: TileJson): BuildResponse {
         for (const v of pts) mmPts.push(v);
         mmStart.push(mmPts.length / 2);
         mmWidth.push(style.w);
-        mmKind.push(bike ? PATH_KIND_BIKE : PATH_KIND_ROAD);
+        mmKind.push(bike ? PATH_KIND_BIKE : r.c === 'service' ? PATH_KIND_SERVICE : PATH_KIND_ROAD);
       }
       const concrete = CONCRETE_CLASSES.has(r.c);
       const acc = concrete ? wAcc : rAcc;
