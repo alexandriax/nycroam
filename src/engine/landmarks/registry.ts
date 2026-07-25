@@ -63,10 +63,22 @@ export const LANDMARKS_REG: LandmarkEntry[] = [
   // its parapet frames at the pools' exact measured local offsets
   { id: 'sept11-pools', name: 'September 11 Memorial Pools', lat: 40.71158, lon: -74.01313, set: 'fidi', r: 500, rot: GRID },
   { id: 'oculus', name: 'Oculus', lat: 40.7115, lon: -74.0113, set: 'fidi', r: 600 },
-  { id: 'nyse', name: 'New York Stock Exchange', lat: 40.7069, lon: -74.0113, set: 'fidi', r: 450, rot: 0.35 },
+  // Anchor + rot measured off the host footprint's Broad Street frontage (see
+  // the frontage rig note above): a 38.2 m edge, 9 m from the Broad Street
+  // centreline and parallel to it within 0.6deg. The old rot was 44deg off and
+  // the old anchor sat 24 m back inside the block, so the colonnade cut across
+  // the building it is attached to. Standoff is 1 m behind the wall face: the
+  // builder puts its colonnade at local z +2.5, so that lands the columns 1.5 m
+  // PROUD of the wall (a portico projects) with the steps running down to Broad.
+  { id: 'nyse', name: 'New York Stock Exchange', lat: 40.706841, lon: -74.011042, set: 'fidi', r: 450, rot: 1.126 },
   { id: 'nyse-facade', name: 'NYSE Facade', lat: 40.7069, lon: -74.0113, set: 'fidi', r: 450, aliasOf: 'nyse' },
-  { id: 'federal-hall', name: 'Federal Hall', lat: 40.7074, lon: -74.0102, set: 'fidi', r: 420, rot: -1.22 },
-  { id: 'trinity-church', name: 'Trinity Church', lat: 40.7081, lon: -74.0121, set: 'fidi', r: 700, rot: 1.62 },
+  // Wall Street frontage: 8 m to the centreline, parallel within 3.4deg. (Its
+  // long 46.5 m edge is the Nassau Street flank -- taking the longest edge is
+  // what put the portico 33deg out.) Site is cleared, so only rot moves.
+  { id: 'federal-hall', name: 'Federal Hall', lat: 40.7074, lon: -74.0102, set: 'fidi', r: 420, rot: -0.635 },
+  // Broadway frontage: parallel to Broadway within 0.0deg. The church fronts
+  // east onto Broadway; 1.62 had it 35deg across its own churchyard.
+  { id: 'trinity-church', name: 'Trinity Church', lat: 40.7081, lon: -74.0121, set: 'fidi', r: 700, rot: 1.014 },
   { id: 'charging-bull', name: 'Charging Bull', lat: 40.7056, lon: -74.0134, set: 'fidi', r: 350, rot: 0.4 },
   { id: 'fearless-girl', name: 'Fearless Girl', lat: 40.7066, lon: -74.0111, set: 'fidi', r: 350, rot: -1.2 },
   { id: 'bowling-green', name: 'Bowling Green', lat: 40.7048, lon: -74.0138, set: 'fidi', r: 380 },
@@ -101,7 +113,11 @@ export const LANDMARKS_REG: LandmarkEntry[] = [
   { id: 'flatiron', name: 'Flatiron Building', lat: 40.74107, lon: -73.98964, set: 'village', r: 800, rot: 2.847 },
   { id: 'union-square', name: 'Union Square', lat: 40.7359, lon: -73.9906, set: 'village', r: 450, rot: GRID },
   { id: 'madison-sq-park', name: 'Madison Square Park', lat: 40.742, lon: -73.988, set: 'village', r: 400, rot: GRID },
-  { id: 'high-line', name: 'The High Line', lat: 40.7391, lon: -74.008, set: 'village', r: 500, rot: GRID },
+  // NOT GRID: the builder lays a 30 m deck along local +z, so rot has to put +z
+  // along the viaduct, which runs 1.519 here (Washington St agrees at 1.499) --
+  // local +z has bearing rot - pi/2, giving -0.052. GRID had the deck crossing
+  // its own alignment by 26deg.
+  { id: 'high-line', name: 'The High Line', lat: 40.7391, lon: -74.008, set: 'village', r: 500, rot: -0.052 },
   // NOT GRID: the Gansevoort/Meatpacking block is 24 degrees off the Manhattan
   // grid, so GRID left the museum visibly skewed against its own street wall.
   // Measured from the OSM footprint (way/288749896, edge coherence 0.82);
