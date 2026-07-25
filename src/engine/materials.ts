@@ -45,6 +45,11 @@ export function makeFacadeMaterial(): THREE.MeshLambertMaterial {
         uniform sampler2D uRoof;
         float bhash(vec2 p) {
           return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453);
+        }
+        // Analytically filtered [a,b] band: a step() pair widened to the pixel
+        // footprint w, so window edges resolve instead of aliasing.
+        float band(float x, float a, float b, float w) {
+          return smoothstep(a - w, a + w, x) * (1.0 - smoothstep(b - w, b + w, x));
         }`
       )
       .replace(
@@ -64,25 +69,40 @@ export function makeFacadeMaterial(): THREE.MeshLambertMaterial {
             float winW = glassTower ? 1.7 : 2.5;
             bool storefront = v < 4.6;
             if (storefront) { floorH = 4.6; winW = 4.2; }
-            vec2 cellId = vec2(floor(u / winW), floor(v / floorH));
-            vec2 f = vec2(fract(u / winW), fract(v / floorH));
-            float rnd = bhash(cellId + floor(diffuseColor.rg * 61.0));
+            // Cell coordinates BEFORE the fract(), so their screen-space
+            // derivatives are continuous (fwidth of a fract() spikes at every
+            // cell seam and would draw a bright line there).
+            float cu = u / winW, cv = v / floorH;
+            vec2 cellId = vec2(floor(cu), floor(cv));
+            vec2 f = vec2(fract(cu), fract(cv));
+            // Half a pixel in cell units, per axis. This is what turns a hard
+            // step() into a properly filtered edge -- without it every window
+            // mullion is a 1-bit test that crawls and sparkles as soon as a cell
+            // is near pixel-sized, which is exactly the shimmer you fly through
+            // in the helicopter.
+            float wx = max(fwidth(cu), 1e-5) * 0.5;
+            float wy = max(fwidth(cv), 1e-5) * 0.5;
+            // Past ~1 cell per pixel no amount of filtering can resolve the
+            // pattern, so cross-fade the whole grid to its own AREA AVERAGE.
+            // Same mean tone, zero temporal noise.
+            float lod = 1.0 - smoothstep(0.22, 0.62, max(wx, wy));
+            float rnd = mix(0.45, bhash(cellId + floor(diffuseColor.rg * 61.0)), lod);
 
             if (glassTower && !storefront) {
               // curtain wall: thin mullions + spandrel band each floor
-              float mull = step(0.055, f.x) * (1.0 - step(0.945, f.x));
-              float pane = step(0.06, f.y) * (1.0 - step(0.72, f.y));
-              float spandrel = step(0.78, f.y) * (1.0 - step(0.97, f.y));
+              float mull = mix(0.890, band(f.x, 0.055, 0.945, wx), lod);
+              float pane = mix(0.660, band(f.y, 0.06, 0.72, wy), lod);
+              float spandrel = mix(0.190, band(f.y, 0.78, 0.97, wy), lod);
               // sky gradient down the pane + per-pane tint
-              vec3 glass = mix(vec3(0.30, 0.37, 0.46), vec3(0.55, 0.63, 0.72), f.y * 0.8 + rnd * 0.25);
+              vec3 glass = mix(vec3(0.30, 0.37, 0.46), vec3(0.55, 0.63, 0.72), mix(0.4, f.y * 0.8 + rnd * 0.25, lod));
               diffuseColor.rgb = mix(diffuseColor.rgb, glass, mull * pane * 0.92);
               diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * 0.55, spandrel * 0.8);
             } else {
-              float inX = step(0.18, f.x) * (1.0 - step(0.85, f.x));
-              float inY = step(0.25, f.y) * (1.0 - step(0.8, f.y));
+              float inX = mix(0.670, band(f.x, 0.18, 0.85, wx), lod);
+              float inY = mix(0.550, band(f.y, 0.25, 0.8, wy), lod);
               if (storefront) {
-                inX = step(0.08, f.x) * (1.0 - step(0.92, f.x));
-                inY = step(0.05, f.y) * (1.0 - step(0.75, f.y));
+                inX = mix(0.840, band(f.x, 0.08, 0.92, wx), lod);
+                inY = mix(0.700, band(f.y, 0.05, 0.75, wy), lod);
               }
               float win = inX * inY;
               // masonry surface detail between the windows (brightness only,
@@ -93,12 +113,12 @@ export function makeFacadeMaterial(): THREE.MeshLambertMaterial {
               vec3 glass = mix(vec3(0.13, 0.16, 0.2), vec3(0.38, 0.44, 0.52), rnd * rnd);
               if (storefront) glass = mix(vec3(0.1, 0.11, 0.13), vec3(0.3, 0.28, 0.24), rnd);
               // window inset: lintel shadow at the top of the opening, darker jambs
-              float lintel = 1.0 - 0.5 * smoothstep(0.68, 0.8, f.y) * win;
-              float jamb = 1.0 - 0.28 * (step(0.18, f.x) - step(0.24, f.x) + step(0.79, f.x) - step(0.85, f.x)) * inY;
+              float lintel = 1.0 - 0.5 * mix(0.26, smoothstep(0.68, 0.8, f.y), lod) * win;
+              float jamb = 1.0 - 0.28 * lod * (band(f.x, 0.18, 0.24, wx) + band(f.x, 0.79, 0.85, wx)) * inY;
               diffuseColor.rgb = mix(diffuseColor.rgb, glass, win * 0.88);
               diffuseColor.rgb *= lintel * jamb;
               // sill highlight under the window
-              float sill = smoothstep(0.2, 0.25, f.y) * (1.0 - smoothstep(0.25, 0.3, f.y)) * inX;
+              float sill = lod * band(f.y, 0.225, 0.275, max(wy, 0.025)) * inX;
               diffuseColor.rgb += vec3(0.05) * sill * (storefront ? 0.0 : 1.0);
             }
             // grounding gradient: subtle darkening near street

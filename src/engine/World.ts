@@ -1630,7 +1630,10 @@ export class World {
         fog.far = (this.baseLoadRadius + altBoost) * 1.18;
       }
 
-      if (this.sun) followSun(this.sun, this.pos.x, this.pos.z);
+      // Shadow coverage grows with altitude and leads along the view, so the
+      // box edge stays out in the fog instead of sweeping across the city as
+      // you fly (that sweep was the flicker).
+      if (this.sun) followSun(this.sun, this.pos.x, this.pos.z, this.pos.y, fwd.x, fwd.z);
       this.waterUpdate?.(dt);
       // tiles + plaques stream around the led point (their unload margins beat
       // the lead); kit managers (entrances/bikes) keep the true position — their
@@ -1777,7 +1780,7 @@ export class World {
         this.busLocal.z = Math.max(box.minZ, Math.min(box.maxZ, this.busLocal.z + lz));
         // keep the player anchored to the vehicle for tiles/minimap/save
         this.pos.set(h.pos.x, heightAt(h.pos.x, h.pos.z), h.pos.z);
-        if (this.sun) followSun(this.sun, this.pos.x, this.pos.z);
+        if (this.sun) followSun(this.sun, this.pos.x, this.pos.z, this.pos.y, fwd.x, fwd.z);
         this.waterUpdate?.(dt);
         this.tiles.update(this.pos.x, this.pos.z);
         this.entrances.update(this.pos.x, this.pos.z, dt);
