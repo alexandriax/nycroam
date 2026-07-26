@@ -3,6 +3,7 @@ import type { NetworkData, StationSpec } from './types';
 import { routeColor, bulletTextColor } from './types';
 import { makeWallTexture, makeNameMosaicTexture } from './signage';
 import { SANS, BLACK, LED } from '../fonts';
+import { canvas2d } from '../canvas2d';
 
 export interface RideHud {
   route: string;
@@ -47,9 +48,7 @@ function drawHeavyBullet(ctx: CanvasRenderingContext2D, x: number, y: number, r:
  * greyed; the portion ahead is drawn in the route color.
  */
 function makeStripMap(routeId: string, stops: string[], names: Map<string, string>, currentIdx: number): THREE.CanvasTexture {
-  const cv = document.createElement('canvas');
-  cv.width = 2048; cv.height = 128;
-  const ctx = cv.getContext('2d')!;
+  const { cv, ctx } = canvas2d(2048, 128);
   ctx.fillStyle = '#f4f2ec';
   ctx.fillRect(0, 0, cv.width, cv.height);
   const color = routeColor(routeId);
@@ -612,8 +611,9 @@ export class RideWorld {
    */
   private setNextSign(text: string) {
     const W = 2048, H = 280;
-    if (!this.ledCv) { this.ledCv = document.createElement('canvas'); this.ledCv.width = W; this.ledCv.height = H; }
-    const ctx = this.ledCv.getContext('2d')!;
+    if (!this.ledCv) this.ledCv = canvas2d(W, H).cv;
+    const ctx = this.ledCv.getContext('2d');
+    if (!ctx) return;   // canvas budget exhausted: keep the last sign rather than crash
     const caps = text.toUpperCase();
 
     // black panel

@@ -17,6 +17,7 @@
 import * as THREE from 'three';
 import { routeColor, bulletTextColor } from './subway/types';
 import { BLACK } from './fonts';
+import { canvas2d } from './canvas2d';
 
 // ---------------------------------------------------------------------------
 // Geometry helpers (duplicated from props.ts's pattern since this file may
@@ -123,11 +124,7 @@ function makeEntranceSignTexture(routes: string[]): THREE.CanvasTexture {
   // canvas width tracks the panel width so bullets stay circular
   const w = Math.round(512 * entranceSignWidth(routes.length));
   const h = 215;
-  const canvas = document.createElement('canvas');
-  canvas.width = w;
-  canvas.height = h;
-  const ctx = canvas.getContext('2d');
-  if (!ctx) throw new Error('2D canvas context unavailable');
+  const { cv: canvas, ctx } = canvas2d(w, h);
 
   ctx.fillStyle = '#000000';
   ctx.fillRect(0, 0, w, h);

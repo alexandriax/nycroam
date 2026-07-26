@@ -4,6 +4,7 @@ import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js
 import type { SubwayData, StationSpec, EntranceSpec } from './subway/types';
 import { buildEntranceKit } from './streetprops';
 import { heightAt } from './terrain';
+import { canvas2d } from './canvas2d';
 
 /**
  * Collapse a prop group into one mesh per material (a kit is otherwise ~40
@@ -74,9 +75,7 @@ function makeBeacon(): THREE.Mesh {
     beaconGeo.setIndex(idx);
     a.dispose(); b.dispose();
 
-    const cv = document.createElement('canvas');
-    cv.width = 32; cv.height = 128;
-    const ctx = cv.getContext('2d')!;
+    const { cv, ctx } = canvas2d(32, 128);
     const g = ctx.createLinearGradient(0, 0, 0, 128);
     g.addColorStop(0, 'rgba(72,255,143,0)');
     g.addColorStop(0.75, 'rgba(72,255,143,0.28)');

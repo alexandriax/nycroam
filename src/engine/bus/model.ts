@@ -23,6 +23,7 @@ import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js
 import { mergeByMaterial } from '../EntranceManager';
 import { BLACK, LED, SANS } from '../fonts';
 import { BUS, type BusModelLike, type BusModelOpts } from './types';
+import { canvas2d } from '../canvas2d';
 
 // ---------------------------------------------------------------------------
 // Layout constants (absolute y from ground; x/z in the bus local frame)
@@ -198,11 +199,7 @@ function cachedCanvasMat(
 ): THREE.Material {
   let m = signMatCache.get(key);
   if (!m) {
-    const canvas = document.createElement('canvas');
-    canvas.width = w;
-    canvas.height = h;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) throw new Error('2D canvas context unavailable');
+    const { cv: canvas, ctx } = canvas2d(w, h);
     draw(ctx);
     const tex = new THREE.CanvasTexture(canvas);
     tex.colorSpace = THREE.SRGBColorSpace;
@@ -646,11 +643,7 @@ export class BusModel implements BusModelLike {
     }
 
     // interior next-stop LED (per-instance dynamic canvas)
-    const canvas = document.createElement('canvas');
-    canvas.width = 768;
-    canvas.height = 96;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) throw new Error('2D canvas context unavailable');
+    const { cv: canvas, ctx } = canvas2d(768, 96);
     this.ledCtx = ctx;
     this.ledTexture = new THREE.CanvasTexture(canvas);
     this.ledTexture.colorSpace = THREE.SRGBColorSpace;

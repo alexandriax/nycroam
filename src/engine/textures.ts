@@ -3,6 +3,7 @@
 // canvas plus a height field; normals come from a Sobel pass over the heights.
 import * as THREE from 'three';
 import { quality } from './quality';
+import { canvas2d } from './canvas2d';
 
 export interface Tex {
   map: THREE.CanvasTexture;
@@ -33,9 +34,7 @@ function configure(t: THREE.CanvasTexture, srgb: boolean) {
 }
 
 function heightToNormal(h: Float32Array, size: number, strength: number): THREE.CanvasTexture {
-  const cv = document.createElement('canvas');
-  cv.width = cv.height = size;
-  const ctx = cv.getContext('2d')!;
+  const { cv, ctx } = canvas2d(size, size);
   const img = ctx.createImageData(size, size);
   const d = img.data;
   const at = (x: number, y: number) => h[((y + size) % size) * size + ((x + size) % size)];
@@ -62,9 +61,7 @@ const cache = new Map<string, Tex | THREE.CanvasTexture>();
 function surface(key: string, size: number, seed: number, mpr: number, normalStrength: number, paint: Painter): Tex {
   const hit = cache.get(key);
   if (hit) return hit as Tex;
-  const cv = document.createElement('canvas');
-  cv.width = cv.height = size;
-  const ctx = cv.getContext('2d')!;
+  const { cv, ctx } = canvas2d(size, size);
   const h = new Float32Array(size * size);
   paint(ctx, mulberry32(seed), h, size);
   const tex: Tex = {
@@ -299,9 +296,7 @@ export function makeGrassDetailTexture(): THREE.CanvasTexture {
   const hit = cache.get(key);
   if (hit) return hit as THREE.CanvasTexture;
   const size = 512;
-  const cv = document.createElement('canvas');
-  cv.width = cv.height = size;
-  const ctx = cv.getContext('2d')!;
+  const { cv, ctx } = canvas2d(size, size);
   const rand = mulberry32(808);
   ctx.fillStyle = '#bcbeb4';
   ctx.fillRect(0, 0, size, size);
@@ -327,9 +322,7 @@ export function makeCloudTexture(seed: number): THREE.CanvasTexture {
   const hit = cache.get(key);
   if (hit) return hit as THREE.CanvasTexture;
   const size = 256;
-  const cv = document.createElement('canvas');
-  cv.width = cv.height = size;
-  const ctx = cv.getContext('2d')!;
+  const { cv, ctx } = canvas2d(size, size);
   const rand = mulberry32(900 + seed);
   const puffs = 9 + Math.floor(rand() * 6);
   for (let i = 0; i < puffs; i++) {

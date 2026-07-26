@@ -71,7 +71,10 @@ export default function MiniMap({ world, size = 208, layer = 'transit' }: { worl
   useEffect(() => {
     const cv = canvasRef.current;
     if (!cv) return;
-    const ctx = cv.getContext('2d')!;
+    // iOS returns null here once the page is over its canvas budget; a blank
+    // minimap is survivable, a TypeError in a React effect is not
+    const ctx = cv.getContext('2d');
+    if (!ctx) return;
     const dpr = Math.min(2, window.devicePixelRatio || 1);
     cv.width = size * dpr;
     cv.height = size * dpr;
