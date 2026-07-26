@@ -1531,8 +1531,50 @@ export class World {
   private loop = () => {
     this.raf = requestAnimationFrame(this.loop);
     this.lastRaf = performance.now();
-    this.step();
+    // A throw inside step() escapes the rAF callback entirely: the loop dies,
+    // nothing repaints, and the framework's own error page replaces the app --
+    // white text on black with the detail only in a console the player (on a
+    // phone, especially) has no way to open. The same reasoning already guards
+    // updateAudio; it applies to the whole frame.
+    try {
+      this.step();
+    } catch (e) {
+      this.onFrameError(e);
+    }
   };
+
+  private frameErrors = 0;
+
+  /**
+   * Survive a frame that threw. The first one is treated as recoverable and, if
+   * we are inside a station / train / bus / tram, we bail back to the street --
+   * those modes build a whole scene of their own and are where the unusual code
+   * paths live, so dropping out of them clears the most likely bad state and
+   * the player keeps playing. A second failure means the fault is not
+   * mode-specific: stop the loop and put the real message on screen, where it
+   * can be read and reported instead of vanishing into the console.
+   */
+  private onFrameError(e: unknown) {
+    const err = e instanceof Error ? e : new Error(String(e));
+    this.frameErrors++;
+    console.error(`[world] frame error #${this.frameErrors}:`, err);
+    if (this.frameErrors === 1 && this.mode !== 'street') {
+      try {
+        this.leaveTransit();
+        this.transitioning = false;
+        this.onFade?.(false);
+        this.pushHud();
+        return;
+      } catch (e2) {
+        console.error('[world] recovery failed:', e2);
+      }
+    }
+    cancelAnimationFrame(this.raf);
+    const where = (err.stack || '').split('\n').slice(1, 3).map((l) => l.trim()).join(' | ');
+    this.hud.error = `Something went wrong: ${err.message}${where ? ` (${where})` : ''}`;
+    this.hud.mode = 'street';
+    try { this.pushHud(); } catch { /* the HUD callback is all we had left */ }
+  }
 
   private step = () => {
     // self-heal: if we were constructed while the window reported zero size
