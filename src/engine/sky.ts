@@ -223,7 +223,9 @@ export function setupStationLights(scene: THREE.Scene, shadowHalf = 0) {
   const down = new THREE.DirectionalLight(0xffedc8, 0.75);
   down.position.set(6, 30, 4);
   scene.add(down, down.target);
-  if (q.shadows && shadowHalf > 0) {
+  // stationShadows, not shadows: a complex marks thousands of casters, which is
+  // a different order of cost from the street's bounded frustum (see quality.ts)
+  if (q.stationShadows && shadowHalf > 0) {
     down.castShadow = true;
     down.shadow.mapSize.set(q.stationShadowMapSize, q.stationShadowMapSize);
     down.shadow.camera.left = -shadowHalf;

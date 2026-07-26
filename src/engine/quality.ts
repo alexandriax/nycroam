@@ -17,6 +17,18 @@ export type QualityLevel = 'low' | 'medium' | 'high' | 'ultra';
 export interface QualityTier {
   level: QualityLevel;
   shadows: boolean;
+  /**
+   * Whether SUBWAY INTERIORS run a shadow pass, separately from the street.
+   *
+   * These are not the same cost. The street's shadow frustum is bounded by the
+   * altitude ladder in sky.ts and sees a handful of merged tile meshes. A
+   * station complex is thousands of individual props: Times Square marks 3,818
+   * casters, so switching its light to castShadow adds 3,818 draw calls to
+   * every frame, on top of the ~5,700 the interior already costs. That is
+   * affordable on a desktop GPU and is not affordable on a phone, where a
+   * sustained overload gets the tab killed rather than merely slowed.
+   */
+  stationShadows: boolean;
   shadowMapSize: number;
   stationShadowMapSize: number;
   pixelRatioCap: number;
@@ -34,22 +46,22 @@ const TIERS: Record<QualityLevel, Omit<QualityTier, 'level'>> = {
   // Software rasterisers and 2015-era mobile GPUs. No shadow pass at all, half
   // the draw distance, and a hard 1x pixel ratio.
   low: {
-    shadows: false, shadowMapSize: 1024, stationShadowMapSize: 1024,
+    shadows: false, stationShadows: false, shadowMapSize: 1024, stationShadowMapSize: 1024,
     pixelRatioCap: 1, anisotropy: 2, clouds: 4, loadRadius: 620, farPlane: 3400, tileWorkers: 2,
   },
   // Mainstream phones and tablets. Shadows ON -- a 1536 map over the 300 m
   // street-level box is ~0.25 m per texel, which is the whole point of the
   // altitude ladder in sky.ts: the near band stays sharp without a big map.
   medium: {
-    shadows: true, shadowMapSize: 1536, stationShadowMapSize: 1024,
+    shadows: true, stationShadows: false, shadowMapSize: 1536, stationShadowMapSize: 1024,
     pixelRatioCap: 1.5, anisotropy: 4, clouds: 6, loadRadius: 820, farPlane: 4600, tileWorkers: 2,
   },
   high: {
-    shadows: true, shadowMapSize: 2048, stationShadowMapSize: 2048,
+    shadows: true, stationShadows: true, shadowMapSize: 2048, stationShadowMapSize: 2048,
     pixelRatioCap: 2, anisotropy: 8, clouds: 8, loadRadius: 1150, farPlane: 6500, tileWorkers: 3,
   },
   ultra: {
-    shadows: true, shadowMapSize: 4096, stationShadowMapSize: 2048,
+    shadows: true, stationShadows: true, shadowMapSize: 4096, stationShadowMapSize: 2048,
     pixelRatioCap: 2, anisotropy: 16, clouds: 10, loadRadius: 1350, farPlane: 7200, tileWorkers: 4,
   },
 };
@@ -94,17 +106,22 @@ function detect(): QualityLevel {
   if (/mali-4|mali-t6|mali-t7|mali-t8|adreno \(tm\) [345]|powervr (sgx|rogue g6)|videocore/.test(gpu)) return 'low';
 
   // Apple GPUs report as "Apple A17 GPU" / "Apple M2" / plain "Apple GPU" on
-  // iOS. All of these handle a 1536 shadow map; the M-series desktops handle
-  // considerably more.
+  // iOS. The M-series desktops are the fastest thing we run on.
   if (/apple m\d/.test(gpu)) return 'ultra';
-  if (/apple/.test(gpu)) return uaMobile ? 'high' : 'ultra';
+  if (/apple/.test(gpu) && !uaMobile) return 'ultra';
 
-  if (uaMobile || (touch && cores <= 6)) {
-    // Recent Adreno 6xx/7xx/8xx and Mali-G share the medium/high band; core
-    // count and reported memory separate the flagships from the budget parts.
-    if (/adreno \((tm\) )?[78]\d\d|mali-g[7-9]\d|immortalis/.test(gpu) && cores >= 8) return 'high';
-    return 'medium';
-  }
+  // HANDHELDS CAP AT MEDIUM, whatever the GPU string says.
+  //
+  // A flagship phone can render a 2048 shadow map and a 1150 m streaming radius
+  // for a while -- and then it heats up, and a browser that has been pinned at
+  // 100% GPU does not get slower, it gets its tab killed. `high` also turns on
+  // the subway-interior shadow pass, which is thousands of extra draw calls
+  // inside a station. None of that is worth a crash to a player who cannot see
+  // the difference on a 6-inch screen; anyone who wants it can pin a level from
+  // the HUD. Tablets and touch laptops (touch, but not a phone UA) keep their
+  // GPU-derived tier.
+  if (uaMobile) return 'medium';
+  if (touch && cores <= 6) return 'medium';
 
   // Desktop. Discrete parts get ultra; integrated and low-core machines drop a
   // notch, since they share bandwidth with the rest of the system.
