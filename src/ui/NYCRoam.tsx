@@ -657,13 +657,23 @@ export default function NYCRoam() {
         </>
       )}
 
-      {/* attribution — always visible, above the intro overlay */}
-      <a className="credit hud-panel" href="https://www.alexandriaredmon.com"
-        target="_blank" rel="noopener noreferrer">
-        <span className="credit-dot" />
-        Made by Alexandria
-        <span className="credit-arrow">↗</span>
-      </a>
+      {/* attribution — always visible, above the intro overlay. The OSM credit is
+          not decoration: the world is a derivative database of OpenStreetMap, and
+          ODbL 4.3 requires the notice to travel with any public display of it. */}
+      <div className="credit hud-panel">
+        <a className="credit-link" href="https://www.alexandriaredmon.com"
+          target="_blank" rel="noopener noreferrer">
+          <span className="credit-dot" />
+          Made by Alexandria
+          <span className="credit-arrow">↗</span>
+        </a>
+        <span className="credit-sep">·</span>
+        <a className="credit-link" href="https://www.openstreetmap.org/copyright"
+          target="_blank" rel="noopener noreferrer">
+          © OpenStreetMap
+          <span className="credit-arrow">↗</span>
+        </a>
+      </div>
 
       {/* intro overlay = the loading screen, kept as a frosted-glass welcome card
           over the (blurred) loaded world until the visitor taps Explore */}
@@ -697,6 +707,13 @@ export default function NYCRoam() {
                 Explore Manhattan
               </button>
             )}
+            <p className="intro-attrib">
+              Map data ©{' '}
+              <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">
+                OpenStreetMap
+              </a>{' '}
+              contributors (ODbL) · MTA · NYC Open Data · USGS
+            </p>
           </div>
         </div>
       )}
