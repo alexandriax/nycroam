@@ -471,7 +471,7 @@ select, button {
   color: inherit;
 }
 
-/* ---- "Made by" credit (bottom-left) ---- */
+/* ---- "Made by" + OpenStreetMap credit (bottom-left) ---- */
 .credit {
   position: absolute;
   left: 12px;
@@ -484,10 +484,18 @@ select, button {
   font-size: 12px;
   letter-spacing: 0.2px;
   color: rgba(255, 255, 255, 0.66);
-  text-decoration: none;
   transition: color 0.18s ease, opacity 0.18s ease;
 }
-.credit:hover { color: rgba(255, 255, 255, 0.95); }
+.credit .credit-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: inherit;
+  text-decoration: none;
+  transition: color 0.18s ease;
+}
+.credit .credit-link:hover { color: rgba(255, 255, 255, 0.95); }
+.credit .credit-sep { opacity: 0.32; }
 .credit .credit-dot {
   width: 6px; height: 6px; border-radius: 50%;
   background: #f5a623;
@@ -596,8 +604,25 @@ select, button {
 }
 @keyframes introspin { to { transform: rotate(360deg); } }
 
+/* source credits under the CTA: the welcome card is the one surface every
+   visitor sees, so the full data-source list lives here rather than in a
+   buried about panel */
+.intro-attrib {
+  margin-top: 14px;
+  font-size: 10.5px;
+  line-height: 1.5;
+  letter-spacing: 0.2px;
+  color: rgba(255, 255, 255, 0.42);
+}
+.intro-attrib a { color: inherit; text-decoration: underline; text-underline-offset: 2px; }
+.intro-attrib a:hover { color: rgba(255, 255, 255, 0.8); }
+
 @media (max-width: 560px) {
   .jumpto { max-width: 150px; }
+  /* the credit row carries two links now; tighten it so it stays one line and
+     clears the joystick (left 40, bottom 90) on a 375 px phone */
+  .credit { font-size: 11px; gap: 5px; padding: 5px 9px; }
+  .credit .credit-arrow { display: none; }
   .intro-card { padding: 26px 22px 24px; }
   .intro-card .intro-word { font-size: 23px; letter-spacing: 5px; }
   .intro-card .intro-msg { font-size: 13.5px; }
