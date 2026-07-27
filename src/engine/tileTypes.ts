@@ -82,11 +82,19 @@ export interface RoadPaths {
   start: Uint32Array; // index into pts (per path), length = pathCount+1
   pts: Float32Array; // [x0,z0,x1,z1,...] world meters
   width: Float32Array; // per path, meters (drives minimap line weight)
-  kind: Uint8Array; // per path: 0 = vehicular road, 1 = bike lane (cycleway)
+  kind: Uint8Array; // per path: 0 = vehicular road, 1 = bike lane, 2 = service lane
 }
 
 export const PATH_KIND_ROAD = 0;
 export const PATH_KIND_BIKE = 1;
+/**
+ * Alleys, driveways and parking aisles. Carried here ONLY so the runtime
+ * placement solver can push kits out of them -- they are drawn as 5.5 m of
+ * asphalt like any other lane, and a bus stop standing in one is standing in
+ * the road. Everything that treats a path as a *street* (minimap, street names,
+ * curb tangents, Street View snapping) filters this kind out.
+ */
+export const PATH_KIND_SERVICE = 2;
 
 export interface CollisionData {
   // Building rings (incl. elevated parts) for player push-out and roof landing.

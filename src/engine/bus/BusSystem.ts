@@ -308,6 +308,12 @@ export class BusSystem {
 
   private worldTime = WORLD_TIME_START;
   private meshed = new Map<string, MeshedBus>();
+  /**
+   * Which side of each other a meshed PAIR berthed to, keyed by their two
+   * keyNums. See the tie-break in separateMeshed: derived fresh from the current
+   * offset it is a feedback loop, so it is decided once and kept.
+   */
+  private sepSide = new Map<number, number>();
   private placedStops = new Map<string, PlacedStop>();
   private stopTimer = 0;
   private busTimer = 0;
@@ -830,7 +836,31 @@ export class BusSystem {
           // gap). Break that tie deterministically by the key-sorted pass order (i
           // precedes j), so the pair berths to stable opposite sides instead of
           // oscillating on top of each other.
-          const sgn = proj > 1e-2 ? 1 : proj < -1e-2 ? -1 : 1;
+          // Split direction, decided ONCE per pair and remembered.
+          //
+          // Deriving it from the CURRENT offset each frame is a feedback loop:
+          // proj is measured from positions that already carry last frame's
+          // smoothed push, so the pair chases its own correction. Measured on
+          // two buses of different routes sharing a stop at Herald Square --
+          // locked at the same arc position (along pinned at 0.76 m, headings
+          // exactly parallel) with their lateral offsets swinging 0 -> 2.24 m
+          // -> 0 on a repeating cycle, overlapping for up to 5 frames at a time.
+          // That reads as a bus shimmying sideways next to another bus.
+          //
+          // The old code recognised the degenerate case but only when the
+          // centres were within 1 cm, which is far narrower than the range over
+          // which proj is unreliable. Keyed memory covers the whole of it, and
+          // is deterministic: the same pair always berths the same way.
+          const ki = vis[i].keyNum, kj = vis[j].keyNum;
+          const pairKey = ki < kj ? ki * 1048576 + kj : kj * 1048576 + ki;
+          const flip = ki > kj;                 // store the side in low-key order
+          let stored = this.sepSide.get(pairKey) ?? 0;
+          if (stored === 0) {
+            stored = proj > 1e-2 ? 1 : proj < -1e-2 ? -1 : 1;
+            if (flip) stored = -stored;
+            this.sepSide.set(pairKey, stored);
+          }
+          const sgn = flip ? -stored : stored;
           const half = (overlap / 2) * sgn;
           sepTx[j] += px * half; sepTz[j] += pz * half;   // push both apart
           sepTx[i] -= px * half; sepTz[i] -= pz * half;
@@ -904,6 +934,14 @@ export class BusSystem {
   }
 
   private removeMeshed(mb: MeshedBus) {
+    // drop this bus's remembered berth sides so the map cannot grow unbounded
+    // over a long session (keys are pair-scoped, so they are dead once either
+    // bus is gone)
+    if (this.sepSide.size) {
+      for (const k of this.sepSide.keys()) {
+        if (Math.floor(k / 1048576) === mb.keyNum || k % 1048576 === mb.keyNum) this.sepSide.delete(k);
+      }
+    }
     this.scene.remove(mb.model.group);
     mb.model.dispose();
     this.meshed.delete(mb.key);

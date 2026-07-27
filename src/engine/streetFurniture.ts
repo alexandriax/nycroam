@@ -4,6 +4,7 @@
 import * as THREE from 'three';
 import { hash01 } from './palette';
 import { SANS } from './fonts';
+import { canvas2d } from './canvas2d';
 
 export interface WorldSign {
   x: number;
@@ -81,9 +82,7 @@ function drawBlade(ctx: CanvasRenderingContext2D, cx: number, cy: number, text: 
  */
 export function buildSignsMesh(signs: WorldSign[]): { mesh: THREE.Mesh; texture: THREE.CanvasTexture } {
   const W = CELL_W * COLS, H = CELL_H * ROWS + 64;
-  const cv = document.createElement('canvas');
-  cv.width = W; cv.height = H;
-  const ctx = cv.getContext('2d')!;
+  const { cv, ctx } = canvas2d(W, H);
   // transparent background; pole patch strip at the bottom
   ctx.fillStyle = '#274d3d';
   ctx.fillRect(0, H - 64, W, 64);

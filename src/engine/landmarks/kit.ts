@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { canvas2d } from '../canvas2d';
 
 /**
  * Shared building blocks for landmark modules (src/engine/landmarks/sets/*).
@@ -154,10 +155,7 @@ export function twoSidedPanel(tex: THREE.Texture, w: number, h: number): THREE.G
 
 /** Canvas → texture with sane defaults (sRGB, mipmaps). */
 export function canvasTexture(draw: (ctx: CanvasRenderingContext2D, w: number, h: number) => void, w = 256, h = 256): THREE.CanvasTexture {
-  const canvas = document.createElement('canvas');
-  canvas.width = w;
-  canvas.height = h;
-  const ctx = canvas.getContext('2d')!;
+  const { cv: canvas, ctx } = canvas2d(w, h);
   draw(ctx, w, h);
   const tex = new THREE.CanvasTexture(canvas);
   tex.colorSpace = THREE.SRGBColorSpace;

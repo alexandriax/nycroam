@@ -570,6 +570,10 @@ async function main() {
     if (!allByTile.has(key)) allByTile.set(key, []);
     allByTile.get(key).push(b);
   });
+  // Height difference under which two overlapping buildings count as twins
+  // rather than as a tier and its neighbour. Roughly one storey's worth of
+  // rounding slop, well under the ~3 m that separates real setback tiers.
+  const TWIN_H_EPS = 0.6;
   const buried = new Set();
   let droppedParts = 0;
   for (const p of keptBuildings) {
@@ -581,10 +585,20 @@ async function main() {
       if (!list) continue;
       for (const q of list) {
         if (q === p || buried.has(q)) continue;
-        // strictly taller, or an exact-height twin resolved by index so a
-        // duplicated footprint drops one copy instead of fighting forever
-        if (q.height < p.height) continue;
-        if (q.height === p.height && q._idx > p._idx) continue;
+        // Taller, or a twin of near-enough the same height that the two would
+        // fight. The tolerance matters: OSM duplicates are rarely bit-identical
+        // (24.87 vs 24.93 for the same roof), and an exact === test let every
+        // such pair through -- neither could bury the other, so both rendered
+        // with coplanar walls. An audit of the baked output found 31 of these,
+        // including two 200 m+ towers duplicated at full height.
+        if (q.height < p.height - TWIN_H_EPS) continue;
+        // Among twins the LARGER footprint survives. Resolving by index instead
+        // (the old rule) drops whichever copy happens to come first in the file,
+        // which is as often the outer one -- and burial then fails, because the
+        // bigger polygon is not covered by the smaller.
+        if (Math.abs(q.height - p.height) <= TWIN_H_EPS) {
+          if (q.area < p.area || (q.area === p.area && q._idx > p._idx)) continue;
+        }
         if (q.minHeight >= p.height || q.height <= p.minHeight) continue; // bands must overlap
         const qb = bbAll[q._idx];
         if (qb[2] < pb[0] || qb[0] > pb[2] || qb[3] < pb[1] || qb[1] > pb[3]) continue; // bbox reject
@@ -592,19 +606,28 @@ async function main() {
       }
     }
     if (!cands.length) continue;
-    const N = 10;
+    // A 10x10 grid over the BBOX lands fewer than 12 samples inside a thin or
+    // L-shaped polygon, and the `inside >= 12` floor then silently spared it --
+    // which is how slivers like the two 210 m spire parts at 3_-3 survived
+    // fully inside their own tower. Refine once when the coarse pass is
+    // undersampled rather than lowering the floor, which would make the
+    // coverage ratio noisy for everything.
     let inside = 0, covered = 0;
-    for (let i = 0; i < N; i++) {
-      const x = pb[0] + ((i + 0.5) / N) * (pb[2] - pb[0]);
-      for (let j = 0; j < N; j++) {
-        const z = pb[1] + ((j + 0.5) / N) * (pb[3] - pb[1]);
-        if (!pointInPolygon([x, z], p.outer)) continue;
-        inside++;
-        for (const { q, bb } of cands) {
-          if (x < bb[0] || x > bb[2] || z < bb[1] || z > bb[3]) continue;
-          if (pointInPolygon([x, z], q.outer)) { covered++; break; }
+    for (const N of [10, 32]) {
+      inside = 0; covered = 0;
+      for (let i = 0; i < N; i++) {
+        const x = pb[0] + ((i + 0.5) / N) * (pb[2] - pb[0]);
+        for (let j = 0; j < N; j++) {
+          const z = pb[1] + ((j + 0.5) / N) * (pb[3] - pb[1]);
+          if (!pointInPolygon([x, z], p.outer)) continue;
+          inside++;
+          for (const { q, bb } of cands) {
+            if (x < bb[0] || x > bb[2] || z < bb[1] || z > bb[3]) continue;
+            if (pointInPolygon([x, z], q.outer)) { covered++; break; }
+          }
         }
       }
+      if (inside >= 12) break;
     }
     if (inside >= 12 && covered / inside > 0.9) { buried.add(p); droppedParts++; }
   }
@@ -649,6 +672,14 @@ async function main() {
     { id: 'top-of-the-rock', lat: 40.7591, lon: -73.9794, r: 40, minH: 120 },
     // (flatiron was dropped from the fit list: a triangle's longest-edge obb
     // rotated and offset the cornice trim — it uses a measured registry rot now)
+    // The registry anchor sat 59.5m from the tower and 26.7m OUTSIDE every 417m
+    // footprint, on plaza ground — so the crown-only builder (mechanical ring +
+    // 124m mast from y=417) hung its mast in mid-air beside the roof, next to
+    // the 541m spire sliver OSM bakes at the right spot: two spires, one of them
+    // floating. Same failure woolworth / one-vanderbilt / top-of-the-rock each
+    // got a fit entry for. minH 400 measures the shaft only; clearAboveH 470
+    // drops OSM's own spire so the bespoke one stands alone.
+    { id: 'one-wtc', lat: 40.712998, lon: -74.013190, r: 55, minH: 400, clearAboveH: 470 },
     { id: 'msg', lat: 40.7505, lon: -73.9934, r: 80 },
     { id: 'edge-deck', lat: 40.7539, lon: -74.0006, r: 45 },
   ].map((e) => { const [x, z] = lonLatToXZ(e.lon, e.lat); return { ...e, x, z }; });
@@ -770,8 +801,19 @@ async function main() {
   // point that OSM also maps as a building would be swallowed inside it.
   // Buildings whose centroid falls within r of a point are dropped; layered
   // landmarks (crowns, marquees, facades) keep their massing and are NOT here.
+  // [id, lat, lon, radius, keepH?]
+  //
+  // keepH is a HEIGHT CEILING on what a circle may delete. A radius sized to a
+  // low landmark's own site inevitably reaches a neighbouring tower's setback
+  // parts in Manhattan, and deleting one of those punches a notch out of a
+  // building the bespoke build does not replace. An audit of the baked output
+  // found three: the Oculus (h=47) circle eating a 281 m part of 3 WTC, the
+  // Times Square circle taking four parts of the Bertelsmann Building
+  // (h=223/188/168) so 1540 Broadway stood ~45 m short, and Carnegie Hall's
+  // taking a 170 m part of Carnegie Hall Tower. Nothing a low-rise landmark
+  // replaces is anywhere near these ceilings.
   const LANDMARK_CLEAR = [
-    ['oculus', 40.7115, -74.0113, 55], ['sept11-museum', 40.7115, -74.0125, 28],
+    ['oculus', 40.7115, -74.0113, 55, 90], ['sept11-museum', 40.7115, -74.0125, 28],
     ['trinity-church', 40.7081, -74.0121, 40], ['federal-hall', 40.7074, -74.0102, 30],
     ['castle-clinton', 40.7033, -74.017, 38], ['fraunces-tavern', 40.7034, -74.0113, 18],
     ['whitehall-terminal', 40.7013, -74.0131, 45], ['city-hall', 40.7128, -74.006, 50],
@@ -794,7 +836,7 @@ async function main() {
     // Times Square's bowtie is our billboard-stack canyon; drop the generic
     // brick OSM massing in the core so the spectaculars stand free instead of
     // spearing through buildings (the district's real towers beyond r remain).
-    ['times-square', 40.758, -73.9855, 55],
+    ['times-square', 40.758, -73.9855, 55, 110],
     // recentered on the measured OSM centroids: the old circles sat 50-90m off
     // and left the real 156m Secretariat slab + GA hall standing through the build
     ['un-secretariat', 40.7489, -73.9681, 60], ['un-ga', 40.7501, -73.9677, 50],
@@ -805,16 +847,24 @@ async function main() {
     // covers all its stepped parts and stays clear of the named neighbours
     // (280 Park 85m, Postum/250 Park 87m, 383 Madison tower 87m).
     ['chase-hq', 40.755980, -73.975987, 55],
-    ['dakota', 40.7765, -73.9761, 50], ['carnegie-hall', 40.7651, -73.9799, 35],
+    ['dakota', 40.7765, -73.9761, 50], ['carnegie-hall', 40.7651, -73.9799, 35, 80],
     ['whitney', 40.7397, -74.0089, 35], ['vessel', 40.7538, -74.0022, 40],
-    ['little-island', 40.742, -74.01, 70], ['belvedere', 40.7794, -73.9692, 28],
+    ['little-island', 40.742, -74.01, 70], ['belvedere', 40.7794, -73.9692, 36],
     ['grants-tomb', 40.8134, -73.963, 32], ['riverside-church', 40.8119, -73.9633, 42],
     ['columbia-low', 40.8081, -73.9619, 42], ['st-john-divine', 40.8038, -73.9619, 55],
-    ['cloisters', 40.8649, -73.9317, 55], ['hamilton-grange', 40.8214, -73.9469, 18],
+    ['cloisters', 40.8649, -73.9317, 55],
+    // hamilton-grange / dyckman-farmhouse: both circles were aligned to their
+    // registry ANCHORS, which sit 31.5 m and 21.9 m from the real footprints --
+    // so each deleted nothing and the OSM original stood beside the bespoke
+    // build as a duplicate. Re-centred on the measured footprints.
+    ['hamilton-grange', 40.821391, -73.947274, 22],
     // both aligned to the registry anchors — the old points were 276m / 929m off,
     // clearing innocent blocks while the real sites kept their OSM massing
-    ['morris-jumel', 40.8345, -73.9386, 20], ['dyckman-farmhouse', 40.8668, -73.9229, 18],
-  ].map(([id, lat, lon, r]) => { const [x, z] = lonLatToXZ(lon, lat); return { id, x, z, r }; });
+    ['morris-jumel', 40.8345, -73.9386, 20], ['dyckman-farmhouse', 40.866858, -73.922652, 20],
+    // the OSM lighthouse had no circle at all, so the bespoke 12 m tower stood
+    // 41 m from an identical one
+    ['little-red-lighthouse', 40.850255, -73.946963, 14],
+  ].map(([id, lat, lon, r, keepH]) => { const [x, z] = lonLatToXZ(lon, lat); return { id, x, z, r, keepH }; });
   let landmarkCleared = 0;
 
   // bin into tiles + collect skyline candidates
@@ -825,6 +875,7 @@ async function main() {
     let cleared = fitCleared.has(b);
     for (const lc of LANDMARK_CLEAR) {
       if (cleared) break;
+      if (lc.keepH !== undefined && b.height > lc.keepH) continue;
       const dx = b.centroid[0] - lc.x, dz = b.centroid[1] - lc.z;
       if (dx * dx + dz * dz < lc.r * lc.r) { cleared = true; break; }
     }
@@ -926,6 +977,39 @@ async function main() {
     return piece.map(([x, z]) => round1(terrainAt(x, z)));
   }
 
+/**
+ * A roadway is HIDDEN when it does not exist as visible pavement at ground
+ * level, and must not be baked as a ribbon at all.
+ *
+ * `tunnel === 'yes'` was the whole test, which missed two large classes the
+ * audit surfaced as "roads through buildings":
+ *  - `tunnel=building_passage` (184 vehicular ways): a roadway threaded UNDER a
+ *    building. Rendered at grade it paints asphalt straight through the walls.
+ *  - `covered=yes` (318 vehicular ways, incl. 5 motorway segments of the
+ *    Trans-Manhattan Expressway, which Washington Heights is literally built
+ *    over): same situation, expressed with a different tag.
+ * Both are dropped for exactly the reason plain tunnels are: you cannot see
+ * them from the street, and drawing them puts pavement inside a building.
+ */
+function isHiddenRoad(tags) {
+  const tunnel = tags.tunnel && tags.tunnel !== 'no';
+  const covered = tags.covered && tags.covered !== 'no';
+  return Boolean(tunnel || covered);
+}
+
+/**
+ * True when the way rides above ground. OSM tags plenty of viaducts with a
+ * positive `layer` and no `bridge` at all -- 96 vehicular ways here, including
+ * the elevated FDR Drive and the Queensboro approach ramps, which the pipeline
+ * was laying at grade straight through the buildings they fly past. That
+ * cluster was the single worst source of building-in-roadbed overlap.
+ */
+function isElevatedRoad(tags) {
+  if (tags.bridge && tags.bridge !== 'no') return true;
+  const layer = Number(tags.layer);
+  return Number.isFinite(layer) && layer > 0;
+}
+
   const tileRoads = new Map();
   const tileRoadPiecesWorld = new Map(); // key -> array of {pts (world meters), cls} for tree placement filters
   let roadWayCount = 0, roadPieceCount = 0;
@@ -934,12 +1018,12 @@ async function main() {
     const tags = el.tags || {};
     if (!tags.highway) continue;
     if (tags.area === 'yes') continue;
-    if (tags.tunnel === 'yes') continue;
+    if (isHiddenRoad(tags)) continue;
     if (!el.geometry || el.geometry.length < 2) continue;
 
     let c = tags.highway;
     if (tags.footway === 'crossing' || tags.cycleway === 'crossing') c = 'crossing';
-    const bridge = tags.bridge && tags.bridge !== 'no' ? 1 : undefined;
+    const bridge = isElevatedRoad(tags) ? 1 : undefined;
 
     const pts = el.geometry.filter((p) => typeof p.lat === 'number' && typeof p.lon === 'number').map((p) => lonLatToXZ(p.lon, p.lat));
     if (pts.length < 2) continue;
@@ -1081,7 +1165,7 @@ async function main() {
     const tags = el.tags || {};
     const w = MAJOR_W[tags.highway];
     if (!w) continue;
-    if (tags.area === 'yes' || tags.tunnel === 'yes') continue;
+    if (tags.area === 'yes' || isHiddenRoad(tags)) continue;
     if (!el.geometry || el.geometry.length < 2) continue;
     const pts = el.geometry.map((g) => lonLatToXZ(g.lon, g.lat));
     majorPtsBefore += pts.length;
@@ -1106,7 +1190,7 @@ async function main() {
     if (el.type !== 'way') continue;
     const tags = el.tags || {};
     if (!tags.highway || !SIGN_CLASSES.has(tags.highway) || !tags.name) continue;
-    if (tags.tunnel === 'yes' || tags.area === 'yes') continue;
+    if (isHiddenRoad(tags) || tags.area === 'yes') continue;
     if (!el.nodes || !el.geometry || el.nodes.length !== el.geometry.length) continue;
     const pts = el.geometry.map((g) => lonLatToXZ(g.lon, g.lat));
     for (let i = 0; i < el.nodes.length; i++) {
