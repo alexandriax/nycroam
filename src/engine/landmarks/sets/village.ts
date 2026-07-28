@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import {
   type LandmarkCtx,
   LIMESTONE, GRANITE, DARKSTONE, MARBLE, BRICK_RED, BRONZE, WHITE_LM,
@@ -83,6 +84,25 @@ const HY_COLLISION = new THREE.MeshBasicMaterial({ visible: false });
 function hyDetail<T extends THREE.Mesh>(mesh: T): T {
   mesh.userData.noCollision = true;
   return mesh;
+}
+
+/** Bake a same-material throwaway detail batch before it enters the scene. */
+function mergeHyDetails(
+  meshes: THREE.Mesh[], material: THREE.Material,
+): THREE.Mesh {
+  const geometries = meshes.map((mesh) => {
+    mesh.updateMatrix();
+    return (mesh.geometry as THREE.BufferGeometry).clone().applyMatrix4(mesh.matrix);
+  });
+  const merged = mergeGeometries(geometries, false);
+  if (!merged) {
+    for (const geometry of geometries) geometry.dispose();
+    for (const mesh of meshes) mesh.geometry.dispose();
+    throw new Error(`Could not merge 30 Hudson Yards detail batch of ${meshes.length} meshes`);
+  }
+  for (const geometry of geometries) geometry.dispose();
+  for (const mesh of meshes) mesh.geometry.dispose();
+  return new THREE.Mesh(merged, material);
 }
 
 type HyPoint = readonly [number, number];
@@ -1100,6 +1120,10 @@ export const builders: Record<string, (ctx: LandmarkCtx) => THREE.Group> = {
     const sz = siteD / 58;
     const P = (x: number, z: number): HyPoint => [x * sx, z * sz];
     const scaled = (points: readonly HyPoint[]) => points.map(([x, z]) => P(x, z));
+    const steelDetails: THREE.Mesh[] = [];
+    const darkSteelDetails: THREE.Mesh[] = [];
+    const addHySteel = (mesh: THREE.Mesh) => { steelDetails.push(mesh); };
+    const addHyDarkSteel = (mesh: THREE.Mesh) => { darkSteelDetails.push(mesh); };
 
     // Six facade bays by eight floors: dark blue low-e glass, pale mullions,
     // broad horizontal spandrels and deterministic warm interior variation.
@@ -1212,22 +1236,22 @@ export const builders: Record<string, (ctx: LandmarkCtx) => THREE.Group> = {
       for (let level = 0; level < levels.length - 1; level++) {
         const a = levels[level], b = levels[level + 1];
         for (let i = 0; i < a.points.length; i++) {
-          g.add(hyDetail(strut(
+          addHySteel(strut(
             new THREE.Vector3(a.points[i][0], a.y, a.points[i][1]),
             new THREE.Vector3(b.points[i][0], b.y, b.points[i][1]),
             0.17, HY_STEEL, 5,
-          )));
+          ));
         }
       }
     }
     for (const level of [...shaftLevels.slice(1), ...upperLevels.slice(1)]) {
       for (let i = 0; i < level.points.length; i++) {
         const next = (i + 1) % level.points.length;
-        g.add(hyDetail(strut(
+        addHySteel(strut(
           new THREE.Vector3(level.points[i][0], level.y, level.points[i][1]),
           new THREE.Vector3(level.points[next][0], level.y, level.points[next][1]),
           0.15, HY_STEEL, 5,
-        )));
+        ));
       }
     }
     // 1,296ft sloping crown. KPF's city elevation rises to one west apex and
@@ -1255,7 +1279,7 @@ export const builders: Record<string, (ctx: LandmarkCtx) => THREE.Group> = {
       [backA, backB], [backB, backC], [backC, backA],
       [frontA, backA], [frontB, backB], [frontC, backC],
     ] as [THREE.Vector3, THREE.Vector3][]) {
-      g.add(hyDetail(strut(a, b, 0.52, HY_STEEL, 7)));
+      addHySteel(strut(a, b, 0.52, HY_STEEL, 7));
     }
     for (const t of [0.2, 0.4, 0.6, 0.8]) {
       const y = THREE.MathUtils.lerp(370, tipY, t);
@@ -1264,10 +1288,10 @@ export const builders: Record<string, (ctx: LandmarkCtx) => THREE.Group> = {
       const right = new THREE.Vector3(x, y, frontZ);
       const leftBack = new THREE.Vector3(crownLeft, y, backZ);
       const rightBack = new THREE.Vector3(x, y, backZ);
-      g.add(hyDetail(strut(left, right, 0.16, HY_STEEL, 5)));
-      g.add(hyDetail(strut(leftBack, rightBack, 0.16, HY_STEEL, 5)));
-      g.add(hyDetail(strut(left, rightBack, 0.1, HY_DARK_STEEL, 5)));
-      g.add(hyDetail(strut(right, leftBack, 0.1, HY_DARK_STEEL, 5)));
+      addHySteel(strut(left, right, 0.16, HY_STEEL, 5));
+      addHySteel(strut(leftBack, rightBack, 0.16, HY_STEEL, 5));
+      addHyDarkSteel(strut(left, rightBack, 0.1, HY_DARK_STEEL, 5));
+      addHyDarkSteel(strut(right, leftBack, 0.1, HY_DARK_STEEL, 5));
     }
     // The diagonal silver reveal around City Climb remains legible from the
     // High Line without turning the crown into a dense lattice.
@@ -1277,7 +1301,7 @@ export const builders: Record<string, (ctx: LandmarkCtx) => THREE.Group> = {
     for (const [a, b] of [
       [revealA, revealB], [revealB, revealC], [revealC, revealA],
     ] as [THREE.Vector3, THREE.Vector3][]) {
-      g.add(hyDetail(strut(a, b, 0.42, HY_STEEL, 7)));
+      addHySteel(strut(a, b, 0.42, HY_STEEL, 7));
     }
 
     // City Climb follows the exposed south crown slope to the highest outdoor
@@ -1288,16 +1312,16 @@ export const builders: Record<string, (ctx: LandmarkCtx) => THREE.Group> = {
     for (let i = 0; i <= 12; i++) {
       const t = i / 12;
       const p = climbA.clone().lerp(climbB, t);
-      g.add(hyDetail(box(2.8, 0.18, 1.2, HY_DARK_STEEL, p.x, p.y, p.z)));
+      addHyDarkSteel(box(2.8, 0.18, 1.2, HY_DARK_STEEL, p.x, p.y, p.z));
     }
     for (const zOff of [-0.75, 0.75]) {
-      g.add(hyDetail(strut(
+      addHySteel(strut(
         climbA.clone().add(new THREE.Vector3(0, 1.1, zOff)),
         climbB.clone().add(new THREE.Vector3(0, 1.1, zOff)),
         0.08, HY_STEEL, 5,
-      )));
+      ));
     }
-    g.add(hyDetail(box(9, 0.55, 5, HY_DARK_STEEL, crownLeft + 3.5 * sx, tipY - 0.3, frontZ - 2.5)));
+    addHyDarkSteel(box(9, 0.55, 5, HY_DARK_STEEL, crownLeft + 3.5 * sx, tipY - 0.3, frontZ - 2.5));
     g.add(hyDetail(box(8, 0.18, 0.18, HY_GLOW, crownLeft + 3.5 * sx, tipY + 0.08, frontZ)));
 
     // Edge at the official 1,100ft elevation. The mapped 7,500ft² outline
@@ -1325,11 +1349,11 @@ export const builders: Record<string, (ctx: LandmarkCtx) => THREE.Group> = {
         deckY - 0.025,
         i % 2 ? HY_EDGE_UNDERSIDE : HY_STEEL,
       ));
-      g.add(hyDetail(strut(
+      addHyDarkSteel(strut(
         new THREE.Vector3(deckCenter[0], deckY - 0.08, deckCenter[1]),
         new THREE.Vector3(deckPlan[i][0], deckY - 0.08, deckPlan[i][1]),
         0.09, HY_DARK_STEEL, 5,
-      )));
+      ));
     }
     // Collision extraction intentionally ignores sub-2m decorative meshes.
     // Preserve the thin real slab visually while supplying the same footprint
@@ -1341,11 +1365,11 @@ export const builders: Record<string, (ctx: LandmarkCtx) => THREE.Group> = {
     g.add(hyHorizontalPanel(floorGlass, deckTop + 0.035, HY_EDGE_GLASS));
     for (let i = 0; i < floorGlass.length; i++) {
       const next = (i + 1) % floorGlass.length;
-      g.add(hyDetail(edgeBar(
+      addHySteel(edgeBar(
         floorGlass[i][0], floorGlass[i][1],
         floorGlass[next][0], floorGlass[next][1],
         deckTop + 0.10, 0.12, 0.18, HY_STEEL,
-      )));
+      ));
     }
 
     // The real 79 non-reflective panels become three continuous glass walls
@@ -1357,6 +1381,7 @@ export const builders: Record<string, (ctx: LandmarkCtx) => THREE.Group> = {
       [deckPlan[1], deckPlan[2]],
       [deckPlan[3], deckPlan[0]],
     ];
+    let edgePostCount = 0;
     for (const [a, b] of publicEdges) {
       const wall = hyEdgeWall(a, b, deckCenter, deckTop, 2.74);
       g.add(wall.panel);
@@ -1364,11 +1389,12 @@ export const builders: Record<string, (ctx: LandmarkCtx) => THREE.Group> = {
       const posts = Math.max(1, Math.ceil(len / 3.8));
       for (let i = 0; i <= posts; i++) {
         const t = i / posts;
-        g.add(hyDetail(strut(
+        addHySteel(strut(
           wall.bottomA.clone().lerp(wall.bottomB, t),
           wall.topA.clone().lerp(wall.topB, t),
           0.055, HY_STEEL, 5,
-        )));
+        ));
+        edgePostCount++;
       }
       g.add(edgeBar(a[0], a[1], b[0], b[1], deckTop + 1.37, 0.18, 2.74, HY_COLLISION));
     }
@@ -1376,17 +1402,17 @@ export const builders: Record<string, (ctx: LandmarkCtx) => THREE.Group> = {
     // Skyline steps rise from level 100 to Peak on 101, with glass rails and
     // the exposed triangular underside truss visible from the plaza.
     for (let i = 0; i < 10; i++) {
-      g.add(hyDetail(box(
+      addHyDarkSteel(box(
         12, 0.28, 1.35, HY_DARK_STEEL,
         29 * sx, deckTop + i * 0.30, (-14 + i * 1.0) * sz,
-      )));
+      ));
     }
     for (const x of [23 * sx, 35 * sx]) {
-      g.add(hyDetail(strut(
+      addHySteel(strut(
         new THREE.Vector3(x, deckTop + 0.7, -14 * sz),
         new THREE.Vector3(x, deckTop + 3.5, -4 * sz),
         0.08, HY_STEEL, 5,
-      )));
+      ));
     }
     const deckTip = new THREE.Vector3(deckPlan[0][0], deckY - 0.8, deckPlan[0][1]);
     for (const anchor of [
@@ -1394,36 +1420,49 @@ export const builders: Record<string, (ctx: LandmarkCtx) => THREE.Group> = {
       new THREE.Vector3(15 * sx, deckY - 24, -18 * sz),
       new THREE.Vector3(37 * sx, deckY - 21, -18 * sz),
     ]) {
-      g.add(hyDetail(strut(deckTip, anchor, 0.34, HY_STEEL, 7)));
+      addHySteel(strut(deckTip, anchor, 0.34, HY_STEEL, 7));
     }
-    g.add(hyDetail(strut(
+    addHySteel(strut(
       new THREE.Vector3(deckPlan[2][0], deckY - 0.4, deckPlan[2][1]),
       new THREE.Vector3(deckPlan[3][0], deckY - 0.4, deckPlan[3][1]),
       0.32, HY_STEEL, 7,
-    )));
+    ));
 
     // Triple-height public lobby and Voices: a warm transparent cable-net wall,
     // broad entrances and eleven suspended steel letter-orb silhouettes.
     const lobbyZ = -29.2 * sz;
     g.add(hyDetail(box(47 * sx, 17.5, 0.28, HY_LOBBY, 18 * sx, 8.75, lobbyZ)));
     for (let x = -3; x <= 40; x += 5.4) {
-      g.add(hyDetail(box(0.17, 17.8, 0.22, HY_STEEL, x * sx, 8.9, lobbyZ - 0.18)));
+      addHySteel(box(0.17, 17.8, 0.22, HY_STEEL, x * sx, 8.9, lobbyZ - 0.18));
     }
     for (const x of [9, 15, 21, 27]) {
       g.add(hyDetail(box(4.7 * sx, 8.2, 0.18, HY_DOOR, x * sx, 4.1, lobbyZ - 0.34)));
     }
-    g.add(hyDetail(box(22 * sx, 0.32, 6.2, HY_STEEL, 18 * sx, 8.4, lobbyZ - 3.1)));
+    addHySteel(box(22 * sx, 0.32, 6.2, HY_STEEL, 18 * sx, 8.4, lobbyZ - 3.1));
     for (let i = 0; i < 11; i++) {
       const radius = 0.28 + (i % 4) * 0.12;
       const orb = hyDetail(new THREE.Mesh(new THREE.IcosahedronGeometry(radius, 1), HY_STEEL));
       orb.position.set((-2 + i * 4) * sx, 10.5 + (i % 3) * 1.6, lobbyZ + 0.5);
       g.add(orb);
-      g.add(hyDetail(strut(
+      addHySteel(strut(
         new THREE.Vector3(orb.position.x, orb.position.y + radius, orb.position.z),
         new THREE.Vector3(orb.position.x, 17.2, orb.position.z),
         0.025, HY_STEEL, 4,
-      )));
+      ));
     }
+
+    // Preserve every rail, cable and facade seam, but enter the scene with two
+    // packed material batches instead of rebuilding 150+ tiny nodes on every
+    // approach. The Edge post count varies with a fitted source footprint.
+    const expectedSteelDetails = 119 + edgePostCount;
+    if (steelDetails.length !== expectedSteelDetails || darkSteelDetails.length !== 36) {
+      throw new Error(
+        `Incomplete 30 Hudson Yards details: ${steelDetails.length}/${expectedSteelDetails} steel, `
+        + `${darkSteelDetails.length}/36 dark steel`,
+      );
+    }
+    g.add(hyDetail(mergeHyDetails(steelDetails, HY_STEEL)));
+    g.add(hyDetail(mergeHyDetails(darkSteelDetails, HY_DARK_STEEL)));
 
     // Conservative, tiered collision follows the real occupied massing and
     // leaves both the open crown and Edge's underside free. The podium, 310m
