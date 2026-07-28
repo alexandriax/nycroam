@@ -102,6 +102,7 @@ export const LANDMARKS_REG: LandmarkEntry[] = [
   // The manager snaps this upper-tower reconstruction to the pipeline-measured
   // host center/rotation; the registry coordinate is only its streaming anchor.
   { id: 'new-york-life', name: 'New York Life Building', lat: 40.742735, lon: -73.985608, set: 'village', r: 1400, rot: GRID },
+  { id: 'met-life-tower', name: 'Metropolitan Life Tower', lat: 40.741239, lon: -73.987305, set: 'village', r: 1500, rot: GRID },
   { id: 'union-square', name: 'Union Square', lat: 40.7359, lon: -73.9906, set: 'village', r: 450, rot: GRID },
   { id: 'madison-sq-park', name: 'Madison Square Park', lat: 40.742, lon: -73.988, set: 'village', r: 400, rot: GRID },
   { id: 'high-line', name: 'The High Line', lat: 40.7391, lon: -74.008, set: 'village', r: 500, rot: GRID },

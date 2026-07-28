@@ -649,6 +649,10 @@ async function main() {
     // otherwise emitted as flat generic prisms, including a solid gold block
     // where the landmark's signature six-story gilded crown should be.
     { id: 'new-york-life', lat: 40.742735, lon: -73.985608, r: 48, minH: 100, clearAboveH: 148 },
+    // OSM's named outer Met Life tower is a 150m flat-roofed prism, while its
+    // nested parts reach the documented height but remain generic extrusions.
+    // Replace only those tower parts; the historic home-office complex stays.
+    { id: 'met-life-tower', lat: 40.741239, lon: -73.987305, r: 24, minH: 145, clearAboveH: 145 },
     // minH: obb only over the tall slab — low wings shifted the center 34m off
     // the shaft and the summit crown hung off the roof edge
     { id: 'top-of-the-rock', lat: 40.7591, lon: -73.9794, r: 40, minH: 120 },

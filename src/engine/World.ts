@@ -173,6 +173,8 @@ export class World {
   private lastEnterGuard = 0; // avoid instant re-trigger loops
   private spawnResolve = false; // eject from a building after a teleport/exit, once tiles load
   private spawnLookAt: { x: number; z: number } | null = null; // menu jump target, cleared after safe arrival
+  private spawnLandmarkId: string | null = null; // wait for replacement massing before resolving a landmark jump
+  private spawnWaitStarted = 0;
   private skyDome: THREE.Object3D | null = null;
   private lastRaf = 0;
   private tickInterval = 0;
@@ -387,9 +389,10 @@ export class World {
       const entry = LANDMARKS_REG.find((l) => l.id.toLowerCase() === lm.toLowerCase())
         ?? LANDMARKS_REG.find((l) => norm(l.name).includes(norm(lm)));
       if (entry) {
-        this.teleport(entry.lat, entry.lon);
+        this.teleport(entry.lat, entry.lon, entry.id);
         this.controls.fly = true;
         this.spawnLookAt = null; // deep-link camera look is restored below
+        this.spawnLandmarkId = null;
       }
     }
 
@@ -794,12 +797,14 @@ export class World {
     this.camera.updateProjectionMatrix();
   };
 
-  teleport(lat: number, lon: number) {
+  teleport(lat: number, lon: number, landmarkId: string | null = null) {
     if (this.transitioning) return; // mid fade/exit — ignore rather than corrupt state
     this.leaveTransit();            // abandon any train/bus/tram/bike so `pos` takes effect
     const [x, z] = lonLatToXZ(lon, lat);
     this.pos.set(x, 0, z);
     this.spawnLookAt = { x, z };
+    this.spawnLandmarkId = landmarkId;
+    this.spawnWaitStarted = performance.now();
     this.spawnResolve = true; // resolved out of any building once tiles arrive
     this.save();
   }
@@ -884,17 +889,38 @@ export class World {
           reach = Math.max(reach, x - x0, x1 - x, z - z0, z1 - z);
         }
       }
-      const firstRing = Math.max(32, Math.min(170, reach + 24));
+      const targetRoof = roofBelow(x, z, 1200, near0) ?? 0;
+      // A human-scale facade needs a street-width stand-off; a 200m tower needs
+      // roughly a block so its base and crown fit in the same first view.
+      const firstRing = Math.max(32, Math.min(210, Math.max(reach + 24, targetRoof * 0.72)));
+      const hostSets = new Set(near0.filter((set) => pointInBuildings(x, z, [set], y0)));
       for (let ring = firstRing; ring <= Math.min(210, firstRing + 48); ring += 16) {
         const samples = Math.max(28, Math.ceil((Math.PI * 2 * ring) / 12));
+        let best: [number, number] | null = null, bestScore = Infinity;
         for (let a = 0; a < samples; a++) {
           const ang = (a / samples) * Math.PI * 2;
           const tx = x + Math.cos(ang) * ring, tz = z + Math.sin(ang) * ring;
           const candidate = settle(tx, tz);
           if (!candidate) continue;
           const dist = Math.hypot(candidate[0] - x, candidate[1] - z);
-          if (dist >= firstRing * 0.72) return candidate;
+          if (dist < firstRing * 0.72) continue;
+
+          // Prefer an unobstructed presentation axis. Ignore the host massing
+          // itself, but reject directions whose ground-level sight line crosses
+          // foreign buildings (e.g. approaching the MetLife tower through its
+          // attached office block instead of from Madison Square Park).
+          let blocked = 0;
+          const vx = (x - candidate[0]) / dist, vz = (z - candidate[1]) / dist;
+          for (let along = 10; along < dist - 10; along += 10) {
+            const sx = candidate[0] + vx * along, sz = candidate[1] + vz * along;
+            const sy = heightAt(sx, sz);
+            const foreign = this.colNear(sx, sz).filter((set) => !hostSets.has(set));
+            if (pointInBuildings(sx, sz, foreign, sy)) blocked++;
+          }
+          const score = blocked * 10000 + Math.abs(dist - ring);
+          if (score < bestScore) { bestScore = score; best = candidate; }
         }
+        if (best) return best;
       }
     }
 
@@ -1612,7 +1638,10 @@ export class World {
       // footprint (entrances hug walls, jump targets are raw lat/lon). Once the
       // tiles here have integrated, push out to the nearest sidewalk. Skip while
       // flying — the helicopter teleport lands you above the rooftops on purpose.
-      if (this.spawnResolve && !this.controls.fly && this.tiles.readyAround(this.pos.x, this.pos.z)) {
+      const landmarkReady = !this.spawnLandmarkId
+        || this.landmarks.isBuilt(this.spawnLandmarkId)
+        || performance.now() - this.spawnWaitStarted > 8000;
+      if (this.spawnResolve && !this.controls.fly && landmarkReady && this.tiles.readyAround(this.pos.x, this.pos.z)) {
         const lookAt = this.spawnLookAt;
         const [rx, rz] = this.freeSpawn(this.pos.x, this.pos.z, lookAt ? 8 : 0.75);
         this.pos.x = rx; this.pos.z = rz;
@@ -1625,12 +1654,13 @@ export class World {
             // crown while a low museum/park structure stays near eye level.
             this.controls.yaw = Math.atan2(-dx, -dz);
             const targetRoof = roofBelow(lookAt.x, lookAt.z, 1200, this.colNear(lookAt.x, lookAt.z)) ?? 20;
-            const aimY = Math.max(12, targetRoof * 0.58);
+            const aimY = Math.max(12, targetRoof * 0.52);
             const horizontal = Math.hypot(dx, dz);
             this.controls.pitch = Math.max(0.08, Math.min(0.75, Math.atan2(aimY - this.pos.y - this.eyeHeight, horizontal)));
           }
         }
         this.spawnLookAt = null;
+        this.spawnLandmarkId = null;
         this.spawnResolve = false;
       }
       const prevX = this.pos.x, prevZ = this.pos.z;

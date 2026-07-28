@@ -14,7 +14,7 @@ import type { PlaqueInfo } from '../engine/PlaqueManager';
 // sorted, for the "Jump to…" menu. Pairs with the ?landmark=<id> deep link.
 const LANDMARK_JUMPS = LANDMARKS_REG
   .filter((l) => !l.aliasOf)
-  .map((l) => ({ name: l.name, lat: l.lat, lon: l.lon }))
+  .map((l) => ({ id: l.id, name: l.name, lat: l.lat, lon: l.lon }))
   .sort((a, b) => a.name.localeCompare(b.name));
 
 function Bullets({ routes, size = 22 }: { routes: string[]; size?: number }) {
@@ -320,17 +320,23 @@ export default function NYCRoam() {
           className="hud-panel jumpto"
           defaultValue=""
           onChange={(e) => {
-            const [la, lo] = e.target.value.split(',').map(Number);
-            if (Number.isFinite(la) && Number.isFinite(lo)) worldRef.current?.teleport(la, lo);
+            const [kind, a, b] = e.target.value.split('|');
+            if (kind === 'landmark') {
+              const lm = LANDMARK_JUMPS.find((l) => l.id === a);
+              if (lm) worldRef.current?.teleport(lm.lat, lm.lon, lm.id);
+            } else {
+              const la = Number(a), lo = Number(b);
+              if (Number.isFinite(la) && Number.isFinite(lo)) worldRef.current?.teleport(la, lo);
+            }
             e.target.value = '';
           }}
         >
           <option value="" disabled>Jump to…</option>
           <optgroup label="Popular">
-            {LANDMARKS.map((l) => <option key={l.name} value={`${l.lat},${l.lon}`}>{l.name}</option>)}
+            {LANDMARKS.map((l) => <option key={l.name} value={`place|${l.lat}|${l.lon}`}>{l.name}</option>)}
           </optgroup>
           <optgroup label="Landmarks">
-            {LANDMARK_JUMPS.map((l) => <option key={l.name} value={`${l.lat},${l.lon}`}>{l.name}</option>)}
+            {LANDMARK_JUMPS.map((l) => <option key={l.name} value={`landmark|${l.id}`}>{l.name}</option>)}
           </optgroup>
         </select>
         {/* copy a deep link to this exact view (position + camera + transit state) */}

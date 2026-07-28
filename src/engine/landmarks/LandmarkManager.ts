@@ -322,8 +322,10 @@ export class LandmarkManager {
         // and re-seat anything inside the new solid bounds
         this.onBuilt?.(lm.id, x0, z0, x1, z1);
       }
-    } catch {
-      /* a single failed landmark must never take the frame loop down */
+    } catch (error) {
+      // A single failed landmark must never take the frame loop down, but keep
+      // development failures observable instead of silently leaving a hole.
+      if (process.env.NODE_ENV !== 'production') console.warn(`Landmark build failed: ${lm.id}`, error);
     } finally {
       this.building.delete(lm.id);
     }
@@ -374,6 +376,9 @@ export class LandmarkManager {
 
   /** Active landmark count (debug/stats). */
   get activeCount() { return this.placed.size; }
+
+  /** True once a named premium build and its collision have completed. */
+  isBuilt(id: string) { return this.placed.has(id); }
 
   destroy() {
     for (const g of this.placed.values()) {
