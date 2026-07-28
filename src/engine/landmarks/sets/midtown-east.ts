@@ -502,6 +502,8 @@ export const builders: Record<string, (ctx: LandmarkCtx) => THREE.Group> = {
       [272, 2.7],
       [crownTop, 0.72],
     ];
+    const shellPrimary: THREE.Mesh[] = [];
+    const shellAlternate: THREE.Mesh[] = [];
     for (let i = 0; i < 16; i++) {
       const panel = chryslerDomeSector(
         profile,
@@ -510,8 +512,15 @@ export const builders: Record<string, (ctx: LandmarkCtx) => THREE.Group> = {
         i % 2 ? CHRYSLER_STEEL_ALT : CHRYSLER_STEEL,
       );
       panel.position.set(ox, 0, oz);
-      g.add(panel);
+      (i % 2 ? shellAlternate : shellPrimary).push(panel);
     }
+    if (shellPrimary.length !== 8 || shellAlternate.length !== 8) {
+      throw new Error('Chrysler crown shell lost an alternating sector');
+    }
+    g.add(
+      chryslerDetail(mergeBatch(shellPrimary, CHRYSLER_STEEL)),
+      chryslerDetail(mergeBatch(shellAlternate, CHRYSLER_STEEL_ALT)),
+    );
 
     // The mapped upper roof is eight nested arch profiles. Render all four
     // outward faces instead of wrapping half-cylinders around a cone: the
@@ -530,10 +539,11 @@ export const builders: Record<string, (ctx: LandmarkCtx) => THREE.Group> = {
       const face = new THREE.Group();
       face.position.set(ox, 0, oz);
       face.rotation.y = (f * Math.PI) / 2;
+      const faceArches: THREE.Mesh[] = [];
       for (const [width, spring, peak, thick] of arches) {
         const arch = chryslerArchBand(width, spring, peak, thick);
         arch.position.z = width * 0.485 - 0.18;
-        face.add(arch);
+        faceArches.push(arch);
       }
 
       // Recessed triangular windows: genuine geometry rather than black bars.
@@ -547,28 +557,38 @@ export const builders: Record<string, (ctx: LandmarkCtx) => THREE.Group> = {
         [-2.2, 258.5, 1.9, 3.3], [0, 260.5, 2.05, 3.7], [2.2, 258.5, 1.9, 3.3],
         [-1.2, 266.5, 1.3, 2.4], [1.2, 266.5, 1.3, 2.4],
       ];
+      const faceWindows: THREE.Mesh[] = [];
       for (const [x, y, w, h] of windows) {
         const win = chryslerWindow(x, y, w, h);
         // Face depth follows the taper; the slight inset leaves the bright
         // arch/rib geometry visibly proud of the dark glass.
         const t = (y - (base + 1)) / (crownTop - (base + 1));
         win.position.z = startR * (1 - t) + 0.72 * t + 0.42;
-        face.add(win);
+        faceWindows.push(win);
       }
 
       // Nine true stainless sunburst rays over each face. Cylinders are cheap
       // after merge, catch highlights in motion, and make the crown hold up at
       // helicopter-close distance without a large texture.
+      const faceRibs: THREE.Mesh[] = [];
       for (const x of [-11.2, -8.5, -5.7, -2.8, 0, 2.8, 5.7, 8.5, 11.2]) {
         const q = Math.max(0, 1 - (x * x) / (14.3 * 14.3));
         const y = base + 1 + 28 * Math.sqrt(q);
         const t = (y - (base + 1)) / (crownTop - (base + 1));
-        face.add(chryslerDetail(strut(
+        faceRibs.push(chryslerDetail(strut(
           new THREE.Vector3(0, base + 1.2, startR + 0.32),
           new THREE.Vector3(x, y, startR * (1 - t) + 0.72 * t + 0.34),
           0.065, CHRYSLER_RIB, 5,
         )));
       }
+      if (faceArches.length !== 8 || faceRibs.length !== 9 || faceWindows.length !== 17) {
+        throw new Error(`Chrysler face ${f} detail count changed`);
+      }
+      face.add(
+        chryslerDetail(mergeBatch(faceArches, CHRYSLER_RIB)),
+        chryslerDetail(mergeBatch(faceRibs, CHRYSLER_RIB)),
+        chryslerDetail(mergeBatch(faceWindows, CHRYSLER_WINDOW)),
+      );
       g.add(face);
     }
 
