@@ -3,7 +3,10 @@ import { dataUrl } from './dataver';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import { TileManager } from './TileManager';
 import { PlayerControls } from './controls';
-import { resolveBuildingCollision, nearestWallDir, floorAt, floorAtAny, pointInBuildings, roofBelow } from './collision';
+import {
+  resolveBuildingCollision, nearestWallDir, floorAt, floorAtAny,
+  pointInBuildings, buildingRingsAt, pointInBuildingsExcept, roofBelow,
+} from './collision';
 import { PATH_KIND_ROAD, type RoadPaths } from './tileTypes';
 import { setupSky, setupLights, followSun, SKY } from './sky';
 import { quality } from './quality';
@@ -893,7 +896,7 @@ export class World {
       // A human-scale facade needs a street-width stand-off; a 200m tower needs
       // roughly a block so its base and crown fit in the same first view.
       const firstRing = Math.max(32, Math.min(210, Math.max(reach + 24, targetRoof * 0.72)));
-      const hostSets = new Set(near0.filter((set) => pointInBuildings(x, z, [set], y0)));
+      const hostRings = buildingRingsAt(x, z, near0, y0);
       for (let ring = firstRing; ring <= Math.min(210, firstRing + 48); ring += 16) {
         const samples = Math.max(28, Math.ceil((Math.PI * 2 * ring) / 12));
         let best: [number, number] | null = null, bestScore = Infinity;
@@ -905,17 +908,16 @@ export class World {
           const dist = Math.hypot(candidate[0] - x, candidate[1] - z);
           if (dist < firstRing * 0.72) continue;
 
-          // Prefer an unobstructed presentation axis. Ignore the host massing
-          // itself, but reject directions whose ground-level sight line crosses
-          // foreign buildings (e.g. approaching the MetLife tower through its
-          // attached office block instead of from Madison Square Park).
+          // Prefer an unobstructed presentation axis. Ignore only the exact
+          // host rings, not their entire tile collision pack: one pack can hold
+          // scores of unrelated buildings, and ignoring all of it let a same-
+          // tile tower completely block the selected landmark.
           let blocked = 0;
           const vx = (x - candidate[0]) / dist, vz = (z - candidate[1]) / dist;
           for (let along = 10; along < dist - 10; along += 10) {
             const sx = candidate[0] + vx * along, sz = candidate[1] + vz * along;
             const sy = heightAt(sx, sz);
-            const foreign = this.colNear(sx, sz).filter((set) => !hostSets.has(set));
-            if (pointInBuildings(sx, sz, foreign, sy)) blocked++;
+            if (pointInBuildingsExcept(sx, sz, this.colNear(sx, sz), hostRings, sy)) blocked++;
           }
           const score = blocked * 10000 + Math.abs(dist - ring);
           if (score < bestScore) { bestScore = score; best = candidate; }
