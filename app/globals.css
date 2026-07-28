@@ -136,6 +136,52 @@ canvas { display: block; touch-action: none; }
 }
 /* sound muted: dim the speaker so the crossed-out state reads at a glance */
 .share-btn.muted { color: rgba(255, 255, 255, 0.4); }
+.share-btn.on { border-color: rgba(255, 255, 255, 0.3); color: #fff; }
+
+/* graphics-quality picker: a small popover under its bar-chart button */
+.gfx-wrap { position: relative; }
+.gfx-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 12;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px;
+  min-width: 132px;
+  text-align: left;
+}
+.gfx-menu button {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 5px 8px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.78);
+  font: inherit;
+  font-size: 11.5px;
+  text-transform: capitalize;
+  letter-spacing: 0.2px;
+  cursor: pointer;
+}
+.gfx-menu button:hover { background: rgba(255, 255, 255, 0.09); color: #fff; }
+.gfx-menu button.on { background: rgba(255, 255, 255, 0.14); color: #fff; }
+.gfx-menu button span {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  opacity: 0.55;
+}
+.gfx-menu p {
+  margin: 4px 8px 2px;
+  font-size: 10px;
+  line-height: 1.3;
+  opacity: 0.5;
+}
 
 /* the nearest cross street rides along as a second, quieter blade */
 .street-blade.cross {
@@ -425,7 +471,7 @@ select, button {
   color: inherit;
 }
 
-/* ---- "Made by" credit (bottom-left) ---- */
+/* ---- "Made by" + OpenStreetMap credit (bottom-left) ---- */
 .credit {
   position: absolute;
   left: 12px;
@@ -438,10 +484,18 @@ select, button {
   font-size: 12px;
   letter-spacing: 0.2px;
   color: rgba(255, 255, 255, 0.66);
-  text-decoration: none;
   transition: color 0.18s ease, opacity 0.18s ease;
 }
-.credit:hover { color: rgba(255, 255, 255, 0.95); }
+.credit .credit-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: inherit;
+  text-decoration: none;
+  transition: color 0.18s ease;
+}
+.credit .credit-link:hover { color: rgba(255, 255, 255, 0.95); }
+.credit .credit-sep { opacity: 0.32; }
 .credit .credit-dot {
   width: 6px; height: 6px; border-radius: 50%;
   background: #f5a623;
@@ -550,8 +604,25 @@ select, button {
 }
 @keyframes introspin { to { transform: rotate(360deg); } }
 
+/* source credits under the CTA: the welcome card is the one surface every
+   visitor sees, so the full data-source list lives here rather than in a
+   buried about panel */
+.intro-attrib {
+  margin-top: 14px;
+  font-size: 10.5px;
+  line-height: 1.5;
+  letter-spacing: 0.2px;
+  color: rgba(255, 255, 255, 0.42);
+}
+.intro-attrib a { color: inherit; text-decoration: underline; text-underline-offset: 2px; }
+.intro-attrib a:hover { color: rgba(255, 255, 255, 0.8); }
+
 @media (max-width: 560px) {
   .jumpto { max-width: 150px; }
+  /* the credit row carries two links now; tighten it so it stays one line and
+     clears the joystick (left 40, bottom 90) on a 375 px phone */
+  .credit { font-size: 11px; gap: 5px; padding: 5px 9px; }
+  .credit .credit-arrow { display: none; }
   .intro-card { padding: 26px 22px 24px; }
   .intro-card .intro-word { font-size: 23px; letter-spacing: 5px; }
   .intro-card .intro-msg { font-size: 13.5px; }
@@ -884,3 +955,87 @@ select, button {
 .info-linkcard em { font-size: 11.5px; font-style: normal; color: rgba(255, 255, 255, 0.5); margin-top: 1px; }
 
 .info-attrib { margin-top: 14px; font-size: 10.5px; line-height: 1.5; color: rgba(255, 255, 255, 0.32); }
+
+/* ---- crash screen (app/error.tsx) --------------------------------------
+   Replaces the framework's black "a client-side exception has occurred"
+   page, which tells a phone player to open a console they do not have. */
+.crash-wrap {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: radial-gradient(120% 90% at 50% 0%, #17202b 0%, #0b0f14 70%);
+  color: #e8eef5;
+}
+.crash-card {
+  max-width: 460px;
+  width: 100%;
+  padding: 24px 22px;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.04);
+  text-align: center;
+}
+.crash-card h1 {
+  margin: 12px 0 6px;
+  font-size: 19px;
+  font-weight: 500;
+  letter-spacing: 0.2px;
+}
+.crash-msg {
+  margin: 0 0 12px;
+  font-size: 13.5px;
+  line-height: 1.45;
+  opacity: 0.85;
+  overflow-wrap: anywhere;
+}
+.crash-stack {
+  margin: 0 0 12px;
+  padding: 9px 10px;
+  max-height: 132px;
+  overflow: auto;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.35);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 10.5px;
+  line-height: 1.45;
+  text-align: left;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  opacity: 0.72;
+}
+.crash-digest {
+  margin: 0 0 12px;
+  font-size: 10.5px;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  opacity: 0.45;
+}
+.crash-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+}
+.crash-actions button {
+  padding: 8px 16px;
+  border-radius: 999px;
+  border: 0;
+  background: #f2f6fa;
+  color: #10161d;
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+.crash-actions button.ghost {
+  background: transparent;
+  color: rgba(255, 255, 255, 0.8);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+}
+.crash-hint {
+  margin: 14px 0 0;
+  font-size: 11px;
+  line-height: 1.4;
+  opacity: 0.5;
+}

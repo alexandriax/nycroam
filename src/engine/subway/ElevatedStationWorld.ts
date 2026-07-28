@@ -43,12 +43,12 @@ export class ElevatedStationWorld {
     this.scene.background = new THREE.Color('#a9c6e2');
     if (env) { this.scene.environment = env; this.scene.environmentIntensity = 0.5; }
     const q = quality();
-    const hemi = new THREE.HemisphereLight(0xdfe9f5, 0x8a8478, q.shadows ? 0.9 : 1.2);
-    const sun = new THREE.DirectionalLight(0xfff2dd, q.shadows ? 2.4 : 1.8);
+    const hemi = new THREE.HemisphereLight(0xdfe9f5, 0x8a8478, q.stationShadows ? 0.9 : 1.2);
+    const sun = new THREE.DirectionalLight(0xfff2dd, q.stationShadows ? 2.4 : 1.8);
     sun.position.set(-140, 220, -95);
     this.scene.add(hemi, sun, sun.target);
     this.build(spec);
-    if (q.shadows) {
+    if (q.stationShadows) {
       // outdoor scene: real sun shadows on everything (viaduct onto street,
       // canopy onto platform, trains onto the deck)
       sun.castShadow = true;

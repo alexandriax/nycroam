@@ -65,6 +65,11 @@ export function makeFacadeMaterial(): THREE.MeshLambertMaterial {
         }
         float aaRect(vec2 p, vec2 lo, vec2 hi) {
           return aaBand(p.x, lo.x, hi.x) * aaBand(p.y, lo.y, hi.y);
+        }
+        // Analytically filtered [a,b] band: a step() pair widened to the pixel
+        // footprint w, so window edges resolve instead of aliasing.
+        float band(float x, float a, float b, float w) {
+          return smoothstep(a - w, a + w, x) * (1.0 - smoothstep(b - w, b + w, x));
         }`
       )
       .replace(
@@ -124,34 +129,50 @@ export function makeFacadeMaterial(): THREE.MeshLambertMaterial {
             float winW = glassTower ? 1.7 : 2.5;
             bool storefront = v < 4.6;
             if (storefront) { floorH = 4.6; winW = 4.2; }
-            vec2 cellId = vec2(floor(u / winW), floor(v / floorH));
-            vec2 f = vec2(fract(u / winW), fract(v / floorH));
-            float rnd = bhash(cellId + floor(diffuseColor.rg * 61.0));
+            // Cell coordinates BEFORE the fract(), so their screen-space
+            // derivatives are continuous (fwidth of a fract() spikes at every
+            // cell seam and would draw a bright line there).
+            float cu = u / winW, cv = v / floorH;
+            vec2 cellId = vec2(floor(cu), floor(cv));
+            vec2 f = vec2(fract(cu), fract(cv));
+            // Half a pixel in cell units, per axis. This is what turns a hard
+            // step() into a properly filtered edge -- without it every window
+            // mullion is a 1-bit test that crawls and sparkles as soon as a cell
+            // is near pixel-sized, which is exactly the shimmer you fly through
+            // in the helicopter.
+            float wx = max(fwidth(cu), 1e-5) * 0.5;
+            float wy = max(fwidth(cv), 1e-5) * 0.5;
+            // Past ~1 cell per pixel no amount of filtering can resolve the
+            // pattern, so cross-fade the whole grid to its own AREA AVERAGE.
+            // Same mean tone, zero temporal noise.
+            float lod = 1.0 - smoothstep(0.22, 0.62, max(wx, wy));
+            float rnd = mix(0.45, bhash(cellId + floor(diffuseColor.rg * 61.0)), lod);
             vec3 V = normalize(cameraPosition - vWPos);
             float fresnel = pow(1.0 - max(dot(V, wn), 0.0), 3.0);
             vec3 reflected = reflect(-V, wn);
             float skyLift = clamp(reflected.y * 0.55 + 0.55, 0.0, 1.0);
             vec3 skyGlass = mix(vec3(0.20, 0.27, 0.36), vec3(0.67, 0.76, 0.86), skyLift);
             vec3 sunDir = normalize(vec3(-0.48, 0.64, -0.40));
-            float glint = pow(max(dot(reflect(-sunDir, wn), V), 0.0), 96.0);
+            float glint = pow(max(dot(reflect(-sunDir, wn), V), 0.0), 96.0) * lod;
 
             if (glassTower && !storefront) {
-              // Curtain wall: anti-aliased mullions and spandrels stay stable
-              // during fast flight instead of crawling as a hard step grid.
-              float pane = aaRect(f, vec2(0.055, 0.06), vec2(0.945, 0.72));
-              float spandrel = aaBand(f.y, 0.78, 0.97);
-              // Sky reflection, grazing-angle fresnel and a tight sun glint make
-              // the pane read as glass without an environment-map lookup.
-              vec3 glass = mix(vec3(0.30, 0.37, 0.46), vec3(0.55, 0.63, 0.72), f.y * 0.8 + rnd * 0.25);
-              glass = mix(glass, skyGlass, 0.34 + fresnel * 0.48);
-              diffuseColor.rgb = mix(diffuseColor.rgb, glass, pane * 0.94);
+              // curtain wall: thin mullions + spandrel band each floor
+              float mull = mix(0.890, band(f.x, 0.055, 0.945, wx), lod);
+              float pane = mix(0.660, band(f.y, 0.06, 0.72, wy), lod);
+              float spandrel = mix(0.190, band(f.y, 0.78, 0.97, wy), lod);
+              // sky gradient down the pane + per-pane tint
+              vec3 glass = mix(vec3(0.30, 0.37, 0.46), vec3(0.55, 0.63, 0.72), mix(0.4, f.y * 0.8 + rnd * 0.25, lod));
+              glass = mix(glass, skyGlass, mix(0.18, 0.34 + fresnel * 0.48, lod));
+              diffuseColor.rgb = mix(diffuseColor.rgb, glass, mull * pane * 0.94);
               diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * 0.55, spandrel * 0.8);
               diffuseColor.rgb += vec3(1.0, 0.94, 0.80) * glint * pane * 0.22;
             } else {
-              vec2 lo = storefront ? vec2(0.08, 0.05) : vec2(0.18, 0.25);
-              vec2 hi = storefront ? vec2(0.92, 0.75) : vec2(0.85, 0.80);
-              float inX = aaBand(f.x, lo.x, hi.x);
-              float inY = aaBand(f.y, lo.y, hi.y);
+              float inX = mix(0.670, band(f.x, 0.18, 0.85, wx), lod);
+              float inY = mix(0.550, band(f.y, 0.25, 0.8, wy), lod);
+              if (storefront) {
+                inX = mix(0.840, band(f.x, 0.08, 0.92, wx), lod);
+                inY = mix(0.700, band(f.y, 0.05, 0.75, wy), lod);
+              }
               float win = inX * inY;
               // masonry surface detail between the windows (brightness only,
               // so each building keeps its palette color)
@@ -162,10 +183,8 @@ export function makeFacadeMaterial(): THREE.MeshLambertMaterial {
               if (storefront) glass = mix(vec3(0.1, 0.11, 0.13), vec3(0.3, 0.28, 0.24), rnd);
               glass = mix(glass, skyGlass, (storefront ? 0.18 : 0.27) + fresnel * 0.35);
               // window inset: lintel shadow at the top of the opening, darker jambs
-              float lintel = 1.0 - 0.5 * smoothstep(0.68, 0.8, f.y) * win;
-              float jambs = aaBand(f.x, lo.x, lo.x + 0.055)
-                           + aaBand(f.x, hi.x - 0.055, hi.x);
-              float jamb = 1.0 - 0.25 * jambs * inY;
+              float lintel = 1.0 - 0.5 * mix(0.26, smoothstep(0.68, 0.8, f.y), lod) * win;
+              float jamb = 1.0 - 0.28 * lod * (band(f.x, 0.18, 0.24, wx) + band(f.x, 0.79, 0.85, wx)) * inY;
               diffuseColor.rgb = mix(diffuseColor.rgb, glass, win * 0.88);
               diffuseColor.rgb *= lintel * jamb;
               diffuseColor.rgb += vec3(1.0, 0.94, 0.82) * glint * win * (storefront ? 0.07 : 0.11);
@@ -173,12 +192,12 @@ export function makeFacadeMaterial(): THREE.MeshLambertMaterial {
               // transom; upper punched windows get a slim sash. These are only
               // shader masks, so the close-up read improves with no geometry.
               float frame = storefront
-                ? (aaBand(f.x, 0.335, 0.355) + aaBand(f.x, 0.645, 0.665)) * inY
-                  + aaBand(f.y, 0.54, 0.565) * inX
-                : aaBand(f.y, 0.505, 0.525) * inX;
+                ? lod * ((band(f.x, 0.335, 0.355, wx) + band(f.x, 0.645, 0.665, wx)) * inY
+                  + band(f.y, 0.54, 0.565, wy) * inX)
+                : lod * band(f.y, 0.505, 0.525, wy) * inX;
               diffuseColor.rgb = mix(diffuseColor.rgb, facadeBase * 0.36, clamp(frame, 0.0, 1.0) * 0.92);
               // sill highlight under the window
-              float sill = aaBand(f.y, lo.y - 0.055, lo.y) * inX;
+              float sill = lod * band(f.y, 0.225, 0.275, max(wy, 0.025)) * inX;
               diffuseColor.rgb += vec3(0.05) * sill * (storefront ? 0.0 : 1.0);
             }
             // Beyond the useful angular size, blend back to the cheap massing
@@ -359,33 +378,54 @@ export function makeWaterMaterial(skyColor: THREE.Color): { mat: THREE.MeshLambe
         varying vec3 vWaterPos;
         uniform float uTime;
         uniform vec3 uSky;
-        vec3 waveNormal(vec2 p, float t) {
-          float nx = sin(p.x * 0.35 + t * 1.1) * 0.10
-                   + sin((p.x + p.y) * 0.09 + t * 0.45) * 0.14
-                   + sin(p.x * 0.045 - t * 0.22) * 0.20;
-          float nz = cos(p.y * 0.31 + t * 0.9) * 0.10
-                   + cos((p.y - p.x) * 0.075 + t * 0.35) * 0.14
-                   + cos(p.y * 0.05 + t * 0.18) * 0.20;
+        // Waves are three octaves of sine, wavelengths roughly 18 m / 70 m /
+        // 140 m. The plane is 60 km across, so at the horizon a single pixel
+        // spans hundreds of metres and every one of those octaves aliases into
+        // a crawling moire -- the hatched band that used to sit across the
+        // skyline. Each octave is faded out once the pixel footprint approaches
+        // its own wavelength, which is the analytic version of a mip chain.
+        vec3 waveNormal(vec2 p, float t, float px) {
+          float f1 = 1.0 - smoothstep(2.5, 11.0, px);
+          float f2 = 1.0 - smoothstep(9.0, 42.0, px);
+          float f3 = 1.0 - smoothstep(22.0, 105.0, px);
+          float nx = sin(p.x * 0.35 + t * 1.1) * 0.10 * f1
+                   + sin((p.x + p.y) * 0.09 + t * 0.45) * 0.14 * f2
+                   + sin(p.x * 0.045 - t * 0.22) * 0.20 * f3;
+          float nz = cos(p.y * 0.31 + t * 0.9) * 0.10 * f1
+                   + cos((p.y - p.x) * 0.075 + t * 0.35) * 0.14 * f2
+                   + cos(p.y * 0.05 + t * 0.18) * 0.20 * f3;
           return normalize(vec3(nx, 1.0, nz));
+        }
+        float waterPixelSpan() {
+          return max(length(vec2(dFdx(vWaterPos.x), dFdy(vWaterPos.x))),
+                     length(vec2(dFdx(vWaterPos.z), dFdy(vWaterPos.z))));
         }`
       )
       .replace(
         '#include <normal_fragment_begin>',
         `#include <normal_fragment_begin>
-        normal = waveNormal(vWaterPos.xz, uTime);`
+        normal = waveNormal(vWaterPos.xz, uTime, waterPixelSpan());`
       )
+      // Ahead of the fog, not after it: fresnel and glint are surface response,
+      // so the haze has to sit on top of them. Injected at <dithering_fragment>
+      // they were added AFTER <fog_fragment> and the glint stayed at full
+      // strength through kilometres of air.
       .replace(
-        '#include <dithering_fragment>',
-        `#include <dithering_fragment>
-        {
+        '#include <fog_fragment>',
+        `{
+          float px = waterPixelSpan();
           vec3 V = normalize(cameraPosition - vWaterPos);
-          vec3 N = waveNormal(vWaterPos.xz, uTime);
+          vec3 N = waveNormal(vWaterPos.xz, uTime, px);
           float fres = pow(1.0 - max(dot(V, N), 0.0), 3.0);
           gl_FragColor.rgb = mix(gl_FragColor.rgb, uSky, clamp(fres * 0.7, 0.0, 0.7));
-          vec3 sunDir = normalize(vec3(-0.5, 0.62, -0.42));
+          // A pow(.,120) lobe is a sub-pixel feature almost everywhere on a
+          // 60 km plane; keep it only where the surface is actually resolved.
+          float sharp = 1.0 - smoothstep(1.5, 7.0, px);
+          vec3 sunDir = vec3(-0.5566, 0.6875, -0.4665);
           float glint = pow(max(dot(reflect(-sunDir, N), V), 0.0), 120.0);
-          gl_FragColor.rgb += vec3(1.0, 0.95, 0.82) * glint * 0.55;
-        }`
+          gl_FragColor.rgb += vec3(1.0, 0.95, 0.82) * glint * 0.55 * sharp;
+        }
+        #include <fog_fragment>`
       );
   };
   return { mat, update: (dt: number) => { uTime.value += dt; } };

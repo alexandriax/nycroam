@@ -4,6 +4,7 @@
 import * as THREE from 'three';
 import { routeColor, bulletTextColor } from './types';
 import { BLACK, LED } from '../fonts';
+import { canvas2d } from '../canvas2d';
 
 export interface TrainOpts {
   division: string;
@@ -277,11 +278,7 @@ function drawRouteBullet(ctx: CanvasRenderingContext2D, size: number, route: str
 
 function makeRollSignTexture(route: string): THREE.CanvasTexture {
   const size = 128;
-  const canvas = document.createElement('canvas');
-  canvas.width = size;
-  canvas.height = size;
-  const ctx = canvas.getContext('2d');
-  if (!ctx) throw new Error('2D canvas context unavailable');
+  const { cv: canvas, ctx } = canvas2d(size, size);
   drawRouteBullet(ctx, size, route);
   const texture = new THREE.CanvasTexture(canvas);
   texture.colorSpace = THREE.SRGBColorSpace;
@@ -340,11 +337,7 @@ function roundRectPath(ctx: CanvasRenderingContext2D, x: number, y: number, w: n
 function makeSideSignTexture(route: string, destination: string): THREE.CanvasTexture {
   const w = SIDE_SIGN_TEX_W;
   const h = SIDE_SIGN_TEX_H;
-  const canvas = document.createElement('canvas');
-  canvas.width = w;
-  canvas.height = h;
-  const ctx = canvas.getContext('2d');
-  if (!ctx) throw new Error('2D canvas context unavailable');
+  const { cv: canvas, ctx } = canvas2d(w, h);
   ctx.clearRect(0, 0, w, h); // transparent corners outside the rounded panel
   roundRectPath(ctx, 0, 0, w, h, h * 0.22);
   ctx.fillStyle = '#0a0b0c';
@@ -401,11 +394,7 @@ function makeNumberFlagTexture(numbers: number[]): THREE.CanvasTexture {
   const rows = numbers.length;
   const w = NUMBER_ATLAS_W;
   const rowH = NUMBER_ROW_H;
-  const canvas = document.createElement('canvas');
-  canvas.width = w;
-  canvas.height = rowH * rows;
-  const ctx = canvas.getContext('2d');
-  if (!ctx) throw new Error('2D canvas context unavailable');
+  const { cv: canvas, ctx } = canvas2d(w, rowH * rows);
   ctx.clearRect(0, 0, w, rowH * rows);
   ctx.textBaseline = 'middle';
   ctx.textAlign = 'left';

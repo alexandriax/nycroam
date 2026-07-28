@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { dataUrl } from '../engine/dataver';
 import type { World } from '../engine/World';
-import { PATH_KIND_BIKE } from '../engine/tileTypes';
+import { PATH_KIND_BIKE, PATH_KIND_SERVICE } from '../engine/tileTypes';
 import { SANS } from '../engine/fonts';
 
 // meters from center to edge. The widest shows most of the island at once.
@@ -71,7 +71,10 @@ export default function MiniMap({ world, size = 208, layer = 'transit' }: { worl
   useEffect(() => {
     const cv = canvasRef.current;
     if (!cv) return;
-    const ctx = cv.getContext('2d')!;
+    // iOS returns null here once the page is over its canvas budget; a blank
+    // minimap is survivable, a TypeError in a React effect is not
+    const ctx = cv.getContext('2d');
+    if (!ctx) return;
     const dpr = Math.min(2, window.devicePixelRatio || 1);
     cv.width = size * dpr;
     cv.height = size * dpr;
@@ -156,6 +159,9 @@ export default function MiniMap({ world, size = 208, layer = 'transit' }: { worl
           for (const rp of world.roadPathsNear(c.x, c.z, tileR)) {
             const count = rp.start.length - 1;
             for (let i = 0; i < count; i++) {
+              // service lanes ride in RoadPaths only so the placement solver can
+              // see them; drawing driveways and parking aisles would bury the grid
+              if (rp.kind[i] === PATH_KIND_SERVICE) continue;
               const a = rp.start[i], b = rp.start[i + 1];
               const isBike = rp.kind[i] === PATH_KIND_BIKE;
               const path = isBike ? bikePath : bucket(rp.width[i] * s * 0.75);

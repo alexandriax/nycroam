@@ -4,6 +4,7 @@ import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js
 import type { SubwayData, StationSpec, EntranceSpec } from './subway/types';
 import { buildEntranceKit } from './streetprops';
 import { heightAt } from './terrain';
+import { canvas2d } from './canvas2d';
 
 /**
  * Collapse a prop group into one mesh per material (a kit is otherwise ~40
@@ -74,9 +75,7 @@ function makeBeacon(): THREE.Mesh {
     beaconGeo.setIndex(idx);
     a.dispose(); b.dispose();
 
-    const cv = document.createElement('canvas');
-    cv.width = 32; cv.height = 128;
-    const ctx = cv.getContext('2d')!;
+    const { cv, ctx } = canvas2d(32, 128);
     const g = ctx.createLinearGradient(0, 0, 0, 128);
     g.addColorStop(0, 'rgba(72,255,143,0)');
     g.addColorStop(0.75, 'rgba(72,255,143,0.28)');
@@ -398,10 +397,14 @@ export class EntranceManager {
 export function disposeGroup(g: THREE.Group) {
   g.traverse((o) => {
     if (o instanceof THREE.Mesh) {
-      if (o.userData.shared) return;
+      if (o.userData.shared) {
+        // Shares module-level geometry/material (the beacon, a rack's docked
+        // bikes). Its own per-instance buffer is still ours to free.
+        if (o instanceof THREE.InstancedMesh) o.dispose();
+        return;
+      }
       o.geometry.dispose();
       // materials are module-shared in streetprops except canvas sign textures
-      if (o.userData.shared) return; // beacon shares module-level geo/material
       const mats = Array.isArray(o.material) ? o.material : [o.material];
       for (const m of mats) {
         const std = m as THREE.MeshLambertMaterial;

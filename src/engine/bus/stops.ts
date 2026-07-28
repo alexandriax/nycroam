@@ -17,6 +17,7 @@ import { mergeByMaterial } from '../EntranceManager';
 import { hash01 } from '../palette';
 import { BLACK, SANS } from '../fonts';
 import type { BusRouteBadge, BusStopKitFactory } from './types';
+import { canvas2d } from '../canvas2d';
 
 // ---- shared materials -------------------------------------------------------
 const DARK_STEEL = new THREE.MeshLambertMaterial({ color: '#26282b' });
@@ -154,11 +155,7 @@ interface StopSignMats { flag: THREE.MeshBasicMaterial; guide: THREE.MeshBasicMa
 const signCache = new Map<string, StopSignMats>();
 
 function bake(w: number, h: number, draw: (ctx: CanvasRenderingContext2D) => void, transparent: boolean): THREE.MeshBasicMaterial {
-  const canvas = document.createElement('canvas');
-  canvas.width = w;
-  canvas.height = h;
-  const ctx = canvas.getContext('2d');
-  if (!ctx) throw new Error('2D canvas context unavailable');
+  const { cv: canvas, ctx } = canvas2d(w, h);
   draw(ctx);
   const tex = new THREE.CanvasTexture(canvas);
   tex.colorSpace = THREE.SRGBColorSpace;

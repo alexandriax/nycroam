@@ -2,7 +2,9 @@ import type { Metadata, Viewport } from 'next';
 import Script from 'next/script';
 import './globals.css';
 
-const GA_MEASUREMENT_ID = 'G-R6F21T632T';
+// Read at BUILD time. Unset (forks, local dev, previews) means no analytics tag
+// at all — a clone of this repo must not report into someone else's property.
+const GA_MEASUREMENT_ID = process.env.NEXT_PUBLIC_GA_ID;
 
 // Absolute base for og:image and friends. This page is statically prerendered,
 // so these are read at BUILD time — on Vercel the production alias is set then;
@@ -74,15 +76,19 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         />
       </head>
       <body>
-        <Script src={`https://www.googletagmanager.com/gtag/js?id=${GA_MEASUREMENT_ID}`} strategy="afterInteractive" />
-        <Script id="google-analytics" strategy="afterInteractive">
-          {`
-            window.dataLayer = window.dataLayer || [];
-            function gtag(){dataLayer.push(arguments);}
-            gtag('js', new Date());
-            gtag('config', '${GA_MEASUREMENT_ID}');
-          `}
-        </Script>
+        {GA_MEASUREMENT_ID && (
+          <>
+            <Script src={`https://www.googletagmanager.com/gtag/js?id=${GA_MEASUREMENT_ID}`} strategy="afterInteractive" />
+            <Script id="google-analytics" strategy="afterInteractive">
+              {`
+                window.dataLayer = window.dataLayer || [];
+                function gtag(){dataLayer.push(arguments);}
+                gtag('js', new Date());
+                gtag('config', '${GA_MEASUREMENT_ID}');
+              `}
+            </Script>
+          </>
+        )}
         {children}
       </body>
     </html>
