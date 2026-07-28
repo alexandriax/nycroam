@@ -8,13 +8,12 @@ import {
 
 /**
  * Midtown East set — Grand Central's Beaux-Arts front, the Chrysler crown, the
- * One Vanderbilt spire, the UN Secretariat, 270 Park (Chase HQ) and the
+ * One Vanderbilt tower, the UN Secretariat, 270 Park (Chase HQ) and the
  * Queensboro cantilever. Each builder returns a group whose origin sits at
- * ground level; the manager rotates/positions/merges it. The Chrysler and One
- * Vanderbilt shafts already exist from OSM — those builders add only the
- * signature crown that OSM lacks. Chase HQ is a full replacement (the
- * pipeline clears the OSM massing at the site) — that builder owns everything
- * from the plaza up.
+ * ground level; the manager rotates/positions/merges it. The Chrysler builder
+ * replaces only its crown. One Vanderbilt and Chase HQ are full replacements
+ * because their overlapping OSM parts rendered as generic/interpenetrating
+ * slabs; those builders own everything from the plaza up.
  */
 
 // Set-local materials (justified: a warm-tinted steel for the Queensboro's
@@ -34,16 +33,29 @@ const CHASE_BRONZE = new THREE.MeshStandardMaterial({
   color: '#9c7c4f', metalness: 0.35, roughness: 0.38, emissive: '#2a1e10',
 });
 
-// One Vanderbilt's crown glass: kit GLASS_LM at metalness 0.6 reads near-black
-// against the sky (no envmap in streetScene — the Chase bronze lesson), and the
-// real crown is LIGHTER than the shaft. Low metalness + slight emissive keeps
-// shaded facets silvery.
-const ONE_V_GLASS = new THREE.MeshStandardMaterial({
-  color: '#b9d2e2', metalness: 0.3, roughness: 0.16, emissive: '#2e3f4a',
-  // flat facets: without this the 4-segment frustums smooth-shade into a
-  // rounded bullet nose instead of crisp angled glass planes
-  flatShading: true,
+// One Vanderbilt palette. Its pale terracotta spandrels are essential: a
+// blue-glass-only model reads as any recent supertall. Low metalness and an
+// emissive floor keep shaded faces reflective-looking without an environment
+// map, while the warm fins/spandrels remain distinct at skyline distance.
+const ONE_V_TERRACOTTA = new THREE.MeshStandardMaterial({
+  color: '#c5a48d', metalness: 0.22, roughness: 0.42,
+  emissive: '#513a2d', emissiveIntensity: 0.28,
 });
+const ONE_V_STEEL = new THREE.MeshStandardMaterial({
+  color: '#bdc8cd', metalness: 0.48, roughness: 0.24,
+  emissive: '#39464d', emissiveIntensity: 0.22,
+});
+const ONE_V_SUMMIT = new THREE.MeshStandardMaterial({
+  color: '#dcecf2', metalness: 0.2, roughness: 0.12,
+  emissive: '#668793', emissiveIntensity: 0.5,
+  transparent: true, opacity: 0.86,
+});
+const ONE_V_DOOR = new THREE.MeshStandardMaterial({
+  color: '#345866', metalness: 0.26, roughness: 0.13,
+  emissive: '#173946', emissiveIntensity: 0.72,
+});
+const ONE_V_RED = new THREE.MeshBasicMaterial({ color: '#ff3b30' });
+const ONE_V_COLLISION = new THREE.MeshBasicMaterial({ visible: false });
 
 // Chrysler crown palette. High metalness rendered the old crown almost black
 // because the street scene intentionally has no expensive environment map.
@@ -93,6 +105,92 @@ function latticeTower(h: number, baseHalf: number, topHalf: number, mat: THREE.M
 function chryslerDetail<T extends THREE.Mesh>(mesh: T): T {
   mesh.userData.noCollision = true;
   return mesh;
+}
+
+type OneVRect = { x0: number; x1: number; z0: number; z1: number };
+
+function oneVDetail<T extends THREE.Mesh>(mesh: T): T {
+  mesh.userData.noCollision = true;
+  return mesh;
+}
+
+/** Vertical prism from an exact x/z outline, used for the chamfered podium. */
+function oneVPrism(points: THREE.Vector2[], y0: number, y1: number, mat: THREE.Material, detail = false): THREE.Mesh {
+  const shape = new THREE.Shape();
+  points.forEach((p, i) => {
+    // Shape y -> local +z after the mesh-level stand-up rotation.
+    if (i === 0) shape.moveTo(p.x, -p.y);
+    else shape.lineTo(p.x, -p.y);
+  });
+  shape.closePath();
+  const mesh = new THREE.Mesh(
+    new THREE.ExtrudeGeometry(shape, { depth: y1 - y0, bevelEnabled: false, steps: 1 }),
+    mat,
+  );
+  mesh.rotation.x = -Math.PI / 2;
+  mesh.position.y = y0;
+  if (detail) mesh.userData.noCollision = true;
+  return mesh;
+}
+
+/**
+ * One textured, vertically tapered rectangular volume. Every side gets
+ * physical-scale UVs (one 1.55m bay by one 4.1m floor), so a 64px repeating
+ * texture supplies hundreds of mullions/spandrels for almost no geometry.
+ */
+function oneVFrustum(
+  lower: OneVRect,
+  upper: OneVRect,
+  y0: number,
+  y1: number,
+  mat: THREE.Material,
+): THREE.Mesh {
+  const p: number[] = [];
+  const uv: number[] = [];
+  const idx: number[] = [];
+  const floor0 = y0 / 4.1, floor1 = y1 / 4.1;
+  const addQuad = (verts: THREE.Vector3[], tex: [number, number][]) => {
+    const n = p.length / 3;
+    for (let i = 0; i < 4; i++) {
+      p.push(verts[i].x, verts[i].y, verts[i].z);
+      uv.push(tex[i][0], tex[i][1]);
+    }
+    idx.push(n, n + 1, n + 2, n, n + 2, n + 3);
+  };
+  const l00 = new THREE.Vector3(lower.x0, y0, lower.z0);
+  const l10 = new THREE.Vector3(lower.x1, y0, lower.z0);
+  const l11 = new THREE.Vector3(lower.x1, y0, lower.z1);
+  const l01 = new THREE.Vector3(lower.x0, y0, lower.z1);
+  const u00 = new THREE.Vector3(upper.x0, y1, upper.z0);
+  const u10 = new THREE.Vector3(upper.x1, y1, upper.z0);
+  const u11 = new THREE.Vector3(upper.x1, y1, upper.z1);
+  const u01 = new THREE.Vector3(upper.x0, y1, upper.z1);
+  const ux = Math.max(
+    lower.x1 - lower.x0,
+    upper.x1 - upper.x0,
+  ) / 1.55;
+  const uz = Math.max(
+    lower.z1 - lower.z0,
+    upper.z1 - upper.z0,
+  ) / 1.55;
+
+  // Winding is outward for FrontSide materials.
+  addQuad([l00, u00, u10, l10], [[0, floor0], [0, floor1], [ux, floor1], [ux, floor0]]); // -z
+  addQuad([l01, l11, u11, u01], [[0, floor0], [ux, floor0], [ux, floor1], [0, floor1]]); // +z
+  addQuad([l00, l01, u01, u00], [[0, floor0], [uz, floor0], [uz, floor1], [0, floor1]]); // -x
+  addQuad([l10, u10, u11, l11], [[0, floor0], [0, floor1], [uz, floor1], [uz, floor0]]); // +x
+  addQuad(
+    [u00, u01, u11, u10],
+    [[upper.x0 / 1.55, upper.z0 / 1.55], [upper.x0 / 1.55, upper.z1 / 1.55],
+      [upper.x1 / 1.55, upper.z1 / 1.55], [upper.x1 / 1.55, upper.z0 / 1.55]],
+  );
+
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(p, 3));
+  geo.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+  geo.setIndex(idx);
+  geo.computeVertexNormals();
+  return oneVDetail(new THREE.Mesh(geo, mat));
 }
 
 // Streamlined 61st-floor eagle gargoyle. The group projects toward local +z;
@@ -476,48 +574,221 @@ export const builders: Record<string, (ctx: LandmarkCtx) => THREE.Group> = {
     return g;
   },
 
-  // One Vanderbilt crown. The OSM prisms above 380m (five 397m crown pieces +
-  // a 3m-wide spire stick to 427m) are cleared at bake time (LANDMARK_FIT
-  // clearAboveH) — kept, they interpenetrated the old glass-fin build, whose
-  // fins and floating 44m parapet ring hung ~7m off the real crown cluster.
-  // This replaces them with the tower's actual read: a faceted glass crown
-  // tapering from the kept 350m setbacks to the 427m point. Everything here is
-  // four-fold symmetric on purpose — the fit rot may map local +x onto either
-  // grid axis depending on which shaft edge measures longest.
+  // One Vanderbilt: a complete replacement for 24 overlapping source prisms.
+  // The bake measures the exact 65x61m site and 427m tip, then clears the
+  // generic massing. Four non-overlapping curtain-wall volumes share a tapered
+  // envelope and terminate at the source-mapped 315/330/350m setbacks. This
+  // preserves KPF's interlocking spiral while avoiding overlap flicker; a tiny
+  // repeating texture carries the tower's fluted terracotta floor rhythm.
   'one-vanderbilt': (ctx) => {
     const g = new THREE.Group();
-    const roof = ctx.fit?.keptH ?? 350; // tallest kept OSM setback
-    const tip = ctx.fit?.roofH ?? 427; // OSM's cleared spire reached here
-    const rise = tip - roof;
-    // three tapering square tiers: [side at base, side at top, rise fractions].
-    // Near-constant taper — increasing slopes read as a bulging bullet nose.
-    const tiers: [number, number, number, number][] = [
-      [26, 15.5, 0, 0.47],
-      [15.5, 8.5, 0.47, 0.75],
-      [8.5, 0.9, 0.75, 1],
+    const W = ctx.fit?.w ?? 65;
+    const D = ctx.fit?.d ?? 61;
+    const tip = ctx.fit?.roofH ?? 427;
+
+    const curtain = canvasTexture((c, w, h) => {
+      const glass = c.createLinearGradient(0, 0, w, 0);
+      glass.addColorStop(0, '#7799a8');
+      glass.addColorStop(0.22, '#c2dae2');
+      glass.addColorStop(0.55, '#8aabb9');
+      glass.addColorStop(0.72, '#d5e6eb');
+      glass.addColorStop(1, '#6d8d9c');
+      c.fillStyle = glass;
+      c.fillRect(0, 0, w, h);
+      // One fluted terracotta spandrel per real-looking 4.1m floor.
+      c.fillStyle = '#b9947d';
+      c.fillRect(0, h - 10, w, 8);
+      c.fillStyle = 'rgba(244,220,200,.72)';
+      c.fillRect(0, h - 10, w, 1);
+      c.fillStyle = 'rgba(54,70,77,.7)';
+      c.fillRect(0, h - 2, w, 2);
+      // Slender mullion plus an off-axis reflection streak; the repeat period
+      // is one 1.55m facade bay, so this stays legible inches away.
+      c.fillStyle = 'rgba(226,237,238,.86)';
+      c.fillRect(0, 0, 2, h);
+      c.fillStyle = 'rgba(255,255,255,.28)';
+      c.fillRect(Math.floor(w * 0.62), 0, 2, h - 10);
+    }, 32, 64);
+    curtain.wrapS = curtain.wrapT = THREE.RepeatWrapping;
+    const glassA = new THREE.MeshStandardMaterial({
+      map: curtain, color: '#c4dce5', metalness: 0.28, roughness: 0.17,
+      emissive: '#3d6272', emissiveIntensity: 0.36, envMapIntensity: 1.2,
+    });
+    const glassB = new THREE.MeshStandardMaterial({
+      map: curtain, color: '#aacbd8', metalness: 0.32, roughness: 0.2,
+      emissive: '#315465', emissiveIntensity: 0.38, envMapIntensity: 1.1,
+    });
+    const podiumGlass = new THREE.MeshStandardMaterial({
+      map: curtain, color: '#d3e2e7', metalness: 0.24, roughness: 0.2,
+      emissive: '#456572', emissiveIntensity: 0.34,
+    });
+
+    // ---- public base: chamfered lobby, plaza-facing entrances and canopies
+    const podiumW = W - 1.8, podiumD = D - 1.8, podiumH = 18;
+    const cut = 5.2;
+    const podiumPlan = [
+      new THREE.Vector2(-podiumW / 2 + cut, -podiumD / 2),
+      new THREE.Vector2(podiumW / 2 - cut, -podiumD / 2),
+      new THREE.Vector2(podiumW / 2, -podiumD / 2 + cut),
+      new THREE.Vector2(podiumW / 2, podiumD / 2 - cut),
+      new THREE.Vector2(podiumW / 2 - cut, podiumD / 2),
+      new THREE.Vector2(-podiumW / 2 + cut, podiumD / 2),
+      new THREE.Vector2(-podiumW / 2, podiumD / 2 - cut),
+      new THREE.Vector2(-podiumW / 2, -podiumD / 2 + cut),
     ];
-    for (const [s0, s1, f0, f1] of tiers) {
-      const y0 = roof + rise * f0, y1 = roof + rise * f1;
-      const t = cyl(s1 * Math.SQRT1_2, s0 * Math.SQRT1_2, y1 - y0, ONE_V_GLASS, 0, (y0 + y1) / 2, 0, 4);
-      t.rotation.y = Math.PI / 4; // square facets facing local ±x/±z
-      g.add(t);
-      // steel hip ribs up the four corners of each tier
-      for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
-        g.add(strut(
-          new THREE.Vector3((sx * s0) / 2, y0, (sz * s0) / 2),
-          new THREE.Vector3((sx * s1) / 2, y1, (sz * s1) / 2),
-          0.22, STEEL_LM,
-        ));
+    g.add(oneVPrism(podiumPlan, 0, podiumH, podiumGlass, true));
+    g.add(oneVPrism(podiumPlan, 0, podiumH, ONE_V_COLLISION));
+
+    const fins: THREE.Mesh[] = [];
+    for (const sign of [-1, 1]) {
+      for (let x = -podiumW / 2 + 6; x <= podiumW / 2 - 6; x += 3.1) {
+        if (Math.abs(x) < 10) continue;
+        fins.push(box(0.34, 17.4, 0.38, ONE_V_TERRACOTTA, x, 8.7, sign * (podiumD / 2 + 0.18)));
+      }
+      for (let z = -podiumD / 2 + 6; z <= podiumD / 2 - 6; z += 3.1) {
+        if (Math.abs(z) < 10) continue;
+        fins.push(box(0.38, 17.4, 0.34, ONE_V_TERRACOTTA, sign * (podiumW / 2 + 0.18), 8.7, z));
       }
     }
-    // Summit deck band: a pale glow wrapping the crown base at the roofline
-    // (the old free-floating r=22 parapet ring is gone with the fins)
-    const band = new THREE.Mesh(
-      new THREE.BoxGeometry(27.2, 2.4, 27.2),
-      new THREE.MeshBasicMaterial({ color: '#d9ecf7' }),
-    );
-    band.position.y = roof + 1.6;
-    g.add(band);
+    g.add(oneVDetail(mergeBatch(fins, ONE_V_TERRACOTTA)));
+
+    const entranceParts: THREE.Mesh[] = [];
+    for (const sign of [-1, 1]) {
+      // North/south portals.
+      entranceParts.push(box(18.5, 9.2, 0.42, ONE_V_DOOR, 0, 4.6, sign * (podiumD / 2 + 0.25)));
+      entranceParts.push(box(19.4, 0.42, 5.6, ONE_V_STEEL, 0, 7.0, sign * (podiumD / 2 + 2.8)));
+      for (const x of [-9.2, -4.6, 0, 4.6, 9.2]) {
+        entranceParts.push(box(0.22, 9.5, 0.55, ONE_V_STEEL, x, 4.75, sign * (podiumD / 2 + 0.48)));
+      }
+      // Madison/Vanderbilt Avenue portals.
+      entranceParts.push(box(0.42, 9.2, 18.5, ONE_V_DOOR, sign * (podiumW / 2 + 0.25), 4.6, 0));
+      entranceParts.push(box(5.6, 0.42, 19.4, ONE_V_STEEL, sign * (podiumW / 2 + 2.8), 7.0, 0));
+      for (const z of [-9.2, -4.6, 0, 4.6, 9.2]) {
+        entranceParts.push(box(0.55, 9.5, 0.22, ONE_V_STEEL, sign * (podiumW / 2 + 0.48), 4.75, z));
+      }
+    }
+    for (const mesh of entranceParts) g.add(oneVDetail(mesh));
+
+    type Level = { y: number; cx: number; cz: number; w: number; d: number };
+    const levels: Level[] = [
+      { y: 18, cx: 0, cz: 1, w: W - 3, d: D - 3 },
+      { y: 150, cx: 0.8, cz: 0, w: W - 5, d: D - 5 },
+      { y: 250, cx: 2, cz: -2, w: W - 10, d: D - 10 },
+      { y: 285, cx: 3, cz: -4, w: W - 14, d: D - 13 },
+      { y: 315, cx: 4, cz: -6, w: Math.min(47, W - 18), d: Math.min(44, D - 17) },
+      { y: 330, cx: 5, cz: -7, w: Math.min(43, W - 22), d: Math.min(40, D - 21) },
+      { y: 350, cx: 6, cz: -8, w: Math.min(38, W - 27), d: Math.min(35, D - 26) },
+    ];
+    const levelAt = new Map(levels.map((l) => [l.y, l]));
+    // q0/q1 are the southern pair, which survive to the highest mapped
+    // shoulder; the north-east and north-west volumes finish at 330/315m.
+    const maxH = [350, 350, 330, 315];
+    const rectFor = (l: Level, q: number): OneVRect => {
+      const east = q === 1 || q === 2;
+      const north = q >= 2;
+      return {
+        x0: east ? l.cx : l.cx - l.w / 2,
+        x1: east ? l.cx + l.w / 2 : l.cx,
+        z0: north ? l.cz : l.cz - l.d / 2,
+        z1: north ? l.cz + l.d / 2 : l.cz,
+      };
+    };
+
+    // ---- four interlocking, individually terminating office volumes
+    for (let i = 0; i < levels.length - 1; i++) {
+      const a = levels[i], b = levels[i + 1];
+      for (let q = 0; q < 4; q++) {
+        if (a.y >= maxH[q]) continue;
+        const y1 = Math.min(b.y, maxH[q]);
+        const upper = levelAt.get(y1);
+        if (!upper) continue; // every source-mapped terminal is a profile level
+        g.add(oneVFrustum(rectFor(a, q), rectFor(upper, q), a.y, y1, (q + i) % 2 ? glassA : glassB));
+      }
+    }
+
+    // Warm terrace caps make the rotating setback sequence read from the
+    // ground; a merged glass rail gives close fly-bys real depth.
+    const rails: THREE.Mesh[] = [];
+    for (let q = 0; q < 4; q++) {
+      const y = maxH[q];
+      const r = rectFor(levelAt.get(y)!, q);
+      const w = r.x1 - r.x0, d = r.z1 - r.z0;
+      const x = (r.x0 + r.x1) / 2, z = (r.z0 + r.z1) / 2;
+      g.add(oneVDetail(box(w + 0.8, 0.75, d + 0.8, ONE_V_TERRACOTTA, x, y + 0.375, z)));
+      rails.push(
+        box(w + 0.5, 1.45, 0.18, ONE_V_SUMMIT, x, y + 1.1, r.z0 - 0.25),
+        box(w + 0.5, 1.45, 0.18, ONE_V_SUMMIT, x, y + 1.1, r.z1 + 0.25),
+        box(0.18, 1.45, d + 0.5, ONE_V_SUMMIT, r.x0 - 0.25, y + 1.1, z),
+        box(0.18, 1.45, d + 0.5, ONE_V_SUMMIT, r.x1 + 0.25, y + 1.1, z),
+      );
+    }
+    g.add(oneVDetail(mergeBatch(rails, ONE_V_SUMMIT)));
+
+    // Sixteen conservative collision rings follow the real setbacks, rather
+    // than one 427m AABB blocking the empty terrace air.
+    for (const [y0, y1] of [[18, 250], [250, 315], [315, 330], [330, 350]] as [number, number][]) {
+      const l = levelAt.get(y0)!;
+      for (let q = 0; q < 4; q++) {
+        if (y0 >= maxH[q]) continue;
+        const top = Math.min(y1, maxH[q]);
+        const r = rectFor(l, q);
+        g.add(box(r.x1 - r.x0, top - y0, r.z1 - r.z0, ONE_V_COLLISION,
+          (r.x0 + r.x1) / 2, (y0 + top) / 2, (r.z0 + r.z1) / 2));
+      }
+    }
+
+    // ---- SUMMIT: observatory band, exterior glass boxes and Ascent lift
+    const summitX = 6.5, summitZ = -8.5;
+    g.add(oneVDetail(box(28, 1.2, 23, ONE_V_TERRACOTTA, summitX, 330.6, summitZ)));
+    for (const sign of [-1, 1]) {
+      g.add(oneVDetail(box(6.2, 4.2, 4.8, ONE_V_SUMMIT, summitX + sign * 14.2, 333.0, summitZ)));
+    }
+    const ascentX = summitX + 14.6;
+    g.add(oneVDetail(box(3.2, 35, 2.5, ONE_V_SUMMIT, ascentX, 347.5, summitZ - 1.2)));
+    for (const z of [summitZ - 2.5, summitZ + 0.1]) {
+      g.add(oneVDetail(strut(
+        new THREE.Vector3(ascentX + 1.8, 330, z),
+        new THREE.Vector3(ascentX + 1.8, 365, z),
+        0.14, ONE_V_STEEL, 5,
+      )));
+    }
+
+    // The mapped crown cluster is centered at local (7,-9), not at the full
+    // block center. Two crisp glass stages replace the former 77m gray pyramid.
+    const crown0: OneVRect = { x0: -5, x1: 19, z0: -20, z1: 2 };
+    const crown1: OneVRect = { x0: 0, x1: 15, z0: -16.5, z1: -2.5 };
+    const crown2: OneVRect = { x0: 4, x1: 10.5, z0: -12.5, z1: -5.5 };
+    g.add(oneVFrustum(crown0, crown1, 350, 376, glassA));
+    g.add(oneVFrustum(crown1, crown2, 376, 397, glassB));
+    for (const [a, b, y0, y1] of [[crown0, crown1, 350, 376], [crown1, crown2, 376, 397]] as [OneVRect, OneVRect, number, number][]) {
+      for (const [ix, iz] of [[0, 0], [1, 0], [1, 1], [0, 1]]) {
+        const ax = ix ? a.x1 : a.x0, az = iz ? a.z1 : a.z0;
+        const bx = ix ? b.x1 : b.x0, bz = iz ? b.z1 : b.z0;
+        g.add(oneVDetail(strut(
+          new THREE.Vector3(ax, y0, az),
+          new THREE.Vector3(bx, y1, bz),
+          0.16, ONE_V_STEEL, 5,
+        )));
+      }
+      // Lower section as the conservative collision envelope for its taper.
+      g.add(box(a.x1 - a.x0, y1 - y0, a.z1 - a.z0, ONE_V_COLLISION,
+        (a.x0 + a.x1) / 2, (y0 + y1) / 2, (a.z0 + a.z1) / 2));
+    }
+
+    // Slender architectural needle to the exact 427m source tip, with
+    // mechanical collars and two aviation lights.
+    const mastX = 7.25, mastZ = -8.85, mast0 = 397;
+    g.add(oneVDetail(box(8.0, 1.4, 8.2, ONE_V_STEEL, mastX, mast0 + 0.7, mastZ)));
+    g.add(oneVDetail(cyl(0.13, 0.9, tip - mast0, ONE_V_STEEL, mastX, (mast0 + tip) / 2, mastZ, 8)));
+    for (const [y, r] of [[398.8, 1.1], [410, 0.48], [420, 0.25]] as [number, number][]) {
+      g.add(oneVDetail(cyl(r, r, 0.34, ONE_V_STEEL, mastX, y, mastZ, 8)));
+    }
+    const midBeacon = oneVDetail(new THREE.Mesh(new THREE.SphereGeometry(0.22, 6, 5), ONE_V_RED));
+    midBeacon.position.set(mastX, 412, mastZ);
+    g.add(midBeacon);
+    const beacon = oneVDetail(new THREE.Mesh(new THREE.SphereGeometry(0.2, 6, 5), ONE_V_RED));
+    beacon.position.set(mastX, tip, mastZ);
+    g.add(beacon);
     return g;
   },
 

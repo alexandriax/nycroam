@@ -165,7 +165,10 @@ export const LANDMARKS_REG: LandmarkEntry[] = [
   // replacement is also the distant skyline LOD, avoiding a truncated 199m
   // shaft across town.
   { id: 'chrysler', name: 'Chrysler Building', lat: 40.7516, lon: -73.9755, set: 'midtown-east', r: 1500, rot: GRID, arrivalBearing: 0, alwaysOn: true },
-  { id: 'one-vanderbilt', name: 'One Vanderbilt', lat: 40.7529, lon: -73.9787, set: 'midtown-east', r: 1400, rot: GRID },
+  // Full premium replacement for all 24 generic source parts. Keep its compact
+  // procedural build resident as the distant skyline too, or clearing the OSM
+  // tower would leave a 427m hole whenever the streamed landmark unloads.
+  { id: 'one-vanderbilt', name: 'One Vanderbilt', lat: 40.7529, lon: -73.9787, set: 'midtown-east', r: 1400, rot: GRID, alwaysOn: true },
   { id: 'summit-1v', name: 'Summit One Vanderbilt', lat: 40.7529, lon: -73.9787, set: 'midtown-east', r: 1400, aliasOf: 'one-vanderbilt' },
   // anchored on the real Secretariat slab center, rot aligning the slab with the
   // measured OSM massing (long axis along the 1st Ave grid); the GA hall offset

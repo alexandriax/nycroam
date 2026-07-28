@@ -640,13 +640,13 @@ async function main() {
     { id: 'hearst-tower', lat: 40.7666, lon: -73.9836, r: 55, clearAboveH: 5 },
     { id: 'chrysler', lat: 40.7516, lon: -73.9755, r: 45, clearAboveMin: 184, clearAboveH: 270 },
     { id: 'empire-state', lat: 40.7484, lon: -73.9857, r: 40, clearAboveMin: 325 },
-    // minH: obb over the tall shaft only, so the crown centers on the tower
-    // (not the block-wide base). clearAboveH: OSM's own crown prisms (h=397)
-    // and 3m-wide spire stick (h=427) are full-height extrusions (base ~18m),
-    // so clearAboveMin can't catch them — drop by TOP height instead; the
-    // bespoke faceted-glass crown replaces them above the kept 350m setbacks.
-    // r 48: a 350m part centroid sits 39.9m out (the hearst boundary lesson).
-    { id: 'one-vanderbilt', lat: 40.7529, lon: -73.9787, r: 48, minH: 340, clearAboveH: 380 },
+    // Full coherent replacement. The source maps the KPF tower as more than 20
+    // overlapping full-height prisms: accurate in aggregate, but flat generic
+    // boxes in the renderer, plus a 77m solid pyramid where the staggered glass
+    // crown and slender spire should be. Site grouping safely isolates every
+    // part owned by the named One Vanderbilt outline from Grand Central and
+    // neighbouring towers, then clearAll removes only that ownership group.
+    { id: 'one-vanderbilt', lat: 40.7529, lon: -73.9787, r: 58, clearAll: true },
     // minH: the 120m base obb centered the crown 13m off the tower shaft — the
     // verdigris crown floated beside the top (the "topper near City Hall" bug)
     { id: 'woolworth', lat: 40.7124, lon: -74.0083, r: 40, minH: 150 },
@@ -754,12 +754,18 @@ async function main() {
       return { minU, maxU, minV, maxV, roof };
     };
     const all = measure(cands);
-    const isTall = (b) => (lf.clearAboveMin !== undefined && (b.minHeight ?? 0) >= lf.clearAboveMin)
+    const isTall = (b) => lf.clearAll
+      || (lf.clearAboveMin !== undefined && (b.minHeight ?? 0) >= lf.clearAboveMin)
       || (lf.clearAboveH !== undefined && b.height >= lf.clearAboveH);
-    const cleared = lf.clearAboveMin !== undefined || lf.clearAboveH !== undefined ? cands.filter(isTall) : [];
+    const cleared = lf.clearAll || lf.clearAboveMin !== undefined || lf.clearAboveH !== undefined
+      ? cands.filter(isTall)
+      : [];
     for (const b of cleared) fitCleared.add(b);
     const kept = cands.filter((b) => !cleared.includes(b));
-    const keptM = kept.length ? measure(kept) : all;
+    // A full replacement intentionally leaves no host massing. Report keptH=0
+    // so builders and validation cannot mistake the measured source roof for a
+    // surviving slab.
+    const keptM = kept.length ? measure(kept) : { ...all, roof: 0 };
     const top = measure(cands.filter((b) => b.height >= all.roof - 12));
     // center of the full-massing obb, in world coords
     const cu = (all.minU + all.maxU) / 2, cv = (all.minV + all.maxV) / 2;
@@ -2015,6 +2021,29 @@ async function main() {
   results.push(
     `Chrysler replacement (${chryslerKey}): fit=${chryslerFit?.keptH ?? 0}-${chryslerFit?.roofH ?? 0}m, ` +
       `cleared=${chryslerFit?.clearedParts ?? 0}, baked >=200m parts=${chryslerBakedCrown} -> ${chryslerOk ? 'PASS' : 'FAIL'}`,
+  );
+
+  // One Vanderbilt is also a complete procedural replacement. Its source
+  // ownership group contains one block outline plus 23 mutually overlapping
+  // parts; none may remain in the near tile or skyline behind the premium
+  // four-volume build.
+  const oneVXZ = lonLatToXZ(-73.9787, 40.7529);
+  const [oneVTx, oneVTz] = tileOf(oneVXZ);
+  const oneVKey = tileKeyOf(oneVTx, oneVTz);
+  const oneVBuildings = tileBuildings.get(oneVKey) || [];
+  const oneVBakedTall = oneVBuildings.filter((b) => b.h >= 300).length;
+  const oneVFit = fitOut['one-vanderbilt'];
+  const oneVOk = !!oneVFit
+    && Math.abs(oneVFit.w - 65) < 1
+    && Math.abs(oneVFit.d - 61) < 1
+    && Math.abs(oneVFit.roofH - 427) < 1
+    && oneVFit.keptH === 0
+    && oneVFit.clearedParts === 24
+    && oneVBakedTall === 0;
+  results.push(
+    `One Vanderbilt replacement (${oneVKey}): fit=${oneVFit?.w ?? 0}x${oneVFit?.d ?? 0}m, ` +
+      `roof=${oneVFit?.roofH ?? 0}m, cleared=${oneVFit?.clearedParts ?? 0}, ` +
+      `baked >=300m parts=${oneVBakedTall} -> ${oneVOk ? 'PASS' : 'FAIL'}`,
   );
 
   const timesSquareRoads = tileRoads.get('0_0') || [];
