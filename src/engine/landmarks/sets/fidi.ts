@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import {
   type LandmarkCtx,
   LIMESTONE, GRANITE, DARKSTONE, MARBLE, BRICK_RED, BRONZE, VERDIGRIS, GOLD,
@@ -328,6 +329,32 @@ export const builders: Record<string, (ctx: LandmarkCtx) => THREE.Group> = {
       [mastBase + 65, 2.7],
       [mastBase + 91, 1.45],
     ];
+    // Build the 112-piece cable frame as two material batches rather than 112
+    // scene nodes. The unit cylinders reproduce strut() exactly after their
+    // transforms are baked, while the final noCollision meshes keep diagonal
+    // cables from becoming broad AABB obstacles around the flyable spire.
+    const spireSteelGeos: THREE.BufferGeometry[] = [];
+    const spireDarkGeos: THREE.BufferGeometry[] = [];
+    const spireUnit4 = new THREE.CylinderGeometry(1, 1, 1, 4);
+    const spireUnit5 = new THREE.CylinderGeometry(1, 1, 1, 5);
+    const spireUp = new THREE.Vector3(0, 1, 0);
+    const spireMid = new THREE.Vector3();
+    const spireDirection = new THREE.Vector3();
+    const spireRotation = new THREE.Quaternion();
+    const spireScale = new THREE.Vector3();
+    const spireMatrix = new THREE.Matrix4();
+    const addSpireStrut = (
+      target: THREE.BufferGeometry[], unit: THREE.BufferGeometry,
+      a: THREE.Vector3, b: THREE.Vector3, radius: number,
+    ): void => {
+      const len = a.distanceTo(b);
+      spireMid.copy(a).add(b).multiplyScalar(0.5);
+      spireDirection.copy(b).sub(a).normalize();
+      spireRotation.setFromUnitVectors(spireUp, spireDirection);
+      spireScale.set(radius, len, radius);
+      spireMatrix.compose(spireMid, spireRotation, spireScale);
+      target.push(unit.clone().applyMatrix4(spireMatrix));
+    };
     const legs = 8;
     for (let i = 0; i < legs; i++) {
       const a = (i / legs) * Math.PI * 2 + Math.PI / 8;
@@ -337,30 +364,52 @@ export const builders: Record<string, (ctx: LandmarkCtx) => THREE.Group> = {
         const p0 = new THREE.Vector3(Math.cos(a) * r0, y0, Math.sin(a) * r0);
         const p1 = new THREE.Vector3(Math.cos(a) * r1, y1, Math.sin(a) * r1);
         const px = new THREE.Vector3(Math.cos(a2) * r1, y1, Math.sin(a2) * r1);
-        g.add(strut(p0, p1, 0.15, WTC_STEEL, 5));
-        g.add(strut(p0, px, 0.075, WTC_DARK_STEEL, 4));
+        addSpireStrut(spireSteelGeos, spireUnit5, p0, p1, 0.15);
+        addSpireStrut(spireDarkGeos, spireUnit4, p0, px, 0.075);
       }
     }
     for (const [y, r] of rings) {
       for (let i = 0; i < legs; i++) {
         const a = (i / legs) * Math.PI * 2 + Math.PI / 8;
         const b = ((i + 1) / legs) * Math.PI * 2 + Math.PI / 8;
-        g.add(strut(
+        addSpireStrut(
+          spireSteelGeos,
+          spireUnit4,
           new THREE.Vector3(Math.cos(a) * r, y, Math.sin(a) * r),
           new THREE.Vector3(Math.cos(b) * r, y, Math.sin(b) * r),
-          0.07, WTC_STEEL, 4,
-        ));
+          0.07,
+        );
       }
     }
     // Eight long stays are the structure's most legible close-range signature.
     for (let i = 0; i < 8; i++) {
       const a = (i / 8) * Math.PI * 2 + Math.PI / 8;
-      g.add(strut(
+      addSpireStrut(
+        spireSteelGeos,
+        spireUnit5,
         new THREE.Vector3(Math.cos(a) * 13.1, roof + 4.8, Math.sin(a) * 13.1),
         new THREE.Vector3(Math.cos(a) * 1.15, mastBase + 48, Math.sin(a) * 1.15),
-        0.085, WTC_STEEL, 5,
-      ));
+        0.085,
+      );
     }
+    if (spireSteelGeos.length !== 80 || spireDarkGeos.length !== 32) {
+      throw new Error(
+        `One WTC spire count changed: ${spireSteelGeos.length} steel, ${spireDarkGeos.length} dark`,
+      );
+    }
+    const addSpireBatch = (
+      geos: THREE.BufferGeometry[], material: THREE.Material, label: string,
+    ): void => {
+      const merged = mergeGeometries(geos, false);
+      if (!merged) throw new Error(`Could not merge One WTC ${label} geometry`);
+      for (const geometry of geos) geometry.dispose();
+      g.add(wtcDetail(new THREE.Mesh(merged, material)));
+    };
+    addSpireBatch(spireSteelGeos, WTC_STEEL, 'steel spire');
+    addSpireBatch(spireDarkGeos, WTC_DARK_STEEL, 'dark spire');
+    spireUnit4.dispose();
+    spireUnit5.dispose();
+
     for (const y of [mastBase + 38, mastBase + 80]) {
       const warning = new THREE.Mesh(new THREE.SphereGeometry(0.5, 8, 6), WTC_RED);
       warning.position.y = y;
