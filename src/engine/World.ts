@@ -1046,6 +1046,44 @@ export class World {
     return [tx, tz, nx, nz];
   }
 
+  /**
+   * Clip the broad 2-tile road query to segments that could geometrically
+   * affect a local footprint solve. The old spiral tested every candidate
+   * against every segment in up to 25 tiles; in dense Lower Manhattan that
+   * turned one difficult entrance into a 50–115 ms main-thread task.
+   */
+  private localRoadPaths(paths: RoadPaths[], x: number, z: number, radius: number): RoadPaths[] {
+    const pts: number[] = [];
+    const start: number[] = [0];
+    const width: number[] = [];
+    const kind: number[] = [];
+    for (const rp of paths) {
+      const roadCount = rp.start.length - 1;
+      for (let r = 0; r < roadCount; r++) {
+        const a = rp.start[r], b = rp.start[r + 1];
+        for (let j = a; j < b - 1; j++) {
+          const x1 = rp.pts[j * 2], z1 = rp.pts[j * 2 + 1];
+          const x2 = rp.pts[(j + 1) * 2], z2 = rp.pts[(j + 1) * 2 + 1];
+          if (
+            Math.max(x1, x2) < x - radius || Math.min(x1, x2) > x + radius
+            || Math.max(z1, z2) < z - radius || Math.min(z1, z2) > z + radius
+          ) continue;
+          pts.push(x1, z1, x2, z2);
+          width.push(rp.width[r]);
+          kind.push(rp.kind[r]);
+          start.push(start[start.length - 1] + 2);
+        }
+      }
+    }
+    if (!width.length) return paths;
+    return [{
+      start: Uint32Array.from(start),
+      pts: Float32Array.from(pts),
+      width: Float32Array.from(width),
+      kind: Uint8Array.from(kind),
+    }];
+  }
+
   /** Signed clearance of a point to the nearest ribbon edge (incl. bike lanes):
    *  distance to centerline minus half-width; negative = inside that ribbon. */
   private ribbonClearance(paths: RoadPaths[], x: number, z: number): number {
@@ -1162,7 +1200,10 @@ export class World {
    */
   private resolveFootprint(x: number, z: number, fp: KitFootprint): [number, number] | null {
     if (!this.tiles.readyAround(x, z)) return null; // wait for road/building data
-    const paths = this.tiles.roadPathsNear(x, z, 2); // 2-tile radius: wide-avenue centerlines in the next tile count
+    // The source query stays broad enough to catch a wide avenue whose
+    // centerline lies in a neighboring tile, then a conservative 96 m AABB
+    // clip removes segments that cannot touch the 36 m fallback spiral.
+    const paths = this.localRoadPaths(this.tiles.roadPathsNear(x, z, 2), x, z, 96);
     const frameFixed = fp.fixed ? this.roadFrame(paths, x, z) : undefined;
     // 1) joint building + whole-footprint road solve
     let px = x, pz = z;
@@ -1186,7 +1227,9 @@ export class World {
     // 36 m radius: a full-block landmark base (Hearst) beside a wide avenue can
     // leave no legal seat within 24 m of the mapped point
     for (let ring = 1; ring <= 36 && !hasClear; ring++) {
-      const steps = Math.max(6, ring * 4);
+      // About 3 m between angular probes: tighter than the stair/dock width,
+      // while avoiding thousands of redundant sub-meter tests at large radii.
+      const steps = Math.max(8, Math.ceil((Math.PI * 2 * ring) / 3));
       for (let a = 0; a < steps; a++) {
         const ang = (a / steps) * Math.PI * 2;
         let cx = x + Math.cos(ang) * ring, cz = z + Math.sin(ang) * ring;

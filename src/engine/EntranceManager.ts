@@ -105,8 +105,20 @@ export class EntranceManager {
   private data: SubwayData | null = null;
   private stations = new Map<string, StationSpec>();
   private placed = new Map<number, PlacedEntrance>();
+  // Successful sidewalk solves remain valid across stream-out/in cycles until
+  // a late landmark changes the local collision field.
+  private resolvedPos = new Map<number, [number, number]>();
+  // OSM nodes that collapse onto an already-represented station corner should
+  // not pay the footprint solver again on every idle pass.
+  private suppressed = new Set<number>();
+  // Manhattan has 835 entrance records but only a few dozen kind/route designs.
+  // Share each design's merged geometry and sign material across scene clones.
+  private templates = new Map<string, THREE.Group>();
   private placeRadius = 420;
   private timer = 0;
+  private scanCursor = 0;
+  private lastScanX = Infinity;
+  private lastScanZ = Infinity;
   private eject: ((x: number, z: number) => [number, number] | null) | null;
   private wallDir: ((x: number, z: number) => [number, number] | null) | null;
   private compile: ((g: THREE.Object3D) => Promise<void>) | null;
@@ -169,93 +181,143 @@ export class EntranceManager {
     return best;
   }
 
+  /** A lightweight scene clone backed by one merged geometry set per design. */
+  private entranceGroup(routes: string[], kind: string, name: string): THREE.Group {
+    const key = `${kind}\u001f${routes.join('\u001f')}`;
+    let template = this.templates.get(key);
+    if (!template) {
+      template = mergeByMaterial(buildEntranceKit(routes, kind, name));
+      // Cloned Mesh objects retain these geometry/material references. Mark
+      // them so stream-out disposal leaves the owning template intact.
+      template.traverse((o) => {
+        if (o instanceof THREE.Mesh) o.userData.shared = true;
+      });
+      this.templates.set(key, template);
+    }
+    const group = template.clone(true);
+    group.name = name;
+    return group;
+  }
+
   update(x: number, z: number, dt: number) {
     if (!this.data) return;
     this.timer -= dt;
-    if (this.timer > 0) return;
+    // Idle scans normally run at 0.7 Hz, but large teleports and high-speed
+    // flight must refresh immediately instead of trailing the player.
+    const movedSq = (x - this.lastScanX) ** 2 + (z - this.lastScanZ) ** 2;
+    if (this.timer > 0 && movedSq < 64 * 64) return;
+    this.lastScanX = x;
+    this.lastScanZ = z;
 
-    // Amortize: build at most ONE kit per pass. Each entrance build (footprint
-    // eject spiral + geometry merge + signage texture) is a multi-ms burst, so
-    // seating a whole neighbourhood in one tick froze for hundreds of ms. When a
-    // backlog remains we resume next frame (timer 0) instead of the 0.7s idle
-    // throttle — the world still populates in a fraction of a second, spread one
-    // build per frame so no single frame stalls. Disposals stay uncapped (cheap).
-    let built = 0;
+    const entrances = this.data.entrances;
     const r2 = this.placeRadius * this.placeRadius;
-    for (let i = 0; i < this.data.entrances.length; i++) {
-      const e = this.data.entrances[i];
-      const dx = e.pos[0] - x, dz = e.pos[1] - z;
-      const inRange = dx * dx + dz * dz < r2;
+
+    // Dispose every out-of-range kit in one cheap pass. Placement is separate:
+    // one expensive footprint attempt per frame, successful or not. Previously
+    // only successful builds consumed the budget, so a single idle pass could
+    // run the solver for 19 deferred/duplicate records and block 75–150 ms.
+    for (let i = 0; i < entrances.length; i++) {
       const existing = this.placed.get(i);
-      if (inRange && !existing) {
-        if (built >= 1) continue; // budget spent — leave the rest for next frame
-        const station = this.stations.get(e.stationId);
-        if (!station) continue;
-        // elevated stations get the kiosk marker (their stairs go up, not down)
-        const kind = /elev|viaduct/i.test(station.structure) ? 'elevator' : e.kind;
-        // OSM maps many entrances at/inside building frontages — push the kit
-        // out of any footprint so it lands visibly on the sidewalk
-        let pos: [number, number] = [e.pos[0], e.pos[1]];
-        if (this.eject) {
-          let deferred = false;
-          for (let k = 0; k < 4; k++) {
-            const adj = this.eject(pos[0], pos[1]);
-            if (adj === null) { deferred = true; break; } // tile not resident yet — retry next cycle
-            pos = adj;
-          }
-          if (deferred) continue;
-        }
-        // OSM maps several entrances per corner; once ejected onto the
-        // sidewalk they can converge. Two stairheads of the same station
-        // within a few meters reads as a glitch — keep the first, skip the rest.
-        let tooClose = false;
-        for (const other of this.placed.values()) {
-          if (other.spec.stationId !== e.stationId) continue;
-          if (Math.hypot(other.pos[0] - pos[0], other.pos[1] - pos[1]) < 12) { tooClose = true; break; }
-        }
-        if (tooClose) continue;
-        const group = mergeByMaterial(buildEntranceKit(station.routes, kind, station.name));
-        // sink slightly so the flat base tucks into sloping sidewalks
-        group.position.set(pos[0], heightAt(pos[0], pos[1]) - 0.12, pos[1]);
-        // Orientation, the way real corner stairs sit: the stair run lies
-        // ALONG the nearest building frontage, descending AWAY from the
-        // station (you enter from the corner side). With no wall nearby
-        // (plazas, parks) the stair simply descends away from the station.
-        const away = Math.atan2(pos[0] - station.pos[0], pos[1] - station.pos[1]);
-        const w = this.wallDir ? this.wallDir(pos[0], pos[1]) : null;
-        if (w) {
-          const a1 = Math.atan2(w[0], w[1]);
-          const angDiff = (a: number) => Math.abs(Math.atan2(Math.sin(a - away), Math.cos(a - away)));
-          group.rotation.y = angDiff(a1) <= angDiff(a1 + Math.PI) ? a1 : a1 + Math.PI;
-        } else {
-          group.rotation.y = away;
-        }
-        const beacon = makeBeacon();
-        beacon.position.set(0, 3.1, 0);
-        group.add(beacon);
-        // Claim the slot synchronously (budget + dedup below rely on it), but
-        // defer the VISIBLE add until the kit's shaders are pre-warmed off the
-        // render frame — the first kit's material combo otherwise compiles
-        // inside the render that first shows it. If the kit was evicted while
-        // the compile was in flight, placed[i] no longer holds this record and
-        // disposeGroup already freed it, so skip the add.
-        const rec: PlacedEntrance = { spec: e, station, group, pos };
-        this.placed.set(i, rec);
-        built++;
-        if (this.compile) {
-          void this.compile(group).then(() => {
-            if (this.placed.get(i) === rec) this.scene.add(group);
-          });
-        } else {
-          this.scene.add(group);
-        }
-      } else if (!inRange && existing) {
+      if (!existing) continue;
+      const e = entrances[i];
+      const dx = e.pos[0] - x, dz = e.pos[1] - z;
+      if (dx * dx + dz * dz >= r2) {
         this.scene.remove(existing.group);
         disposeGroup(existing.group);
         this.placed.delete(i);
       }
     }
-    this.timer = built >= 1 ? 0 : 0.7; // backlog: resume next frame; idle: throttle
+
+    let attempted = false;
+    let deferred = false;
+    const count = entrances.length;
+    for (let offset = 0; offset < count; offset++) {
+      const i = (this.scanCursor + offset) % count;
+      if (this.placed.has(i) || this.suppressed.has(i)) continue;
+      const e = entrances[i];
+      const dx = e.pos[0] - x, dz = e.pos[1] - z;
+      if (dx * dx + dz * dz >= r2) continue;
+
+      // Advance even when the tile is not ready so one deferred record cannot
+      // starve the rest of the neighborhood.
+      this.scanCursor = (i + 1) % count;
+      attempted = true;
+      const station = this.stations.get(e.stationId);
+      if (!station) {
+        this.suppressed.add(i);
+        break;
+      }
+
+      // Elevated stations get the kiosk marker (their stairs go up, not down).
+      const kind = /elev|viaduct/i.test(station.structure) ? 'elevator' : e.kind;
+      // resolveFootprint already performs a full joint road/building fixpoint,
+      // spiral fallback, and final lane-clear validation. Calling it four times
+      // multiplied its most expensive work without changing the result.
+      let pos = this.resolvedPos.get(i);
+      if (!pos) {
+        pos = [e.pos[0], e.pos[1]];
+        if (this.eject) {
+          const adjusted = this.eject(pos[0], pos[1]);
+          if (adjusted === null) {
+            deferred = true; // tile not resident yet — rotate and retry soon
+            break;
+          }
+          pos = adjusted;
+        }
+        this.resolvedPos.set(i, pos);
+      }
+
+      // OSM maps several entrances per corner; once ejected onto the sidewalk
+      // they can converge. Keep the first and remember rejected siblings so an
+      // idle scan never pays the footprint solver for them again.
+      let tooClose = false;
+      for (const other of this.placed.values()) {
+        if (other.spec.stationId !== e.stationId) continue;
+        if (Math.hypot(other.pos[0] - pos[0], other.pos[1] - pos[1]) < 12) {
+          tooClose = true;
+          break;
+        }
+      }
+      if (tooClose) {
+        this.suppressed.add(i);
+        break;
+      }
+
+      const group = this.entranceGroup(station.routes, kind, station.name);
+      // Sink slightly so the flat base tucks into sloping sidewalks.
+      group.position.set(pos[0], heightAt(pos[0], pos[1]) - 0.12, pos[1]);
+      // Real corner stairs lie along the building frontage and descend away
+      // from the station; plazas without a nearby wall use the away bearing.
+      const away = Math.atan2(pos[0] - station.pos[0], pos[1] - station.pos[1]);
+      const w = this.wallDir ? this.wallDir(pos[0], pos[1]) : null;
+      if (w) {
+        const a1 = Math.atan2(w[0], w[1]);
+        const angDiff = (a: number) => Math.abs(Math.atan2(Math.sin(a - away), Math.cos(a - away)));
+        group.rotation.y = angDiff(a1) <= angDiff(a1 + Math.PI) ? a1 : a1 + Math.PI;
+      } else {
+        group.rotation.y = away;
+      }
+      const beacon = makeBeacon();
+      beacon.position.set(0, 3.1, 0);
+      group.add(beacon);
+      // Claim the slot synchronously, then reveal only after shader pre-warm.
+      // If eviction wins the race, the record identity check prevents a stale
+      // compiled group from returning to the scene.
+      const rec: PlacedEntrance = { spec: e, station, group, pos };
+      this.placed.set(i, rec);
+      if (this.compile) {
+        void this.compile(group).then(() => {
+          if (this.placed.get(i) === rec) this.scene.add(group);
+        });
+      } else {
+        this.scene.add(group);
+      }
+      break;
+    }
+
+    // A deferred tile gets a short breather; a completed/suppressed attempt
+    // yields just this frame. With no backlog, return to the low-cost idle scan.
+    this.timer = attempted ? (deferred ? 0.05 : 0) : 0.7;
   }
 
   /**
@@ -271,6 +333,20 @@ export class EntranceManager {
       this.scene.remove(p.group);
       disposeGroup(p.group);
       this.placed.delete(i);
+      // A late landmark changes the collision field, so the cached sidewalk
+      // seat must be solved again before this entrance returns.
+      this.resolvedPos.delete(i);
+      this.scanCursor = i;
+      // The canonical entrance may move to a different side of the new
+      // landmark. Let same-station siblings compete again under that new
+      // collision field instead of preserving a now-stale duplicate decision.
+      if (this.data) {
+        for (const j of [...this.suppressed]) {
+          if (this.data.entrances[j]?.stationId !== p.spec.stationId) continue;
+          this.suppressed.delete(j);
+          this.resolvedPos.delete(j);
+        }
+      }
       evicted = true;
     }
     // Only force a re-place scan if we actually removed something — every landmark
@@ -297,6 +373,25 @@ export class EntranceManager {
       disposeGroup(p.group);
     }
     this.placed.clear();
+    this.resolvedPos.clear();
+    this.suppressed.clear();
+    // Placed clones deliberately do not own these shared resources; dispose
+    // each template once when the manager itself is destroyed.
+    for (const template of this.templates.values()) {
+      template.traverse((o) => {
+        if (!(o instanceof THREE.Mesh)) return;
+        o.geometry.dispose();
+        const mats = Array.isArray(o.material) ? o.material : [o.material];
+        for (const m of mats) {
+          const std = m as THREE.MeshLambertMaterial;
+          if (std.map instanceof THREE.CanvasTexture) {
+            std.map.dispose();
+            m.dispose();
+          }
+        }
+      });
+    }
+    this.templates.clear();
   }
 }
 
