@@ -803,6 +803,13 @@ export class World {
   teleport(lat: number, lon: number, landmarkId: string | null = null) {
     if (this.transitioning) return; // mid fade/exit — ignore rather than corrupt state
     this.leaveTransit();            // abandon any train/bus/tram/bike so `pos` takes effect
+    // "Jump to…" is a street-level presentation arrival from every mode.
+    // Leaving transit already clears vehicles, but helicopter is a controls
+    // state rather than a world mode; carrying it through skipped freeSpawn
+    // and dropped the player at y=0 inside the selected building footprint.
+    this.controls.fly = false;
+    this.flyVel.set(0, 0, 0);
+    this.flyTarget.set(0, 0, 0);
     const [x, z] = lonLatToXZ(lon, lat);
     this.pos.set(x, 0, z);
     this.spawnLookAt = { x, z };
