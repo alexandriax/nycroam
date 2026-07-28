@@ -377,18 +377,45 @@ function esbCrownTier(
   w: number, d: number,
   y0: number, y1: number,
   frontBays: number, sideBays: number,
+  panePos: number[], paneNorm: number[], paneIdx: number[],
 ) {
   const h = y1 - y0;
   g.add(box(w, h, d, ESB_STONE, cx, y0 + h / 2, cz));
   g.add(esbDetail(box(w + 0.8, 0.65, d + 0.8, ESB_STONE, cx, y1 - 0.325, cz)));
 
+  // One exterior quad per inset pane is sufficient: the projecting limestone
+  // mullions retain the physical recess, while hand-packing all three tiers
+  // avoids 62 temporary BoxGeometry objects and five invisible box faces per
+  // pane in this always-on skyline landmark.
+  const addPane = (
+    px: number, pz: number,
+    tx: number, tz: number, nx: number, nz: number,
+    paneW: number, paneH: number,
+  ) => {
+    const base = panePos.length / 3;
+    const vx = tx * paneW / 2, vz = tz * paneW / 2, vy = paneH / 2;
+    const py = y0 + h / 2;
+    panePos.push(
+      px - vx, py - vy, pz - vz,
+      px - vx, py + vy, pz - vz,
+      px + vx, py + vy, pz + vz,
+      px + vx, py - vy, pz + vz,
+    );
+    for (let i = 0; i < 4; i++) paneNorm.push(nx, 0, nz);
+    paneIdx.push(base, base + 2, base + 1, base, base + 3, base + 2);
+  };
   const paneH = Math.max(2, h - 1.8);
   const frontSpan = w - 3.2;
   for (let i = 0; i < frontBays; i++) {
     const px = cx - frontSpan / 2 + ((i + 0.5) * frontSpan) / frontBays;
     const paneW = Math.min(1.15, (frontSpan / frontBays) * 0.5);
     for (const face of [-1, 1]) {
-      g.add(esbDetail(box(paneW, paneH, 0.24, ESB_GLASS, px, y0 + h / 2, cz + face * (d / 2 + 0.13))));
+      addPane(
+        face > 0 ? px : 2 * cx - px,
+        cz + face * (d / 2 + 0.25),
+        face, 0, 0, face,
+        paneW, paneH,
+      );
       g.add(esbDetail(box(0.34, h + 0.4, 0.42, ESB_STONE, px, y0 + h / 2, cz + face * (d / 2 + 0.25))));
     }
   }
@@ -398,7 +425,12 @@ function esbCrownTier(
     const pz = cz - sideSpan / 2 + ((i + 0.5) * sideSpan) / sideBays;
     const paneD = Math.min(1.15, (sideSpan / sideBays) * 0.5);
     for (const face of [-1, 1]) {
-      g.add(esbDetail(box(0.24, paneH, paneD, ESB_GLASS, cx + face * (w / 2 + 0.13), y0 + h / 2, pz)));
+      addPane(
+        cx + face * (w / 2 + 0.25),
+        face > 0 ? 2 * cz - pz : pz,
+        0, -face, face, 0,
+        paneD, paneH,
+      );
       g.add(esbDetail(box(0.42, h + 0.4, 0.34, ESB_STONE, cx + face * (w / 2 + 0.25), y0 + h / 2, pz)));
     }
   }
@@ -566,9 +598,15 @@ export const builders: Record<string, (ctx: LandmarkCtx) => THREE.Group> = {
     // Stepped limestone crown above the OSM roof. The increasingly narrow,
     // ribbed rectangles continue the shaft's setbacks instead of abruptly
     // switching to the old stack of round cylinders.
-    esbCrownTier(g, cx, cz, 18.6, 28.5, roof, roof + 9, 5, 7);
-    esbCrownTier(g, cx, cz, 15.6, 22.5, roof + 9, roof + 18, 5, 5);
-    esbCrownTier(g, cx, cz, 13.0, 17.2, roof + 18, roof + 27, 4, 5);
+    const crownPanePos: number[] = [], crownPaneNorm: number[] = [], crownPaneIdx: number[] = [];
+    esbCrownTier(g, cx, cz, 18.6, 28.5, roof, roof + 9, 5, 7, crownPanePos, crownPaneNorm, crownPaneIdx);
+    esbCrownTier(g, cx, cz, 15.6, 22.5, roof + 9, roof + 18, 5, 5, crownPanePos, crownPaneNorm, crownPaneIdx);
+    esbCrownTier(g, cx, cz, 13.0, 17.2, roof + 18, roof + 27, 4, 5, crownPanePos, crownPaneNorm, crownPaneIdx);
+    const crownPaneGeo = new THREE.BufferGeometry();
+    crownPaneGeo.setAttribute('position', new THREE.Float32BufferAttribute(crownPanePos, 3));
+    crownPaneGeo.setAttribute('normal', new THREE.Float32BufferAttribute(crownPaneNorm, 3));
+    crownPaneGeo.setIndex(crownPaneIdx);
+    g.add(esbDetail(new THREE.Mesh(crownPaneGeo, ESB_GLASS)));
 
     // Four fluted buttresses visually tie the 330m roof to the mast base.
     for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
