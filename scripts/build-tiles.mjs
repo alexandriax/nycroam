@@ -640,6 +640,13 @@ async function main() {
     { id: 'hearst-tower', lat: 40.7666, lon: -73.9836, r: 55, clearAboveH: 5 },
     { id: 'chrysler', lat: 40.7516, lon: -73.9755, r: 45, clearAboveMin: 184, clearAboveH: 270 },
     { id: 'empire-state', lat: 40.7484, lon: -73.9857, r: 40, clearAboveMin: 325 },
+    // Full coherent replacement for Foster + Partners' completed tower. The
+    // source maps one full-block outline plus nine contiguous stepped bands;
+    // their 130/250/330/382/423m tops accurately describe the fan silhouette,
+    // but emitting every part from ground produces an opaque bronze truss
+    // stack. Measure the ownership group, then let the premium builder recreate
+    // the lifted base, glass envelope and correctly limited east/west bracing.
+    { id: 'chase-hq', lat: 40.755980, lon: -73.975987, r: 60, clearAll: true },
     // Full coherent replacement. The source maps the KPF tower as more than 20
     // overlapping full-height prisms: accurate in aggregate, but flat generic
     // boxes in the renderer, plus a 77m solid pyramid where the staggered glass
@@ -819,13 +826,6 @@ async function main() {
     // recentered on the measured OSM centroids: the old circles sat 50-90m off
     // and left the real 156m Secretariat slab + GA hall standing through the build
     ['un-secretariat', 40.7489, -73.9681, 60], ['un-ga', 40.7501, -73.9677, 50],
-    // 270 Park (Foster JPMorganChase HQ): the bespoke chase-hq landmark owns the
-    // whole site. The old clear/anchor sat ~33m SE of the real footprint, leaving
-    // the OSM tower's WEST parts (a 382m stub) standing beside the bespoke build.
-    // Recentered on the measured "270 Park Avenue" OSM outline centroid; r=55
-    // covers all its stepped parts and stays clear of the named neighbours
-    // (280 Park 85m, Postum/250 Park 87m, 383 Madison tower 87m).
-    ['chase-hq', 40.755980, -73.975987, 55],
     // The Flatiron is duplicated in OSM as an 86m detailed outline plus an
     // overlapping 88m part. A tight 14m centroid circle removes only those two
     // volumes (the nearest unrelated building centroid is more than 27m away).
@@ -2044,6 +2044,29 @@ async function main() {
     `One Vanderbilt replacement (${oneVKey}): fit=${oneVFit?.w ?? 0}x${oneVFit?.d ?? 0}m, ` +
       `roof=${oneVFit?.roofH ?? 0}m, cleared=${oneVFit?.clearedParts ?? 0}, ` +
       `baked >=300m parts=${oneVBakedTall} -> ${oneVOk ? 'PASS' : 'FAIL'}`,
+  );
+
+  // 270 Park is measured from nine mapped stepped bands (the containing
+  // full-block outline is correctly suppressed by those building parts), then
+  // supplied entirely by the always-on premium build. The near tile and
+  // skyline must not retain any of the old full-height bronze prisms.
+  const chaseXZ = lonLatToXZ(-73.975987, 40.755980);
+  const [chaseTx, chaseTz] = tileOf(chaseXZ);
+  const chaseKey = tileKeyOf(chaseTx, chaseTz);
+  const chaseBuildings = tileBuildings.get(chaseKey) || [];
+  const chaseBakedTall = chaseBuildings.filter((b) => b.h >= 300).length;
+  const chaseFit = fitOut['chase-hq'];
+  const chaseOk = !!chaseFit
+    && Math.abs(chaseFit.w - 57) < 1
+    && Math.abs(chaseFit.d - 109) < 1
+    && Math.abs(chaseFit.roofH - 423) < 1
+    && chaseFit.keptH === 0
+    && chaseFit.clearedParts === 9
+    && chaseBakedTall === 0;
+  results.push(
+    `270 Park replacement (${chaseKey}): fit=${chaseFit?.w ?? 0}x${chaseFit?.d ?? 0}m, ` +
+      `roof=${chaseFit?.roofH ?? 0}m, cleared=${chaseFit?.clearedParts ?? 0}, ` +
+      `baked >=300m parts=${chaseBakedTall} -> ${chaseOk ? 'PASS' : 'FAIL'}`,
   );
 
   const timesSquareRoads = tileRoads.get('0_0') || [];

@@ -16,22 +16,22 @@ import {
  * slabs; those builders own everything from the plaza up.
  */
 
-// Set-local materials (justified: a warm-tinted steel for the Queensboro's
-// ironwork, and JPMorganChase's signature bronze-tinted curtain glass, neither
-// of which is in the shared kit).
+// Set-local materials (justified: warm steel for the Queensboro's ironwork and
+// JPMorganChase's dark commercial-bronze structural skin).
 const WARM_STEEL = new THREE.MeshStandardMaterial({ color: '#9a9184', metalness: 0.72, roughness: 0.42 });
-// low metalness on purpose: the street scene has no environment map, and
-// metalness > ~0.5 without one renders near-black (same lesson as the trains).
-// The slight emissive keeps shaded faces reading warm bronze, not chocolate.
-const BRONZE_GLASS = new THREE.MeshStandardMaterial({
-  color: '#a8906a', metalness: 0.35, roughness: 0.3, emissive: '#3d2f1c',
-});
-// Chase's fins/braces: warmer + slightly emissive vs the kit BRONZE so the
-// shaded faces keep reading as champagne metal over glass, not near-black
-// slats (verified by shooting the shade side — kit BRONZE goes chocolate).
+// Low metalness is intentional: without an environment map, a physically
+// metallic bronze goes black. The emissive floor preserves the real tower's
+// copper-nickel perimeter structure on shaded/mobile-quality faces.
 const CHASE_BRONZE = new THREE.MeshStandardMaterial({
-  color: '#9c7c4f', metalness: 0.35, roughness: 0.38, emissive: '#2a1e10',
+  color: '#80624b', metalness: 0.38, roughness: 0.33,
+  emissive: '#2d1c13', emissiveIntensity: 0.3,
 });
+const CHASE_DARK = new THREE.MeshStandardMaterial({
+  color: '#34434a', metalness: 0.23, roughness: 0.36,
+  emissive: '#1b2a30', emissiveIntensity: 0.48,
+});
+const CHASE_GLOW = new THREE.MeshBasicMaterial({ color: '#e8eef0' });
+const CHASE_COLLISION = new THREE.MeshBasicMaterial({ visible: false });
 
 // One Vanderbilt palette. Its pale terracotta spandrels are essential: a
 // blue-glass-only model reads as any recent supertall. Low metalness and an
@@ -107,7 +107,7 @@ function chryslerDetail<T extends THREE.Mesh>(mesh: T): T {
   return mesh;
 }
 
-type OneVRect = { x0: number; x1: number; z0: number; z1: number };
+type FacadeRect = { x0: number; x1: number; z0: number; z1: number };
 
 function oneVDetail<T extends THREE.Mesh>(mesh: T): T {
   mesh.userData.noCollision = true;
@@ -135,20 +135,23 @@ function oneVPrism(points: THREE.Vector2[], y0: number, y1: number, mat: THREE.M
 
 /**
  * One textured, vertically tapered rectangular volume. Every side gets
- * physical-scale UVs (one 1.55m bay by one 4.1m floor), so a 64px repeating
- * texture supplies hundreds of mullions/spandrels for almost no geometry.
+ * physical-scale UVs, so a tiny repeating texture supplies hundreds of
+ * mullions/spandrels for almost no geometry. One Vanderbilt uses the defaults;
+ * newer office towers can pass their own bay and floor modules.
  */
-function oneVFrustum(
-  lower: OneVRect,
-  upper: OneVRect,
+function facadeFrustum(
+  lower: FacadeRect,
+  upper: FacadeRect,
   y0: number,
   y1: number,
   mat: THREE.Material,
+  bayW = 1.55,
+  floorH = 4.1,
 ): THREE.Mesh {
   const p: number[] = [];
   const uv: number[] = [];
   const idx: number[] = [];
-  const floor0 = y0 / 4.1, floor1 = y1 / 4.1;
+  const floor0 = y0 / floorH, floor1 = y1 / floorH;
   const addQuad = (verts: THREE.Vector3[], tex: [number, number][]) => {
     const n = p.length / 3;
     for (let i = 0; i < 4; i++) {
@@ -168,11 +171,11 @@ function oneVFrustum(
   const ux = Math.max(
     lower.x1 - lower.x0,
     upper.x1 - upper.x0,
-  ) / 1.55;
+  ) / bayW;
   const uz = Math.max(
     lower.z1 - lower.z0,
     upper.z1 - upper.z0,
-  ) / 1.55;
+  ) / bayW;
 
   // Winding is outward for FrontSide materials.
   addQuad([l00, u00, u10, l10], [[0, floor0], [0, floor1], [ux, floor1], [ux, floor0]]); // -z
@@ -181,8 +184,8 @@ function oneVFrustum(
   addQuad([l10, u10, u11, l11], [[0, floor0], [0, floor1], [uz, floor1], [uz, floor0]]); // +x
   addQuad(
     [u00, u01, u11, u10],
-    [[upper.x0 / 1.55, upper.z0 / 1.55], [upper.x0 / 1.55, upper.z1 / 1.55],
-      [upper.x1 / 1.55, upper.z1 / 1.55], [upper.x1 / 1.55, upper.z0 / 1.55]],
+    [[upper.x0 / bayW, upper.z0 / bayW], [upper.x0 / bayW, upper.z1 / bayW],
+      [upper.x1 / bayW, upper.z1 / bayW], [upper.x1 / bayW, upper.z0 / bayW]],
   );
 
   const geo = new THREE.BufferGeometry();
@@ -190,7 +193,9 @@ function oneVFrustum(
   geo.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
   geo.setIndex(idx);
   geo.computeVertexNormals();
-  return oneVDetail(new THREE.Mesh(geo, mat));
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.userData.noCollision = true;
+  return mesh;
 }
 
 // Streamlined 61st-floor eagle gargoyle. The group projects toward local +z;
@@ -683,7 +688,7 @@ export const builders: Record<string, (ctx: LandmarkCtx) => THREE.Group> = {
     // q0/q1 are the southern pair, which survive to the highest mapped
     // shoulder; the north-east and north-west volumes finish at 330/315m.
     const maxH = [350, 350, 330, 315];
-    const rectFor = (l: Level, q: number): OneVRect => {
+    const rectFor = (l: Level, q: number): FacadeRect => {
       const east = q === 1 || q === 2;
       const north = q >= 2;
       return {
@@ -702,7 +707,7 @@ export const builders: Record<string, (ctx: LandmarkCtx) => THREE.Group> = {
         const y1 = Math.min(b.y, maxH[q]);
         const upper = levelAt.get(y1);
         if (!upper) continue; // every source-mapped terminal is a profile level
-        g.add(oneVFrustum(rectFor(a, q), rectFor(upper, q), a.y, y1, (q + i) % 2 ? glassA : glassB));
+        g.add(facadeFrustum(rectFor(a, q), rectFor(upper, q), a.y, y1, (q + i) % 2 ? glassA : glassB));
       }
     }
 
@@ -755,12 +760,12 @@ export const builders: Record<string, (ctx: LandmarkCtx) => THREE.Group> = {
 
     // The mapped crown cluster is centered at local (7,-9), not at the full
     // block center. Two crisp glass stages replace the former 77m gray pyramid.
-    const crown0: OneVRect = { x0: -5, x1: 19, z0: -20, z1: 2 };
-    const crown1: OneVRect = { x0: 0, x1: 15, z0: -16.5, z1: -2.5 };
-    const crown2: OneVRect = { x0: 4, x1: 10.5, z0: -12.5, z1: -5.5 };
-    g.add(oneVFrustum(crown0, crown1, 350, 376, glassA));
-    g.add(oneVFrustum(crown1, crown2, 376, 397, glassB));
-    for (const [a, b, y0, y1] of [[crown0, crown1, 350, 376], [crown1, crown2, 376, 397]] as [OneVRect, OneVRect, number, number][]) {
+    const crown0: FacadeRect = { x0: -5, x1: 19, z0: -20, z1: 2 };
+    const crown1: FacadeRect = { x0: 0, x1: 15, z0: -16.5, z1: -2.5 };
+    const crown2: FacadeRect = { x0: 4, x1: 10.5, z0: -12.5, z1: -5.5 };
+    g.add(facadeFrustum(crown0, crown1, 350, 376, glassA));
+    g.add(facadeFrustum(crown1, crown2, 376, 397, glassB));
+    for (const [a, b, y0, y1] of [[crown0, crown1, 350, 376], [crown1, crown2, 376, 397]] as [FacadeRect, FacadeRect, number, number][]) {
       for (const [ix, iz] of [[0, 0], [1, 0], [1, 1], [0, 1]]) {
         const ax = ix ? a.x1 : a.x0, az = iz ? a.z1 : a.z0;
         const bx = ix ? b.x1 : b.x0, bz = iz ? b.z1 : b.z0;
@@ -843,170 +848,185 @@ export const builders: Record<string, (ctx: LandmarkCtx) => THREE.Group> = {
     return g;
   },
 
-  // Chase HQ (270 Park Ave): full replacement, plaza to spire. The real
-  // building's defining trait is a stepped ziggurat massing — six nested
-  // tiers that step IN on ALTERNATING faces at staggered heights, not a
-  // symmetric pyramid: each tier is its own independent [x0,x1]x[z0,z1] plan
-  // box (not a shared half-extent), so setback ledges land off-center from
-  // each other and the silhouette reads as an irregular cascading stack with
-  // one shoulder higher than the other. Fan mega-columns + a transfer truss
-  // still lift it off the plaza (kept from the old build, proportions
-  // refined); every tier face then carries a giant bronze X-brace megapanel
-  // (Foster's expressed diagrid, storeys tall — NOT a fine repeating lattice)
-  // sitting proud of closely-spaced bronze mullion fins over glass. Flat
-  // parapet top: no spire, no crown ornament.
-  'chase-hq': () => {
+  // 270 Park Avenue: full measured replacement. Nine contiguous source bands
+  // describe the completed tower's east/west fan profile exactly: the outer
+  // bands finish at 130m, then 250/330/382m, with the narrow center reaching
+  // 423m. Rendering those source parts directly made every strip a full-height
+  // bronze box; this build uses their plan/roof data but recreates the 24m
+  // lifted base, glass curtain wall, twenty perimeter columns and copper-nickel
+  // diamonds only on the stepped east/west faces.
+  'chase-hq': (ctx) => {
     const g = new THREE.Group();
-
-    // Six tiers, LOCAL PLAN BOUNDS (not half-extents) so faces can step
-    // independently — see the header comment. T1's footprint matches the
-    // measured OSM massing this replaces (60m cross-street x 75m along Park
-    // Ave, same as the old HX/HZ); total height 423m, unchanged.
-    const TIERS = [
-      { y0: 32, y1: 150, x0: -30, x1: 30, z0: -37.5, z1: 37.5 }, // T1 full footprint
-      { y0: 150, y1: 225, x0: -22, x1: 30, z0: -37.5, z1: 30.5 }, // T2: -x face + +z face step in
-      { y0: 225, y1: 285, x0: -22, x1: 21, z0: -29.5, z1: 30.5 }, // T3: +x face + -z face step in
-      { y0: 285, y1: 340, x0: -17, x1: 21, z0: -29.5, z1: 22.5 }, // T4: -x face + +z face step in again
-      { y0: 340, y1: 385, x0: -17, x1: 14, z0: -22.5, z1: 22.5 }, // T5: +x face + -z face step in again
-      { y0: 385, y1: 423, x0: -11, x1: 14, z0: -12.5, z1: 12.5 }, // T6: near-square crown
-    ];
-    const T1 = TIERS[0];
-
-    // ---- iconic lifted base (0-32m) ----------------------------------------
-    // 270 Park's signature: the whole tower stands on a handful of dramatic
-    // splayed fan-columns, freeing a column-free glass lobby and public plaza.
-    // Rebuilt for clarity/boldness: a set-back glass lobby the tower floats
-    // over, bold tapered bronze fan-columns (two legs per unit meeting at an
-    // apex node under the transfer truss), tapered corner columns, and a clean
-    // granite plaza — replacing the old thin-strut tangle.
-    const BASE_H = 26;
-    const HW = T1.x1, HD = T1.z1; // 30 x 37.5 half-extents
-
-    // granite plaza, proud of the footprint; low planters at the corners
-    g.add(box(74, 0.3, 92, GRANITE, 0, 0.15, 0));
-    g.add(box(64, 0.5, 82, GRANITE, 0, 0.55, 0)); // raised inner terrace
-    for (const [px, pz] of [[-26, 34], [26, 34], [-26, -34], [26, -34]] as const) {
-      g.add(box(5, 1.1, 5, GRANITE, px, 0.9, pz));
-      g.add(box(4.2, 0.9, 4.2, GREEN_PATINA, px, 1.85, pz));
-    }
-
-    // set-back double-height glass lobby the tower floats above; the columns
-    // land OUTSIDE it, so it reads as fully glazed and column-free
-    const LOBBY_H = 22;
-    g.add(box(2 * HW - 16, LOBBY_H, 2 * HD - 18, GLASS_LM, 0, LOBBY_H / 2 + 0.8, 0));
-    for (let mx = -(HW - 8); mx <= HW - 8; mx += 4) // lobby mullions, long faces
-      for (const mz of [-(HD - 9), HD - 9]) g.add(box(0.4, LOBBY_H, 0.4, STEEL_LM, mx, LOBBY_H / 2 + 0.8, mz));
-    g.add(box(2 * HW - 15, 1.4, 2 * HD - 17, DARKSTONE, 0, LOBBY_H + 1.5, 0)); // lobby soffit
-
-    // tapered fan-column: two bold legs splaying from plaza feet up to a shared
-    // apex node at the transfer level. `taperLeg` orients a truncated cone
-    // (wide base, narrower top) along the leg like strut() does.
-    const taperLeg = (a: THREE.Vector3, b: THREE.Vector3, rBot: number, rTop: number) => {
-      const m = new THREE.Mesh(new THREE.CylinderGeometry(rTop, rBot, a.distanceTo(b), 12), CHASE_BRONZE);
-      m.position.copy(a).add(b).multiplyScalar(0.5);
-      m.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), b.clone().sub(a).normalize());
-      return m;
+    const siteW = ctx.fit?.w ?? 57;   // north/south, along the avenues
+    const siteD = ctx.fit?.d ?? 109;  // Park Avenue to Madison Avenue
+    const tip = ctx.fit?.roofH ?? 423;
+    const BASE_TOP = 24; // official 80ft lift above the public realm
+    const detail = (mesh: THREE.Mesh) => {
+      mesh.userData.noCollision = true;
+      return mesh;
     };
-    for (const faceX of [T1.x0, T1.x1]) {
-      const sx = Math.sign(faceX);
-      for (const fz of [-25, 0, 25]) { // three fan-columns per long (Park-Ave) face
-        const apex = new THREE.Vector3(faceX - sx * 4, BASE_H, fz);
-        g.add(box(6, 5, 6, CHASE_BRONZE, apex.x, BASE_H + 0.5, fz)); // apex capital under the truss
-        for (const dz of [-9, 9]) {
-          const foot = new THREE.Vector3(faceX, 0, fz + dz);
-          g.add(taperLeg(foot, apex, 3.0, 1.7)); // bold splayed leg
-          g.add(box(5, 1.2, 5, DARKSTONE, foot.x, 0.6, foot.z)); // granite footing pad
+
+    const curtain = canvasTexture((c, w, h) => {
+      const glass = c.createLinearGradient(0, 0, w, 0);
+      glass.addColorStop(0, '#38515d');
+      glass.addColorStop(0.22, '#789aa7');
+      glass.addColorStop(0.53, '#526f7b');
+      glass.addColorStop(0.72, '#9bb4bd');
+      glass.addColorStop(1, '#304852');
+      c.fillStyle = glass;
+      c.fillRect(0, 0, w, h);
+      c.fillStyle = 'rgba(202,218,222,.3)';
+      c.fillRect(Math.floor(w * 0.58), 0, 2, h - 5);
+      c.fillStyle = '#6f503d'; // commercial-bronze vertical mullion
+      c.fillRect(0, 0, 2, h);
+      c.fillStyle = '#28343a'; // deep floor/spandrel band
+      c.fillRect(0, h - 5, w, 5);
+      c.fillStyle = 'rgba(197,158,125,.7)';
+      c.fillRect(0, h - 5, w, 1);
+    }, 32, 64);
+    curtain.wrapS = curtain.wrapT = THREE.RepeatWrapping;
+    const glassA = new THREE.MeshStandardMaterial({
+      map: curtain, color: '#abc5cd', metalness: 0.2, roughness: 0.17,
+      emissive: '#426774', emissiveIntensity: 0.58, envMapIntensity: 1.15,
+    });
+    const glassB = new THREE.MeshStandardMaterial({
+      map: curtain, color: '#91adb7', metalness: 0.24, roughness: 0.2,
+      emissive: '#365966', emissiveIntensity: 0.58, envMapIntensity: 1.05,
+    });
+    const lobbyGlass = new THREE.MeshStandardMaterial({
+      map: curtain, color: '#a8c5cd', metalness: 0.18, roughness: 0.12,
+      emissive: '#345b67', emissiveIntensity: 0.52,
+    });
+
+    // ---- public realm and transparent Park-to-Madison lobby ---------------
+    g.add(box(siteW - 1, 0.3, siteD - 1, GRANITE, 0, 0.15, 0));
+    // Madison Avenue garden and Maya Lin's low bedrock-inspired artwork.
+    for (const [x, z, w, d] of [
+      [-15, -siteD / 2 + 8, 12, 6],
+      [0, -siteD / 2 + 7, 10, 7],
+      [15, -siteD / 2 + 9, 12, 6],
+    ] as [number, number, number, number][]) {
+      g.add(box(w, 0.65, d, GRANITE, x, 0.48, z));
+      g.add(box(w - 1, 0.72, d - 1, GREEN_PATINA, x, 1.05, z));
+    }
+    for (const [x, z, sx, sy, sz, ry] of [
+      [-8, -siteD / 2 + 16, 4.8, 1.1, 2.3, 0.22],
+      [0, -siteD / 2 + 14, 5.5, 1.35, 2.8, -0.35],
+      [8, -siteD / 2 + 17, 4.1, 0.95, 2.0, 0.55],
+    ] as [number, number, number, number, number, number][]) {
+      const rock = detail(new THREE.Mesh(new THREE.DodecahedronGeometry(1, 0), DARKSTONE));
+      rock.scale.set(sx, sy, sz);
+      rock.position.set(x, 1.1, z);
+      rock.rotation.y = ry;
+      g.add(rock);
+    }
+
+    const lobbyW = siteW * 0.58, lobbyD = siteD * 0.68, lobbyH = 20.5;
+    g.add(detail(box(lobbyW, lobbyH, lobbyD, lobbyGlass, 0, lobbyH / 2 + 0.4, 0)));
+    g.add(box(lobbyW, lobbyH, lobbyD, CHASE_COLLISION, 0, lobbyH / 2 + 0.4, 0));
+    for (const sign of [-1, 1]) {
+      const z = sign * (lobbyD / 2 + 0.24);
+      g.add(detail(box(17, 7.8, 0.38, CHASE_DARK, 0, 4.3, z)));
+      g.add(detail(box(18.5, 0.4, 5.8, CHASE_BRONZE, 0, 7.1, sign * (lobbyD / 2 + 2.8))));
+      for (const x of [-8.5, -4.25, 0, 4.25, 8.5]) {
+        g.add(detail(box(0.22, 8.1, 0.5, CHASE_BRONZE, x, 4.35, sign * (lobbyD / 2 + 0.48))));
+      }
+    }
+
+    // Twenty tapered legs form ten fan-column units on the north/south sides.
+    // Their open V geometry preserves the 80ft-high sightline through the site.
+    const taperLeg = (a: THREE.Vector3, b: THREE.Vector3) => {
+      const mesh = detail(new THREE.Mesh(
+        new THREE.CylinderGeometry(1.25, 2.15, a.distanceTo(b), 9),
+        CHASE_BRONZE,
+      ));
+      mesh.position.copy(a).add(b).multiplyScalar(0.5);
+      mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), b.clone().sub(a).normalize());
+      return mesh;
+    };
+    for (const sx of [-1, 1]) {
+      for (const fz of [-siteD * 0.34, -siteD * 0.17, 0, siteD * 0.17, siteD * 0.34]) {
+        const apex = new THREE.Vector3(sx * siteW * 0.38, BASE_TOP + 2, fz);
+        g.add(detail(box(4.5, 3.5, 5.2, CHASE_BRONZE, apex.x, apex.y + 0.4, apex.z)));
+        for (const dz of [-5.8, 5.8]) {
+          const foot = new THREE.Vector3(sx * siteW * 0.47, 0.9, fz + dz);
+          g.add(taperLeg(foot, apex));
+          g.add(box(4.4, 1.0, 4.4, DARKSTONE, foot.x, 0.5, foot.z));
         }
       }
     }
-    // tapered vertical corner columns
-    for (const cx of [T1.x0, T1.x1]) for (const cz of [T1.z0, T1.z1])
-      g.add(cyl(1.9, 2.6, BASE_H, CHASE_BRONZE, cx, BASE_H / 2, cz, 12));
+    // A dark two-story transfer table reads behind, rather than replacing,
+    // the fan structure.
+    g.add(detail(box(siteW * 0.82, 5.0, siteD * 0.94, CHASE_DARK, 0, BASE_TOP + 2.5, 0)));
 
-    // transfer truss 26-32m: deep dark band + a clean diagonal X per face
-    const TT0 = BASE_H, TT1 = BASE_H + 6;
-    g.add(box(2 * HW + 1, TT1 - TT0, 2 * HD + 1, DARKSTONE, 0, (TT0 + TT1) / 2, 0));
-    for (const faceX of [T1.x0, T1.x1]) {
-      g.add(strut(new THREE.Vector3(faceX, TT0, T1.z0), new THREE.Vector3(faceX, TT1, T1.z1), 0.45, STEEL_LM));
-      g.add(strut(new THREE.Vector3(faceX, TT0, T1.z1), new THREE.Vector3(faceX, TT1, T1.z0), 0.45, STEEL_LM));
-    }
-    for (const faceZ of [T1.z0, T1.z1]) {
-      g.add(strut(new THREE.Vector3(T1.x0, TT0, faceZ), new THREE.Vector3(T1.x1, TT1, faceZ), 0.45, STEEL_LM));
-      g.add(strut(new THREE.Vector3(T1.x1, TT0, faceZ), new THREE.Vector3(T1.x0, TT1, faceZ), 0.45, STEEL_LM));
-    }
+    type ChaseBand = { z0: number; z1: number; z: number; d: number; w: number; top: number };
+    const bandD = siteD / 9;
+    const tops = [130, 250, 330, 382, tip, 382, 330, 250, 130];
+    const widthScale = [0.775, 0.837, 0.9, 0.965, 1, 0.965, 0.9, 0.837, 0.775];
+    const bands: ChaseBand[] = tops.map((top, i) => {
+      const z0 = -siteD / 2 + i * bandD, z1 = z0 + bandD;
+      return { z0, z1, z: (z0 + z1) / 2, d: z1 - z0, w: siteW * widthScale[i], top };
+    });
 
-    // entrance canopies projecting over the avenue sidewalks
-    for (const sx of [-1, 1]) g.add(box(8, 0.6, 22, STEEL_LM, sx * (HW + 4), 6, 0));
+    // ---- nine non-overlapping measured bands: no coincident faces/flicker
+    for (let i = 0; i < bands.length; i++) {
+      const b = bands[i];
+      const rect: FacadeRect = { x0: -b.w / 2, x1: b.w / 2, z0: b.z0, z1: b.z1 };
+      g.add(facadeFrustum(rect, rect, BASE_TOP, b.top, i % 2 ? glassA : glassB, 1.55, 6.65));
+      // Exact invisible footprint: each setback roof remains landable without
+      // one full-site 423m collision wall.
+      g.add(box(b.w, b.top - BASE_TOP, b.d, CHASE_COLLISION, 0, (BASE_TOP + b.top) / 2, b.z));
 
-    // Tiers: bronze-glass volume + a giant per-face X-brace megapanel (1
-    // module, or 2 side by side on wide lower faces) + a dense row of
-    // vertical bronze fins recessed just behind the braces. Fins and braces
-    // are pre-merged into ONE mesh per face (mergeBatch): at ~2.3m fin
-    // spacing a 75m-wide face is ~30 raw meshes before merging, x4 faces x6
-    // tiers. Each batch is scoped to a single tier FACE, not pooled across
-    // faces or tiers — deriveCollision (LandmarkManager) treats a merged
-    // batch as passable strut-work by its MINIMUM horizontal AABB dimension,
-    // and only a per-face batch stays thin in its offset axis; pooling
-    // multiple faces would inflate that axis into a false solid wall.
-    const braceR = 1.3;
-    for (const t of TIERS) {
-      const cx = (t.x0 + t.x1) / 2, cz = (t.z0 + t.z1) / 2;
-      const w = t.x1 - t.x0, d = t.z1 - t.z0, h = t.y1 - t.y0, cy = (t.y0 + t.y1) / 2;
-      g.add(box(w, h, d, BRONZE_GLASS, cx, cy, cz));
+      const louverH = 5.5;
+      g.add(detail(box(b.w + 0.34, louverH, b.d + 0.34, CHASE_DARK, 0, b.top - louverH / 2, b.z)));
+      g.add(detail(box(b.w + 0.7, 0.55, b.d + 0.7, CHASE_BRONZE, 0, b.top + 0.275, b.z)));
 
-      const faceDefs: { axis: 'x' | 'z'; sign: 1 | -1; off0: number; lo: number; hi: number }[] = [
-        { axis: 'x', sign: 1, off0: t.x1, lo: t.z0, hi: t.z1 }, // +x face, spans z
-        { axis: 'x', sign: -1, off0: t.x0, lo: t.z0, hi: t.z1 }, // -x face, spans z
-        { axis: 'z', sign: 1, off0: t.z1, lo: t.x0, hi: t.x1 }, // +z face, spans x
-        { axis: 'z', sign: -1, off0: t.z0, lo: t.x0, hi: t.x1 }, // -z face, spans x
-      ];
-      for (const fd of faceDefs) {
-        const span = fd.hi - fd.lo;
-        const P = (off: number) => (u: number, y: number) =>
-          fd.axis === 'x' ? new THREE.Vector3(off, y, u) : new THREE.Vector3(u, y, off);
-
-        // giant X-brace megapanel(s): full tier height, proud of the glass
-        const braceOff = fd.off0 + fd.sign * 0.95;
-        const Pb = P(braceOff);
-        const mods = span > 45 ? 2 : 1; // very wide lower faces get 2 X's side by side
-        const mw = span / mods;
-        const braceStruts: THREE.Mesh[] = [];
-        for (let m = 0; m < mods; m++) {
-          const u0 = fd.lo + m * mw, u1 = u0 + mw;
-          braceStruts.push(strut(Pb(u0, t.y0), Pb(u1, t.y1), braceR, CHASE_BRONZE));
-          braceStruts.push(strut(Pb(u1, t.y0), Pb(u0, t.y1), braceR, CHASE_BRONZE));
-        }
-        g.add(mergeBatch(braceStruts, CHASE_BRONZE));
-
-        // closely-spaced vertical bronze fins, recessed behind the braces —
-        // the dominant facade texture; horizontals stay minimal (floor band only)
-        const finOff = fd.off0 + fd.sign * 0.4;
-        const Pf = P(finOff);
-        const n = Math.max(2, Math.round(span / 3.0));
-        const fins: THREE.Mesh[] = [];
-        for (let i = 0; i <= n; i++) {
-          const p = Pf(fd.lo + (i * span) / n, cy);
-          fins.push(fd.axis === 'x'
-            ? box(0.32, h, 0.26, CHASE_BRONZE, p.x, p.y, p.z)
-            : box(0.26, h, 0.32, CHASE_BRONZE, p.x, p.y, p.z));
-        }
-        g.add(mergeBatch(fins, CHASE_BRONZE));
+      // Two perimeter columns per strip = eighteen; the two lobby-end columns
+      // below complete the real twenty-column read.
+      for (const sx of [-1, 1]) {
+        g.add(detail(box(0.76, b.top - BASE_TOP, 0.82, CHASE_BRONZE,
+          sx * (b.w / 2 + 0.34), (BASE_TOP + b.top) / 2, b.z)));
       }
-
-      // parapet/floor-band lip at this tier's own top: mostly hidden under
-      // the next tier except the exposed setback rim (or, on T6, the flat top)
-      g.add(box(w + 0.5, 1.0, d + 0.5, STEEL_LM, cx, t.y1, cz));
+    }
+    for (const z of [-lobbyD / 2, lobbyD / 2]) {
+      g.add(detail(box(0.9, BASE_TOP, 0.9, CHASE_BRONZE, 0, BASE_TOP / 2, z)));
     }
 
-    // low terrace greenery on the two big lower setbacks (visible in photos):
-    // sample points sit in the exposed L-shaped ring between one tier's
-    // footprint and the next tier's smaller one, inset from the parapet lip
-    for (const [gx, gz] of [[-26, 0], [-26, 20], [0, 34], [10, 34]] as const) {
-      g.add(mergeBatch(terraceGreen(gx, gz, TIERS[0].y1), GREEN_PATINA));
+    // Five stacked diamond panels on each stepped east/west elevation. The old
+    // build put full-height X braces on all four faces, hiding the glass tower.
+    for (const sign of [-1, 1]) {
+      for (let level = 0; level < 5; level++) {
+        const b = bands[sign < 0 ? level : 8 - level];
+        const y0 = level === 0 ? BASE_TOP : tops[level - 1];
+        const y1 = b.top - 5.5;
+        const z = sign < 0 ? b.z0 - 0.52 : b.z1 + 0.52;
+        const x0 = -b.w / 2, x1 = b.w / 2;
+        const braces = [
+          strut(new THREE.Vector3(x0, y0, z), new THREE.Vector3(x1, y1, z), 0.62, CHASE_BRONZE, 7),
+          strut(new THREE.Vector3(x1, y0, z), new THREE.Vector3(x0, y1, z), 0.62, CHASE_BRONZE, 7),
+          strut(new THREE.Vector3(x0, y0, z), new THREE.Vector3(x0, y1, z), 0.48, CHASE_BRONZE, 7),
+          strut(new THREE.Vector3(x1, y0, z), new THREE.Vector3(x1, y1, z), 0.48, CHASE_BRONZE, 7),
+          strut(new THREE.Vector3(x0, y0, z), new THREE.Vector3(x1, y0, z), 0.42, CHASE_BRONZE, 7),
+          strut(new THREE.Vector3(x0, y1, z), new THREE.Vector3(x1, y1, z), 0.42, CHASE_BRONZE, 7),
+        ];
+        g.add(detail(mergeBatch(braces, CHASE_BRONZE)));
+      }
     }
-    for (const [gx, gz] of [[25, 0], [0, -33]] as const) {
-      g.add(mergeBatch(terraceGreen(gx, gz, TIERS[1].y1), GREEN_PATINA));
+
+    // Landscaped lower setback roofs: four tiny merged clusters, visible on
+    // close fly-bys but negligible at skyline distance.
+    for (const i of [0, 1, 7, 8]) {
+      const b = bands[i];
+      g.add(detail(mergeBatch(terraceGreen(0, b.z, b.top + 0.55), GREEN_PATINA)));
     }
+
+    // Celestial Passage: a restrained luminous rim at the client-center crown.
+    // It is visible in daylight without turning the top into a white billboard.
+    const crown = bands[4];
+    g.add(detail(box(crown.w + 0.6, 0.12, 0.14, CHASE_GLOW, 0, tip + 0.62, crown.z0 - 0.2)));
+    g.add(detail(box(crown.w + 0.6, 0.12, 0.14, CHASE_GLOW, 0, tip + 0.62, crown.z1 + 0.2)));
+    g.add(detail(box(0.14, 0.12, crown.d + 0.6, CHASE_GLOW, -crown.w / 2 - 0.2, tip + 0.62, crown.z)));
+    g.add(detail(box(0.14, 0.12, crown.d + 0.6, CHASE_GLOW, crown.w / 2 + 0.2, tip + 0.62, crown.z)));
 
     return g;
   },

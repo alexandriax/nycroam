@@ -178,8 +178,10 @@ export const LANDMARKS_REG: LandmarkEntry[] = [
   // 270 Park (Foster + Partners JPMorganChase HQ): FULL replacement — the OSM
   // extract predates completion (stale stepped massing, cleared by the pipeline).
   // Anchored on the measured "270 Park Avenue" OSM outline centroid (was ~33m SE,
-  // which left the build offset from the real footprint).
-  { id: 'chase-hq', name: '270 Park Ave: JPMorganChase', lat: 40.755980, lon: -73.975987, set: 'midtown-east', r: 1400, rot: GRID },
+  // which left the build offset from the real footprint). Always-on because the
+  // generic source tower is fully cleared; this lean procedural build is also
+  // the 423m distant skyline representation.
+  { id: 'chase-hq', name: '270 Park Ave: JPMorganChase', lat: 40.755980, lon: -73.975987, set: 'midtown-east', r: 1400, rot: GRID, alwaysOn: true },
   { id: 'queensboro-bridge', name: 'Ed Koch Queensboro Bridge', lat: 40.7595, lon: -73.9605, set: 'midtown-east', r: 1500, rot: GRID },
 
   // ---- uptown west (columbus circle -> UWS) + UES museums ----
