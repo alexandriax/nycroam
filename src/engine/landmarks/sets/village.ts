@@ -27,6 +27,7 @@ const NYL_GOLD_SHADE = new THREE.MeshStandardMaterial({
   color: '#b8891c', metalness: 0.88, roughness: 0.32,
   emissive: '#503300', emissiveIntensity: 0.22,
 });
+const NYL_COLLISION = new THREE.MeshBasicMaterial({ visible: false });
 const FLAT_STONE = new THREE.MeshLambertMaterial({ color: '#d5cbb7' });
 const FLAT_TERRA = new THREE.MeshLambertMaterial({ color: '#c6b99f' });
 const FLAT_TERRA_LIGHT = new THREE.MeshLambertMaterial({ color: '#ded4c1' });
@@ -624,7 +625,12 @@ export const builders: Record<string, (ctx: LandmarkCtx) => THREE.Group> = {
       const geo = new THREE.BufferGeometry().setFromPoints([b, a, apex]);
       geo.setIndex([0, 1, 2]);
       geo.computeVertexNormals();
-      g.add(new THREE.Mesh(geo, i % 2 ? NYL_GOLD_SHADE : NYL_GOLD));
+      const facet = new THREE.Mesh(geo, i % 2 ? NYL_GOLD_SHADE : NYL_GOLD);
+      // A sloped triangle is a visible skin, not an axis-aligned solid. The
+      // stepped octagonal collision below follows the taper without turning
+      // each facet's broad AABB into an invisible box in the surrounding air.
+      facet.userData.noCollision = true;
+      g.add(facet);
       g.add(strut(a, apex, 0.07, NYL_GOLD_SHADE, 5));
     }
     for (const t of [0.27, 0.52, 0.76]) {
@@ -632,6 +638,20 @@ export const builders: Record<string, (ctx: LandmarkCtx) => THREE.Group> = {
       for (let i = 0; i < ring.length; i++) {
         g.add(strut(ring[i], ring[(i + 1) % ring.length], 0.055, NYL_GOLD_SHADE, 5));
       }
+    }
+    // Three exact footprint bands make the gilded pyramid landable and solid
+    // while shrinking with its real octagonal silhouette. This replaces eight
+    // overlapping facet AABBs with three conservative polygonal rings.
+    const crownCollisionSteps = 3;
+    for (let i = 0; i < crownCollisionSteps; i++) {
+      const t = i / crownCollisionSteps;
+      const bandOutline = rim.map((p) => [
+        p.x * (1 - t),
+        p.z * (1 - t),
+      ] as const);
+      const y0 = crownBase + (lanternBase - crownBase) * t;
+      const y1 = crownBase + (lanternBase - crownBase) * ((i + 1) / crownCollisionSteps);
+      g.add(polygonPrism(bandOutline, y1 - y0, NYL_COLLISION, y0));
     }
     // The 18-ton lantern and spire finish at the measured 187.5m roof height.
     g.add(cyl(1.2, 1.55, 2.2, NYL_GOLD, 0, lanternBase + 1.1, 0, 8));
