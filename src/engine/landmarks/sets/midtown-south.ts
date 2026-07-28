@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import {
   type LandmarkCtx,
   LIMESTONE, GRANITE, DARKSTONE, MARBLE, BRONZE, GOLD, STEEL_LM, GLASS_LM, WHITE_LM,
@@ -95,6 +96,25 @@ function esbDetail<T extends THREE.Mesh>(mesh: T): T {
 function oneBryantDetail<T extends THREE.Mesh>(mesh: T): T {
   mesh.userData.noCollision = true;
   return mesh;
+}
+
+/** Pre-merge repeated same-material detail before it enters the scene tree. */
+function mergeOneBryantDetails(
+  meshes: THREE.Mesh[], material: THREE.Material,
+): THREE.Mesh {
+  const geometries = meshes.map((mesh) => {
+    mesh.updateMatrix();
+    return (mesh.geometry as THREE.BufferGeometry).clone().applyMatrix4(mesh.matrix);
+  });
+  const merged = mergeGeometries(geometries, false);
+  if (!merged) {
+    for (const geometry of geometries) geometry.dispose();
+    for (const mesh of meshes) mesh.geometry.dispose();
+    throw new Error(`Could not merge One Bryant detail batch of ${meshes.length} meshes`);
+  }
+  for (const geometry of geometries) geometry.dispose();
+  for (const mesh of meshes) mesh.geometry.dispose();
+  return new THREE.Mesh(merged, material);
 }
 
 function nyplDetail<T extends THREE.Object3D>(object: T): T {
@@ -682,6 +702,10 @@ export const builders: Record<string, (ctx: LandmarkCtx) => THREE.Group> = {
     const tip = ctx.fit?.roofH ?? 366;
     const occupiedTop = 234.5; // CTBUH highest occupied floor: 769ft
     const screenBase = 240;
+    const steelDetails: THREE.Mesh[] = [];
+    const addSteel = (mesh: THREE.Mesh): void => {
+      steelDetails.push(oneBryantDetail(mesh));
+    };
 
     const curtain = canvasTexture((c, w, h) => {
       const cols = 4, rows = 8;
@@ -747,15 +771,15 @@ export const builders: Record<string, (ctx: LandmarkCtx) => THREE.Group> = {
       const a = oneBryantRing(towerLevels[level]);
       const b = oneBryantRing(towerLevels[level + 1]);
       for (let i = 0; i < a.length; i++) {
-        g.add(oneBryantDetail(strut(a[i], b[i], 0.18, BRYANT_STEEL, 5)));
+        addSteel(strut(a[i], b[i], 0.18, BRYANT_STEEL, 5));
       }
     }
     for (const l of towerLevels.slice(1)) {
       const ring = oneBryantRing(l);
       for (let i = 0; i < ring.length; i++) {
-        g.add(oneBryantDetail(strut(
+        addSteel(strut(
           ring[i], ring[(i + 1) % ring.length], 0.16, BRYANT_STEEL, 5,
-        )));
+        ));
       }
     }
 
@@ -778,11 +802,11 @@ export const builders: Record<string, (ctx: LandmarkCtx) => THREE.Group> = {
       [[61.5, 12, -21], [64.4, 12, 23]],
       [[61.5, 12, -21], [51.2, 232, 16]],
     ] as [number[], number[]][]) {
-      g.add(oneBryantDetail(strut(
+      addSteel(strut(
         new THREE.Vector3(a[0], a[1], a[2]),
         new THREE.Vector3(b[0], b[1], b[2]),
         0.14, BRYANT_STEEL, 5,
-      )));
+      ));
     }
 
     // Floors 52–55: dark mechanical terrace and asymmetric crystalline
@@ -795,22 +819,22 @@ export const builders: Record<string, (ctx: LandmarkCtx) => THREE.Group> = {
     const crown = oneBryantCrown(crownBase, BRYANT_SCREEN);
     g.add(crown.mesh);
     for (let i = 0; i < crown.baseRing.length; i++) {
-      g.add(oneBryantDetail(strut(crown.baseRing[i], crown.topRing[i], 0.22, BRYANT_STEEL, 5)));
-      g.add(oneBryantDetail(strut(
+      addSteel(strut(crown.baseRing[i], crown.topRing[i], 0.22, BRYANT_STEEL, 5));
+      addSteel(strut(
         crown.topRing[i], crown.topRing[(i + 1) % crown.topRing.length],
         0.18, BRYANT_STEEL, 5,
-      )));
+      ));
     }
     // Horizontal louver rails stop the broad mechanical faces reading as one
     // opaque black sail while adding only forty low-segment struts.
     for (const t of [0.16, 0.32, 0.48, 0.64, 0.8]) {
       for (let i = 0; i < crown.baseRing.length; i++) {
         const next = (i + 1) % crown.baseRing.length;
-        g.add(oneBryantDetail(strut(
+        addSteel(strut(
           crown.baseRing[i].clone().lerp(crown.topRing[i], t),
           crown.baseRing[next].clone().lerp(crown.topRing[next], t),
           0.11, BRYANT_STEEL, 5,
-        )));
+        ));
       }
     }
 
@@ -830,30 +854,30 @@ export const builders: Record<string, (ctx: LandmarkCtx) => THREE.Group> = {
       );
     };
     for (let i = 0; i < 4; i++) {
-      g.add(oneBryantDetail(strut(mastPoint(i, 0), mastPoint(i, 1), 0.2, BRYANT_STEEL, 6)));
+      addSteel(strut(mastPoint(i, 0), mastPoint(i, 1), 0.2, BRYANT_STEEL, 6));
     }
     const braceLevels = 5;
     for (let face = 0; face < 4; face++) {
       const next = (face + 1) % 4;
       for (let level = 0; level < braceLevels; level++) {
         const t0 = level / braceLevels, t1 = (level + 1) / braceLevels;
-        g.add(oneBryantDetail(strut(
+        addSteel(strut(
           mastPoint(face, t0), mastPoint(next, t1), 0.09, BRYANT_STEEL, 5,
-        )));
-        g.add(oneBryantDetail(strut(
+        ));
+        addSteel(strut(
           mastPoint(next, t0), mastPoint(face, t1), 0.09, BRYANT_STEEL, 5,
-        )));
-        g.add(oneBryantDetail(strut(
+        ));
+        addSteel(strut(
           mastPoint(face, t1), mastPoint(next, t1), 0.08, BRYANT_STEEL, 5,
-        )));
+        ));
       }
     }
-    g.add(oneBryantDetail(cyl(0.33, 0.89, latticeTop - mast0, BRYANT_STEEL,
-      mastX, (mast0 + latticeTop) / 2, mastZ, 8)));
-    g.add(oneBryantDetail(cyl(0.08, 0.33, tip - latticeTop, BRYANT_STEEL,
-      mastX, (latticeTop + tip) / 2, mastZ, 6)));
+    addSteel(cyl(0.33, 0.89, latticeTop - mast0, BRYANT_STEEL,
+      mastX, (mast0 + latticeTop) / 2, mastZ, 8));
+    addSteel(cyl(0.08, 0.33, tip - latticeTop, BRYANT_STEEL,
+      mastX, (latticeTop + tip) / 2, mastZ, 6));
     for (const [y, r] of [[mast0, 1.15], [306, 0.72], [326, 0.48], [latticeTop, 0.32]] as [number, number][]) {
-      g.add(oneBryantDetail(cyl(r, r, 0.34, BRYANT_STEEL, mastX, y, mastZ, 8)));
+      addSteel(cyl(r, r, 0.34, BRYANT_STEEL, mastX, y, mastZ, 8));
     }
     for (const y of [latticeTop, tip]) {
       const beacon = oneBryantDetail(new THREE.Mesh(new THREE.SphereGeometry(0.2, 6, 5), BRYANT_RED));
@@ -867,15 +891,15 @@ export const builders: Record<string, (ctx: LandmarkCtx) => THREE.Group> = {
     g.add(oneBryantDetail(box(0.32, 12.2, 43, BRYANT_LOBBY, east, 6.1, 1)));
     g.add(oneBryantDetail(box(0.12, 9.5, 15.5, GREEN_PATINA, east + 0.22, 5.0, -14)));
     for (const z of [-19, -14, -9, -4, 4, 9, 14, 19]) {
-      g.add(oneBryantDetail(box(0.18, 12.5, 0.18, BRYANT_STEEL, east + 0.28, 6.25, z)));
+      addSteel(box(0.18, 12.5, 0.18, BRYANT_STEEL, east + 0.28, 6.25, z));
     }
     for (const z of [-7.5, -2.5, 2.5, 7.5]) {
       g.add(oneBryantDetail(box(0.18, 8.8, 4.3, BRYANT_DOOR, east + 0.46, 4.4, z)));
     }
     for (const z of [-17.2, -5.7, 5.7, 17.2]) {
       g.add(oneBryantDetail(box(7.2, 0.3, 10.0, BRYANT_WOOD, east + 3.4, 11.8, z)));
-      g.add(oneBryantDetail(box(0.18, 11.4, 0.18, BRYANT_STEEL, east + 6.5, 5.7, z - 3.9)));
-      g.add(oneBryantDetail(box(0.18, 11.4, 0.18, BRYANT_STEEL, east + 6.5, 5.7, z + 3.9)));
+      addSteel(box(0.18, 11.4, 0.18, BRYANT_STEEL, east + 6.5, 5.7, z - 3.9));
+      addSteel(box(0.18, 11.4, 0.18, BRYANT_STEEL, east + 6.5, 5.7, z + 3.9));
     }
 
     // Stephen Sondheim Theatre: restored 1918 Henry Miller façade survives
@@ -897,6 +921,11 @@ export const builders: Record<string, (ctx: LandmarkCtx) => THREE.Group> = {
       arch.rotation.z = Math.PI;
       g.add(arch);
     }
+
+    if (steelDetails.length !== 195) {
+      throw new Error(`One Bryant steel detail count changed: ${steelDetails.length} !== 195`);
+    }
+    g.add(oneBryantDetail(mergeOneBryantDetails(steelDetails, BRYANT_STEEL)));
 
     // Four conservative bands follow the massing closely. Facade, lattice and
     // entrance detail remain non-colliding; the 240m mechanical terrace is
