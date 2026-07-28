@@ -383,9 +383,10 @@ export class World {
       if (spec) this.enterStation(spec, spec.pos);
     }
 
-    // deep-link: ?landmark=<id or name> teleports to a premium landmark for fast
-    // QA (the LandmarkManager streams it in the moment we land inside its radius).
-    // Lift into helicopter view so you never spawn buried inside the build.
+    // deep-link: ?landmark=<id or name> opens the same safe, framed presentation
+    // used by "Jump to…" for fast QA. Do not force helicopter mode here: doing
+    // so bypassed spawnResolve and left y=0 at the raw landmark anchor — exactly
+    // inside the premium build that this route is meant to inspect.
     const lm = params.get('landmark');
     if (lm) {
       const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '');
@@ -393,9 +394,6 @@ export class World {
         ?? LANDMARKS_REG.find((l) => norm(l.name).includes(norm(lm)));
       if (entry) {
         this.teleport(entry.lat, entry.lon, entry.id);
-        this.controls.fly = true;
-        this.spawnLookAt = null; // deep-link camera look is restored below
-        this.spawnLandmarkId = null;
       }
     }
 

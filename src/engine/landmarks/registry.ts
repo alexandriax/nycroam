@@ -202,8 +202,17 @@ export const LANDMARKS_REG: LandmarkEntry[] = [
   // Anchored on the measured "270 Park Avenue" OSM outline centroid (was ~33m SE,
   // which left the build offset from the real footprint). Always-on because the
   // generic source tower is fully cleared; this lean procedural build is also
-  // the 423m distant skyline representation.
-  { id: 'chase-hq', name: '270 Park Ave: JPMorganChase', lat: 40.755980, lon: -73.975987, set: 'midtown-east', r: 1400, rot: GRID, alwaysOn: true },
+  // the 423m distant skyline representation. Present it from a surveyed E 50th
+  // Street/Madison Avenue footway: the automatic radial sampler chose Lexington
+  // Avenue one block east, where two slabs reduced the tower to a narrow sliver.
+  // This point is outside every baked footprint, 0.3m from the mapped footway,
+  // 10.4m from the nearest road centerline and 42.8m from the nearest tree.
+  {
+    id: 'chase-hq', name: '270 Park Ave: JPMorganChase',
+    lat: 40.755980, lon: -73.975987, set: 'midtown-east', r: 1400,
+    rot: GRID, alwaysOn: true,
+    arrivalLat: 40.757596, arrivalLon: -73.975923,
+  },
   // Rafael Viñoly's 425.5m square concrete basket replaces the source's one
   // solid 426m extrusion. The physically recessed six-window grid and five
   // open windbreak bands stay resident as its skyline representation; at
