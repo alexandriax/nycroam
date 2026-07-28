@@ -80,7 +80,15 @@ export const LANDMARKS_REG: LandmarkEntry[] = [
   // Always-on: its OSM duplicate is cleared so this compact premium model is
   // also the distant skyline representation. Anchor is the measured host
   // center (the old point was ~59m southwest, leaving a floating second mast).
-  { id: 'one-wtc', name: 'One World Trade Center', lat: 40.7130, lon: -74.01319, set: 'fidi', r: 1400, alwaysOn: true },
+  // Present the full 1,776ft silhouette from the baked West Street/Liberty
+  // Street footway instead of ejecting from the tower anchor into its podium.
+  // This surveyed point is outside every footprint, 7.8m from the mapped road
+  // centerline, 19.3m from the nearest tree and has a clear 262.4m sightline.
+  {
+    id: 'one-wtc', name: 'One World Trade Center',
+    lat: 40.7130, lon: -74.01319, set: 'fidi', r: 1400, alwaysOn: true,
+    arrivalLat: 40.7109757, arrivalLon: -74.0147919,
+  },
   { id: 'sept11-museum', name: '9/11 Memorial Museum', lat: 40.7115, lon: -74.0125, set: 'fidi', r: 450 },
   // anchored at the midpoint of the two BAKED memorial pools (54.2m water squares
   // in the tile areas); GRID aligns local x with their edges — the builder places
