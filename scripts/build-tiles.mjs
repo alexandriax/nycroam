@@ -2076,8 +2076,20 @@ async function main() {
   const [esbTx, esbTz] = tileOf(esbXZ);
   const esbKey = tileKeyOf(esbTx, esbTz);
   const esbBuildings = tileBuildings.get(esbKey) || [];
-  const esbTall = esbBuildings.some((b) => b.h >= 300);
-  results.push(`Empire State Building tile (${esbKey}): ${esbBuildings.length} buildings, tallest h=${Math.max(0, ...esbBuildings.map((b) => b.h))} -> ${esbTall ? 'PASS' : 'FAIL'}`);
+  const esbFit = fitOut['empire-state'];
+  const esbBakedCrown = esbBuildings.filter((b) => b.h > 330).length;
+  const esbBaseKept = esbBuildings.some((b) => Math.abs(b.h - 330) < 0.2);
+  const esbOk = !!esbFit
+    && Math.abs(esbFit.roofH - 443) < 1
+    && Math.abs(esbFit.keptH - 330) < 1
+    && esbFit.clearedParts === 2
+    && esbBakedCrown === 0
+    && esbBaseKept;
+  results.push(
+    `Empire State crown replacement (${esbKey}): fit=${esbFit?.keptH ?? 0}-${esbFit?.roofH ?? 0}m, ` +
+      `cleared=${esbFit?.clearedParts ?? 0}, baked >330m parts=${esbBakedCrown}, ` +
+      `330m base=${esbBaseKept} -> ${esbOk ? 'PASS' : 'FAIL'}`,
+  );
 
   // One WTC is a complete premium replacement: its six overlapping OSM
   // prisms/antenna must be measured into the fit and absent from both the near

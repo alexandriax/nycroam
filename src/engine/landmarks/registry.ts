@@ -185,7 +185,18 @@ export const LANDMARKS_REG: LandmarkEntry[] = [
   },
 
   // ---- midtown south ----
-  { id: 'empire-state', name: 'Empire State Building', lat: 40.7484, lon: -73.9857, set: 'midtown-south', r: 1500, rot: GRID },
+  // The tile bake retains the real setback massing through 330m but clears its
+  // two generic mast/antenna pieces. Keep the compact premium crown resident so
+  // distant views never regress to a flat-topped Empire State Building. The
+  // surveyed West 33rd Street footway frames the complete 443m silhouette down
+  // the street canyon without a tree canopy or adjacent wall filling the view.
+  {
+    id: 'empire-state', name: 'Empire State Building',
+    lat: 40.7484, lon: -73.9857, set: 'midtown-south', r: 1500,
+    rot: GRID, alwaysOn: true,
+    arrivalLat: 40.7488480, arrivalLon: -73.9877531,
+    arrivalLookLat: 40.7484000, arrivalLookLon: -73.9857000,
+  },
   // Full premium replacement for fourteen interpenetrating generic source
   // parts. Its compact textured facades and open lattice spire stay resident
   // as the distant skyline representation after the tile bake clears the site.
