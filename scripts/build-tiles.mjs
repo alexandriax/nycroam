@@ -690,9 +690,11 @@ async function main() {
     // part owned by the named One Vanderbilt outline from Grand Central and
     // neighbouring towers, then clearAll removes only that ownership group.
     { id: 'one-vanderbilt', lat: 40.7529, lon: -73.9787, r: 58, clearAll: true },
-    // minH: the 120m base obb centered the crown 13m off the tower shaft — the
-    // verdigris crown floated beside the top (the "topper near City Hall" bug)
-    { id: 'woolworth', lat: 40.7124, lon: -74.0083, r: 40, minH: 150 },
+    // Measure only the accurately centered 120m-above tower stack, then clear
+    // its eleven overlapping 170–238m generic parts. The mapped 30-storey/120m
+    // base stays; one coherent premium build now supplies the progressively
+    // smaller Gothic tower, copper crown and 241m spire above that shoulder.
+    { id: 'woolworth', lat: 40.7124, lon: -74.0083, r: 40, minH: 150, clearAboveH: 170 },
     // Rebuild the New York Life Building's upper tower from the 115m setback.
     // OSM's 148m shaft, four corner turrets and 187.5m pyramidal roof are
     // otherwise emitted as flat generic prisms, including a solid gold block
@@ -2164,6 +2166,33 @@ async function main() {
     const n = outer.length / 2;
     return [sx / n, sz / n];
   };
+
+  // Woolworth's eleven upper source parts used to enclose the custom crown in a
+  // 238m generic prism. They must all be measured but absent within the tight
+  // tower radius, leaving the exact 120m mapped base for the procedural build.
+  const woolXZ = lonLatToXZ(-74.0083, 40.7124);
+  const [woolTx, woolTz] = tileOf(woolXZ);
+  const woolKey = tileKeyOf(woolTx, woolTz);
+  const woolBuildings = tileBuildings.get(woolKey) || [];
+  const woolFit = fitOut.woolworth;
+  const woolBakedUpper = woolBuildings.filter((b) => {
+    if (b.h < 170) return false;
+    const center = outputBuildingCentroid(b, woolTx, woolTz);
+    return !!center && !!woolFit
+      && Math.hypot(center[0] - woolFit.cx, center[1] - woolFit.cz) <= 22;
+  }).length;
+  const woolOk = !!woolFit
+    && Math.abs(woolFit.w - 30) < 1
+    && Math.abs(woolFit.d - 30) < 1
+    && Math.abs(woolFit.roofH - 238) < 1
+    && woolFit.keptH === 0
+    && woolFit.clearedParts === 11
+    && woolBakedUpper === 0;
+  results.push(
+    `Woolworth upper replacement (${woolKey}): fit=${woolFit?.w ?? 0}x${woolFit?.d ?? 0}m, ` +
+      `roof=${woolFit?.roofH ?? 0}m, cleared=${woolFit?.clearedParts ?? 0}, ` +
+      `baked >=170m within 22m=${woolBakedUpper} -> ${woolOk ? 'PASS' : 'FAIL'}`,
+  );
 
   // Central Park Tower owns one broad retail podium plus a dense set of
   // overlapping shaft, shoulder, cantilever and cap pieces. The premium

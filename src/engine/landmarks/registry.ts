@@ -104,7 +104,16 @@ export const LANDMARKS_REG: LandmarkEntry[] = [
 
   // ---- civic center / chinatown / bridges ----
   { id: 'city-hall', name: 'New York City Hall', lat: 40.7128, lon: -74.006, set: 'civic', r: 500, rot: 0.3 },
-  { id: 'woolworth', name: 'Woolworth Building', lat: 40.7124, lon: -74.0083, set: 'civic', r: 1200, rot: 0.28 },
+  // Its eleven generic upper-tower prisms are cleared, so this complete 120–241m
+  // premium replacement also owns the distant skyline. The surveyed City Hall
+  // Park arrival is outside both tree canopies and the Broadway streetwall.
+  {
+    id: 'woolworth', name: 'Woolworth Building',
+    lat: 40.7124, lon: -74.0083, set: 'civic', r: 1200, rot: 0.28,
+    alwaysOn: true,
+    arrivalLat: 40.712780, arrivalLon: -74.006560,
+    arrivalLookLat: 40.712400, arrivalLookLon: -74.008300,
+  },
   { id: 'municipal-building', name: 'Manhattan Municipal Building', lat: 40.7127, lon: -74.0041, set: 'civic', r: 900, rot: 0.5 },
   { id: 'foley-square', name: 'Supreme Court & Foley Square', lat: 40.7143, lon: -74.0018, set: 'civic', r: 450, rot: -1.05 },
   { id: 'african-burial-ground', name: 'African Burial Ground', lat: 40.714769, lon: -74.004275, set: 'civic', r: 350, rot: 0.3 },

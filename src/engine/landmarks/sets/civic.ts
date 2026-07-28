@@ -10,7 +10,8 @@ import {
  * Civic Center / Chinatown / East River bridges set. Each builder returns a
  * group whose origin sits at ground (water) level at the registry position;
  * the manager rotates/positions/merges it. Several landmarks exist from OSM
- * (Woolworth & Municipal shafts) — those builders add only the missing crown.
+ * The Woolworth builder replaces its generic upper tower from the 30th-floor
+ * shoulder; Municipal keeps its mapped shaft and adds only the missing crown.
  * The three suspension towers stand in the river, so their bases begin at y=-3.
  */
 
@@ -22,6 +23,11 @@ const BULB_G = new THREE.MeshBasicMaterial({ color: '#2f9e57' });
 const BULB_W = new THREE.MeshBasicMaterial({ color: '#f3f1e7' });
 const BULB_R = new THREE.MeshBasicMaterial({ color: '#e23b3b' });
 const TRICOLOR = [BULB_G, BULB_W, BULB_R];
+const WOOL_STONE = new THREE.MeshStandardMaterial({ color: '#ded6bd', roughness: 0.62, metalness: 0.02 });
+const WOOL_STONE_HI = new THREE.MeshStandardMaterial({ color: '#f0e8d2', roughness: 0.56, metalness: 0.02 });
+const WOOL_GLASS = new THREE.MeshStandardMaterial({ color: '#263b45', roughness: 0.18, metalness: 0.38 });
+const WOOL_COPPER = new THREE.MeshStandardMaterial({ color: '#4d846d', roughness: 0.38, metalness: 0.48 });
+const WOOL_COPPER_HI = new THREE.MeshStandardMaterial({ color: '#6d9b81', roughness: 0.34, metalness: 0.42 });
 
 // ---- local geometry helpers ------------------------------------------------
 
@@ -41,6 +47,38 @@ function pediment(w: number, h: number, depth: number, mat: THREE.Material): THR
   s.closePath();
   const geo = new THREE.ExtrudeGeometry(s, { depth, bevelEnabled: false, curveSegments: 1 });
   geo.translate(0, 0, -depth / 2);
+  return new THREE.Mesh(geo, mat);
+}
+
+/** Rectangular hipped roof/frustum with crisp planar facets. */
+function hippedRoof(
+  bottomW: number, bottomD: number, topW: number, topD: number,
+  y0: number, y1: number, mat: THREE.Material,
+): THREE.Mesh {
+  const p: number[] = [];
+  const idx: number[] = [];
+  const lower = [
+    [-bottomW / 2, y0, -bottomD / 2], [bottomW / 2, y0, -bottomD / 2],
+    [bottomW / 2, y0, bottomD / 2], [-bottomW / 2, y0, bottomD / 2],
+  ];
+  const upper = [
+    [-topW / 2, y1, -topD / 2], [topW / 2, y1, -topD / 2],
+    [topW / 2, y1, topD / 2], [-topW / 2, y1, topD / 2],
+  ];
+  for (let side = 0; side < 4; side++) {
+    const next = (side + 1) % 4;
+    const base = p.length / 3;
+    for (const v of [lower[side], upper[side], upper[next], lower[next]]) p.push(...v);
+    idx.push(base, base + 1, base + 2, base, base + 2, base + 3);
+  }
+  // A small top cap prevents a view through the roof beneath the next stage.
+  const cap = p.length / 3;
+  for (const v of upper) p.push(...v);
+  idx.push(cap, cap + 2, cap + 1, cap, cap + 3, cap + 2);
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(p, 3));
+  geo.setIndex(idx);
+  geo.computeVertexNormals();
   return new THREE.Mesh(geo, mat);
 }
 
@@ -149,29 +187,189 @@ export const builders: Record<string, (ctx: LandmarkCtx) => THREE.Group> = {
     return g;
   },
 
-  // Woolworth: neo-gothic verdigris copper crown from y=215 to a 241m spire tip
-  woolworth: () => {
+  // Woolworth: coherent upper-tower replacement from the 30th-floor shoulder.
+  // The surveyed source bands are 120/170/194/237.8m; the custom composition
+  // preserves them while restoring Cass Gilbert's pale terra-cotta piers,
+  // corner tourelles, copper roof, open observation arcades and 241m tip.
+  woolworth: (ctx) => {
     const g = new THREE.Group();
-    g.add(box(20, 3, 20, VERDIGRIS, 0, 216.5, 0)); // setback 215..218
-    g.add(box(15, 3, 15, VERDIGRIS, 0, 219.5, 0)); // setback 218..221
-    g.add(box(13, 1.2, 13, VERDIGRIS, 0, 221.6, 0)); // ring
-    for (const sx of [-8, 8]) for (const sz of [-8, 8]) { // corner tourelles (cyl + cone pinnacle)
-      g.add(cyl(0.9, 1.1, 12, VERDIGRIS, sx, 221, sz, 8));
-      g.add(cyl(0, 1.2, 4, VERDIGRIS, sx, 229, sz, 8));
-      g.add(cyl(0, 0.35, 1.4, VERDIGRIS, sx, 231.7, sz, 6));
+    const W = ctx.fit?.w ?? 29.6, D = ctx.fit?.d ?? 29.6;
+    const stageW = 24.4, stageD = 24.3;
+    const crownW = 20.3, crownD = 20.1;
+
+    // Square lower tower (floors 31–45), followed by the tighter 46–50 stage.
+    // Thin projecting courses and emphatic piers make the vertical Gothic
+    // rhythm legible without needing hundreds of separate draw calls.
+    g.add(box(W, 50, D, WOOL_STONE, 0, 145, 0));
+    g.add(box(stageW, 24, stageD, WOOL_STONE, 0, 182, 0));
+    for (const [w, d, y, h] of [
+      [W + 1.0, D + 1.0, 120.5, 1.0],
+      [W + 1.5, D + 1.5, 169.2, 1.6],
+      [stageW + 1.3, stageD + 1.3, 193.2, 1.6],
+    ] as const) g.add(box(w, h, d, WOOL_STONE_HI, 0, y, 0));
+
+    const pos: number[] = [], norm: number[] = [], idx: number[] = [];
+    const addQuad = (
+      cx: number, cy: number, cz: number,
+      tx: number, tz: number, nx: number, nz: number,
+      w: number, h: number,
+    ) => {
+      const base = pos.length / 3;
+      const vx = tx * w / 2, vz = tz * w / 2, vy = h / 2;
+      pos.push(
+        cx - vx, cy - vy, cz - vz,
+        cx + vx, cy - vy, cz + vz,
+        cx + vx, cy + vy, cz + vz,
+        cx - vx, cy + vy, cz - vz,
+      );
+      for (let i = 0; i < 4; i++) norm.push(nx, 0, nz);
+      idx.push(base, base + 1, base + 2, base, base + 2, base + 3);
+    };
+    const addFaceRow = (
+      width: number, depth: number, bays: number, y: number, paneH: number,
+    ) => {
+      const pitchX = (width - 3.2) / bays;
+      const pitchZ = (depth - 3.2) / bays;
+      for (let bay = 0; bay < bays; bay++) {
+        const x = -width / 2 + 1.6 + pitchX * (bay + 0.5);
+        const z = -depth / 2 + 1.6 + pitchZ * (bay + 0.5);
+        addQuad(x, y, depth / 2 + 0.025, 1, 0, 0, 1, pitchX * 0.54, paneH);
+        addQuad(-x, y, -depth / 2 - 0.025, -1, 0, 0, -1, pitchX * 0.54, paneH);
+        addQuad(width / 2 + 0.025, y, -z, 0, -1, 1, 0, pitchZ * 0.54, paneH);
+        addQuad(-width / 2 - 0.025, y, z, 0, 1, -1, 0, pitchZ * 0.54, paneH);
+      }
+    };
+    for (let y = 123.6; y < 168; y += 3.65) addFaceRow(W, D, 7, y, 2.28);
+    for (let y = 173.1; y < 192; y += 3.75) addFaceRow(stageW, stageD, 5, y, 2.35);
+    const panes = new THREE.BufferGeometry();
+    panes.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    panes.setAttribute('normal', new THREE.Float32BufferAttribute(norm, 3));
+    panes.setIndex(idx);
+    const paneMesh = new THREE.Mesh(panes, WOOL_GLASS);
+    paneMesh.userData.noCollision = true;
+    g.add(paneMesh);
+
+    // Projecting terra-cotta piers divide the historic seven- and five-window
+    // faces. They merge into the same stone draw; collision remains the two
+    // clean shaft solids rather than dozens of ornamental slivers.
+    const piers = (
+      width: number, depth: number, bays: number, y0: number, y1: number,
+    ) => {
+      for (let i = 1; i < bays; i++) {
+        const x = -width / 2 + 1.6 + ((width - 3.2) * i) / bays;
+        const z = -depth / 2 + 1.6 + ((depth - 3.2) * i) / bays;
+        for (const face of [-1, 1]) {
+          const px = box(0.32, y1 - y0, 0.42, WOOL_STONE_HI, x, (y0 + y1) / 2, face * (depth / 2 + 0.16));
+          const pz = box(0.42, y1 - y0, 0.32, WOOL_STONE_HI, face * (width / 2 + 0.16), (y0 + y1) / 2, z);
+          px.userData.noCollision = true;
+          pz.userData.noCollision = true;
+          g.add(px, pz);
+        }
+      }
+    };
+    piers(W, D, 7, 121, 169);
+    piers(stageW, stageD, 5, 170, 193);
+
+    // Three tall pointed-window bays per face form the 50th-floor crown base.
+    g.add(box(crownW, 11, crownD, WOOL_STONE, 0, 199.5, 0));
+    const crownGlass = new THREE.Group();
+    for (const [x, z, ry] of [
+      [0, crownD / 2 + 0.03, 0], [0, -crownD / 2 - 0.03, Math.PI],
+      [crownW / 2 + 0.03, 0, -Math.PI / 2], [-crownW / 2 - 0.03, 0, Math.PI / 2],
+    ] as const) {
+      for (const u of [-5.3, 0, 5.3]) {
+        const recess = box(2.7, 6.2, 0.12, WOOL_GLASS, u, 199.3, 0);
+        const point = pediment(2.7, 1.8, 0.12, WOOL_GLASS);
+        point.position.set(u, 202.4, 0);
+        const surroundL = box(0.38, 8.2, 0.34, WOOL_STONE_HI, u - 1.55, 199.7, 0);
+        const surroundR = box(0.38, 8.2, 0.34, WOOL_STONE_HI, u + 1.55, 199.7, 0);
+        crownGlass.add(recess, point, surroundL, surroundR);
+      }
+      crownGlass.position.set(x, 0, z);
+      crownGlass.rotation.y = ry;
+      for (const child of crownGlass.children) child.userData.noCollision = true;
+      g.add(crownGlass.clone());
+      crownGlass.clear();
+      crownGlass.position.set(0, 0, 0);
+      crownGlass.rotation.set(0, 0, 0);
     }
-    const roof = cyl(0, 8.5, 15.5, VERDIGRIS, 0, 228.75, 0, 4); // pyramidal roof 221..236.5
-    roof.rotation.y = Math.PI / 4;
-    g.add(roof);
-    const faces: [number, number, number][] = [[0, 6, 0], [0, -6, Math.PI], [6, 0, -Math.PI / 2], [-6, 0, Math.PI / 2]];
-    for (const [dx, dz, ry] of faces) { // gabled gothic dormers
-      const d = pediment(3, 2, 1.2, VERDIGRIS);
-      d.position.set(dx, 224, dz);
-      d.rotation.y = ry;
-      g.add(d);
+    g.add(box(crownW + 1.3, 1.1, crownD + 1.3, WOOL_STONE_HI, 0, 205.1, 0));
+
+    // Four oversized tourelles anchor the 50th-floor setback, exactly where
+    // the source footprint records its 215m corner pinnacles.
+    for (const sx of [-8.6, 8.6]) for (const sz of [-8.5, 8.5]) {
+      g.add(cyl(1.45, 1.65, 13.5, WOOL_STONE_HI, sx, 201.2, sz, 8));
+      g.add(cyl(0.34, 1.7, 5.0, WOOL_COPPER_HI, sx, 210.45, sz, 8));
+      g.add(cyl(0, 0.30, 1.5, WOOL_STONE_HI, sx, 213.7, sz, 6));
     }
-    g.add(cyl(1.4, 1.8, 2, VERDIGRIS, 0, 237.5, 0, 8)); // lantern 236.5..238.5
-    g.add(cyl(0, 1.2, 2.5, VERDIGRIS, 0, 239.75, 0, 8)); // spire tip → 241
+
+    // The broad patinated roof and its dormers lead to the octagonal former
+    // observation deck. Open dark arcades, pale tracery and alternating copper
+    // facets keep the crown readable up close as well as in the skyline.
+    g.add(hippedRoof(crownW + 0.2, crownD + 0.2, 11.6, 11.4, 205.65, 221.4, WOOL_COPPER));
+    // Raised standing seams follow each roof plane's true slope. Twenty slim
+    // struts merge into one copper-highlight draw and break up the broad roof
+    // at close flying distance without a large texture or material budget.
+    const roofBottomX = (crownW + 0.2) / 2, roofBottomZ = (crownD + 0.2) / 2;
+    const roofTopX = 11.6 / 2, roofTopZ = 11.4 / 2;
+    for (const t of [-0.66, -0.33, 0, 0.33, 0.66]) {
+      for (const side of [-1, 1]) {
+        const front = strut(
+          new THREE.Vector3(t * roofBottomX, 205.8, side * roofBottomZ),
+          new THREE.Vector3(t * roofTopX, 221.25, side * roofTopZ),
+          0.065, WOOL_COPPER_HI, 5,
+        );
+        const flank = strut(
+          new THREE.Vector3(side * roofBottomX, 205.8, t * roofBottomZ),
+          new THREE.Vector3(side * roofTopX, 221.25, t * roofTopZ),
+          0.065, WOOL_COPPER_HI, 5,
+        );
+        front.userData.noCollision = true;
+        flank.userData.noCollision = true;
+        g.add(front, flank);
+      }
+    }
+    for (const [x, z, ry] of [
+      [0, 8.1, 0], [0, -8.1, Math.PI], [8.2, 0, -Math.PI / 2], [-8.2, 0, Math.PI / 2],
+    ] as const) {
+      for (const u of [-3.0, 3.0]) {
+        const px = x + (z ? u : 0), pz = z + (x ? u : 0);
+        const opening = box(1.12, 1.75, 0.14, WOOL_GLASS, px, 211.0, pz);
+        opening.rotation.y = ry;
+        opening.userData.noCollision = true;
+        g.add(opening);
+        const dormer = pediment(2.2, 2.9, 0.75, WOOL_STONE_HI);
+        dormer.position.set(px, 211.65, pz);
+        dormer.rotation.y = ry;
+        dormer.userData.noCollision = true;
+        g.add(dormer);
+      }
+    }
+
+    g.add(cyl(5.7, 5.7, 5.0, WOOL_GLASS, 0, 223.9, 0, 8));
+    g.add(cyl(6.4, 6.4, 0.8, WOOL_STONE_HI, 0, 221.8, 0, 8));
+    g.add(cyl(6.5, 6.5, 0.9, WOOL_STONE_HI, 0, 226.4, 0, 8));
+    for (let i = 0; i < 8; i++) {
+      const a = (i / 8) * Math.PI * 2 + Math.PI / 8;
+      const c = cyl(0.34, 0.42, 4.8, WOOL_STONE_HI, Math.sin(a) * 5.8, 224.0, Math.cos(a) * 5.8, 8);
+      c.userData.noCollision = true;
+      g.add(c);
+    }
+
+    const upperRoof = cyl(1.9, 6.15, 6.3, WOOL_COPPER_HI, 0, 229.95, 0, 8);
+    upperRoof.rotation.y = Math.PI / 8;
+    g.add(upperRoof);
+    g.add(cyl(2.55, 2.55, 3.9, WOOL_GLASS, 0, 235.05, 0, 8));
+    g.add(cyl(3.05, 3.05, 0.72, WOOL_STONE_HI, 0, 233.3, 0, 8));
+    g.add(cyl(3.0, 3.0, 0.72, WOOL_STONE_HI, 0, 237.0, 0, 8));
+    for (let i = 0; i < 8; i++) {
+      const a = (i / 8) * Math.PI * 2 + Math.PI / 8;
+      const c = cyl(0.20, 0.27, 3.5, WOOL_STONE_HI, Math.sin(a) * 2.55, 235.15, Math.cos(a) * 2.55, 7);
+      c.userData.noCollision = true;
+      g.add(c);
+    }
+    g.add(cyl(0.18, 2.7, 2.9, WOOL_COPPER, 0, 238.8, 0, 8));
+    g.add(cyl(0, 0.18, 2.2, WOOL_STONE_HI, 0, 239.9, 0, 7)); // 241m tip
     return g;
   },
 
