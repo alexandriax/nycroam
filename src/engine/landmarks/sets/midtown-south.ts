@@ -18,6 +18,80 @@ import {
 // Warm pink-Tennessee-marble tint for the lions (Patience & Fortitude).
 const LION_MARBLE = new THREE.MeshLambertMaterial({ color: '#ece0cf' });
 
+// Empire State crown palette. Standard materials pick up the shared city
+// environment map, so the aluminum mast reads as metal beside the dry Indiana
+// limestone and the observation glazing keeps a subtle reflected-sky sheen.
+const ESB_STONE = new THREE.MeshStandardMaterial({
+  color: '#c9c5b9', metalness: 0.04, roughness: 0.66,
+});
+const ESB_ALUMINUM = new THREE.MeshStandardMaterial({
+  color: '#c3cbd0', metalness: 0.52, roughness: 0.28,
+  emissive: '#30383d', emissiveIntensity: 0.28,
+});
+const ESB_GLASS = new THREE.MeshStandardMaterial({
+  color: '#718994', metalness: 0.32, roughness: 0.22,
+  emissive: '#263a44', emissiveIntensity: 0.42,
+});
+const ESB_LIGHT = new THREE.MeshStandardMaterial({
+  color: '#e7eef5', metalness: 0.08, roughness: 0.3,
+  emissive: '#89bff4', emissiveIntensity: 1.15,
+});
+const ESB_BEACON = new THREE.MeshBasicMaterial({ color: '#ff493d' });
+
+/** Decorative facade pieces should never become separate collision volumes. */
+function esbDetail<T extends THREE.Mesh>(mesh: T): T {
+  mesh.userData.noCollision = true;
+  return mesh;
+}
+
+/** Elliptical octagonal prism for the faceted aluminum/glass mooring mast. */
+function esbOctagon(
+  w: number, d: number, h: number, mat: THREE.Material,
+  x: number, y: number, z: number,
+): THREE.Mesh {
+  const mesh = cyl(1, 1, h, mat, x, y, z, 8);
+  mesh.scale.set(w / 2, 1, d / 2);
+  return mesh;
+}
+
+/**
+ * One limestone setback of the Empire State crown. Narrow, full-height inset
+ * glazing and projecting mullions preserve the building's emphatic vertical
+ * Art Deco rhythm without hundreds of individual window meshes.
+ */
+function esbCrownTier(
+  g: THREE.Group,
+  cx: number, cz: number,
+  w: number, d: number,
+  y0: number, y1: number,
+  frontBays: number, sideBays: number,
+) {
+  const h = y1 - y0;
+  g.add(box(w, h, d, ESB_STONE, cx, y0 + h / 2, cz));
+  g.add(esbDetail(box(w + 0.8, 0.65, d + 0.8, ESB_STONE, cx, y1 - 0.325, cz)));
+
+  const paneH = Math.max(2, h - 1.8);
+  const frontSpan = w - 3.2;
+  for (let i = 0; i < frontBays; i++) {
+    const px = cx - frontSpan / 2 + ((i + 0.5) * frontSpan) / frontBays;
+    const paneW = Math.min(1.15, (frontSpan / frontBays) * 0.5);
+    for (const face of [-1, 1]) {
+      g.add(esbDetail(box(paneW, paneH, 0.24, ESB_GLASS, px, y0 + h / 2, cz + face * (d / 2 + 0.13))));
+      g.add(esbDetail(box(0.34, h + 0.4, 0.42, ESB_STONE, px, y0 + h / 2, cz + face * (d / 2 + 0.25))));
+    }
+  }
+
+  const sideSpan = d - 3.2;
+  for (let i = 0; i < sideBays; i++) {
+    const pz = cz - sideSpan / 2 + ((i + 0.5) * sideSpan) / sideBays;
+    const paneD = Math.min(1.15, (sideSpan / sideBays) * 0.5);
+    for (const face of [-1, 1]) {
+      g.add(esbDetail(box(0.24, paneH, paneD, ESB_GLASS, cx + face * (w / 2 + 0.13), y0 + h / 2, pz)));
+      g.add(esbDetail(box(0.42, h + 0.4, 0.34, ESB_STONE, cx + face * (w / 2 + 0.25), y0 + h / 2, pz)));
+    }
+  }
+}
+
 // Scaled-sphere ellipsoid (semi-axes rx,ry,rz) — the organic masses of the lions.
 function blob(rx: number, ry: number, rz: number, mat: THREE.Material, x: number, y: number, z: number): THREE.Mesh {
   const m = new THREE.Mesh(new THREE.SphereGeometry(1, 10, 8), mat);
@@ -127,31 +201,115 @@ function corinthianColumn(cx: number, z: number): THREE.Group {
 }
 
 export const builders: Record<string, (ctx: LandmarkCtx) => THREE.Group> = {
-  // Empire State: art-deco crown + dirigible mast only (OSM builds the shaft below y=373)
+  // Empire State: the accurate OSM setbacks remain through the 330m roof. This
+  // adds the 86th-floor terrace detailing, limestone crown, 14-story aluminum/
+  // glass mooring mast to the 381m architectural top, and antenna to 443.2m.
   'empire-state': (ctx) => {
-    // ESB crown: OSM masses the tower to its 330m upper roof plus two crude
-    // stick parts for the mast — the pipeline clears the sticks and we build
-    // the art-deco drum + dirigible mast from the measured roof up.
     const g = new THREE.Group();
-    const roof = ctx.fit?.keptH ?? 373;
-    const tip = ctx.fit?.roofH ?? roof + 70; // OSM's cleared mast reached here
-    for (const [i, [r, h]] of ([[8.5, 8], [6.5, 7], [4.8, 7]] as const).entries()) {
-      const yb = roof + [0, 8, 15][i];
-      g.add(cyl(r * 0.82, r, h, LIMESTONE, 0, yb + h / 2, 0, 12));
+    const roof = ctx.fit?.keptH ?? 330;
+    const tip = ctx.fit?.roofH ?? 443.2;
+    // The fit is centered on the full block-wide massing. OSM's eight upper
+    // footprints independently agree on this local crown center to <0.2m.
+    const cx = 2.6, cz = -0.35;
+
+    // 86th-floor outdoor observatory (320m): the retained 320m tier is
+    // 26.8x43.1m and the narrower 330m tier leaves a walkable perimeter.
+    g.add(esbDetail(box(27.6, 0.75, 43.8, ESB_STONE, cx, 320.15, cz)));
+    for (const z of [cz - 21.9, cz + 21.9]) {
+      g.add(esbDetail(box(27.6, 1.65, 0.22, ESB_ALUMINUM, cx, 321.25, z)));
+      g.add(esbDetail(box(22.0, 2.3, 0.24, ESB_GLASS, cx, 316.9, z - Math.sign(z - cz) * 0.32)));
     }
-    const mastBase = roof + 22;
-    g.add(cyl(1.6, 2.6, (tip - 12) - mastBase, STEEL_LM, 0, (mastBase + tip - 12) / 2, 0, 8));
-    g.add(cyl(0.12, 0.7, 12, STEEL_LM, 0, tip - 6, 0, 6)); // antenna
+    for (const x of [cx - 13.8, cx + 13.8]) {
+      g.add(esbDetail(box(0.22, 1.65, 43.8, ESB_ALUMINUM, x, 321.25, cz)));
+      g.add(esbDetail(box(0.24, 2.3, 35.0, ESB_GLASS, x - Math.sign(x - cx) * 0.32, 316.9, cz)));
+    }
+    // Rail posts remain individually legible in close helicopter passes.
+    for (let x = cx - 12.5; x <= cx + 12.5; x += 2.5) {
+      for (const z of [cz - 21.9, cz + 21.9])
+        g.add(esbDetail(box(0.10, 1.7, 0.12, ESB_ALUMINUM, x, 321.25, z)));
+    }
+    for (let z = cz - 20; z <= cz + 20; z += 2.5) {
+      for (const x of [cx - 13.8, cx + 13.8])
+        g.add(esbDetail(box(0.12, 1.7, 0.10, ESB_ALUMINUM, x, 321.25, z)));
+    }
+
+    // Overlay only narrow ribs on the retained 320–330m final setback. Its
+    // generic window grid still supplies inexpensive fine detail underneath.
+    for (const x of [cx - 6.5, cx - 3.25, cx, cx + 3.25, cx + 6.5]) {
+      for (const z of [cz - 18.7, cz + 18.7])
+        g.add(esbDetail(box(0.42, 10.2, 0.45, ESB_STONE, x, 325, z)));
+    }
+    for (const z of [cz - 12, cz - 6, cz, cz + 6, cz + 12]) {
+      for (const x of [cx - 10.5, cx + 10.5])
+        g.add(esbDetail(box(0.45, 10.2, 0.42, ESB_STONE, x, 325, z)));
+    }
+
+    // Stepped limestone crown above the OSM roof. The increasingly narrow,
+    // ribbed rectangles continue the shaft's setbacks instead of abruptly
+    // switching to the old stack of round cylinders.
+    esbCrownTier(g, cx, cz, 18.6, 28.5, roof, roof + 9, 5, 7);
+    esbCrownTier(g, cx, cz, 15.6, 22.5, roof + 9, roof + 18, 5, 5);
+    esbCrownTier(g, cx, cz, 13.0, 17.2, roof + 18, roof + 27, 4, 5);
+
+    // Four fluted buttresses visually tie the 330m roof to the mast base.
     for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
-      g.add(box(1.4, 6, 1.4, LIMESTONE, sx * 9.5, roof + 3, sz * 9.5)); // corner setback piers
+      g.add(esbDetail(box(1.0, 12.5, 1.0, ESB_STONE, cx + sx * 8.6, roof + 6.25, cz + sz * 12.8)));
+      g.add(esbDetail(box(1.5, 0.6, 1.5, ESB_STONE, cx + sx * 8.6, roof + 12.2, cz + sz * 12.8)));
     }
-    // warm observation-deck glow band just below the drum
-    const glow = new THREE.Mesh(
-      new THREE.CylinderGeometry(11.5, 11.5, 1.6, 16, 1, true),
-      new THREE.MeshBasicMaterial({ color: '#ffd9a0' }),
-    );
-    glow.position.y = roof - 4;
-    g.add(glow);
+
+    // The real 200-foot crowning spire is a faceted aluminum, steel, and glass
+    // mooring mast, not a radio pole. Keep its broad occupied base through the
+    // 102nd-floor observatory (373m), then taper to the 381m architectural top.
+    const mast0 = roof + 27;
+    g.add(esbOctagon(10.8, 13.2, 13.0, ESB_GLASS, cx, mast0 + 6.5, cz));
+    for (const x of [cx - 4.9, cx, cx + 4.9])
+      for (const z of [cz - 6.35, cz + 6.35])
+        g.add(esbDetail(box(0.42, 13.4, 0.42, ESB_ALUMINUM, x, mast0 + 6.5, z)));
+    for (const z of [cz - 3.7, cz, cz + 3.7])
+      for (const x of [cx - 5.25, cx + 5.25])
+        g.add(esbDetail(box(0.42, 13.4, 0.42, ESB_ALUMINUM, x, mast0 + 6.5, z)));
+    for (const y of [mast0 + 4.2, mast0 + 9.1]) {
+      const collar = esbDetail(cyl(1, 1, 0.48, ESB_ALUMINUM, cx, y, cz, 12));
+      collar.scale.set(5.55, 1, 6.75);
+      g.add(collar);
+    }
+
+    const deck102 = 373.1;
+    g.add(esbOctagon(8.5, 9.8, 5.4, ESB_GLASS, cx, deck102 - 1.5, cz));
+    const lowerBand = esbDetail(cyl(1, 1, 0.65, ESB_ALUMINUM, cx, deck102 - 4.0, cz, 12));
+    lowerBand.scale.set(4.65, 1, 5.3);
+    g.add(lowerBand);
+    const deckBand = esbDetail(cyl(1, 1, 0.8, ESB_LIGHT, cx, deck102, cz, 12));
+    deckBand.scale.set(4.65, 1, 5.3);
+    g.add(deckBand);
+    const upperBand = esbDetail(cyl(1, 1, 0.65, ESB_ALUMINUM, cx, deck102 + 2.7, cz, 12));
+    upperBand.scale.set(4.2, 1, 4.8);
+    g.add(upperBand);
+
+    const capH = Math.max(4, 381 - (deck102 + 2.7));
+    const cap = cyl(0.52, 1, capH, ESB_ALUMINUM, cx, deck102 + 2.7 + capH / 2, cz, 10);
+    cap.scale.set(4.0, 1, 4.5);
+    g.add(cap);
+
+    // Broadcast antenna: three progressively finer reflective stages, collars,
+    // and aviation beacons. Clamp to source data so future fit corrections keep
+    // the landmark's measured tip rather than baking a second height constant.
+    const archTop = deck102 + 2.7 + capH;
+    const antennaH = Math.max(20, tip - archTop);
+    g.add(cyl(1.0, 2.1, Math.min(10, antennaH * 0.18), ESB_ALUMINUM, cx, archTop + Math.min(10, antennaH * 0.18) / 2, cz, 10));
+    const lowerAntennaTop = archTop + Math.min(10, antennaH * 0.18);
+    const midTop = Math.min(tip - 10, lowerAntennaTop + antennaH * 0.66);
+    g.add(cyl(0.42, 0.78, midTop - lowerAntennaTop, ESB_ALUMINUM, cx, (lowerAntennaTop + midTop) / 2, cz, 8));
+    g.add(cyl(0.07, 0.31, tip - midTop, ESB_ALUMINUM, cx, (midTop + tip) / 2, cz, 6));
+    for (const [y, r] of [
+      [lowerAntennaTop, 1.15],
+      [lowerAntennaTop + (midTop - lowerAntennaTop) * 0.5, 0.72],
+      [midTop, 0.50],
+    ] as const) {
+      g.add(esbDetail(cyl(r, r, 0.45, ESB_ALUMINUM, cx, y, cz, 10)));
+      const beacon = esbDetail(cyl(r * 0.32, r * 0.32, 0.7, ESB_BEACON, cx, y + 0.55, cz, 8));
+      g.add(beacon);
+    }
     return g;
   },
 
