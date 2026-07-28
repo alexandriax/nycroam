@@ -3,7 +3,7 @@ import {
   type LandmarkCtx,
   LIMESTONE, GRANITE, DARKSTONE, MARBLE, BRONZE, GOLD, STEEL_LM, GLASS_LM,
   WHITE_LM, WATER_LM, GREEN_PATINA,
-  box, cyl, strut, colonnade, lathe, archWall, figure, canvasTexture,
+  box, cyl, strut, colonnade, lathe, archWall, figure, canvasTexture, twoSidedPanel,
 } from '../kit';
 
 /**
@@ -50,6 +50,19 @@ const STW_DARK = new THREE.MeshStandardMaterial({
   emissive: '#142126', emissiveIntensity: 0.35,
 });
 const STW_COLLISION = new THREE.MeshBasicMaterial({ visible: false });
+const HEARST_STEEL = new THREE.MeshStandardMaterial({
+  color: '#d3dbdd', metalness: 0.72, roughness: 0.21,
+  emissive: '#5a666a', emissiveIntensity: 0.31,
+});
+const HEARST_BRONZE = new THREE.MeshStandardMaterial({
+  color: '#544536', metalness: 0.64, roughness: 0.28,
+  emissive: '#251d16', emissiveIntensity: 0.25,
+});
+const HEARST_SCULPTURE = new THREE.MeshStandardMaterial({
+  color: '#a59e8e', metalness: 0.08, roughness: 0.55,
+  emissive: '#4a463d', emissiveIntensity: 0.18,
+});
+const HEARST_COLLISION = new THREE.MeshBasicMaterial({ visible: false });
 
 // ---- shared local helpers ---------------------------------------------------
 
@@ -96,6 +109,63 @@ function towerFacade(
     );
     uv.push(0, y0 / floorH, 0, y1 / floorH, u1, y1 / floorH, u1, y0 / floorH);
     idx.push(n, n + 1, n + 2, n, n + 2, n + 3);
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  geo.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+  geo.setIndex(idx);
+  geo.computeVertexNormals();
+  return towerDetail(new THREE.Mesh(geo, mat));
+}
+
+/**
+ * One lightweight skin lofted through matching polygon rings. Hearst uses it
+ * to pull its eight-sided curtain wall inward halfway through every four-floor
+ * structural module: the real tower's "bird's-mouth" corners affect the
+ * silhouette, rather than being painted onto a rectangular glass box.
+ */
+function loftFacade(
+  source: { y: number; points: PlanPoint[] }[],
+  mat: THREE.Material,
+  bayW = 2.8,
+  floorH = 3.74,
+): THREE.Mesh {
+  let area2 = 0;
+  const first = source[0].points;
+  for (let i = 0, j = first.length - 1; i < first.length; j = i++) {
+    area2 += first[j][0] * first[i][1] - first[i][0] * first[j][1];
+  }
+  const levels = area2 < 0
+    ? source.map((level) => ({ y: level.y, points: [...level.points].reverse() }))
+    : source;
+  const pos: number[] = [];
+  const uv: number[] = [];
+  const idx: number[] = [];
+  for (let l = 0; l + 1 < levels.length; l++) {
+    const lower = levels[l], upper = levels[l + 1];
+    for (let i = 0; i < lower.points.length; i++) {
+      const next = (i + 1) % lower.points.length;
+      const a0 = lower.points[i], b0 = lower.points[next];
+      const a1 = upper.points[i], b1 = upper.points[next];
+      const u1 = (
+        Math.hypot(b0[0] - a0[0], b0[1] - a0[1])
+        + Math.hypot(b1[0] - a1[0], b1[1] - a1[1])
+      ) / (2 * bayW);
+      const n = pos.length / 3;
+      pos.push(
+        a0[0], lower.y, a0[1],
+        a1[0], upper.y, a1[1],
+        b1[0], upper.y, b1[1],
+        b0[0], lower.y, b0[1],
+      );
+      uv.push(
+        0, lower.y / floorH,
+        0, upper.y / floorH,
+        u1, upper.y / floorH,
+        u1, lower.y / floorH,
+      );
+      idx.push(n, n + 1, n + 2, n, n + 2, n + 3);
+    }
   }
   const geo = new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
@@ -280,8 +350,6 @@ function hullPlate(x1: number, z1: number, x2: number, z2: number, hh: number, y
   return m;
 }
 
-interface Face { half: number; fixed: number; axis: 'x' | 'z'; sign: number; }
-
 export const builders: Record<string, (ctx: LandmarkCtx) => THREE.Group> = {
   // Columbus monument: granite rostral column on stepped base, marble Columbus, ring fountain, curved benches
   'columbus-circle': () => {
@@ -315,55 +383,248 @@ export const builders: Record<string, (ctx: LandmarkCtx) => THREE.Group> = {
     return g;
   },
 
-  // Hearst Tower: diagrid steel overlay (zigzag diamonds, no corner verticals) wrapping the OSM tower footprint
+  // Hearst Tower: Foster + Partners' faceted diagrid above Joseph Urban's
+  // retained 1928 cast-stone shell. The complete source massing is cleared, so
+  // this model supplies the podium, tower, collision and distant silhouette.
   'hearst-tower': (ctx) => {
-    // Hearst Tower: the 1928 Urban cast-stone base (OSM has no separate base
-    // part, so the pipeline clears the whole massing and we own all of it),
-    // with the diagrid tower rising out of it — glazed, not a bare frame:
-    // a mullioned glass box wears the diagonal steel lattice, with the
-    // signature bird's-mouth corner notches (no corner verticals).
     const g = new THREE.Group();
-    const bw = (ctx.fit?.w ?? 79), bd = (ctx.fit?.d ?? 70);
-    const baseH = 26;
-    // -- 1928 base: cast stone with fluted pilasters and a deep cornice
-    g.add(box(bw, baseH, bd, LIMESTONE, 0, baseH / 2, 0));
-    g.add(box(bw + 1.6, 1.8, bd + 1.6, DARKSTONE, 0, baseH + 0.9, 0)); // cornice
-    for (let x = -bw / 2 + 4; x <= bw / 2 - 4; x += 6.2) {
-      for (const sz of [1, -1]) g.add(box(1.4, baseH - 4, 1.1, WHITE_LM, x, (baseH - 4) / 2 + 2, sz * (bd / 2 + 0.35)));
-    }
-    for (let z = -bd / 2 + 5; z <= bd / 2 - 5; z += 6.2) {
-      for (const sx of [1, -1]) g.add(box(1.1, baseH - 4, 1.4, WHITE_LM, sx * (bw / 2 + 0.35), (baseH - 4) / 2 + 2, z));
-    }
-    // -- glazed tower: mullioned glass volume the lattice sits on
-    const y0 = baseH, y1 = 182;
-    const HW = 24, HD = 18.5; // ~48m x 37m tower footprint, centered on the base
-    const glass = box(HW * 2 - 1.1, y1 - y0, HD * 2 - 1.1, GLASS_LM, 0, (y0 + y1) / 2, 0);
-    g.add(glass);
-    // floor bands every ~4 storeys so the glass reads as storeys, not a slab
-    for (let y = y0 + 16; y < y1; y += 16) {
-      g.add(box(HW * 2 - 0.9, 0.55, HD * 2 - 0.9, STEEL_LM, 0, y, 0));
-    }
-    const faces: Face[] = [
-      { half: HW, fixed: HD, axis: 'z', sign: 1 }, { half: HW, fixed: HD, axis: 'z', sign: -1 },
-      { half: HD, fixed: HW, axis: 'x', sign: 1 }, { half: HD, fixed: HW, axis: 'x', sign: -1 },
+    const bw = ctx.fit?.w ?? 59, bd = ctx.fit?.d ?? 61;
+    const baseH = 25.8;
+    const baseCut = 5.1;
+    const basePlan: PlanPoint[] = [
+      [-bw / 2 + baseCut, -bd / 2], [bw / 2 - baseCut, -bd / 2],
+      [bw / 2, -bd / 2 + baseCut], [bw / 2, bd / 2 - baseCut],
+      [bw / 2 - baseCut, bd / 2], [-bw / 2 + baseCut, bd / 2],
+      [-bw / 2, bd / 2 - baseCut], [-bw / 2, -bd / 2 + baseCut],
     ];
-    const P = (f: Face, u: number, y: number): THREE.Vector3 =>
-      f.axis === 'z' ? new THREE.Vector3(u, y, f.sign * f.fixed) : new THREE.Vector3(f.sign * f.fixed, y, u);
-    const rows = 6, rowH = (y1 - y0) / rows;
-    for (const f of faces) {
-      const n = Math.max(3, Math.round((f.half * 2) / 12)), seg = (f.half * 2) / n;
-      for (let r = 0; r < rows; r++) {
-        const yb = y0 + r * rowH, yt = yb + rowH;
-        for (let i = 0; i < n; i++) {
-          const xL = -f.half + i * seg, xR = xL + seg;
-          g.add(strut(P(f, xL, yb), P(f, xR, yt), 0.55, STEEL_LM, 6));
-          g.add(strut(P(f, xL, yt), P(f, xR, yb), 0.55, STEEL_LM, 6));
+    const scalePlan = (points: PlanPoint[], scale: number): PlanPoint[] =>
+      points.map(([x, z]) => [x * scale, z * scale]);
+
+    const baseTex = canvasTexture((c, w, h) => {
+      const stone = c.createLinearGradient(0, 0, w, 0);
+      stone.addColorStop(0, '#b8af9e');
+      stone.addColorStop(0.18, '#e2ddcf');
+      stone.addColorStop(0.82, '#c8c0b0');
+      stone.addColorStop(1, '#9e9586');
+      c.fillStyle = stone;
+      c.fillRect(0, 0, w, h);
+      // Deep bronze windows framed by the pale vertical piers that make
+      // Urban's retained shell read as architecture rather than a stone box.
+      c.fillStyle = '#6d675e';
+      c.fillRect(15, 13, w - 30, h - 29);
+      const glass = c.createLinearGradient(17, 0, w - 17, 0);
+      glass.addColorStop(0, '#253238');
+      glass.addColorStop(0.5, '#78909a');
+      glass.addColorStop(1, '#27353a');
+      c.fillStyle = glass;
+      c.fillRect(19, 17, w - 38, h - 37);
+      c.fillStyle = 'rgba(219,230,229,.22)';
+      c.fillRect(25, 18, 8, h - 39);
+      c.fillStyle = '#817969';
+      c.fillRect(0, h - 10, w, 10);
+      c.fillStyle = 'rgba(255,250,235,.46)';
+      c.fillRect(0, 0, w, 4);
+    }, 96, 112);
+    baseTex.wrapS = baseTex.wrapT = THREE.RepeatWrapping;
+    baseTex.anisotropy = 4;
+    const baseMat = new THREE.MeshStandardMaterial({
+      map: baseTex, color: '#eee8da', metalness: 0.04, roughness: 0.56,
+      emissive: '#574f42', emissiveIntensity: 0.2,
+    });
+
+    const glassTex = canvasTexture((c, w, h) => {
+      const glass = c.createLinearGradient(0, 0, w, 0);
+      glass.addColorStop(0, '#1e3039');
+      glass.addColorStop(0.23, '#648391');
+      glass.addColorStop(0.47, '#b5c8ce');
+      glass.addColorStop(0.7, '#526f7d');
+      glass.addColorStop(1, '#1c2c34');
+      c.fillStyle = glass;
+      c.fillRect(0, 0, w, h);
+      c.fillStyle = 'rgba(217,232,236,.22)';
+      c.fillRect(18, 7, 12, h - 17);
+      c.fillStyle = 'rgba(12,24,30,.72)';
+      c.fillRect(0, h - 10, w, 10);
+      c.fillStyle = '#83939a';
+      c.fillRect(0, 0, 4, h);
+      c.fillStyle = 'rgba(236,242,241,.42)';
+      c.fillRect(w - 3, 0, 3, h);
+    }, 80, 96);
+    glassTex.wrapS = glassTex.wrapT = THREE.RepeatWrapping;
+    glassTex.anisotropy = 4;
+    const glassMat = new THREE.MeshStandardMaterial({
+      map: glassTex, color: '#c4d5da', metalness: 0.32, roughness: 0.16,
+      emissive: '#314b57', emissiveIntensity: 0.48,
+    });
+    const lobbyMat = new THREE.MeshStandardMaterial({
+      map: glassTex, color: '#a9c0c8', metalness: 0.22, roughness: 0.12,
+      emissive: '#344d56', emissiveIntensity: 0.58,
+      transparent: true, opacity: 0.82, depthWrite: false,
+    });
+    const warmLobby = new THREE.MeshBasicMaterial({ color: '#d9b87f' });
+
+    // One exact footprint carries all street/roof collision; the richly
+    // articulated shell below is decorative, so its hundreds of close-range
+    // details cannot create a giant aggregate collision box.
+    g.add(towerSolid(basePlan, 0, baseH, HEARST_COLLISION));
+    g.add(towerFacade(basePlan, 0.3, baseH, baseMat, 4.4, 4.25));
+    g.add(towerRoof(basePlan, baseH, LIMESTONE));
+
+    // String courses and the oversized sixth-floor cornice.
+    for (const [y, h, scale] of [
+      [4.1, 0.34, 1.008], [8.35, 0.3, 1.006], [12.6, 0.3, 1.006],
+      [16.85, 0.3, 1.006], [21.1, 0.38, 1.009], [25.25, 1.05, 1.025],
+    ] as [number, number, number][]) {
+      g.add(towerDetail(towerSolid(scalePlan(basePlan, scale), y, y + h, LIMESTONE)));
+    }
+
+    // Projecting fluted piers on all four long faces. Eighth Avenue is local
+    // -x; leave its central three bays open for the headquarters entrance.
+    const pierH = 21.2;
+    for (let x = -20; x <= 20; x += 8) {
+      for (const sz of [-1, 1]) {
+        g.add(towerDetail(box(1.05, pierH, 0.85, LIMESTONE, x, 12.6, sz * (bd / 2 + 0.28))));
+      }
+    }
+    for (let z = -21; z <= 21; z += 7) {
+      g.add(towerDetail(box(0.85, pierH, 1.05, LIMESTONE, bw / 2 + 0.28, 12.6, z)));
+      if (Math.abs(z) > 10) {
+        g.add(towerDetail(box(0.85, pierH, 1.05, LIMESTONE, -bw / 2 - 0.28, 12.6, z)));
+      }
+    }
+
+    // Bronze-framed, double-height Eighth Avenue lobby and shallow glass
+    // canopy. The warm rear plane gives transparent doors depth after dusk.
+    g.add(towerWallZ(-9.2, 9.2, -bw / 2 - 0.34, 0.8, 18.2, lobbyMat, -1, 3.05, 4.35));
+    g.add(towerDetail(box(0.18, 16.8, 18, warmLobby, -bw / 2 + 0.02, 9.3, 0)));
+    for (const z of [-9.2, -4.6, 0, 4.6, 9.2]) {
+      g.add(towerDetail(box(0.35, 17.4, 0.24, HEARST_BRONZE, -bw / 2 - 0.5, 9.5, z)));
+    }
+    for (const y of [5.6, 10.2, 14.8, 18.2]) {
+      g.add(towerDetail(box(0.35, 0.28, 18.6, HEARST_BRONZE, -bw / 2 - 0.5, y, 0)));
+    }
+    g.add(towerDetail(box(3.5, 0.38, 14.5, HEARST_STEEL, -bw / 2 - 1.95, 4.25, 0)));
+
+    const nameTex = canvasTexture((c, w, h) => {
+      c.clearRect(0, 0, w, h);
+      c.fillStyle = '#c9b27d';
+      c.font = '600 28px Arial, sans-serif';
+      c.textAlign = 'center';
+      c.textBaseline = 'middle';
+      c.fillText('HEARST TOWER', w / 2, h / 2);
+    }, 256, 64);
+    const name = twoSidedPanel(nameTex, 12.5, 3.1);
+    name.position.set(-bw / 2 - 0.62, 21.8, 0);
+    name.rotation.y = -Math.PI / 2;
+    name.traverse((o) => { if (o instanceof THREE.Mesh) towerDetail(o); });
+    g.add(name);
+
+    // Urban's roof-line pylons carry allegorical stone groups. Six restrained
+    // silhouettes preserve that distinctive cadence without expensive scans.
+    for (const z of [-25, -15, -5, 5, 15, 25]) {
+      g.add(towerDetail(box(1.9, 3.2, 2.3, LIMESTONE, -bw / 2 - 0.3, 26.8, z)));
+      const statue = figure(2.55, HEARST_SCULPTURE);
+      statue.position.set(-bw / 2 - 0.35, 28.4, z);
+      statue.rotation.y = Math.PI / 2;
+      statue.traverse((o) => { if (o instanceof THREE.Mesh) towerDetail(o); });
+      g.add(statue);
+    }
+
+    // The new tower is lifted clear of the old roof by a recessed transparent
+    // skirt, making the stainless volume appear to float over the 1928 shell.
+    const y0 = 32.5;
+    const y1 = ctx.fit?.roofH ?? 182;
+    const HW = 24, HD = 18.5;
+    const nodeCut = 1.7, biteCut = 6.2;
+    const plan = (cut: number): PlanPoint[] => [
+      [-HW + cut, -HD], [HW - cut, -HD],
+      [HW, -HD + cut], [HW, HD - cut],
+      [HW - cut, HD], [-HW + cut, HD],
+      [-HW, HD - cut], [-HW, -HD + cut],
+    ];
+    g.add(towerFacade(plan(nodeCut), baseH, y0, lobbyMat, 2.8, 3.35));
+    g.add(towerSolid(plan(nodeCut), baseH, y1, HEARST_COLLISION));
+
+    // Forty upper floors: ten four-storey structural modules. At every module
+    // midpoint the eight-sided ring pulls 4.5m farther in at the corners,
+    // producing the repeating concave facets visible in real skyline views.
+    const modules = 10;
+    const moduleH = (y1 - y0) / modules;
+    const levels: { y: number; points: PlanPoint[] }[] = [];
+    for (let r = 0; r < modules; r++) {
+      const yb = y0 + r * moduleH;
+      if (r === 0) levels.push({ y: yb, points: plan(nodeCut) });
+      levels.push({ y: yb + moduleH / 2, points: plan(biteCut) });
+      levels.push({ y: yb + moduleH, points: plan(nodeCut) });
+    }
+    g.add(loftFacade(levels, glassMat, 2.8, moduleH / 4));
+
+    // All 500-odd lattice pieces share one five-sided unit cylinder before the
+    // landmark merger bakes them into one steel draw call. This retains close
+    // fly-by geometry while avoiding hundreds of CylinderGeometry allocations.
+    const beamGeo = new THREE.CylinderGeometry(1, 1, 1, 5);
+    const beam = (a: THREE.Vector3, b: THREE.Vector3, radius: number): THREE.Mesh => {
+      const m = towerDetail(new THREE.Mesh(beamGeo, HEARST_STEEL));
+      const len = a.distanceTo(b);
+      m.scale.set(radius, len, radius);
+      m.position.copy(a).add(b).multiplyScalar(0.5);
+      m.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), b.clone().sub(a).normalize());
+      return m;
+    };
+    const faces = [
+      { axis: 'z' as const, fixed: -HD - 0.12, half: HW - biteCut, bays: 4 },
+      { axis: 'z' as const, fixed: HD + 0.12, half: HW - biteCut, bays: 4 },
+      { axis: 'x' as const, fixed: -HW - 0.12, half: HD - biteCut, bays: 3 },
+      { axis: 'x' as const, fixed: HW + 0.12, half: HD - biteCut, bays: 3 },
+    ];
+    const facePoint = (
+      face: (typeof faces)[number], along: number, y: number,
+    ): THREE.Vector3 => face.axis === 'z'
+      ? new THREE.Vector3(along, y, face.fixed)
+      : new THREE.Vector3(face.fixed, y, along);
+    for (const face of faces) {
+      const segment = (face.half * 2) / face.bays;
+      for (let r = 0; r < modules; r++) {
+        const yb = y0 + r * moduleH, yt = yb + moduleH;
+        for (let i = 0; i < face.bays; i++) {
+          const a = -face.half + i * segment, b = a + segment;
+          g.add(beam(facePoint(face, a, yb), facePoint(face, b, yt), 0.52));
+          g.add(beam(facePoint(face, a, yt), facePoint(face, b, yb), 0.52));
         }
       }
-      g.add(strut(P(f, -f.half, y0), P(f, f.half, y0), 0.45, STEEL_LM, 6));
-      g.add(strut(P(f, -f.half, y1), P(f, f.half, y1), 0.45, STEEL_LM, 6));
     }
-    g.add(box(HW * 2 - 2, 1.4, HD * 2 - 2, STEEL_LM, 0, y1 + 0.7, 0)); // roof rim
+
+    // The diagonal structure wraps continuously through each recessed corner.
+    const cornerPairs: [number, number][] = [[1, 2], [3, 4], [5, 6], [7, 0]];
+    for (let r = 0; r < modules; r++) {
+      const yb = y0 + r * moduleH, ym = yb + moduleH / 2, yt = yb + moduleH;
+      const node = plan(nodeCut), bite = plan(biteCut);
+      for (const [a, b] of cornerPairs) {
+        const nbA = new THREE.Vector3(node[a][0], yb, node[a][1]);
+        const nbB = new THREE.Vector3(node[b][0], yb, node[b][1]);
+        const nmA = new THREE.Vector3(bite[a][0], ym, bite[a][1]);
+        const nmB = new THREE.Vector3(bite[b][0], ym, bite[b][1]);
+        const ntA = new THREE.Vector3(node[a][0], yt, node[a][1]);
+        const ntB = new THREE.Vector3(node[b][0], yt, node[b][1]);
+        g.add(beam(nbA, nmB, 0.52), beam(nbB, nmA, 0.52));
+        g.add(beam(nmA, ntB, 0.52), beam(nmB, ntA, 0.52));
+      }
+    }
+
+    // Slim perimeter node plates terminate each four-storey diamond; there are
+    // deliberately no vertical corner mullions, preserving the peeled profile.
+    for (let r = 0; r <= modules; r++) {
+      const ring = plan(nodeCut), y = y0 + r * moduleH;
+      for (let i = 0; i < ring.length; i++) {
+        const a = ring[i], b = ring[(i + 1) % ring.length];
+        g.add(beam(
+          new THREE.Vector3(a[0], y, a[1]),
+          new THREE.Vector3(b[0], y, b[1]),
+          r === 0 || r === modules ? 0.38 : 0.25,
+        ));
+      }
+    }
+    g.add(towerRoof(plan(nodeCut), y1 + 0.05, HEARST_STEEL));
     return g;
   },
 

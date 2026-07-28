@@ -250,7 +250,19 @@ export const LANDMARKS_REG: LandmarkEntry[] = [
   // anchored on the monument's OSM footprint centroid (circle center island);
   // OSM maps the column as a stack of building rings — `clear` suppresses them
   { id: 'columbus-circle', name: 'Columbus Circle', lat: 40.768069, lon: -73.981897, set: 'uptown', r: 550, rot: GRID, clear: 16 },
-  { id: 'hearst-tower', name: 'Hearst Tower', lat: 40.7666, lon: -73.9836, set: 'uptown', r: 900, rot: GRID },
+  // Full replacement for both source parts: Joseph Urban's six-storey 1928
+  // shell plus Foster's 182m faceted diagrid. The compact textured/merged build
+  // remains resident after those source prisms are cleared, preventing a
+  // conspicuous west-side skyline hole beyond the old 900m streaming radius.
+  // Present it from the Broadway/W 57th footway: outside all footprints, 4.7m
+  // from the nearest facade, 5.3m beyond the road edge and 58.9m from a tree.
+  // The 132m street axis frames both Urban's base and the peeled diagrid crown.
+  {
+    id: 'hearst-tower', name: 'Hearst Tower',
+    lat: 40.7666, lon: -73.9836, set: 'uptown', r: 1400,
+    rot: GRID, alwaysOn: true,
+    arrivalLat: 40.766514, arrivalLon: -73.982062,
+  },
   // Full premium replacement for Central Park Tower's nine-part ownership
   // group plus its separately mapped cantilever. The tile pipeline snaps the
   // build to its measured 60x61m site and clears the generic 472m prism stack.
