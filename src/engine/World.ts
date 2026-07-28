@@ -1732,9 +1732,10 @@ export class World {
         || performance.now() - this.spawnWaitStarted > 8000;
       if (this.spawnResolve && !this.controls.fly && landmarkReady && this.tiles.readyAround(this.pos.x, this.pos.z)) {
         const lookAt = this.spawnLookAt;
-        const preferredAngle = this.spawnLandmarkId
-          ? LANDMARKS_REG.find((lm) => lm.id === this.spawnLandmarkId)?.arrivalBearing ?? null
-          : null;
+        const spawnLandmark = this.spawnLandmarkId
+          ? LANDMARKS_REG.find((lm) => lm.id === this.spawnLandmarkId)
+          : undefined;
+        const preferredAngle = spawnLandmark?.arrivalBearing ?? null;
         const [rx, rz] = this.freeSpawn(this.pos.x, this.pos.z, lookAt ? 8 : 0.75, preferredAngle);
         this.pos.x = rx; this.pos.z = rz;
         this.pos.y = heightAt(rx, rz);
@@ -1742,11 +1743,12 @@ export class World {
           const dx = lookAt.x - rx, dz = lookAt.z - rz;
           if (dx * dx + dz * dz > 4) {
             // Frame the selected place from the safe view point. Aim at the
-            // upper-middle of its real collision height, so a tower presents its
-            // crown while a low museum/park structure stays near eye level.
+            // upper-middle of an explicit visual height (for non-solid tips) or
+            // its real collision height, so towers present their complete crown
+            // while a low museum/park structure stays near eye level.
             this.controls.yaw = Math.atan2(-dx, -dz);
             const targetRoof = roofBelow(lookAt.x, lookAt.z, 1200, this.colNear(lookAt.x, lookAt.z)) ?? 20;
-            const aimY = Math.max(12, targetRoof * 0.52);
+            const aimY = spawnLandmark?.arrivalAimY ?? Math.max(12, targetRoof * 0.52);
             const horizontal = Math.hypot(dx, dz);
             this.controls.pitch = Math.max(0.08, Math.min(0.75, Math.atan2(aimY - this.pos.y - this.eyeHeight, horizontal)));
           }

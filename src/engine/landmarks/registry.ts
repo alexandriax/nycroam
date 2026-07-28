@@ -58,6 +58,8 @@ export interface LandmarkEntry {
    */
   arrivalLookLat?: number;
   arrivalLookLon?: number;
+  /** Explicit presentation aim height when a visible tip is non-colliding. */
+  arrivalAimY?: number;
 }
 
 // Manhattan street-grid rotation. NEGATIVE: rotation.y = -0.507 maps local +x
@@ -261,12 +263,20 @@ export const LANDMARKS_REG: LandmarkEntry[] = [
 
   // ---- midtown east ----
   { id: 'grand-central', name: 'Grand Central Terminal', lat: 40.7519, lon: -73.9772, set: 'midtown-east', r: 600, rot: GRID },
-  // Approach from Third Avenue to the east: the generic scorer's western choice
-  // looks through the visually massive but collision-passable Park Avenue
-  // viaduct. Always-on because the bake clears the generic crown: this compact
-  // replacement is also the distant skyline LOD, avoiding a truncated 199m
-  // shaft across town.
-  { id: 'chrysler', name: 'Chrysler Building', lat: 40.7516, lon: -73.9755, set: 'midtown-east', r: 1500, rot: GRID, arrivalBearing: 0, alwaysOn: true },
+  // Present the crown from the baked E 44th Street/Third Avenue footway. The
+  // automatic western choice looks through the visually massive but
+  // collision-passable Park Avenue viaduct; this surveyed point is outside
+  // every footprint, 7.3m from the road centerline, 83.2m from the nearest
+  // tree and gives the upper shaft/crown a clear 190m sightline. Always-on
+  // because the bake clears the generic crown: this compact replacement is
+  // also the distant skyline LOD, avoiding a truncated 199m shaft across town.
+  {
+    id: 'chrysler', name: 'Chrysler Building',
+    lat: 40.7516, lon: -73.9755, set: 'midtown-east', r: 1500,
+    rot: GRID, alwaysOn: true,
+    arrivalLat: 40.7520710, arrivalLon: -73.9733343,
+    arrivalAimY: 166,
+  },
   // Full premium replacement for all 24 generic source parts. Keep its compact
   // procedural build resident as the distant skyline too, or clearing the OSM
   // tower would leave a 427m hole whenever the streamed landmark unloads.
