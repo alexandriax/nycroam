@@ -93,6 +93,11 @@ function deriveCollision(
   const b3 = new THREE.Box3();
   raw.traverse((o) => {
     if (!(o instanceof THREE.Mesh)) return;
+    // Packed decorative meshes (hundreds of facade panes in one BufferGeometry)
+    // span a landmark's whole bounds but are not a solid volume. Treating their
+    // aggregate AABB as collision would turn a triangular tower into a giant
+    // invisible rectangular wall.
+    if (o.userData.noCollision) return;
     // arch openings stay walk-under: their footprint would seal the span you
     // walk through (Washington Sq arch, church portals, market arcades).
     if (o.userData.passable) return;

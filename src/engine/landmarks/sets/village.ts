@@ -24,6 +24,11 @@ const NYL_GOLD_SHADE = new THREE.MeshStandardMaterial({
   color: '#a77914', metalness: 0.88, roughness: 0.32,
   emissive: '#281700', emissiveIntensity: 0.1,
 });
+const FLAT_STONE = new THREE.MeshLambertMaterial({ color: '#d5cbb7' });
+const FLAT_TERRA = new THREE.MeshLambertMaterial({ color: '#c6b99f' });
+const FLAT_TERRA_LIGHT = new THREE.MeshLambertMaterial({ color: '#ded4c1' });
+const FLAT_GLASS = new THREE.MeshStandardMaterial({ color: '#26383a', metalness: 0.28, roughness: 0.2 });
+const FLAT_BRONZE = new THREE.MeshStandardMaterial({ color: '#594630', metalness: 0.72, roughness: 0.36 });
 const MET_STONE = new THREE.MeshLambertMaterial({ color: '#d8d3c5' });
 const MET_GLASS = new THREE.MeshStandardMaterial({ color: '#21343b', metalness: 0.36, roughness: 0.25 });
 const MET_ROOF = new THREE.MeshStandardMaterial({ color: '#aaa99f', metalness: 0.32, roughness: 0.48 });
@@ -47,6 +52,35 @@ function edgeBar(ax: number, az: number, bx: number, bz: number, y: number, thic
   const m = box(Math.hypot(dx, dz), height, thick, mat, (ax + bx) / 2, y, (az + bz) / 2);
   m.rotation.y = Math.atan2(-dz, dx);
   return m;
+}
+
+/** Stand a 2D x/z outline up into a solid vertical prism with exact collision. */
+function polygonPrism(
+  outline: readonly (readonly [number, number])[],
+  height: number,
+  mat: THREE.Material,
+  y = 0,
+  scaleX = 1,
+  scaleZ = 1,
+): THREE.Mesh {
+  const shape = new THREE.Shape();
+  for (let i = 0; i < outline.length; i++) {
+    const [x, z] = outline[i];
+    const sx = x * scaleX;
+    // ExtrudeGeometry uses shape XY + depth Z. A -90° X rotation maps shape
+    // Y to world -Z and extrusion depth to +Y, hence the sign flip here.
+    const sy = -z * scaleZ;
+    if (i === 0) shape.moveTo(sx, sy); else shape.lineTo(sx, sy);
+  }
+  shape.closePath();
+  const mesh = new THREE.Mesh(new THREE.ExtrudeGeometry(shape, {
+    depth: height,
+    bevelEnabled: false,
+    curveSegments: 1,
+  }), mat);
+  mesh.rotation.x = -Math.PI / 2;
+  mesh.position.y = y;
+  return mesh;
 }
 
 /** Classic NYC rooftop water tower: steel legs, wood-tone tank, conical cap. */
@@ -148,17 +182,168 @@ export const builders: Record<string, (ctx: LandmarkCtx) => THREE.Group> = {
     return g;
   },
 
-  // Flatiron crown: heavy projecting cornice + parapet on the triangular wedge at y=86.
-  // Dims/orientation measured from the baked OSM footprint (apex north, base 27.2m,
-  // length 54.4m); the registry rot points local +z at the real apex.
+  // Flatiron Building: a full replacement for the two overlapping generic OSM
+  // extrusions. Its 0.1m-precision outline below comes from the baked building
+  // footprint, transformed into the registry's measured local frame: the broad
+  // 22nd Street base is local -z and the rounded six-foot prow points north.
   flatiron: () => {
     const g = new THREE.Group();
-    const yC = 86;
-    const V = [[-13.6, -27], [13.6, -27], [0, 27.2]] as const; // back-left, back-right, sharp nose (+z)
-    const edges = [[V[0], V[1]], [V[0], V[2]], [V[1], V[2]]] as const;
-    for (const [a, b] of edges) {
-      g.add(edgeBar(a[0], a[1], b[0], b[1], yC, 2.6, 2.4, LIMESTONE)); // projecting cornice ring
-      g.add(edgeBar(a[0], a[1], b[0], b[1], yC + 2.4, 0.8, 2.0, LIMESTONE)); // 2m parapet above
+    const outline = [
+      [-12.8, -32.1], [-10.2, -31.7], [10.7, -27.1], [12.9, -24.7],
+      [13.1, -23.7], [12.9, -22.8], [7.7, 0.9], [4.9, 24.1],
+      [3.9, 25.9], [2.0, 26.7], [-0.2, 26.8], [-2.6, 26.7],
+      [-3.9, 25.9], [-4.9, 24.1], [-10.0, -2.7], [-15.1, -29.5],
+      [-14.6, -31.0], [-13.4, -32.0],
+    ] as const;
+    const height = 86.9; // official 285ft architectural height
+
+    // The National Historic Landmark description explicitly divides the skin
+    // into a five-floor limestone base, twelve-floor terra-cotta shaft, and a
+    // four-floor capital. Separate solids preserve that columnar reading while
+    // retaining one exact triangular collision envelope at every level.
+    g.add(polygonPrism(outline, 21.0, FLAT_STONE));
+    g.add(polygonPrism(outline, 48.7, FLAT_TERRA, 21.0));
+    g.add(polygonPrism(outline, height - 69.7 - 2.0, FLAT_TERRA_LIGHT, 69.7));
+    for (const [y, h, sx, sz] of [
+      [8.4, 0.75, 1.025, 1.012],
+      [20.7, 1.15, 1.035, 1.018],
+      [69.2, 1.15, 1.035, 1.018],
+      [84.6, 1.45, 1.055, 1.026],
+    ] as const) {
+      g.add(polygonPrism(outline, h, FLAT_STONE, y, sx, sz));
+    }
+
+    // Window panes are hand-packed into one mesh: roughly 800 individually
+    // placed openings, but a single draw and no four-figure Object3D traversal.
+    // The three long façade axes follow the real wedge rather than projecting a
+    // rectangular texture across its prow.
+    const pos: number[] = [], norm: number[] = [], idx: number[] = [];
+    const addQuad = (
+      cx: number, cy: number, cz: number,
+      tx: number, tz: number, nx: number, nz: number,
+      w: number, h: number,
+    ) => {
+      const base = pos.length / 3;
+      const vx = tx * w / 2, vz = tz * w / 2, vy = h / 2;
+      pos.push(
+        cx - vx, cy - vy, cz - vz,
+        cx - vx, cy + vy, cz - vz,
+        cx + vx, cy + vy, cz + vz,
+        cx + vx, cy - vy, cz + vz,
+      );
+      for (let i = 0; i < 4; i++) norm.push(nx, 0, nz);
+      idx.push(base, base + 1, base + 2, base, base + 2, base + 3);
+    };
+    type Face = { a: readonly [number, number]; b: readonly [number, number]; bays: number };
+    const faces: Face[] = [
+      { a: [12.9, -22.8], b: [3.9, 25.9], bays: 14 },   // Broadway
+      { a: [-3.9, 25.9], b: [-15.1, -29.5], bays: 15 }, // Fifth Avenue
+      { a: [-14.6, -31.0], b: [12.5, -25.6], bays: 8 }, // East 22nd Street
+      { a: [0.95, 26.85], b: [-0.95, 26.85], bays: 1 }, // six-foot rounded prow
+    ];
+    const frame = (face: Face) => {
+      const dx = face.b[0] - face.a[0], dz = face.b[1] - face.a[1];
+      const len = Math.hypot(dx, dz);
+      const tx = dx / len, tz = dz / len;
+      return { tx, tz, nx: tz, nz: -tx, len };
+    };
+    const paneRow = (face: Face, y: number, h: number, widthScale = 0.58, out = 0.65) => {
+      const { tx, tz, nx, nz, len } = frame(face);
+      const pitch = len / (face.bays + 1);
+      const w = Math.min(h * 0.78, pitch * widthScale);
+      for (let i = 0; i < face.bays; i++) {
+        const t = (i + 1) / (face.bays + 1);
+        addQuad(
+          face.a[0] + (face.b[0] - face.a[0]) * t + nx * out,
+          y,
+          face.a[1] + (face.b[1] - face.a[1]) * t + nz * out,
+          tx, tz, nx, nz, w, h,
+        );
+      }
+    };
+    for (const face of faces) {
+      paneRow(face, 3.25, 4.8, 0.78); // tall storefront/display windows
+      for (const y of [8.1, 12.2, 16.2, 20.0]) paneRow(face, y, 2.45);
+      for (let floor = 0; floor < 12; floor++) paneRow(face, 23.9 + floor * 3.72, 2.35);
+      paneRow(face, 72.3, 2.45);
+      paneRow(face, 77.8, 5.6, 0.48); // paired-story arcade proportions
+      paneRow(face, 83.2, 1.65, 0.5); // small square top-story openings
+    }
+
+    // Three rows of eight-story projecting oriels interrupt each long face,
+    // one of the façade's defining details in the NHL description.
+    for (const face of faces.slice(0, 2)) {
+      const { tx, tz, nx, nz } = frame(face);
+      const rot = Math.atan2(-tz, tx);
+      for (const t of [0.25, 0.5, 0.75]) {
+        const cx = face.a[0] + (face.b[0] - face.a[0]) * t;
+        const cz = face.a[1] + (face.b[1] - face.a[1]) * t;
+        const bay = box(3.35, 30.5, 0.72, FLAT_TERRA_LIGHT, cx + nx * 0.42, 38.0, cz + nz * 0.42);
+        bay.rotation.y = rot;
+        g.add(bay);
+        for (let floor = 0; floor < 8; floor++) {
+          addQuad(cx + nx * 0.83, 25.0 + floor * 3.65, cz + nz * 0.83,
+            tx, tz, nx, nz, 2.15, 2.25);
+        }
+      }
+    }
+
+    // Matching double-height arched-entry compositions at the center of the
+    // Broadway and Fifth Avenue elevations: recessed dark glazing, engaged
+    // columns, and a full stone entablature.
+    for (const face of faces.slice(0, 2)) {
+      const { tx, tz, nx, nz } = frame(face);
+      const cx = (face.a[0] + face.b[0]) / 2;
+      const cz = (face.a[1] + face.b[1]) / 2;
+      addQuad(cx + nx * 0.88, 5.2, cz + nz * 0.88, tx, tz, nx, nz, 4.5, 8.4);
+      const rot = Math.atan2(-tz, tx);
+      for (const side of [-1, 1]) {
+        const col = box(0.58, 8.6, 0.72, FLAT_STONE,
+          cx + tx * side * 2.45 + nx * 0.76, 4.55,
+          cz + tz * side * 2.45 + nz * 0.76);
+        col.rotation.y = rot;
+        g.add(col);
+      }
+      const ent = box(6.0, 0.85, 0.95, FLAT_STONE, cx + nx * 0.72, 9.15, cz + nz * 0.72);
+      ent.rotation.y = rot;
+      g.add(ent);
+    }
+
+    const windowGeo = new THREE.BufferGeometry();
+    windowGeo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    windowGeo.setAttribute('normal', new THREE.Float32BufferAttribute(norm, 3));
+    windowGeo.setIndex(idx);
+    const windows = new THREE.Mesh(windowGeo, FLAT_GLASS);
+    windows.userData.noCollision = true;
+    g.add(windows);
+
+    // Roof dentils and the continuous stone balustrade complete the heavy
+    // capital without a texture: many tiny pieces merge into the stone draw.
+    for (const face of faces) {
+      const { tx, tz, nx, nz, len } = frame(face);
+      const rot = Math.atan2(-tz, tx);
+      const dentils = Math.max(2, Math.floor(len / 2.1));
+      for (let i = 0; i <= dentils; i++) {
+        const t = i / dentils;
+        const cx = face.a[0] + (face.b[0] - face.a[0]) * t;
+        const cz = face.a[1] + (face.b[1] - face.a[1]) * t;
+        const d = box(0.82, 0.55, 0.72, FLAT_STONE, cx + nx * 0.72, 84.25, cz + nz * 0.72);
+        d.rotation.y = rot; g.add(d);
+      }
+      g.add(edgeBar(face.a[0], face.a[1], face.b[0], face.b[1], 86.62, 0.5, 0.32, FLAT_STONE));
+      const posts = Math.max(2, Math.floor(len / 4.2));
+      for (let i = 0; i <= posts; i++) {
+        const t = i / posts;
+        const cx = face.a[0] + (face.b[0] - face.a[0]) * t;
+        const cz = face.a[1] + (face.b[1] - face.a[1]) * t;
+        g.add(box(0.42, 1.45, 0.42, FLAT_STONE, cx, 85.93, cz));
+      }
+    }
+
+    // Dark metal rails at the lower-storefront datum add close-up relief and
+    // echo the historic display-window framing without expensive transparency.
+    for (const face of faces) {
+      g.add(edgeBar(face.a[0], face.a[1], face.b[0], face.b[1], 5.7, 0.18, 0.18, FLAT_BRONZE));
     }
     return g;
   },

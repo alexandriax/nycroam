@@ -814,6 +814,10 @@ async function main() {
     // covers all its stepped parts and stays clear of the named neighbours
     // (280 Park 85m, Postum/250 Park 87m, 383 Madison tower 87m).
     ['chase-hq', 40.755980, -73.975987, 55],
+    // The Flatiron is duplicated in OSM as an 86m detailed outline plus an
+    // overlapping 88m part. A tight 14m centroid circle removes only those two
+    // volumes (the nearest unrelated building centroid is more than 27m away).
+    ['flatiron', 40.74107, -73.98964, 14],
     ['dakota', 40.7765, -73.9761, 50], ['carnegie-hall', 40.7651, -73.9799, 35],
     ['whitney', 40.7397, -74.0089, 35], ['vessel', 40.7538, -74.0022, 40],
     ['little-island', 40.742, -74.01, 70], ['belvedere', 40.7794, -73.9692, 28],
