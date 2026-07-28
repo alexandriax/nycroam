@@ -220,10 +220,14 @@ export class TileManager {
       this.workers[wi].postMessage({ type: 'build', key, tx: rec.tx, tz: rec.tz, url: dataUrl(`/tiles/${key}.json`) });
     }
 
-    // integrate at most 2 built tiles per frame (avoid jank)
-    for (let i = 0; i < 2 && this.pendingAdd.length; i++) {
-      this.integrate(this.pendingAdd.shift()!);
-    }
+    // Main-thread integration wraps transferred arrays in GPU geometries,
+    // builds signs/instances, and starts shader pre-warming. One tile per
+    // rendered frame is still vastly faster than max-speed travel consumes
+    // 256m tiles, while preventing two allocation spikes from stacking in a
+    // single frame. Worker completion order is nondeterministic, so spend that
+    // frame's budget on the result nearest the velocity-led stream center.
+    const nextBuilt = this.takeNearestBuilt(camX, camZ);
+    if (nextBuilt) this.integrate(nextBuilt);
 
     // Cache warming is deliberately network-idle work. The former two-per-
     // rendered-frame loop could launch ~120 requests/s at 60fps and contend
@@ -403,6 +407,29 @@ export class TileManager {
     const dx = (rec.tx + 0.5) * TILE_SIZE - camX;
     const dz = (rec.tz + 0.5) * TILE_SIZE - camZ;
     return dx * dx + dz * dz;
+  }
+
+  private takeNearestBuilt(camX: number, camZ: number): BuildResponse | null {
+    let best = -1;
+    let bestDistSq = Infinity;
+    for (let i = this.pendingAdd.length - 1; i >= 0; i--) {
+      const res = this.pendingAdd[i];
+      const rec = this.records.get(res.key);
+      if (!rec) {
+        // The camera outran/unloaded this tile after its worker completed.
+        this.pendingAdd.splice(i, 1);
+        continue;
+      }
+      const dx = (rec.tx + 0.5) * TILE_SIZE - camX;
+      const dz = (rec.tz + 0.5) * TILE_SIZE - camZ;
+      const dSq = dx * dx + dz * dz;
+      if (dSq < bestDistSq) {
+        bestDistSq = dSq;
+        best = i;
+      }
+    }
+    if (best < 0) return null;
+    return this.pendingAdd.splice(best, 1)[0];
   }
 
   private pickWorker(): number {
