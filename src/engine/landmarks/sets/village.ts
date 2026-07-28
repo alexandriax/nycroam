@@ -1122,6 +1122,7 @@ export const builders: Record<string, (ctx: LandmarkCtx) => THREE.Group> = {
     const scaled = (points: readonly HyPoint[]) => points.map(([x, z]) => P(x, z));
     const steelDetails: THREE.Mesh[] = [];
     const darkSteelDetails: THREE.Mesh[] = [];
+    const edgeFasciaDetails: THREE.Mesh[] = [];
     const addHySteel = (mesh: THREE.Mesh) => { steelDetails.push(mesh); };
     const addHyDarkSteel = (mesh: THREE.Mesh) => { darkSteelDetails.push(mesh); };
 
@@ -1324,12 +1325,13 @@ export const builders: Record<string, (ctx: LandmarkCtx) => THREE.Group> = {
     addHyDarkSteel(box(9, 0.55, 5, HY_DARK_STEEL, crownLeft + 3.5 * sx, tipY - 0.3, frontZ - 2.5));
     g.add(hyDetail(box(8, 0.18, 0.18, HY_GLOW, crownLeft + 3.5 * sx, tipY + 0.08, frontZ)));
 
-    // Edge at the official 1,100ft elevation. The mapped 7,500ft² outline
-    // fixes the old miniature deck's 16m placement error and gives it a true
-    // 80ft city-facing cantilever.
+    // Edge at the official 1,100ft elevation. Its 7,500ft² triangular plan is
+    // anchored to the tower's east and south faces and extends the documented
+    // 80ft beyond the south face. The former outline crossed the upper shaft's
+    // concave reveal, leaving most of the deck visually buried in the tower.
     const deckY = 335;
     const deckPlan = scaled([
-      [12.5, 16.1], [8.9, 9.9], [-8.3, -19.5], [48.4, -19.3],
+      [48, 51], [25, 27], [57, 0],
     ]);
     const deckSlab = polygonPrism(deckPlan, 0.8, HY_STEEL, deckY);
     const deckTop = deckY + 0.8;
@@ -1361,7 +1363,7 @@ export const builders: Record<string, (ctx: LandmarkCtx) => THREE.Group> = {
     g.add(polygonPrism(deckPlan, 2.0, HY_COLLISION, deckTop - 2.0));
 
     // 225ft² triangular glass floor with a stainless perimeter.
-    const floorGlass = scaled([[11.8, 13.2], [2.6, -1.0], [21.3, -1.0]]);
+    const floorGlass = scaled([[46, 44], [42, 37], [48, 37]]);
     g.add(hyHorizontalPanel(floorGlass, deckTop + 0.035, HY_EDGE_GLASS));
     for (let i = 0; i < floorGlass.length; i++) {
       const next = (i + 1) % floorGlass.length;
@@ -1378,11 +1380,14 @@ export const builders: Record<string, (ctx: LandmarkCtx) => THREE.Group> = {
     // into a collision box.
     const publicEdges: [HyPoint, HyPoint][] = [
       [deckPlan[0], deckPlan[1]],
-      [deckPlan[1], deckPlan[2]],
-      [deckPlan[3], deckPlan[0]],
+      [deckPlan[2], deckPlan[0]],
     ];
     let edgePostCount = 0;
     for (const [a, b] of publicEdges) {
+      edgeFasciaDetails.push(edgeBar(
+        a[0], a[1], b[0], b[1],
+        deckY + 0.4, 0.32, 0.8, HY_EDGE_UNDERSIDE,
+      ));
       const wall = hyEdgeWall(a, b, deckCenter, deckTop, 2.74);
       g.add(wall.panel);
       const len = wall.bottomA.distanceTo(wall.bottomB);
@@ -1399,35 +1404,22 @@ export const builders: Record<string, (ctx: LandmarkCtx) => THREE.Group> = {
       g.add(edgeBar(a[0], a[1], b[0], b[1], deckTop + 1.37, 0.18, 2.74, HY_COLLISION));
     }
 
-    // Skyline steps rise from level 100 to Peak on 101, with glass rails and
-    // the exposed triangular underside truss visible from the plaza.
+    // Skyline steps rise from level 100 to Peak on 101 with glass rails. Edge's
+    // real modular steel is enclosed by its faceted stainless soffit, so keep
+    // the cantilever clean rather than exposing fictional external braces.
     for (let i = 0; i < 10; i++) {
       addHyDarkSteel(box(
-        12, 0.28, 1.35, HY_DARK_STEEL,
-        29 * sx, deckTop + i * 0.30, (-14 + i * 1.0) * sz,
+        7, 0.28, 1.35, HY_DARK_STEEL,
+        51.5 * sx, deckTop + i * 0.30, (7 + i * 1.2) * sz,
       ));
     }
-    for (const x of [23 * sx, 35 * sx]) {
+    for (const x of [48 * sx, 55 * sx]) {
       addHySteel(strut(
-        new THREE.Vector3(x, deckTop + 0.7, -14 * sz),
-        new THREE.Vector3(x, deckTop + 3.5, -4 * sz),
+        new THREE.Vector3(x, deckTop + 0.7, 7 * sz),
+        new THREE.Vector3(x, deckTop + 3.5, 18 * sz),
         0.08, HY_STEEL, 5,
       ));
     }
-    const deckTip = new THREE.Vector3(deckPlan[0][0], deckY - 0.8, deckPlan[0][1]);
-    for (const anchor of [
-      new THREE.Vector3(-4 * sx, deckY - 22, -18 * sz),
-      new THREE.Vector3(15 * sx, deckY - 24, -18 * sz),
-      new THREE.Vector3(37 * sx, deckY - 21, -18 * sz),
-    ]) {
-      addHySteel(strut(deckTip, anchor, 0.34, HY_STEEL, 7));
-    }
-    addHySteel(strut(
-      new THREE.Vector3(deckPlan[2][0], deckY - 0.4, deckPlan[2][1]),
-      new THREE.Vector3(deckPlan[3][0], deckY - 0.4, deckPlan[3][1]),
-      0.32, HY_STEEL, 7,
-    ));
-
     // Triple-height public lobby and Voices: a warm transparent cable-net wall,
     // broad entrances and eleven suspended steel letter-orb silhouettes.
     const lobbyZ = -29.2 * sz;
@@ -1451,18 +1443,23 @@ export const builders: Record<string, (ctx: LandmarkCtx) => THREE.Group> = {
       ));
     }
 
-    // Preserve every rail, cable and facade seam, but enter the scene with two
+    // Preserve every rail, cable and facade seam, but enter the scene with three
     // packed material batches instead of rebuilding 150+ tiny nodes on every
     // approach. The Edge post count varies with a fitted source footprint.
-    const expectedSteelDetails = 119 + edgePostCount;
-    if (steelDetails.length !== expectedSteelDetails || darkSteelDetails.length !== 36) {
+    const expectedSteelDetails = 115 + edgePostCount;
+    if (
+      steelDetails.length !== expectedSteelDetails
+      || darkSteelDetails.length !== 35
+      || edgeFasciaDetails.length !== 2
+    ) {
       throw new Error(
         `Incomplete 30 Hudson Yards details: ${steelDetails.length}/${expectedSteelDetails} steel, `
-        + `${darkSteelDetails.length}/36 dark steel`,
+        + `${darkSteelDetails.length}/35 dark steel, ${edgeFasciaDetails.length}/2 fascia`,
       );
     }
     g.add(hyDetail(mergeHyDetails(steelDetails, HY_STEEL)));
     g.add(hyDetail(mergeHyDetails(darkSteelDetails, HY_DARK_STEEL)));
+    g.add(hyDetail(mergeHyDetails(edgeFasciaDetails, HY_EDGE_UNDERSIDE)));
 
     // Conservative, tiered collision follows the real occupied massing and
     // leaves both the open crown and Edge's underside free. The podium, 310m
