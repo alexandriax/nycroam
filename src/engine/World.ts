@@ -1636,7 +1636,7 @@ export class World {
       // the lead); kit managers (entrances/bikes) keep the true position — their
       // evict radii are small enough that leading would despawn kits still in
       // view just behind
-      this.tiles.update(leadX, leadZ);
+      this.tiles.update(leadX, leadZ, this.pos.y);
       this.entrances.update(this.pos.x, this.pos.z, dt);
       this.plaques.unloadRadius = 440 + lead; // same trailing-edge guard as tiles
       this.plaques.update(leadX, leadZ, dt);
@@ -1779,7 +1779,7 @@ export class World {
         this.pos.set(h.pos.x, heightAt(h.pos.x, h.pos.z), h.pos.z);
         if (this.sun) followSun(this.sun, this.pos.x, this.pos.z);
         this.waterUpdate?.(dt);
-        this.tiles.update(this.pos.x, this.pos.z);
+        this.tiles.update(this.pos.x, this.pos.z, this.pos.y);
         this.entrances.update(this.pos.x, this.pos.z, dt);
         this.bikes.update(this.pos.x, this.pos.z, dt);
         this.tram.update(this.pos.x, this.pos.z, dt);

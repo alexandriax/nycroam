@@ -23,6 +23,8 @@ interface TileRecord {
   geometries: THREE.BufferGeometry[];
   textures: THREE.Texture[];
   lod: number; // current detail bucket (0 = full .. 3 = buildings only)
+  facade: THREE.Mesh | null;
+  facadeDetailed: boolean;
 }
 
 export interface TileStats {
@@ -39,6 +41,7 @@ export class TileManager {
   private inFlight = new Map<string, number>(); // key -> worker idx
   private queue: string[] = [];
   private facadeMat = makeFacadeMaterial();
+  private facadeSimpleMat = new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.DoubleSide });
   private flatMat = makeFlatMaterial();
   private roadMat = makeRoadMaterial();
   private walkMat = makeWalkMaterial();
@@ -66,6 +69,7 @@ export class TileManager {
   // rerunning all of them for a sub-pixel camera move wastes the main thread.
   // Visible integration + worker dispatch remain per-frame in update().
   private lastSpatialX = Number.NaN;
+  private lastSpatialY = Number.NaN;
   private lastSpatialZ = Number.NaN;
   private lastSpatialRadius = 0;
   private lastSpatialAt = 0;
@@ -176,7 +180,7 @@ export class TileManager {
     return out;
   }
 
-  update(camX: number, camZ: number) {
+  update(camX: number, camZ: number, camY = 0) {
     // Advance the shared water material's animation. update() is called every frame (in
     // every mode), so this keeps tile water rippling in lockstep with the ocean without
     // World having to drive it. Clamp dt so a backgrounded tab / first frame can't jump it.
@@ -192,11 +196,13 @@ export class TileManager {
     const spatialMoveSq = (camX - this.lastSpatialX) ** 2 + (camZ - this.lastSpatialZ) ** 2;
     const spatialDue = !Number.isFinite(spatialMoveSq)
       || spatialMoveSq >= 8 * 8
+      || Math.abs(camY - this.lastSpatialY) >= 24
       || Math.abs(this.loadRadius - this.lastSpatialRadius) >= 16
       || now - this.lastSpatialAt >= 250;
     if (spatialDue) {
-      this.refreshSpatial(camX, camZ);
+      this.refreshSpatial(camX, camY, camZ);
       this.lastSpatialX = camX;
+      this.lastSpatialY = camY;
       this.lastSpatialZ = camZ;
       this.lastSpatialRadius = this.loadRadius;
       this.lastSpatialAt = now;
@@ -236,7 +242,7 @@ export class TileManager {
   }
 
   /** Refresh work whose result changes only after meaningful camera movement. */
-  private refreshSpatial(camX: number, camZ: number) {
+  private refreshSpatial(camX: number, camY: number, camZ: number) {
     const ctx = Math.floor(camX / TILE_SIZE), ctz = Math.floor(camZ / TILE_SIZE);
     const rTiles = Math.ceil(this.loadRadius / TILE_SIZE);
     const loadRadiusSq = this.loadRadius * this.loadRadius;
@@ -249,7 +255,11 @@ export class TileManager {
         if (!this.known.has(key) || this.records.has(key)) continue;
         const cx = (tx + 0.5) * TILE_SIZE, cz = (tz + 0.5) * TILE_SIZE;
         if ((cx - camX) ** 2 + (cz - camZ) ** 2 > loadRadiusSq) continue;
-        this.records.set(key, { key, tx, tz, state: 'queued', group: null, collision: null, roadPaths: null, signs: null, geometries: [], textures: [], lod: 0 });
+        this.records.set(key, {
+          key, tx, tz, state: 'queued', group: null, collision: null, roadPaths: null,
+          signs: null, geometries: [], textures: [], lod: 0, facade: null,
+          facadeDetailed: true,
+        });
         this.queue.push(key);
       }
     }
@@ -285,6 +295,7 @@ export class TileManager {
     const grow1 = (t1 + H) ** 2, grow2 = (t2 + H) ** 2, grow3 = (t3 + H) ** 2;
     const shrink1 = (t1 - H) ** 2, shrink2 = (t2 - H) ** 2, shrink3 = (t3 - H) ** 2;
     for (const rec of this.records.values()) {
+      this.updateFacadeMaterial(rec, camX, camY, camZ);
       if (!rec.group) continue;
       const cx = (rec.tx + 0.5) * TILE_SIZE, cz = (rec.tz + 0.5) * TILE_SIZE;
       const dSq = (cx - camX) ** 2 + (cz - camZ) ** 2;
@@ -300,6 +311,38 @@ export class TileManager {
         if (tier) child.visible = tier > lod;
       }
     }
+  }
+
+  /**
+   * Premium façade shading is useful only while its windows span real pixels.
+   * Switch per tile using the distance to the actual merged-geometry bounds:
+   * nearby/tall buildings keep reflections + relief, while distant low blocks
+   * seen from a helicopter become cheap vertex-colored massing. The 140m band
+   * prevents material chatter at the boundary, and the premium shader has
+   * already faded almost to its base color there, hiding the handoff.
+   */
+  private updateFacadeMaterial(rec: TileRecord, camX: number, camY: number, camZ: number) {
+    let dSq: number;
+    const bounds = rec.facade?.geometry.boundingBox;
+    if (bounds) {
+      const dx = camX < bounds.min.x ? bounds.min.x - camX : camX > bounds.max.x ? camX - bounds.max.x : 0;
+      const dy = camY < bounds.min.y ? bounds.min.y - camY : camY > bounds.max.y ? camY - bounds.max.y : 0;
+      const dz = camZ < bounds.min.z ? bounds.min.z - camZ : camZ > bounds.max.z ? camZ - bounds.max.z : 0;
+      dSq = dx * dx + dy * dy + dz * dz;
+    } else {
+      // Before integration, conservatively approximate a tile-sized 250m-tall
+      // envelope; integrate() reruns this with exact bounds before reveal.
+      const cx = (rec.tx + 0.5) * TILE_SIZE, cz = (rec.tz + 0.5) * TILE_SIZE;
+      const dx = Math.max(0, Math.abs(camX - cx) - TILE_SIZE * 0.55);
+      const dy = Math.max(0, camY - 250);
+      const dz = Math.max(0, Math.abs(camZ - cz) - TILE_SIZE * 0.55);
+      dSq = dx * dx + dy * dy + dz * dz;
+    }
+    const threshold = rec.facadeDetailed ? 900 : 760;
+    const detailed = dSq < threshold * threshold;
+    if (detailed === rec.facadeDetailed) return;
+    rec.facadeDetailed = detailed;
+    if (rec.facade) rec.facade.material = detailed ? this.facadeMat : this.facadeSimpleMat;
   }
 
   /** Build a nearest-first list for the one ring just beyond resident tiles. */
@@ -394,8 +437,12 @@ export class TileManager {
     //   tier 1: lane markings, street signs, hydrants (sub-pixel first)
     //   tier 2: trees, sidewalks
     //   tier 3: ground areas, roads, water (leaves buildings = the silhouette)
-    const addMesh = (payload: MeshPayload | null, mat: THREE.Material, opts?: { cast?: boolean; receive?: boolean; order?: number; tier?: number }) => {
-      if (!payload) return;
+    const addMesh = (
+      payload: MeshPayload | null,
+      mat: THREE.Material,
+      opts?: { cast?: boolean; receive?: boolean; order?: number; tier?: number; bounds?: boolean },
+    ): THREE.Mesh | null => {
+      if (!payload) return null;
       const geo = new THREE.BufferGeometry();
       geo.setAttribute('position', new THREE.BufferAttribute(payload.position, 3));
       geo.setAttribute('normal', new THREE.BufferAttribute(payload.normal, 3));
@@ -404,6 +451,7 @@ export class TileManager {
       if (payload.style) geo.setAttribute('aStyle', new THREE.BufferAttribute(payload.style, 1));
       geo.setIndex(new THREE.BufferAttribute(payload.index, 1));
       geo.computeBoundingSphere();
+      if (opts?.bounds) geo.computeBoundingBox();
       const mesh = new THREE.Mesh(geo, mat);
       mesh.matrixAutoUpdate = false;
       mesh.castShadow = opts?.cast ?? false;
@@ -412,9 +460,15 @@ export class TileManager {
       if (opts?.tier) mesh.userData.lodTier = opts.tier;
       group.add(mesh);
       rec.geometries.push(geo);
+      return mesh;
     };
 
-    addMesh(res.buildings, this.facadeMat, { cast: true, receive: true });
+    rec.facade = addMesh(
+      res.buildings,
+      rec.facadeDetailed ? this.facadeMat : this.facadeSimpleMat,
+      { cast: true, receive: true, bounds: true },
+    );
+    if (rec.facade) this.updateFacadeMaterial(rec, this.lastSpatialX, this.lastSpatialY, this.lastSpatialZ);
     addMesh(res.areas, this.flatMat, { receive: true, tier: 3 });
     // Water surface sits ~0.25m above the highest interior terrain (baked), so it draws
     // over the park polygon that covers a reservoir/lake. Shared material, no shadow — mirrors
