@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import {
   type LandmarkCtx,
-  LIMESTONE, GRANITE, DARKSTONE, MARBLE, GOLD, STEEL_LM, GLASS_LM, WHITE_LM,
+  LIMESTONE, GRANITE, DARKSTONE, MARBLE, BRONZE, GOLD, STEEL_LM, GLASS_LM, WHITE_LM,
   WATER_LM, GREEN_PATINA, BRICK_RED,
   box, cyl, strut, lathe, figure, twoSidedPanel,
   canvasTexture, billboardTexture, billboardMaterial,
@@ -70,6 +70,22 @@ const BRYANT_WOOD = new THREE.MeshStandardMaterial({
 const BRYANT_RED = new THREE.MeshBasicMaterial({ color: '#ff4136' });
 const BRYANT_COLLISION = new THREE.MeshBasicMaterial({ visible: false });
 
+// NYPL's deep window reveals are reflective bronze/glass, not featureless
+// black voids. A little cool emissive lift preserves that read on inexpensive
+// mobile lighting while the warm entry lanterns separate the three portals.
+const NYPL_GLASS = new THREE.MeshStandardMaterial({
+  color: '#50636b', metalness: 0.42, roughness: 0.2,
+  emissive: '#172a32', emissiveIntensity: 0.48,
+});
+const NYPL_ENTRY_GLASS = new THREE.MeshStandardMaterial({
+  color: '#34474d', metalness: 0.34, roughness: 0.16,
+  emissive: '#182c33', emissiveIntensity: 0.58,
+});
+const NYPL_LANTERN = new THREE.MeshStandardMaterial({
+  color: '#ffe2a6', metalness: 0.04, roughness: 0.28,
+  emissive: '#ffad45', emissiveIntensity: 2.1,
+});
+
 /** Decorative facade pieces should never become separate collision volumes. */
 function esbDetail<T extends THREE.Mesh>(mesh: T): T {
   mesh.userData.noCollision = true;
@@ -79,6 +95,125 @@ function esbDetail<T extends THREE.Mesh>(mesh: T): T {
 function oneBryantDetail<T extends THREE.Mesh>(mesh: T): T {
   mesh.userData.noCollision = true;
   return mesh;
+}
+
+function nyplDetail<T extends THREE.Object3D>(object: T): T {
+  object.traverse((child) => {
+    if ((child as THREE.Mesh).isMesh) child.userData.noCollision = true;
+  });
+  return object;
+}
+
+function nyplTextPanel(texture: THREE.Texture, w: number, h: number): THREE.Mesh {
+  const mesh = new THREE.Mesh(
+    new THREE.PlaneGeometry(w, h),
+    new THREE.MeshLambertMaterial({ map: texture }),
+  );
+  return nyplDetail(mesh);
+}
+
+function nyplTitleTexture(): THREE.CanvasTexture {
+  return canvasTexture((c, w, h) => {
+    c.fillStyle = '#e8e4da';
+    c.fillRect(0, 0, w, h);
+    c.strokeStyle = '#c9c2b5';
+    c.lineWidth = 2;
+    c.strokeRect(2, 3, w - 4, h - 6);
+    c.textAlign = 'center';
+    c.textBaseline = 'middle';
+    c.font = '500 38px Georgia, Times New Roman, serif';
+    c.fillStyle = 'rgba(255,255,255,.76)';
+    c.fillText('THE NEW YORK PUBLIC LIBRARY', w / 2 - 0.5, h / 2 - 1.2, w * 0.94);
+    c.fillStyle = '#716d65';
+    c.fillText('THE NEW YORK PUBLIC LIBRARY', w / 2 + 0.5, h / 2 + 0.8, w * 0.94);
+  }, 512, 72);
+}
+
+function nyplDedicationTexture(): THREE.CanvasTexture {
+  return canvasTexture((c, w, h) => {
+    c.fillStyle = '#e8e4da';
+    c.fillRect(0, 0, w, h);
+    c.strokeStyle = '#c8c1b4';
+    c.lineWidth = 2;
+    c.strokeRect(2, 2, w - 4, h - 4);
+    for (const x of [w / 3, w * 2 / 3]) {
+      c.beginPath();
+      c.moveTo(x, 8);
+      c.lineTo(x, h - 8);
+      c.stroke();
+    }
+    const panels = [
+      ['THE ASTOR LIBRARY', 'FOUNDED BY', 'JOHN JACOB ASTOR'],
+      ['THE LENOX LIBRARY', 'FOUNDED BY', 'JAMES LENOX'],
+      ['THE TILDEN TRUST', 'FOUNDED BY', 'SAMUEL J. TILDEN'],
+    ];
+    c.textAlign = 'center';
+    c.textBaseline = 'middle';
+    c.fillStyle = '#77736b';
+    for (let i = 0; i < panels.length; i++) {
+      const x = (i + 0.5) * w / 3;
+      c.font = '500 17px Georgia, Times New Roman, serif';
+      c.fillText(panels[i][0], x, h * 0.31, w * 0.29);
+      c.font = '500 10px Georgia, Times New Roman, serif';
+      c.fillText(panels[i][1], x, h * 0.54, w * 0.27);
+      c.font = '500 13px Georgia, Times New Roman, serif';
+      c.fillText(panels[i][2], x, h * 0.72, w * 0.29);
+    }
+  }, 512, 128);
+}
+
+function nyplUsFlagTexture(): THREE.CanvasTexture {
+  return canvasTexture((c, w, h) => {
+    for (let i = 0; i < 13; i++) {
+      c.fillStyle = i % 2 === 0 ? '#b22234' : '#f5f3ec';
+      c.fillRect(0, i * h / 13, w, h / 13 + 1);
+    }
+    c.fillStyle = '#3c3b6e';
+    c.fillRect(0, 0, w * 0.42, h * 7 / 13);
+    c.fillStyle = '#ffffff';
+    for (let row = 0; row < 5; row++) {
+      for (let col = 0; col < 6; col++) {
+        c.beginPath();
+        c.arc(w * (0.045 + col * 0.066), h * (0.045 + row * 0.075), 1.7, 0, Math.PI * 2);
+        c.fill();
+      }
+    }
+  }, 192, 120);
+}
+
+function nyplCityFlagTexture(): THREE.CanvasTexture {
+  return canvasTexture((c, w, h) => {
+    const third = w / 3;
+    c.fillStyle = '#174f8b'; c.fillRect(0, 0, third, h);
+    c.fillStyle = '#f4f1e8'; c.fillRect(third, 0, third, h);
+    c.fillStyle = '#ef7f2d'; c.fillRect(third * 2, 0, third, h);
+    c.strokeStyle = '#174f8b';
+    c.lineWidth = 4;
+    c.beginPath();
+    c.arc(w / 2, h / 2, h * 0.22, 0, Math.PI * 2);
+    c.stroke();
+    c.fillStyle = '#174f8b';
+    c.textAlign = 'center';
+    c.textBaseline = 'middle';
+    c.font = '700 24px Georgia, Times New Roman, serif';
+    c.fillText('NYC', w / 2, h / 2 + 1);
+  }, 192, 120);
+}
+
+function nyplFlag(texture: THREE.Texture, w: number, h: number): THREE.Mesh {
+  const geometry = new THREE.PlaneGeometry(w, h, 5, 2);
+  const pos = geometry.getAttribute('position');
+  for (let i = 0; i < pos.count; i++) {
+    const along = pos.getX(i) / w + 0.5;
+    pos.setZ(i, Math.sin(along * Math.PI * 2) * 0.16 * along);
+  }
+  pos.needsUpdate = true;
+  geometry.computeVertexNormals();
+  const mesh = new THREE.Mesh(
+    geometry,
+    new THREE.MeshBasicMaterial({ map: texture, side: THREE.DoubleSide }),
+  );
+  return nyplDetail(mesh);
 }
 
 type BryantLevel = {
@@ -352,12 +487,19 @@ function lampPost(): THREE.Group {
 // semicircular shadowed head + a marble archivolt ring, all facing +z. `cx`
 // is the local-x center, `sill` the bottom y, `w` the opening width, `rectH`
 // the straight jamb height below the semicircle, `z` the wall plane.
-function archOpening(cx: number, sill: number, w: number, rectH: number, z: number): THREE.Group {
+function archOpening(
+  cx: number,
+  sill: number,
+  w: number,
+  rectH: number,
+  z: number,
+  recessMaterial: THREE.Material = DARKSTONE,
+): THREE.Group {
   const g = new THREE.Group();
   const r = w / 2;
   const spring = sill + rectH;                                              // where the semicircle starts
-  g.add(box(w, rectH, 0.4, DARKSTONE, cx, sill + rectH / 2, z));            // rectangular recess
-  const head = cyl(r, r, 0.4, DARKSTONE, cx, spring, z, 14);               // disc → arched head
+  g.add(box(w, rectH, 0.4, recessMaterial, cx, sill + rectH / 2, z));        // rectangular recess
+  const head = cyl(r, r, 0.4, recessMaterial, cx, spring, z, 14);            // disc → arched head
   head.rotation.x = Math.PI / 2;                                           // face the avenue
   g.add(head);
   const ring = new THREE.Mesh(new THREE.TorusGeometry(r + 0.24, 0.26, 6, 14, Math.PI), MARBLE);
@@ -758,34 +900,67 @@ export const builders: Record<string, (ctx: LandmarkCtx) => THREE.Group> = {
 
     // ---- flanking wings: tall round-arched windows between engaged pilasters ----
     for (const wc of [-31, 44]) {
-      for (const dx of [-11.7, -3.9, 3.9, 11.7]) g.add(archOpening(wc + dx, 7, 3.2, 8, WZ + 0.1));
+      for (const dx of [-11.7, -3.9, 3.9, 11.7]) {
+        const x = wc + dx;
+        g.add(archOpening(x, 7, 3.2, 8, WZ + 0.1, NYPL_GLASS));
+        g.add(nyplDetail(box(0.13, 7.6, 0.14, BRONZE, x, 10.8, WZ + 0.36)));
+        for (const y of [9.5, 12.2]) {
+          g.add(nyplDetail(box(2.9, 0.13, 0.14, BRONZE, x, y, WZ + 0.36)));
+        }
+      }
       for (const dx of [-15.6, -7.8, 0, 7.8, 15.6]) g.add(box(0.9, 15.3, 0.6, MARBLE, wc + dx, 10.35, WZ + 0.3));
     }
     // ---- end pavilions, slightly proud, each with a tall niche ----
     for (const cx of [-48, 61]) {
       g.add(box(6, CORN - TERR, 1.0, MARBLE, cx, (CORN + TERR) / 2, WZ + 0.5));
       g.add(box(6.5, 1.3, 1.6, MARBLE, cx, 22.0, WZ + 0.7));
-      g.add(archOpening(cx, 8, 2.6, 5.5, WZ + 0.6));
+      g.add(archOpening(cx, 8, 2.6, 5.5, WZ + 0.6, NYPL_GLASS));
     }
 
     // ---- central triple-arch portico: six Corinthian columns, three arches ----
     // (all on the pavilion plane, proud of the wings like the real porch)
     for (const cx of [-7.5, 1.1, 2.9, 10.1, 11.9, 20.5]) g.add(corinthianColumn(cx, PAV + 2));
-    for (const cx of [-3.2, 6.5, 16.2]) g.add(archOpening(cx, TERR, 6, 8.3, PAV + 0.1));
+    for (const cx of [-3.2, 6.5, 16.2]) {
+      g.add(archOpening(cx, TERR, 6, 8.3, PAV + 0.1, NYPL_ENTRY_GLASS));
+      // Bronze-framed glazed doors and the large hanging lanterns are visible
+      // through each real entrance arch, so the portico retains depth without
+      // becoming three flat black voids.
+      g.add(nyplDetail(box(5.15, 5.5, 0.16, NYPL_ENTRY_GLASS, cx, 5.55, PAV + 0.42)));
+      for (const dx of [-1.7, 0, 1.7]) {
+        g.add(nyplDetail(box(0.12, 5.3, 0.16, BRONZE, cx + dx, 5.55, PAV + 0.53)));
+      }
+      for (const y of [4.5, 6.6, 8.15]) {
+        g.add(nyplDetail(box(5.0, 0.12, 0.16, BRONZE, cx, y, PAV + 0.53)));
+      }
+      g.add(nyplDetail(cyl(0.035, 0.035, 2.0, BRONZE, cx, 10.25, PAV + 0.58, 6)));
+      const lantern = nyplDetail(new THREE.Mesh(new THREE.SphereGeometry(0.38, 10, 7), NYPL_LANTERN));
+      lantern.position.set(cx, 9.08, PAV + 0.58);
+      g.add(lantern);
+    }
 
     // ---- entablature: continuous frieze + cornice, breaking forward at the portico ----
     g.add(box(2 * HW, 2.2, 1.0, MARBLE, FC, 20.4, WZ + 0.0));        // wing frieze
     g.add(box(2 * HW + 1, 1.1, 1.8, MARBLE, FC, 21.95, WZ + 0.4));   // wing cornice (top 22.5 caps OSM)
     g.add(box(46, 2.2, 1.6, MARBLE, 4.5, 20.4, PAV + 2.2));         // portico frieze (over columns)
     g.add(box(47, 1.2, 2.0, MARBLE, 4.5, 22.0, PAV + 2.6));         // portico cornice, projecting
+    const title = nyplTextPanel(nyplTitleTexture(), 40.5, 1.32);
+    title.position.set(4.5, 20.45, PAV + 3.02);
+    g.add(title);
 
-    // ---- inscribed attic over the portico, crowned by six allegorical figures ----
+    // ---- inscribed attic over the portico with six allegorical figures ----
     g.add(box(44, 5, 2, MARBLE, 4.5, 25, PAV + 1.5));               // attic block y 22.5..27.5
     g.add(box(45, 0.6, 2.4, MARBLE, 4.5, 27.8, PAV + 1.7));         // attic cornice cap
-    g.add(box(33, 1.6, 0.3, DARKSTONE, 4.5, 24.6, PAV + 2.5));      // suggested inscription band
+    const dedication = nyplTextPanel(nyplDedicationTexture(), 41, 3.6);
+    dedication.position.set(4.5, 25.05, PAV + 2.53);
+    g.add(dedication);
     for (const cx of [-8.5, -2.5, 3.5, 9.5, 15.5, 21.5]) {
-      const f = figure(3, MARBLE);
-      f.position.set(cx, 28.1, PAV + 1.7);
+      // Slightly weathered stone preserves the shallow sculptural relief in
+      // the shadow-free mobile renderer instead of dissolving into the marble.
+      const f = figure(3, LIMESTONE);
+      f.scale.x = 1.65; // the real draped figures read broadly between panels
+      // The Wisdom/Knowledge figures stand against the inscribed attic face;
+      // they are not a row of statues balanced on its roofline.
+      f.position.set(cx, 22.8, PAV + 3.2);
       g.add(f);
     }
     // ---- low green-copper hip roof peeking behind the parapet center ----
@@ -812,13 +987,22 @@ export const builders: Record<string, (ctx: LandmarkCtx) => THREE.Group> = {
       water.position.set(sx, TERR + 0.3, WZ + 1.4);
       g.add(water);
     }
-    // ---- flagpoles with gilt finials on the terrace ----
-    for (const sx of [-9.5, 22.5]) {
-      g.add(box(1.8, 1.4, 1.8, DARKSTONE, sx, TERR + 0.7, -7));     // ornate bronze base
-      g.add(cyl(0.16, 0.22, 13, STEEL_LM, sx, TERR + 7.9, -7, 8));  // pole (y 4.1..17.1)
-      const fin = new THREE.Mesh(new THREE.SphereGeometry(0.32, 8, 6), GOLD);
-      fin.position.set(sx, TERR + 14.7, -7);
+    // ---- John Purroy Mitchel memorial flagstaffs ----
+    // The 1911 poles flank the entire Fifth Avenue facade (not its portico)
+    // and stand about 85ft tall. The north pole flies the City flag and the
+    // south pole the United States flag.
+    const flagTextures = [nyplUsFlagTexture(), nyplCityFlagTexture()];
+    for (let i = 0; i < 2; i++) {
+      const sx = i === 0 ? -49 : 62;
+      g.add(box(2.5, 0.65, 2.5, MARBLE, sx, TERR + 0.325, -7));
+      g.add(cyl(0.68, 0.9, 1.65, BRONZE, sx, TERR + 1.15, -7, 10));
+      g.add(cyl(0.11, 0.18, 23.5, STEEL_LM, sx, TERR + 13.6, -7, 8));
+      const fin = new THREE.Mesh(new THREE.SphereGeometry(0.3, 8, 6), GOLD);
+      fin.position.set(sx, TERR + 25.55, -7);
       g.add(fin);
+      const flag = nyplFlag(flagTextures[i], 4.3, 2.7);
+      flag.position.set(sx + 2.2, TERR + 23.8, -7);
+      g.add(flag);
     }
 
     // ---- grand granite stair descending toward the avenue (+z), with cheeks ----

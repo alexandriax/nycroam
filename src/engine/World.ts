@@ -819,8 +819,12 @@ export class World {
     const [spawnX, spawnZ] = hasArrival
       ? lonLatToXZ(landmark.arrivalLon!, landmark.arrivalLat!)
       : [x, z];
+    const hasArrivalLook = landmark?.arrivalLookLat !== undefined && landmark.arrivalLookLon !== undefined;
+    const [lookX, lookZ] = hasArrivalLook
+      ? lonLatToXZ(landmark.arrivalLookLon!, landmark.arrivalLookLat!)
+      : [x, z];
     this.pos.set(spawnX, 0, spawnZ);
-    this.spawnLookAt = { x, z };
+    this.spawnLookAt = { x: lookX, z: lookZ };
     this.spawnLandmarkId = landmarkId;
     this.spawnWaitStarted = performance.now();
     this.spawnResolve = true; // resolved out of any building once tiles arrive

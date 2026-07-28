@@ -51,6 +51,13 @@ export interface LandmarkEntry {
    */
   arrivalLat?: number;
   arrivalLon?: number;
+  /**
+   * Optional visual target for a surveyed arrival whose registry anchor is a
+   * streaming/build origin rather than the landmark's recognizable front.
+   * Both values are required together; they affect framing only, never placement.
+   */
+  arrivalLookLat?: number;
+  arrivalLookLon?: number;
 }
 
 // Manhattan street-grid rotation. NEGATIVE: rotation.y = -0.507 maps local +x
@@ -147,9 +154,19 @@ export const LANDMARKS_REG: LandmarkEntry[] = [
   // parts. Its compact textured facades and open lattice spire stay resident
   // as the distant skyline representation after the tile bake clears the site.
   { id: 'one-bryant', name: 'Bank of America Tower at One Bryant Park', lat: 40.7555573, lon: -73.9847166, set: 'midtown-south', r: 1500, rot: GRID, alwaysOn: true },
-  // facade replica fronts 5th Ave: +z (steps/lions) must face ESE = GRID + 90deg;
-  // anchor mid-block on the avenue front of the real massing, not the 42nd corner
-  { id: 'nypl', name: 'New York Public Library', lat: 40.75290, lon: -73.98165, set: 'midtown-south', r: 500, rot: GRID + Math.PI / 2 },
+  // Facade replica fronts 5th Ave: +z (steps/lions) must face ESE = GRID + 90deg;
+  // anchor mid-block on the avenue front of the real massing, not the 42nd corner.
+  // The arrival is the east-side Fifth Ave footway at local (362.38, 573.72):
+  // 0m from its mapped centerline, 9.4m from traffic, 21m from the nearest tree,
+  // and outside every baked footprint. Aim at the replica's portico center
+  // (local 6.5,-10), not this southeast streaming/build anchor.
+  {
+    id: 'nypl', name: 'New York Public Library',
+    lat: 40.75290, lon: -73.98165, set: 'midtown-south', r: 500,
+    rot: GRID + Math.PI / 2,
+    arrivalLat: 40.752837, arrivalLon: -73.981203,
+    arrivalLookLat: 40.752995, arrivalLookLon: -73.981716,
+  },
   { id: 'bryant-park', name: 'Bryant Park', lat: 40.7536, lon: -73.9832, set: 'midtown-south', r: 450, rot: GRID },
   { id: 'msg', name: 'Madison Square Garden', lat: 40.7505, lon: -73.9934, set: 'midtown-south', r: 600, rot: GRID },
   { id: 'times-square', name: 'Times Square', lat: 40.758, lon: -73.9855, set: 'midtown-south', r: 650, rot: GRID, needsRoads: true },
