@@ -95,6 +95,8 @@ function detect(): QualityLevel {
   const mem = (navigator as Navigator & { deviceMemory?: number }).deviceMemory ?? 0;
   const touch = navigator.maxTouchPoints > 1;
   const uaMobile = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
+  const forcedMobile = typeof location !== 'undefined'
+    && new URLSearchParams(location.search).has('touch');
 
   // No GPU at all, or a software rasteriser pretending to be one. These render
   // every pixel on the CPU; nothing above `low` is usable.
@@ -120,7 +122,7 @@ function detect(): QualityLevel {
   // the difference on a 6-inch screen; anyone who wants it can pin a level from
   // the HUD. Tablets and touch laptops (touch, but not a phone UA) keep their
   // GPU-derived tier.
-  if (uaMobile) return 'medium';
+  if (forcedMobile || uaMobile) return 'medium';
   if (touch && cores <= 6) return 'medium';
 
   // Desktop. Discrete parts get ultra; integrated and low-core machines drop a
@@ -138,6 +140,17 @@ function stored(): QualityLevel | null {
   } catch {
     return null;
   }
+}
+
+/** One source of truth for both engine scale and material quality. `?touch=1`
+ * is the desktop QA path for the real mobile renderer, not only its controls. */
+export function mobileQualityRequested(): boolean {
+  if (typeof navigator === 'undefined') return false;
+  const forced = typeof location !== 'undefined'
+    && new URLSearchParams(location.search).has('touch');
+  return forced
+    || /Android|iPhone|iPad|Mobile/i.test(navigator.userAgent)
+    || navigator.maxTouchPoints > 1;
 }
 
 export function quality(): QualityTier {

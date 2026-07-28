@@ -650,6 +650,12 @@ async function main() {
   // drops the parts our build replaces (e.g. Hearst's tower above its 1928
   // base) while keeping the rest of the building.
   const LANDMARK_FIT = [
+    // Replace One WTC as one coherent premium landmark. OSM maps the faceted
+    // body as five overlapping 417m prisms plus a separate 541m antenna, while
+    // the old hand anchor sat ~59m southwest and added a second floating mast.
+    // Measure only this >400m site cluster, then clear all of it after the fit;
+    // the always-on landmark build supplies both the near tower and skyline.
+    { id: 'one-wtc', lat: 40.7130, lon: -74.01319, r: 70, minH: 400, clearAboveH: 400 },
     // r 55 (was 45): NOTE the "~150m parts at 45.2m" that motivated the bump
     // were actually The Sheffield 57's towers next door — site grouping now
     // excludes them from the measure AND from the clear (the r only bounds the
@@ -657,31 +663,101 @@ async function main() {
     { id: 'hearst-tower', lat: 40.7666, lon: -73.9836, r: 55, clearAboveH: 5 },
     { id: 'chrysler', lat: 40.7516, lon: -73.9755, r: 45, clearAboveMin: 184, clearAboveH: 270 },
     { id: 'empire-state', lat: 40.7484, lon: -73.9857, r: 40, clearAboveMin: 325 },
-    // minH: obb over the tall shaft only, so the crown centers on the tower
-    // (not the block-wide base). clearAboveH: OSM's own crown prisms (h=397)
-    // and 3m-wide spire stick (h=427) are full-height extrusions (base ~18m),
-    // so clearAboveMin can't catch them — drop by TOP height instead; the
-    // bespoke faceted-glass crown replaces them above the kept 350m setbacks.
-    // r 48: a 350m part centroid sits 39.9m out (the hearst boundary lesson).
-    { id: 'one-vanderbilt', lat: 40.7529, lon: -73.9787, r: 48, minH: 340, clearAboveH: 380 },
-    // minH: the 120m base obb centered the crown 13m off the tower shaft — the
-    // verdigris crown floated beside the top (the "topper near City Hall" bug)
-    { id: 'woolworth', lat: 40.7124, lon: -74.0083, r: 40, minH: 150 },
+    // One Bryant Park is mapped as one 366m containing outline plus numerous
+    // ground-up/pyramidal parts between 12m and 366m. The architectural roof is
+    // actually 288m and the remaining height is a ~78m spire, so every opaque
+    // source part must go. Ownership grouping isolates the complete two-acre
+    // site without touching adjacent 4 Times Square.
+    {
+      id: 'one-bryant', lat: 40.7555573, lon: -73.9847166, r: 85,
+      clearAll: true,
+    },
+    // Full coherent replacement for Foster + Partners' completed tower. The
+    // source maps one full-block outline plus nine contiguous stepped bands;
+    // their 130/250/330/382/423m tops accurately describe the fan silhouette,
+    // but emitting every part from ground produces an opaque bronze truss
+    // stack. Measure the ownership group, then let the premium builder recreate
+    // the lifted base, glass envelope and correctly limited east/west bracing.
+    { id: 'chase-hq', lat: 40.755980, lon: -73.975987, r: 60, clearAll: true },
+    // Central Park Tower is currently ten overlapping generic prisms,
+    // including its 8.5m eastern cantilever and 472m architectural cap. Measure
+    // the complete 217 W 57th ownership group and replace it coherently so the
+    // Nordstrom podium, slender shaft and stainless pinstripe skin read as one
+    // landmark instead of stacked anonymous boxes.
+    {
+      id: 'central-park-tower', lat: 40.766410, lon: -73.980772, r: 62,
+      clearAll: true, clearAdjacentAboveH: 200, clearAdjacentWithin: 30,
+    },
+    // 111 West 57th's current source is thirteen ground-up rectangles stacked
+    // at every feathered setback, plus its containing development outline and
+    // south lobby volume. Measure and clear that exact ownership group so the
+    // premium tower can express one coherent terracotta profile without
+    // hidden full-height slabs multiplying its silhouette and collision.
+    {
+      id: 'steinway-tower', lat: 40.764998, lon: -73.977437, r: 40,
+      clearAll: true,
+    },
+    // Viñoly's 432 Park Avenue tower is one unusually clean 425.5m source
+    // part: measure only that square shaft so the adjacent low retail/office
+    // volumes retain their real footprints. The premium build replaces the
+    // shaft while exposing its five double-height windbreak floors instead of
+    // leaving the source's solid generic extrusion behind it.
+    {
+      id: '432-park', lat: 40.7615943, lon: -73.9718353, r: 22,
+      minH: 400, clearAboveH: 400,
+    },
+    // Full coherent replacement. The source maps the KPF tower as more than 20
+    // overlapping full-height prisms: accurate in aggregate, but flat generic
+    // boxes in the renderer, plus a 77m solid pyramid where the staggered glass
+    // crown and slender spire should be. Site grouping safely isolates every
+    // part owned by the named One Vanderbilt outline from Grand Central and
+    // neighbouring towers, then clearAll removes only that ownership group.
+    { id: 'one-vanderbilt', lat: 40.7529, lon: -73.9787, r: 58, clearAll: true },
+    // Measure only the accurately centered 120m-above tower stack, then clear
+    // its eleven overlapping 170–238m generic parts. The mapped 30-storey/120m
+    // base stays; one coherent premium build now supplies the progressively
+    // smaller Gothic tower, copper crown and 241m spire above that shoulder.
+    { id: 'woolworth', lat: 40.7124, lon: -74.0083, r: 40, minH: 150, clearAboveH: 170 },
+    // The registry point historically marked the Chambers Street triumphal
+    // arch, about 50m southwest of the actual central tower. Measure the tower
+    // at its own source-part center and clear only its 123–183m wedding-cake
+    // stack; the accurate 107m C-plan block and 113m wing pavilions remain.
+    {
+      id: 'municipal-building', lat: 40.712960, lon: -74.003620, r: 55,
+      minH: 123, clearAboveH: 123,
+    },
+    // Rebuild the New York Life Building's upper tower from the 115m setback.
+    // OSM's 148m shaft, four corner turrets and 187.5m pyramidal roof are
+    // otherwise emitted as flat generic prisms, including a solid gold block
+    // where the landmark's signature six-story gilded crown should be.
+    { id: 'new-york-life', lat: 40.742735, lon: -73.985608, r: 48, minH: 100, clearAboveH: 148 },
+    // OSM's named outer Met Life tower is a 150m flat-roofed prism, while its
+    // nested parts reach the documented height but remain generic extrusions.
+    // Replace only those tower parts; the historic home-office complex stays.
+    { id: 'met-life-tower', lat: 40.741239, lon: -73.987305, r: 24, minH: 145, clearAboveH: 145 },
     // minH: obb only over the tall slab — low wings shifted the center 34m off
     // the shaft and the summit crown hung off the roof edge
     { id: 'top-of-the-rock', lat: 40.7591, lon: -73.9794, r: 40, minH: 120 },
     // (flatiron was dropped from the fit list: a triangle's longest-edge obb
     // rotated and offset the cornice trim — it uses a measured registry rot now)
-    // The registry anchor sat 59.5m from the tower and 26.7m OUTSIDE every 417m
-    // footprint, on plaza ground — so the crown-only builder (mechanical ring +
-    // 124m mast from y=417) hung its mast in mid-air beside the roof, next to
-    // the 541m spire sliver OSM bakes at the right spot: two spires, one of them
-    // floating. Same failure woolworth / one-vanderbilt / top-of-the-rock each
-    // got a fit entry for. minH 400 measures the shaft only; clearAboveH 470
-    // drops OSM's own spire so the bespoke one stands alone.
-    { id: 'one-wtc', lat: 40.712998, lon: -74.013190, r: 55, minH: 400, clearAboveH: 470 },
     { id: 'msg', lat: 40.7505, lon: -73.9934, r: 80 },
-    { id: 'edge-deck', lat: 40.7539, lon: -74.0006, r: 45 },
+    // 30 Hudson Yards is now mapped as eight overlapping 130–395m ground-up
+    // prisms, including three coincident 395m crown pieces and a separate Edge
+    // slab. Their aggregate OBB is accurate, but generic extrusion makes KPF's
+    // crystalline taper into an opaque stack. Replace the complete ownership
+    // group while preserving adjacent 50 Hudson Yards.
+    {
+      id: 'edge-deck', lat: 40.753949, lon: -74.000555, r: 60,
+      clearAll: true, fitRot: 2.638,
+    },
+    // Foster + Partners' full-block tower is accurately mapped as a 33m
+    // podium, a 160m western shoulder and one 308m generic glass extrusion.
+    // Measure that ownership group as a whole, then replace it with the real
+    // three-block white-stone/glass vertical campus and illuminated roof halo.
+    {
+      id: 'fifty-hudson', lat: 40.754519, lon: -74.000119, r: 55,
+      clearAll: true, fitRot: 2.638,
+    },
   ].map((e) => { const [x, z] = lonLatToXZ(e.lon, e.lat); return { ...e, x, z }; });
 
   console.log('Measuring landmark host buildings...');
@@ -742,15 +818,43 @@ async function main() {
     if (cands.length !== rawCands.length) {
       console.log(`  fit ${lf.id}: site grouping excluded ${rawCands.length - cands.length}/${rawCands.length} foreign parts`);
     }
+    // Central Park Tower's east shaft/cantilever pieces are mapped as separate
+    // building:parts whose centroids fall outside the containing podium outline,
+    // so strict ownership (correctly) classifies four of them as adjacent.
+    // Require BOTH a landmark-specific height and a tight centroid radius:
+    // this claims those 237–433m pieces without deleting the 259–290m parts of
+    // 220 Central Park South whose centroids also fall inside the broad fit
+    // radius.
+    const adjacentRadius = lf.clearAdjacentWithin ?? Infinity;
+    const adjacentCleared = lf.clearAdjacentAboveH === undefined
+      ? []
+      : rawCands.filter((b) =>
+        !cands.includes(b)
+        && b.height >= lf.clearAdjacentAboveH
+        && Math.hypot(b.centroid[0] - lf.x, b.centroid[1] - lf.z) <= adjacentRadius
+      );
     // dominant orientation: longest edge of the largest footprint
-    const largest = cands.reduce((a, b) => (b.area > a.area ? b : a));
-    let ex = 1, ez = 0, bestLen = 0;
-    const ring = largest.outer;
-    for (let i = 0; i < ring.length; i++) {
-      const a = ring[i], b = ring[(i + 1) % ring.length];
-      const dx = b[0] - a[0], dz = b[1] - a[1];
-      const len = dx * dx + dz * dz;
-      if (len > bestLen) { bestLen = len; const l = Math.sqrt(len); ex = dx / l; ez = dz / l; }
+    // A broad low podium can have a different longest edge from its tower. A
+    // landmark may nominate either the tall shaft as the orientation authority
+    // or a surveyed rotation while still measuring/clearing the complete
+    // ownership group (30 Hudson Yards' rail-platform base is the motivating
+    // case: its tall source parts are nearly square and numerically unstable).
+    const orientCands = lf.orientAboveH === undefined
+      ? cands
+      : cands.filter((b) => b.height >= lf.orientAboveH);
+    const largest = (orientCands.length ? orientCands : cands)
+      .reduce((a, b) => (b.area > a.area ? b : a));
+    let ex = lf.fitRot === undefined ? 1 : Math.cos(lf.fitRot);
+    let ez = lf.fitRot === undefined ? 0 : -Math.sin(lf.fitRot);
+    if (lf.fitRot === undefined) {
+      let bestLen = 0;
+      const ring = largest.outer;
+      for (let i = 0; i < ring.length; i++) {
+        const a = ring[i], b = ring[(i + 1) % ring.length];
+        const dx = b[0] - a[0], dz = b[1] - a[1];
+        const len = dx * dx + dz * dz;
+        if (len > bestLen) { bestLen = len; const l = Math.sqrt(len); ex = dx / l; ez = dz / l; }
+      }
     }
     const rot = Math.atan2(-ez, ex); // rotation.y mapping local +x onto the edge
     const proj = (pt) => {
@@ -770,12 +874,19 @@ async function main() {
       return { minU, maxU, minV, maxV, roof };
     };
     const all = measure(cands);
-    const isTall = (b) => (lf.clearAboveMin !== undefined && (b.minHeight ?? 0) >= lf.clearAboveMin)
+    const isTall = (b) => lf.clearAll
+      || (lf.clearAboveMin !== undefined && (b.minHeight ?? 0) >= lf.clearAboveMin)
       || (lf.clearAboveH !== undefined && b.height >= lf.clearAboveH);
-    const cleared = lf.clearAboveMin !== undefined || lf.clearAboveH !== undefined ? cands.filter(isTall) : [];
+    const clearedOnSite = lf.clearAll || lf.clearAboveMin !== undefined || lf.clearAboveH !== undefined
+      ? cands.filter(isTall)
+      : [];
+    const cleared = clearedOnSite.concat(adjacentCleared);
     for (const b of cleared) fitCleared.add(b);
-    const kept = cands.filter((b) => !cleared.includes(b));
-    const keptM = kept.length ? measure(kept) : all;
+    const kept = cands.filter((b) => !clearedOnSite.includes(b));
+    // A full replacement intentionally leaves no host massing. Report keptH=0
+    // so builders and validation cannot mistake the measured source roof for a
+    // surviving slab.
+    const keptM = kept.length ? measure(kept) : { ...all, roof: 0 };
     const top = measure(cands.filter((b) => b.height >= all.roof - 12));
     // center of the full-massing obb, in world coords
     const cu = (all.minU + all.maxU) / 2, cv = (all.minV + all.maxV) / 2;
@@ -789,10 +900,10 @@ async function main() {
       keptH: Math.round(keptM.roof),        // tallest massing left standing
       topW: Math.round(top.maxU - top.minU),
       topD: Math.round(top.maxV - top.minV),
-      parts: cands.length,
+      parts: cands.length + adjacentCleared.length,
       clearedParts: cleared.length,
     };
-    console.log(`  fit ${lf.id}: ${cands.length} parts, obb ${fitOut[lf.id].w}x${fitOut[lf.id].d}m rot ${fitOut[lf.id].rot}, roof ${fitOut[lf.id].roofH}m, kept ${fitOut[lf.id].keptH}m, cleared ${cleared.length}`);
+    console.log(`  fit ${lf.id}: ${fitOut[lf.id].parts} parts, obb ${fitOut[lf.id].w}x${fitOut[lf.id].d}m rot ${fitOut[lf.id].rot}, roof ${fitOut[lf.id].roofH}m, kept ${fitOut[lf.id].keptH}m, cleared ${cleared.length}`);
   }
   fs.writeFileSync(path.join(GEO_DIR, 'landmarks-fit.json'), JSON.stringify({ v: 1, fits: fitOut }));
 
@@ -833,6 +944,17 @@ async function main() {
     // build stands alone. r=30 catches only that centroid; Hayden House (190m NE)
     // and everything across CPW/Columbus survive.
     ['amnh', 40.780962, -73.974258, 30],
+    // The mapped 30m 432 Park podium wraps around the square tower and would
+    // otherwise swallow the premium lobby/plaza. Its centroid is 29m from the
+    // tall shaft; a 7m clear is surgical, while the development's separate
+    // 20.5m and 28.3m East 57th Street retail/office volumes remain intact.
+    ['432-park-podium', 40.7617805, -73.9719587, 7],
+    // The modern 111 W 57th source group and the landmarked 1925 Steinway Hall
+    // are separate OSM ownership outlines but physically form one development.
+    // A tight centroid clear removes only the 67m hall that the premium builder
+    // recreates; Windsor Park and every neighboring 57th/58th Street building
+    // are more than 25m from this centroid.
+    ['steinway-hall', 40.7649461, -73.9775890, 8],
     // Times Square's bowtie is our billboard-stack canyon; drop the generic
     // brick OSM massing in the core so the spectaculars stand free instead of
     // spearing through buildings (the district's real towers beyond r remain).
@@ -840,6 +962,10 @@ async function main() {
     // recentered on the measured OSM centroids: the old circles sat 50-90m off
     // and left the real 156m Secretariat slab + GA hall standing through the build
     ['un-secretariat', 40.7489, -73.9681, 60], ['un-ga', 40.7501, -73.9677, 50],
+    // The Flatiron is duplicated in OSM as an 86m detailed outline plus an
+    // overlapping 88m part. A tight 14m centroid circle removes only those two
+    // volumes (the nearest unrelated building centroid is more than 27m away).
+    ['flatiron', 40.74107, -73.98964, 14],
     // 270 Park (Foster JPMorganChase HQ): the bespoke chase-hq landmark owns the
     // whole site. The old clear/anchor sat ~33m SE of the real footprint, leaving
     // the OSM tower's WEST parts (a 382m stub) standing beside the bespoke build.
@@ -2028,18 +2154,442 @@ function isElevatedRoad(tags) {
   console.log('\n=== VALIDATION ===');
   const results = [];
 
-  const tileCountOk = writtenTiles.length >= 400 && writtenTiles.length <= 2000;
-  results.push(`tiles written: ${writtenTiles.length} (expect 400-2000) -> ${tileCountOk ? 'PASS' : 'FAIL'}`);
+  // Full 8x4 OSM cache coverage now reaches the whole Manhattan bbox and its
+  // harbor/bridge fringe. The old 400-2000 / 25k-90k ranges described the
+  // earlier partial-cache build and have falsely failed every complete bake.
+  const tileCountOk = writtenTiles.length >= 2500 && writtenTiles.length <= 4000;
+  results.push(`tiles written: ${writtenTiles.length} (expect 2500-4000 full-cache) -> ${tileCountOk ? 'PASS' : 'FAIL'}`);
 
-  const buildingsOk = totalBuildingsWritten >= 25000 && totalBuildingsWritten <= 90000;
-  results.push(`total buildings: ${totalBuildingsWritten} (expect 25000-90000) -> ${buildingsOk ? 'PASS' : 'FAIL'}`);
+  const buildingsOk = totalBuildingsWritten >= 120000 && totalBuildingsWritten <= 200000;
+  results.push(`total buildings: ${totalBuildingsWritten} (expect 120000-200000 full-cache) -> ${buildingsOk ? 'PASS' : 'FAIL'}`);
 
   const esbXZ = lonLatToXZ(-73.9857, 40.7484);
   const [esbTx, esbTz] = tileOf(esbXZ);
   const esbKey = tileKeyOf(esbTx, esbTz);
   const esbBuildings = tileBuildings.get(esbKey) || [];
-  const esbTall = esbBuildings.some((b) => b.h >= 300);
-  results.push(`Empire State Building tile (${esbKey}): ${esbBuildings.length} buildings, tallest h=${Math.max(0, ...esbBuildings.map((b) => b.h))} -> ${esbTall ? 'PASS' : 'FAIL'}`);
+  const esbFit = fitOut['empire-state'];
+  const esbBakedCrown = esbBuildings.filter((b) => b.h > 330).length;
+  const esbBaseKept = esbBuildings.some((b) => Math.abs(b.h - 330) < 0.2);
+  const esbOk = !!esbFit
+    && Math.abs(esbFit.roofH - 443) < 1
+    && Math.abs(esbFit.keptH - 330) < 1
+    && esbFit.clearedParts === 2
+    && esbBakedCrown === 0
+    && esbBaseKept;
+  results.push(
+    `Empire State crown replacement (${esbKey}): fit=${esbFit?.keptH ?? 0}-${esbFit?.roofH ?? 0}m, ` +
+      `cleared=${esbFit?.clearedParts ?? 0}, baked >330m parts=${esbBakedCrown}, ` +
+      `330m base=${esbBaseKept} -> ${esbOk ? 'PASS' : 'FAIL'}`,
+  );
+
+  // One WTC is a complete premium replacement: its six overlapping OSM
+  // prisms/antenna must be measured into the fit and absent from both the near
+  // tile and skyline, or the old duplicate-mast bug returns.
+  const wtcXZ = lonLatToXZ(-74.01319, 40.7130);
+  const [wtcTx, wtcTz] = tileOf(wtcXZ);
+  const wtcKey = tileKeyOf(wtcTx, wtcTz);
+  const wtcBuildings = tileBuildings.get(wtcKey) || [];
+  const wtcBakedTall = wtcBuildings.filter((b) => b.h >= 400).length;
+  const wtcFit = fitOut['one-wtc'];
+  const wtcOk = !!wtcFit
+    && Math.hypot(wtcFit.cx - wtcXZ[0], wtcFit.cz - wtcXZ[1]) < 5
+    && wtcFit.roofH >= 540
+    && wtcFit.clearedParts === 6
+    && wtcBakedTall === 0;
+  results.push(
+    `One WTC replacement (${wtcKey}): fit roof=${wtcFit?.roofH ?? 0}m, cleared=${wtcFit?.clearedParts ?? 0}, ` +
+      `baked >=400m parts=${wtcBakedTall} -> ${wtcOk ? 'PASS' : 'FAIL'}`,
+  );
+
+  // The Chrysler crown is procedural from the retained 199m shaft shoulder:
+  // the raw source's overlapping round-roof prisms must stay cleared, while
+  // their measured 282m crown cap remains available to seat the 318.9m build.
+  const chryslerXZ = lonLatToXZ(-73.9755, 40.7516);
+  const [chryslerTx, chryslerTz] = tileOf(chryslerXZ);
+  const chryslerKey = tileKeyOf(chryslerTx, chryslerTz);
+  const chryslerBuildings = tileBuildings.get(chryslerKey) || [];
+  const chryslerBakedCrown = chryslerBuildings.filter((b) => b.h >= 200).length;
+  const chryslerFit = fitOut.chrysler;
+  const chryslerOk = !!chryslerFit
+    && Math.abs(chryslerFit.roofH - 282) < 1
+    && Math.abs(chryslerFit.keptH - 199) < 1
+    && chryslerFit.clearedParts === 11
+    && chryslerBakedCrown === 0;
+  results.push(
+    `Chrysler replacement (${chryslerKey}): fit=${chryslerFit?.keptH ?? 0}-${chryslerFit?.roofH ?? 0}m, ` +
+      `cleared=${chryslerFit?.clearedParts ?? 0}, baked >=200m parts=${chryslerBakedCrown} -> ${chryslerOk ? 'PASS' : 'FAIL'}`,
+  );
+
+  // One Vanderbilt is also a complete procedural replacement. Its source
+  // ownership group contains one block outline plus 23 mutually overlapping
+  // parts; none may remain in the near tile or skyline behind the premium
+  // four-volume build.
+  const oneVXZ = lonLatToXZ(-73.9787, 40.7529);
+  const [oneVTx, oneVTz] = tileOf(oneVXZ);
+  const oneVKey = tileKeyOf(oneVTx, oneVTz);
+  const oneVBuildings = tileBuildings.get(oneVKey) || [];
+  const oneVBakedTall = oneVBuildings.filter((b) => b.h >= 300).length;
+  const oneVFit = fitOut['one-vanderbilt'];
+  const oneVOk = !!oneVFit
+    && Math.abs(oneVFit.w - 65) < 1
+    && Math.abs(oneVFit.d - 61) < 1
+    && Math.abs(oneVFit.roofH - 427) < 1
+    && oneVFit.keptH === 0
+    && oneVFit.clearedParts === 24
+    && oneVBakedTall === 0;
+  results.push(
+    `One Vanderbilt replacement (${oneVKey}): fit=${oneVFit?.w ?? 0}x${oneVFit?.d ?? 0}m, ` +
+      `roof=${oneVFit?.roofH ?? 0}m, cleared=${oneVFit?.clearedParts ?? 0}, ` +
+      `baked >=300m parts=${oneVBakedTall} -> ${oneVOk ? 'PASS' : 'FAIL'}`,
+  );
+
+  // 270 Park is measured from nine mapped stepped bands (the containing
+  // full-block outline is correctly suppressed by those building parts), then
+  // supplied entirely by the always-on premium build. The near tile and
+  // skyline must not retain any of the old full-height bronze prisms.
+  const chaseXZ = lonLatToXZ(-73.975987, 40.755980);
+  const [chaseTx, chaseTz] = tileOf(chaseXZ);
+  const chaseKey = tileKeyOf(chaseTx, chaseTz);
+  const chaseBuildings = tileBuildings.get(chaseKey) || [];
+  const chaseBakedTall = chaseBuildings.filter((b) => b.h >= 300).length;
+  const chaseFit = fitOut['chase-hq'];
+  const chaseOk = !!chaseFit
+    && Math.abs(chaseFit.w - 57) < 1
+    && Math.abs(chaseFit.d - 109) < 1
+    && Math.abs(chaseFit.roofH - 423) < 1
+    && chaseFit.keptH === 0
+    && chaseFit.clearedParts === 9
+    && chaseBakedTall === 0;
+  results.push(
+    `270 Park replacement (${chaseKey}): fit=${chaseFit?.w ?? 0}x${chaseFit?.d ?? 0}m, ` +
+      `roof=${chaseFit?.roofH ?? 0}m, cleared=${chaseFit?.clearedParts ?? 0}, ` +
+      `baked >=300m parts=${chaseBakedTall} -> ${chaseOk ? 'PASS' : 'FAIL'}`,
+  );
+
+  const outputBuildingCentroid = (b, tx, tz) => {
+    const outer = b.p?.[0];
+    if (!outer?.length) return null;
+    let sx = 0, sz = 0;
+    for (let i = 0; i < outer.length; i += 2) {
+      sx += tx * TILE_SIZE + outer[i] / 10;
+      sz += tz * TILE_SIZE + outer[i + 1] / 10;
+    }
+    const n = outer.length / 2;
+    return [sx / n, sz / n];
+  };
+
+  // Woolworth's eleven upper source parts used to enclose the custom crown in a
+  // 238m generic prism. They must all be measured but absent within the tight
+  // tower radius, leaving the exact 120m mapped base for the procedural build.
+  const woolXZ = lonLatToXZ(-74.0083, 40.7124);
+  const [woolTx, woolTz] = tileOf(woolXZ);
+  const woolKey = tileKeyOf(woolTx, woolTz);
+  const woolBuildings = tileBuildings.get(woolKey) || [];
+  const woolFit = fitOut.woolworth;
+  const woolBakedUpper = woolBuildings.filter((b) => {
+    if (b.h < 170) return false;
+    const center = outputBuildingCentroid(b, woolTx, woolTz);
+    return !!center && !!woolFit
+      && Math.hypot(center[0] - woolFit.cx, center[1] - woolFit.cz) <= 22;
+  }).length;
+  const woolOk = !!woolFit
+    && Math.abs(woolFit.w - 30) < 1
+    && Math.abs(woolFit.d - 30) < 1
+    && Math.abs(woolFit.roofH - 238) < 1
+    && woolFit.keptH === 0
+    && woolFit.clearedParts === 11
+    && woolBakedUpper === 0;
+  results.push(
+    `Woolworth upper replacement (${woolKey}): fit=${woolFit?.w ?? 0}x${woolFit?.d ?? 0}m, ` +
+      `roof=${woolFit?.roofH ?? 0}m, cleared=${woolFit?.clearedParts ?? 0}, ` +
+      `baked >=170m within 22m=${woolBakedUpper} -> ${woolOk ? 'PASS' : 'FAIL'}`,
+  );
+
+  // The Municipal Building's arch and cupola have different centers. The fit
+  // must clear only the twelve central 123–177m parts across the adjacent tile
+  // boundary while retaining the 107m C-plan block and both 113m pavilions.
+  const muniXZ = lonLatToXZ(-74.003620, 40.712960);
+  const [muniTx, muniTz] = tileOf(muniXZ);
+  const muniFit = fitOut['municipal-building'];
+  let muniBakedUpper = 0, muniWingPavilions = 0, muniBaseKept = false;
+  for (let dx = -1; dx <= 1; dx++) for (let dz = -1; dz <= 1; dz++) {
+    const tx = muniTx + dx, tz = muniTz + dz;
+    for (const b of tileBuildings.get(tileKeyOf(tx, tz)) || []) {
+      const center = outputBuildingCentroid(b, tx, tz);
+      if (!center || !muniFit) continue;
+      const d = Math.hypot(center[0] - muniFit.cx, center[1] - muniFit.cz);
+      if (b.h >= 123 && d <= 25) muniBakedUpper++;
+      if (Math.abs(b.h - 113) < 0.2 && Math.abs((b.m ?? 0) - 107) < 0.2 && d <= 60) {
+        muniWingPavilions++;
+      }
+      if (Math.abs(b.h - 107) < 0.2 && d <= 10) muniBaseKept = true;
+    }
+  }
+  const muniOk = !!muniFit
+    && Math.abs(muniFit.w - 29) < 1
+    && Math.abs(muniFit.d - 26) < 1
+    && Math.abs(muniFit.roofH - 177) < 1
+    && muniFit.keptH === 0
+    && muniFit.clearedParts === 12
+    && muniBakedUpper === 0
+    && muniWingPavilions === 2
+    && muniBaseKept;
+  results.push(
+    `Municipal crown replacement (${tileKeyOf(muniTx, muniTz)}): ` +
+      `fit=${muniFit?.w ?? 0}x${muniFit?.d ?? 0}m @ ${muniFit?.roofH ?? 0}m, ` +
+      `cleared=${muniFit?.clearedParts ?? 0}, upper residuals=${muniBakedUpper}, ` +
+      `base=${muniBaseKept}, wing pavilions=${muniWingPavilions} -> ${muniOk ? 'PASS' : 'FAIL'}`,
+  );
+
+  // New York Life keeps its real 115m lower block, but its generic 148–188m
+  // shaft/turret/roof stack is wholly replaced by the always-on procedural
+  // upper tower. Guard both halves of that contract: no cleared crown residual
+  // may survive, and the accurately mapped base must not be collateral damage.
+  const nylXZ = lonLatToXZ(-73.985608, 40.742735);
+  const [nylTx, nylTz] = tileOf(nylXZ);
+  const nylFit = fitOut['new-york-life'];
+  let nylBakedUpper = 0, nylBaseKept = false;
+  for (let dx = -1; dx <= 1; dx++) for (let dz = -1; dz <= 1; dz++) {
+    const tx = nylTx + dx, tz = nylTz + dz;
+    for (const b of tileBuildings.get(tileKeyOf(tx, tz)) || []) {
+      const center = outputBuildingCentroid(b, tx, tz);
+      if (!center || !nylFit) continue;
+      const d = Math.hypot(center[0] - nylFit.cx, center[1] - nylFit.cz);
+      if (b.h >= 148 && d <= 45) nylBakedUpper++;
+      if (Math.abs(b.h - 115) < 0.2 && d <= 45) nylBaseKept = true;
+    }
+  }
+  const nylOk = !!nylFit
+    && Math.abs(nylFit.w - 70) < 1
+    && Math.abs(nylFit.d - 35) < 1
+    && Math.abs(nylFit.roofH - 188) < 1
+    && Math.abs(nylFit.keptH - 115) < 1
+    && nylFit.clearedParts === 6
+    && nylBakedUpper === 0
+    && nylBaseKept;
+  results.push(
+    `New York Life upper replacement (${tileKeyOf(nylTx, nylTz)}): ` +
+      `fit=${nylFit?.w ?? 0}x${nylFit?.d ?? 0}m, roof=${nylFit?.roofH ?? 0}m, ` +
+      `kept=${nylFit?.keptH ?? 0}m, cleared=${nylFit?.clearedParts ?? 0}, ` +
+      `upper residuals=${nylBakedUpper}, base=${nylBaseKept} -> ${nylOk ? 'PASS' : 'FAIL'}`,
+  );
+
+  // Central Park Tower owns one broad retail podium plus a dense set of
+  // overlapping shaft, shoulder, cantilever and cap pieces. The premium
+  // always-on build must be the only >=200m object within the tower's tight
+  // 30m site radius. 220 Central Park South begins farther north and must stay.
+  const cptXZ = lonLatToXZ(-73.980772, 40.766410);
+  const [cptTx, cptTz] = tileOf(cptXZ);
+  const cptKey = tileKeyOf(cptTx, cptTz);
+  const cptBuildings = tileBuildings.get(cptKey) || [];
+  const cptBakedTall = cptBuildings.filter((b) => {
+    if (b.h < 200) return false;
+    const center = outputBuildingCentroid(b, cptTx, cptTz);
+    return !!center && Math.hypot(center[0] - cptXZ[0], center[1] - cptXZ[1]) <= 30;
+  }).length;
+  const cptFit = fitOut['central-park-tower'];
+  const cptOk = !!cptFit
+    && Math.abs(cptFit.w - 60) < 1
+    && Math.abs(cptFit.d - 61) < 1
+    && Math.abs(cptFit.roofH - 472) < 1
+    && cptFit.keptH === 0
+    && cptFit.parts === 13
+    && cptFit.clearedParts === 13
+    && cptBakedTall === 0;
+  results.push(
+    `Central Park Tower replacement (${cptKey}): fit=${cptFit?.w ?? 0}x${cptFit?.d ?? 0}m, ` +
+      `roof=${cptFit?.roofH ?? 0}m, cleared=${cptFit?.clearedParts ?? 0}, ` +
+      `baked >=200m parts within 30m=${cptBakedTall} -> ${cptOk ? 'PASS' : 'FAIL'}`,
+  );
+
+  // 111 West 57th is a complete replacement of fourteen contiguous source
+  // bands plus the separately mapped Steinway Hall. A tight spatial test
+  // proves no tall strip remains behind the feathered build, while the named
+  // Windsor Park neighbor proves that ownership clearing stayed surgical.
+  const stwXZ = lonLatToXZ(-73.977437, 40.764998);
+  const [stwTx, stwTz] = tileOf(stwXZ);
+  const stwKey = tileKeyOf(stwTx, stwTz);
+  const stwBuildings = tileBuildings.get(stwKey) || [];
+  const stwBakedTall = stwBuildings.filter((b) => {
+    if (b.h < 150) return false;
+    const center = outputBuildingCentroid(b, stwTx, stwTz);
+    return !!center && Math.hypot(center[0] - stwXZ[0], center[1] - stwXZ[1]) <= 30;
+  }).length;
+  const stwHallBaked = stwBuildings.some((b) => b.n === 'Steinway Hall');
+  const stwNeighborKept = stwBuildings.some((b) => b.n === 'Windsor Park');
+  const stwFit = fitOut['steinway-tower'];
+  const stwOk = !!stwFit
+    && Math.abs(stwFit.w - 43) < 1
+    && Math.abs(stwFit.d - 18) < 1
+    && Math.abs(stwFit.roofH - 435) < 1
+    && Math.abs(stwFit.topW - 4) < 1
+    && Math.abs(stwFit.topD - 18) < 1
+    && stwFit.keptH === 0
+    && stwFit.parts === 14
+    && stwFit.clearedParts === 14
+    && stwBakedTall === 0
+    && !stwHallBaked
+    && stwNeighborKept;
+  results.push(
+    `111 West 57th replacement (${stwKey}): fit=${stwFit?.w ?? 0}x${stwFit?.d ?? 0}m, ` +
+      `tip=${stwFit?.topW ?? 0}x${stwFit?.topD ?? 0}m @ ${stwFit?.roofH ?? 0}m, ` +
+      `cleared=${stwFit?.clearedParts ?? 0}+hall, baked >=150m within 30m=${stwBakedTall}, ` +
+      `Windsor Park kept=${stwNeighborKept} -> ${stwOk ? 'PASS' : 'FAIL'}`,
+  );
+
+  // 432 Park keeps the source's two detached East 57th Street volumes while
+  // replacing the square supertall shaft and its overlapping 30m podium. This
+  // guards both sides of the surgical clear: no solid 425m duplicate and no
+  // accidental erasure of the real four-/seven-storey development frontage.
+  const park432XZ = lonLatToXZ(-73.9718353, 40.7615943);
+  const [park432Tx, park432Tz] = tileOf(park432XZ);
+  const park432Key = tileKeyOf(park432Tx, park432Tz);
+  const park432Buildings = tileBuildings.get(park432Key) || [];
+  const park432Near = (lat, lon, radius, height) => {
+    const target = lonLatToXZ(lon, lat);
+    return park432Buildings.some((b) => {
+      if (height !== undefined && Math.abs(b.h - height) > 0.2) return false;
+      const center = outputBuildingCentroid(b, park432Tx, park432Tz);
+      return !!center && Math.hypot(center[0] - target[0], center[1] - target[1]) <= radius;
+    });
+  };
+  const park432BakedTall = park432Buildings.filter((b) => {
+    if (b.h < 400) return false;
+    const center = outputBuildingCentroid(b, park432Tx, park432Tz);
+    return !!center && Math.hypot(center[0] - park432XZ[0], center[1] - park432XZ[1]) <= 30;
+  }).length;
+  const park432PodiumKept = park432Near(40.7617805, -73.9719587, 7, 30);
+  const park432Retail20Kept = park432Near(40.7616284, -73.9715897, 8, 20.5);
+  const park432Retail28Kept = park432Near(40.7615889, -73.9715233, 8, 28.3);
+  const park432Fit = fitOut['432-park'];
+  const park432Ok = !!park432Fit
+    && Math.abs(park432Fit.w - 28) < 2
+    && Math.abs(park432Fit.d - 28) < 2
+    && Math.abs(park432Fit.roofH - 426) < 1
+    && park432Fit.keptH === 0
+    && park432Fit.parts === 1
+    && park432Fit.clearedParts === 1
+    && park432BakedTall === 0
+    && !park432PodiumKept
+    && park432Retail20Kept
+    && park432Retail28Kept;
+  results.push(
+    `432 Park Avenue replacement (${park432Key}): fit=${park432Fit?.w ?? 0}x${park432Fit?.d ?? 0}m, ` +
+      `roof=${park432Fit?.roofH ?? 0}m, cleared=${park432Fit?.clearedParts ?? 0}+podium, ` +
+      `baked >=400m within 30m=${park432BakedTall}, retail kept=${park432Retail20Kept && park432Retail28Kept} ` +
+      `-> ${park432Ok ? 'PASS' : 'FAIL'}`,
+  );
+
+  // One Bryant Park's source contains an especially misleading cluster: a
+  // solid 366m pyramidal "roof" plus overlapping 240–279m prisms. Verify the
+  // complete host OBB is empty after replacement while the 341m broadcast
+  // crown of adjacent 4 Times Square remains at its measured location.
+  const bryantFit = fitOut['one-bryant'];
+  let bryantResiduals = 0;
+  if (bryantFit) {
+    const cos = Math.cos(bryantFit.rot), sin = Math.sin(bryantFit.rot);
+    for (const [key, buildings] of tileBuildings) {
+      const [tx, tz] = key.split('_').map(Number);
+      for (const b of buildings) {
+        const center = outputBuildingCentroid(b, tx, tz);
+        if (!center) continue;
+        const dx = center[0] - bryantFit.cx, dz = center[1] - bryantFit.cz;
+        const lx = dx * cos - dz * sin;
+        const lz = dx * sin + dz * cos;
+        if (Math.abs(lx) < bryantFit.w / 2 - 1 && Math.abs(lz) < bryantFit.d / 2 - 1) {
+          bryantResiduals++;
+        }
+      }
+    }
+  }
+  const fourTimesXZ = lonLatToXZ(-73.9857361, 40.7559605);
+  let fourTimesKept = false;
+  for (const [key, buildings] of tileBuildings) {
+    const [tx, tz] = key.split('_').map(Number);
+    for (const b of buildings) {
+      if (Math.abs(b.h - 341) > 0.2) continue;
+      const center = outputBuildingCentroid(b, tx, tz);
+      if (center && Math.hypot(center[0] - fourTimesXZ[0], center[1] - fourTimesXZ[1]) < 12) {
+        fourTimesKept = true;
+      }
+    }
+  }
+  const bryantOk = !!bryantFit
+    && Math.abs(bryantFit.w - 131) < 3
+    && Math.abs(bryantFit.d - 62) < 3
+    && Math.abs(bryantFit.roofH - 366) < 1
+    && bryantFit.keptH === 0
+    && bryantFit.clearedParts >= 12
+    && bryantResiduals === 0
+    && fourTimesKept;
+  results.push(
+    `One Bryant Park replacement: fit=${bryantFit?.w ?? 0}x${bryantFit?.d ?? 0}m, ` +
+      `source roof=${bryantFit?.roofH ?? 0}m, cleared=${bryantFit?.clearedParts ?? 0}, ` +
+      `site residuals=${bryantResiduals}, 4 Times Square kept=${fourTimesKept} ` +
+      `-> ${bryantOk ? 'PASS' : 'FAIL'}`,
+  );
+
+  // 30 Hudson Yards' full replacement must remove every tall source slab
+  // without reaching across the ownership boundary into the adjacent site.
+  const edgeFit = fitOut['edge-deck'];
+  const edgeAnchorXZ = lonLatToXZ(-74.000555, 40.753949);
+  let edgeTallResiduals = 0;
+  for (const [key, buildings] of tileBuildings) {
+    const [tx, tz] = key.split('_').map(Number);
+    for (const b of buildings) {
+      if (b.h < 120) continue;
+      const center = outputBuildingCentroid(b, tx, tz);
+      if (center && Math.hypot(center[0] - edgeAnchorXZ[0], center[1] - edgeAnchorXZ[1]) < 52) {
+        edgeTallResiduals++;
+      }
+    }
+  }
+  const edgeOk = !!edgeFit
+    && Math.abs(edgeFit.w - 117) < 3
+    && Math.abs(edgeFit.d - 58) < 3
+    && Math.abs(edgeFit.roofH - 395) < 1
+    && edgeFit.keptH === 0
+    && edgeFit.clearedParts >= 7
+    && edgeTallResiduals === 0;
+  results.push(
+    `30 Hudson Yards replacement: fit=${edgeFit?.w ?? 0}x${edgeFit?.d ?? 0}m, ` +
+      `source roof=${edgeFit?.roofH ?? 0}m, cleared=${edgeFit?.clearedParts ?? 0}, ` +
+      `tall residuals=${edgeTallResiduals} ` +
+      `-> ${edgeOk ? 'PASS' : 'FAIL'}`,
+  );
+
+  // 50 Hudson Yards must clear exactly its stacked source group while retaining
+  // The Spiral one block north. This guards the same dense-site ownership edge
+  // that previously protected 50 Hudson Yards from the 30 Hudson replacement.
+  const fiftyFit = fitOut['fifty-hudson'];
+  const fiftyHudsonXZ = lonLatToXZ(-74.000119, 40.754519);
+  let fiftyResiduals = 0;
+  let spiralKept = false;
+  for (const [key, buildings] of tileBuildings) {
+    const [tx, tz] = key.split('_').map(Number);
+    for (const b of buildings) {
+      const center = outputBuildingCentroid(b, tx, tz);
+      if (!center) continue;
+      if (b.h >= 30 && Math.hypot(center[0] - fiftyHudsonXZ[0], center[1] - fiftyHudsonXZ[1]) < 55) {
+        fiftyResiduals++;
+      }
+      if (b.n === 'The Spiral' && Math.abs(b.h - 317.3) < 0.3) spiralKept = true;
+    }
+  }
+  const fiftyOk = !!fiftyFit
+    && Math.abs(fiftyFit.w - 107) < 3
+    && Math.abs(fiftyFit.d - 57) < 3
+    && Math.abs(fiftyFit.roofH - 308.2) < 1
+    && fiftyFit.keptH === 0
+    && fiftyFit.clearedParts >= 3
+    && fiftyResiduals === 0
+    && spiralKept;
+  results.push(
+    `50 Hudson Yards replacement: fit=${fiftyFit?.w ?? 0}x${fiftyFit?.d ?? 0}m, ` +
+      `source roof=${fiftyFit?.roofH ?? 0}m, cleared=${fiftyFit?.clearedParts ?? 0}, ` +
+      `site residuals=${fiftyResiduals}, The Spiral kept=${spiralKept} ` +
+      `-> ${fiftyOk ? 'PASS' : 'FAIL'}`,
+  );
 
   const timesSquareRoads = tileRoads.get('0_0') || [];
   const tsOk = timesSquareRoads.length > 0;

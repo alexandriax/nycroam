@@ -160,11 +160,13 @@ export function makeSidewalkTexture(): Tex {
 export function makeBrickTexture(tone: 'red' | 'brown' | 'tan' = 'red'): Tex {
   const bases = { red: [139, 74, 58], brown: [110, 74, 56], tan: [184, 154, 114] } as const;
   const seedByTone = { red: 303, brown: 313, tan: 323 };
-  return surface(`brick-${tone}`, 512, seedByTone[tone], 2.4, 0.9, (ctx, rand, h, size) => {
+  // 1.2m repeat: six ~200mm stretchers by eighteen ~67mm courses, matching
+  // common NYC modular brick (including mortar) instead of oversized blocks.
+  return surface(`brick-${tone}`, 512, seedByTone[tone], 1.2, 0.9, (ctx, rand, h, size) => {
     const [br, bg, bb] = bases[tone];
     ctx.fillStyle = '#c8c2b6'; // mortar
     ctx.fillRect(0, 0, size, size);
-    const rows = 12, cols = 6;
+    const rows = 18, cols = 6;
     const bh = size / rows, bw = size / cols, gap = 4;
     for (let r = 0; r < rows; r++) {
       const off = (r % 2) * (bw / 2);

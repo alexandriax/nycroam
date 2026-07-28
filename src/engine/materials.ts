@@ -3,11 +3,15 @@ import {
   makeAsphaltTexture, makeSidewalkTexture, makeBrickTexture, makeRoofTexture,
   makeGrassDetailTexture, makeBarkTexture,
 } from './textures';
+import { quality } from './quality';
 
 /**
  * Facade material: Lambert + injected procedural window grid on vertical faces.
- * Windows are carved in the fragment shader from world position — zero textures,
- * one material, one draw call per tile.
+ * Windows are carved in the fragment shader from world position; brick/roof
+ * normals are world-projected so close surfaces carry real light relief without
+ * extra geometry. Screen-space filtering keeps the grid stable in motion, and
+ * expensive detail fades before it becomes sub-pixel. Still one material and
+ * one draw call per tile.
  */
 export function makeFacadeMaterial(): THREE.MeshLambertMaterial {
   // DoubleSide + front-facing test: if imperfect OSM data leaves any opening,
@@ -15,9 +19,15 @@ export function makeFacadeMaterial(): THREE.MeshLambertMaterial {
   const mat = new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.DoubleSide });
   const brick = makeBrickTexture('red');
   const roof = makeRoofTexture();
+  // Normal-map relief is the premium desktop close-up path. Mobile keeps the
+  // anti-aliased windows/reflections but avoids a second texture sample before
+  // lighting; its lower resolution makes the micro-relief imperceptible anyway.
+  const premiumSurfaceNormals = quality().shadows;
   mat.onBeforeCompile = (shader) => {
     shader.uniforms.uBrick = { value: brick.map };
+    shader.uniforms.uBrickNormal = { value: brick.normal };
     shader.uniforms.uRoof = { value: roof.map };
+    shader.uniforms.uRoofNormal = { value: roof.normal };
     shader.vertexShader = shader.vertexShader
       .replace(
         '#include <common>',
@@ -42,15 +52,62 @@ export function makeFacadeMaterial(): THREE.MeshLambertMaterial {
         varying vec3 vWNormal;
         varying float vStyle;
         uniform sampler2D uBrick;
+        uniform sampler2D uBrickNormal;
         uniform sampler2D uRoof;
+        uniform sampler2D uRoofNormal;
         float bhash(vec2 p) {
           return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453);
+        }
+        float aaBand(float x, float lo, float hi) {
+          float w = max(fwidth(x) * 1.15, 0.0015);
+          return smoothstep(lo - w, lo + w, x)
+               * (1.0 - smoothstep(hi - w, hi + w, x));
+        }
+        float aaRect(vec2 p, vec2 lo, vec2 hi) {
+          return aaBand(p.x, lo.x, hi.x) * aaBand(p.y, lo.y, hi.y);
         }
         // Analytically filtered [a,b] band: a step() pair widened to the pixel
         // footprint w, so window edges resolve instead of aliasing.
         float band(float x, float a, float b, float w) {
           return smoothstep(a - w, a + w, x) * (1.0 - smoothstep(b - w, b + w, x));
         }`
+      )
+      .replace(
+        '#include <normal_fragment_maps>',
+        premiumSurfaceNormals
+          ? `#include <normal_fragment_maps>
+        {
+          // MeshLambert has no useful UV layout across merged OSM footprints.
+          // Reconstruct facade tangent space from the world normal, then project
+          // the cached procedural normal maps in metres. Relief is limited to
+          // opaque wall/roof pixels and fades before it can sparkle at distance.
+          vec3 faceN = normalize(vWNormal) * (gl_FrontFacing ? 1.0 : -1.0);
+          float verticalN = 1.0 - abs(faceN.y);
+          float detailN = 1.0 - smoothstep(80.0, 260.0, distance(cameraPosition, vWPos));
+          if (verticalN > 0.55 && vWPos.y > 0.5 && vStyle < 0.5 && detailN > 0.001) {
+            float uN = vWPos.x * faceN.z - vWPos.z * faceN.x;
+            float floorHN = vWPos.y < 4.6 ? 4.6 : 3.1;
+            float winWN = vWPos.y < 4.6 ? 4.2 : 2.5;
+            vec2 fN = vec2(fract(uN / winWN), fract(vWPos.y / floorHN));
+            vec2 loN = vWPos.y < 4.6 ? vec2(0.08, 0.05) : vec2(0.18, 0.25);
+            vec2 hiN = vWPos.y < 4.6 ? vec2(0.92, 0.75) : vec2(0.85, 0.80);
+            float windowN = aaRect(fN, loN, hiN);
+            vec3 mapN = texture2D(uBrickNormal, vec2(uN, vWPos.y) / 1.2).xyz * 2.0 - 1.0;
+            mapN.xy *= 0.72;
+            vec3 tangentN = normalize(vec3(faceN.z, 0.0, -faceN.x));
+            vec3 reliefN = normalize(
+              tangentN * mapN.x + vec3(0.0, 1.0, 0.0) * mapN.y + faceN * max(mapN.z, 0.25)
+            );
+            vec3 worldN = normalize(mix(faceN, reliefN, (1.0 - windowN) * detailN * 0.58));
+            normal = normalize(mat3(viewMatrix) * worldN);
+          } else if (faceN.y > 0.55 && detailN > 0.001) {
+            vec3 mapN = texture2D(uRoofNormal, vWPos.xz / 4.0).xyz * 2.0 - 1.0;
+            mapN.xy *= 0.64;
+            vec3 worldN = normalize(vec3(mapN.x, max(mapN.z, 0.3), mapN.y));
+            normal = normalize(mat3(viewMatrix) * normalize(mix(faceN, worldN, detailN * 0.62)));
+          }
+        }`
+          : '#include <normal_fragment_maps>'
       )
       .replace(
         '#include <color_fragment>',
@@ -61,7 +118,10 @@ export function makeFacadeMaterial(): THREE.MeshLambertMaterial {
           // shows the far wall as a wall instead of a see-through void.
           vec3 wn = normalize(vWNormal) * (gl_FrontFacing ? 1.0 : -1.0);
           float vertical = 1.0 - abs(wn.y);
+          float detail = 1.0 - smoothstep(420.0, 1050.0, distance(cameraPosition, vWPos));
           if (vertical > 0.55 && vWPos.y > 0.5) {
+            vec3 facadeBase = diffuseColor.rgb;
+            if (detail > 0.001) {
             float u = vWPos.x * wn.z - vWPos.z * wn.x;
             float v = vWPos.y;
             bool glassTower = vStyle > 0.5;
@@ -87,6 +147,13 @@ export function makeFacadeMaterial(): THREE.MeshLambertMaterial {
             // Same mean tone, zero temporal noise.
             float lod = 1.0 - smoothstep(0.22, 0.62, max(wx, wy));
             float rnd = mix(0.45, bhash(cellId + floor(diffuseColor.rg * 61.0)), lod);
+            vec3 V = normalize(cameraPosition - vWPos);
+            float fresnel = pow(1.0 - max(dot(V, wn), 0.0), 3.0);
+            vec3 reflected = reflect(-V, wn);
+            float skyLift = clamp(reflected.y * 0.55 + 0.55, 0.0, 1.0);
+            vec3 skyGlass = mix(vec3(0.20, 0.27, 0.36), vec3(0.67, 0.76, 0.86), skyLift);
+            vec3 sunDir = normalize(vec3(-0.48, 0.64, -0.40));
+            float glint = pow(max(dot(reflect(-sunDir, wn), V), 0.0), 96.0) * lod;
 
             if (glassTower && !storefront) {
               // curtain wall: thin mullions + spandrel band each floor
@@ -95,8 +162,10 @@ export function makeFacadeMaterial(): THREE.MeshLambertMaterial {
               float spandrel = mix(0.190, band(f.y, 0.78, 0.97, wy), lod);
               // sky gradient down the pane + per-pane tint
               vec3 glass = mix(vec3(0.30, 0.37, 0.46), vec3(0.55, 0.63, 0.72), mix(0.4, f.y * 0.8 + rnd * 0.25, lod));
-              diffuseColor.rgb = mix(diffuseColor.rgb, glass, mull * pane * 0.92);
+              glass = mix(glass, skyGlass, mix(0.18, 0.34 + fresnel * 0.48, lod));
+              diffuseColor.rgb = mix(diffuseColor.rgb, glass, mull * pane * 0.94);
               diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * 0.55, spandrel * 0.8);
+              diffuseColor.rgb += vec3(1.0, 0.94, 0.80) * glint * pane * 0.22;
             } else {
               float inX = mix(0.670, band(f.x, 0.18, 0.85, wx), lod);
               float inY = mix(0.550, band(f.y, 0.25, 0.8, wy), lod);
@@ -107,22 +176,36 @@ export function makeFacadeMaterial(): THREE.MeshLambertMaterial {
               float win = inX * inY;
               // masonry surface detail between the windows (brightness only,
               // so each building keeps its palette color)
-              vec3 bt = texture2D(uBrick, vec2(u, v) / 2.4).rgb;
+              vec3 bt = texture2D(uBrick, vec2(u, v) / 1.2).rgb;
               float bl = dot(bt, vec3(0.333)) * 1.75;
               diffuseColor.rgb *= mix(1.0, bl, 0.34 * (1.0 - win));
               vec3 glass = mix(vec3(0.13, 0.16, 0.2), vec3(0.38, 0.44, 0.52), rnd * rnd);
               if (storefront) glass = mix(vec3(0.1, 0.11, 0.13), vec3(0.3, 0.28, 0.24), rnd);
+              glass = mix(glass, skyGlass, (storefront ? 0.18 : 0.27) + fresnel * 0.35);
               // window inset: lintel shadow at the top of the opening, darker jambs
               float lintel = 1.0 - 0.5 * mix(0.26, smoothstep(0.68, 0.8, f.y), lod) * win;
               float jamb = 1.0 - 0.28 * lod * (band(f.x, 0.18, 0.24, wx) + band(f.x, 0.79, 0.85, wx)) * inY;
               diffuseColor.rgb = mix(diffuseColor.rgb, glass, win * 0.88);
               diffuseColor.rgb *= lintel * jamb;
+              diffuseColor.rgb += vec3(1.0, 0.94, 0.82) * glint * win * (storefront ? 0.07 : 0.11);
+              // Real storefronts are divided into narrow display bays and a
+              // transom; upper punched windows get a slim sash. These are only
+              // shader masks, so the close-up read improves with no geometry.
+              float frame = storefront
+                ? lod * ((band(f.x, 0.335, 0.355, wx) + band(f.x, 0.645, 0.665, wx)) * inY
+                  + band(f.y, 0.54, 0.565, wy) * inX)
+                : lod * band(f.y, 0.505, 0.525, wy) * inX;
+              diffuseColor.rgb = mix(diffuseColor.rgb, facadeBase * 0.36, clamp(frame, 0.0, 1.0) * 0.92);
               // sill highlight under the window
               float sill = lod * band(f.y, 0.225, 0.275, max(wy, 0.025)) * inX;
               diffuseColor.rgb += vec3(0.05) * sill * (storefront ? 0.0 : 1.0);
             }
+            // Beyond the useful angular size, blend back to the cheap massing
+            // color. This removes distant grid moiré and avoids visible LOD pops.
+            diffuseColor.rgb = mix(facadeBase, diffuseColor.rgb, detail);
+            }
             // grounding gradient: subtle darkening near street
-            diffuseColor.rgb *= 0.86 + 0.14 * clamp(v / 7.0, 0.0, 1.0);
+            diffuseColor.rgb *= 0.86 + 0.14 * clamp(vWPos.y / 7.0, 0.0, 1.0);
           } else if (wn.y > 0.55) {
             // roofs: ballast gravel, worldspace projected
             vec3 rt = texture2D(uRoof, vWPos.xz / 4.0).rgb;

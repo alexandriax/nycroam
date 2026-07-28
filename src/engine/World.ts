@@ -3,11 +3,14 @@ import { dataUrl } from './dataver';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import { TileManager } from './TileManager';
 import { PlayerControls } from './controls';
-import { resolveBuildingCollision, nearestWallDir, floorAt, floorAtAny, pointInBuildings, roofBelow } from './collision';
+import {
+  resolveBuildingCollision, nearestWallDir, floorAt, floorAtAny,
+  pointInBuildings, buildingRingsAt, pointInBuildingsExcept, roofBelow,
+} from './collision';
 import { PATH_KIND_ROAD, type RoadPaths } from './tileTypes';
 import { setupSky, setupLights, followSun, SKY } from './sky';
+import { mobileQualityRequested, quality } from './quality';
 import { installAtmosphere } from './atmosphere';
-import { quality } from './quality';
 import { makeSkylineMaterial, makeFlatMaterial, makeWaterMaterial } from './materials';
 import { EntranceManager, disposeGroup } from './EntranceManager';
 import { PlaqueManager, type PlaqueInfo } from './PlaqueManager';
@@ -107,7 +110,7 @@ export const LANDMARKS: { name: string; lat: number; lon: number }[] = [
   { name: 'Columbus Circle', lat: 40.7681, lon: -73.9819 },
   { name: 'Washington Sq Park', lat: 40.7308, lon: -73.9973 },
   { name: 'Wall Street', lat: 40.7069, lon: -74.0113 },
-  { name: 'One World Trade', lat: 40.7127, lon: -74.0134 },
+  { name: 'One World Trade', lat: 40.7130, lon: -74.01319 },
   { name: 'The Battery', lat: 40.7033, lon: -74.017 },
   { name: 'Union Square', lat: 40.7359, lon: -73.9906 },
   { name: 'Rockefeller Center', lat: 40.7587, lon: -73.9787 },
@@ -175,6 +178,9 @@ export class World {
   private transitioning = false;
   private lastEnterGuard = 0; // avoid instant re-trigger loops
   private spawnResolve = false; // eject from a building after a teleport/exit, once tiles load
+  private spawnLookAt: { x: number; z: number } | null = null; // menu jump target, cleared after safe arrival
+  private spawnLandmarkId: string | null = null; // wait for replacement massing before resolving a landmark jump
+  private spawnWaitStarted = 0;
   private skyDome: THREE.Object3D | null = null;
   private lastRaf = 0;
   private tickInterval = 0;
@@ -202,7 +208,7 @@ export class World {
     // compiles a program. Materials resolve chunks at first render, not at
     // construction, but keeping this first removes the question entirely.
     installAtmosphere();
-    this.isMobile = /Android|iPhone|iPad|Mobile/i.test(navigator.userAgent) || navigator.maxTouchPoints > 1;
+    this.isMobile = mobileQualityRequested();
     const q = quality();
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
     this.maxPixelRatio = Math.min(window.devicePixelRatio, q.pixelRatioCap);
@@ -389,17 +395,17 @@ export class World {
       if (spec) this.enterStation(spec, spec.pos);
     }
 
-    // deep-link: ?landmark=<id or name> teleports to a premium landmark for fast
-    // QA (the LandmarkManager streams it in the moment we land inside its radius).
-    // Lift into helicopter view so you never spawn buried inside the build.
+    // deep-link: ?landmark=<id or name> opens the same safe, framed presentation
+    // used by "Jump to…" for fast QA. Do not force helicopter mode here: doing
+    // so bypassed spawnResolve and left y=0 at the raw landmark anchor — exactly
+    // inside the premium build that this route is meant to inspect.
     const lm = params.get('landmark');
     if (lm) {
       const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '');
       const entry = LANDMARKS_REG.find((l) => l.id.toLowerCase() === lm.toLowerCase())
         ?? LANDMARKS_REG.find((l) => norm(l.name).includes(norm(lm)));
       if (entry) {
-        this.teleport(entry.lat, entry.lon);
-        this.controls.fly = true;
+        this.teleport(entry.lat, entry.lon, entry.id);
       }
     }
 
@@ -804,11 +810,35 @@ export class World {
     this.camera.updateProjectionMatrix();
   };
 
-  teleport(lat: number, lon: number) {
+  teleport(lat: number, lon: number, landmarkId: string | null = null) {
     if (this.transitioning) return; // mid fade/exit — ignore rather than corrupt state
     this.leaveTransit();            // abandon any train/bus/tram/bike so `pos` takes effect
+    // "Jump to…" is a street-level presentation arrival from every mode.
+    // Leaving transit already clears vehicles, but helicopter is a controls
+    // state rather than a world mode; carrying it through skipped freeSpawn
+    // and dropped the player at y=0 inside the selected building footprint.
+    this.controls.fly = false;
+    this.flyVel.set(0, 0, 0);
+    this.flyTarget.set(0, 0, 0);
     const [x, z] = lonLatToXZ(lon, lat);
-    this.pos.set(x, 0, z);
+    const landmark = landmarkId ? LANDMARKS_REG.find((lm) => lm.id === landmarkId) : undefined;
+    // A few supertalls are surrounded by nearly continuous block-front slabs:
+    // automatic radial sampling can find a technically clear keyhole while the
+    // resulting first view is still mostly neighboring walls. A surveyed
+    // presentation point starts on a known-clear public path; freeSpawn below
+    // still validates building clearance and frames the real landmark target.
+    const hasArrival = landmark?.arrivalLat !== undefined && landmark.arrivalLon !== undefined;
+    const [spawnX, spawnZ] = hasArrival
+      ? lonLatToXZ(landmark.arrivalLon!, landmark.arrivalLat!)
+      : [x, z];
+    const hasArrivalLook = landmark?.arrivalLookLat !== undefined && landmark.arrivalLookLon !== undefined;
+    const [lookX, lookZ] = hasArrivalLook
+      ? lonLatToXZ(landmark.arrivalLookLon!, landmark.arrivalLookLat!)
+      : [x, z];
+    this.pos.set(spawnX, 0, spawnZ);
+    this.spawnLookAt = { x: lookX, z: lookZ };
+    this.spawnLandmarkId = landmarkId;
+    this.spawnWaitStarted = performance.now();
     this.spawnResolve = true; // resolved out of any building once tiles arrive
     this.save();
   }
@@ -845,21 +875,127 @@ export class World {
 
   /**
    * A standing point at/near (x,z) that is NOT inside a building. If the target
-   * is already clear, just resolve grazing contact. Otherwise spiral outward and
-   * take the nearest open point — guarantees a teleport/exit never leaves the
-   * player embedded in a building (where they could then walk out through walls).
+   * is already clear, just resolve grazing contact. If it is inside, project
+   * directly through the nearest footprint edge first: landmark anchors often
+   * sit at the center of a 70-250m building, well beyond the old 26m spiral.
+   * Only fall back to the wider spiral for overlapping/nested footprints.
    */
-  private freeSpawn(x: number, z: number): [number, number] {
+  private freeSpawn(x: number, z: number, standOff = 0.75, preferredAngle: number | null = null): [number, number] {
     const near0 = this.colNear(x, z);
     const y0 = heightAt(x, z);
     if (!pointInBuildings(x, z, near0, y0)) return resolveBuildingCollision(x, z, 0.5, near0, y0);
-    for (let ring = 2.5; ring <= 26; ring += 2.5) {
-      for (let a = 0; a < 16; a++) {
-        const ang = (a / 16) * Math.PI * 2;
+
+    // The collision resolver already knows the exact polygon edges, so this is
+    // both closer and much cheaper than sampling every few metres from a large
+    // building's center (AMNH is ~267x237m; New York Life is ~70m wide). Repeat
+    // until stable because a multi-volume landmark can push out of one ring and
+    // into the clearance band of another later in the same resolver pass.
+    const settle = (sx: number, sz: number): [number, number] | null => {
+      let px = sx, pz = sz;
+      for (let pass = 0; pass < 10; pass++) {
+        const py = heightAt(px, pz);
+        const near = this.colNear(px, pz);
+        const [nx, nz] = resolveBuildingCollision(px, pz, standOff, near, py);
+        const moved2 = (nx - px) ** 2 + (nz - pz) ** 2;
+        px = nx; pz = nz;
+        if (moved2 < 0.01) {
+          const finalY = heightAt(px, pz);
+          return pointInBuildings(px, pz, this.colNear(px, pz), finalY) ? null : [px, pz];
+        }
+      }
+      return null;
+    };
+
+    // Menu jumps should PRESENT a building, not merely eject to the closest
+    // courtyard or service slot. Estimate the containing massing's reach from
+    // its collision AABBs, then look for a clearance-stable point just beyond
+    // it. Small buildings land across the street; campus-sized landmarks such
+    // as AMNH land beyond the whole complex (typically in Central Park).
+    if (standOff >= 4) {
+      let reach = 0;
+      for (const set of near0) {
+        const n = set.ringStart.length - 1;
+        for (let i = 0; i < n; i++) {
+          if (y0 + 1.75 <= set.base[i] || y0 >= set.top[i] - 0.6) continue;
+          const x0 = set.aabb[i * 4], z0 = set.aabb[i * 4 + 1];
+          const x1 = set.aabb[i * 4 + 2], z1 = set.aabb[i * 4 + 3];
+          if (x < x0 || x > x1 || z < z0 || z > z1) continue;
+          reach = Math.max(reach, x - x0, x1 - x, z - z0, z1 - z);
+        }
+      }
+      const targetRoof = roofBelow(x, z, 1200, near0) ?? 0;
+      // A human-scale facade needs a street-width stand-off; a 200m tower needs
+      // roughly a block so its base and crown fit in the same first view.
+      const firstRing = Math.max(32, Math.min(210, Math.max(reach + 24, targetRoof * 0.72)));
+      const hostRings = buildingRingsAt(x, z, near0, y0);
+      for (let ring = firstRing; ring <= Math.min(210, firstRing + 48); ring += 16) {
+        const samples = Math.max(28, Math.ceil((Math.PI * 2 * ring) / 12));
+        let best: [number, number] | null = null, bestScore = Infinity;
+        for (let a = 0; a < samples; a++) {
+          const ang = (a / samples) * Math.PI * 2;
+          const tx = x + Math.cos(ang) * ring, tz = z + Math.sin(ang) * ring;
+          const candidate = settle(tx, tz);
+          if (!candidate) continue;
+          // Trees are intentionally passable world detail, so collision alone
+          // cannot tell that this "safe" point puts the first-person camera
+          // inside opaque leaves. TileManager retains the already-streamed
+          // five-float tree records specifically for this teleport-only test.
+          if (this.tiles.treeCanopyNear(candidate[0], candidate[1])) continue;
+          const dist = Math.hypot(candidate[0] - x, candidate[1] - z);
+          if (dist < firstRing * 0.72) continue;
+
+          // Prefer an unobstructed presentation axis. Ignore only the exact
+          // host rings, not their entire tile collision pack: one pack can hold
+          // scores of unrelated buildings, and ignoring all of it let a same-
+          // tile tower completely block the selected landmark.
+          let blocked = 0;
+          const vx = (x - candidate[0]) / dist, vz = (z - candidate[1]) / dist;
+          // A single center ray can thread a meter-wide slot between two slabs
+          // and call the tower "visible" even though both screen edges are
+          // filled by foreground buildings. Trace the center plus rays toward
+          // the landmark's left/right facade edges; the edge separation grows
+          // toward the target like a real view cone. This rejects canyon
+          // keyholes while remaining a cheap, menu-jump-only test.
+          const edgeHalf = Math.min(18, Math.max(6, targetRoof * 0.03));
+          const sideX = -vz, sideZ = vx;
+          for (const edge of [-1, 0, 1]) {
+            for (let along = 10; along < dist - 10; along += 10) {
+              const spread = edge * edgeHalf * (along / dist);
+              const sx = candidate[0] + vx * along + sideX * spread;
+              const sz = candidate[1] + vz * along + sideZ * spread;
+              const sy = heightAt(sx, sz);
+              if (pointInBuildingsExcept(sx, sz, this.colNear(sx, sz), hostRings, sy)) blocked++;
+            }
+          }
+          // A few landmarks have a documented presentation axis because an
+          // elevated/passable structure is visually opaque but deliberately
+          // absent from collision (Park Avenue's viaduct by Chrysler). Keep
+          // occlusion dominant, then prefer that bearing among equally clear
+          // and equally distant street points.
+          const angleDelta = preferredAngle === null
+            ? 0
+            : Math.abs(Math.atan2(Math.sin(ang - preferredAngle), Math.cos(ang - preferredAngle)));
+          const score = blocked * 10000 + angleDelta * 100 + Math.abs(dist - ring);
+          if (score < bestScore) { bestScore = score; best = candidate; }
+        }
+        if (best) return best;
+      }
+    }
+
+    const projected = settle(x, z);
+    if (projected) return projected;
+
+    for (let ring = 4; ring <= 160; ring += 4) {
+      const samples = Math.max(20, Math.ceil((Math.PI * 2 * ring) / 8));
+      for (let a = 0; a < samples; a++) {
+        const ang = (a / samples) * Math.PI * 2;
         const tx = x + Math.cos(ang) * ring, tz = z + Math.sin(ang) * ring;
         const near = this.colNear(tx, tz);
         const ty = heightAt(tx, tz);
-        if (!pointInBuildings(tx, tz, near, ty)) return resolveBuildingCollision(tx, tz, 0.5, near, ty);
+        if (!pointInBuildings(tx, tz, near, ty)) {
+          const candidate = settle(tx, tz);
+          if (candidate) return candidate;
+        }
       }
     }
     return [x, z]; // fully enclosed (shouldn't happen in Manhattan) — leave as-is
@@ -922,6 +1058,44 @@ export class World {
     let nx = cx - x, nz = cz - z; const nl = Math.hypot(nx, nz);
     if (nl > 1e-6) { nx /= nl; nz /= nl; } else { nx = -tz; nz = tx; }
     return [tx, tz, nx, nz];
+  }
+
+  /**
+   * Clip the broad 2-tile road query to segments that could geometrically
+   * affect a local footprint solve. The old spiral tested every candidate
+   * against every segment in up to 25 tiles; in dense Lower Manhattan that
+   * turned one difficult entrance into a 50–115 ms main-thread task.
+   */
+  private localRoadPaths(paths: RoadPaths[], x: number, z: number, radius: number): RoadPaths[] {
+    const pts: number[] = [];
+    const start: number[] = [0];
+    const width: number[] = [];
+    const kind: number[] = [];
+    for (const rp of paths) {
+      const roadCount = rp.start.length - 1;
+      for (let r = 0; r < roadCount; r++) {
+        const a = rp.start[r], b = rp.start[r + 1];
+        for (let j = a; j < b - 1; j++) {
+          const x1 = rp.pts[j * 2], z1 = rp.pts[j * 2 + 1];
+          const x2 = rp.pts[(j + 1) * 2], z2 = rp.pts[(j + 1) * 2 + 1];
+          if (
+            Math.max(x1, x2) < x - radius || Math.min(x1, x2) > x + radius
+            || Math.max(z1, z2) < z - radius || Math.min(z1, z2) > z + radius
+          ) continue;
+          pts.push(x1, z1, x2, z2);
+          width.push(rp.width[r]);
+          kind.push(rp.kind[r]);
+          start.push(start[start.length - 1] + 2);
+        }
+      }
+    }
+    if (!width.length) return paths;
+    return [{
+      start: Uint32Array.from(start),
+      pts: Float32Array.from(pts),
+      width: Float32Array.from(width),
+      kind: Uint8Array.from(kind),
+    }];
   }
 
   /** Signed clearance of a point to the nearest ribbon edge (incl. bike lanes):
@@ -1040,7 +1214,10 @@ export class World {
    */
   private resolveFootprint(x: number, z: number, fp: KitFootprint): [number, number] | null {
     if (!this.tiles.readyAround(x, z)) return null; // wait for road/building data
-    const paths = this.tiles.roadPathsNear(x, z, 2); // 2-tile radius: wide-avenue centerlines in the next tile count
+    // The source query stays broad enough to catch a wide avenue whose
+    // centerline lies in a neighboring tile, then a conservative 96 m AABB
+    // clip removes segments that cannot touch the 36 m fallback spiral.
+    const paths = this.localRoadPaths(this.tiles.roadPathsNear(x, z, 2), x, z, 96);
     const frameFixed = fp.fixed ? this.roadFrame(paths, x, z) : undefined;
     // 1) joint building + whole-footprint road solve
     let px = x, pz = z;
@@ -1064,7 +1241,9 @@ export class World {
     // 36 m radius: a full-block landmark base (Hearst) beside a wide avenue can
     // leave no legal seat within 24 m of the mapped point
     for (let ring = 1; ring <= 36 && !hasClear; ring++) {
-      const steps = Math.max(6, ring * 4);
+      // About 3 m between angular probes: tighter than the stair/dock width,
+      // while avoiding thousands of redundant sub-meter tests at large radii.
+      const steps = Math.max(8, Math.ceil((Math.PI * 2 * ring) / 3));
       for (let a = 0; a < steps; a++) {
         const ang = (a / steps) * Math.PI * 2;
         let cx = x + Math.cos(ang) * ring, cz = z + Math.sin(ang) * ring;
@@ -1602,10 +1781,34 @@ export class World {
       // footprint (entrances hug walls, jump targets are raw lat/lon). Once the
       // tiles here have integrated, push out to the nearest sidewalk. Skip while
       // flying — the helicopter teleport lands you above the rooftops on purpose.
-      if (this.spawnResolve && !this.controls.fly && this.tiles.readyAround(this.pos.x, this.pos.z)) {
-        const [rx, rz] = this.freeSpawn(this.pos.x, this.pos.z);
+      const landmarkReady = !this.spawnLandmarkId
+        || this.landmarks.isBuilt(this.spawnLandmarkId)
+        || performance.now() - this.spawnWaitStarted > 8000;
+      if (this.spawnResolve && !this.controls.fly && landmarkReady && this.tiles.readyAround(this.pos.x, this.pos.z)) {
+        const lookAt = this.spawnLookAt;
+        const spawnLandmark = this.spawnLandmarkId
+          ? LANDMARKS_REG.find((lm) => lm.id === this.spawnLandmarkId)
+          : undefined;
+        const preferredAngle = spawnLandmark?.arrivalBearing ?? null;
+        const [rx, rz] = this.freeSpawn(this.pos.x, this.pos.z, lookAt ? 8 : 0.75, preferredAngle);
         this.pos.x = rx; this.pos.z = rz;
         this.pos.y = heightAt(rx, rz);
+        if (lookAt) {
+          const dx = lookAt.x - rx, dz = lookAt.z - rz;
+          if (dx * dx + dz * dz > 4) {
+            // Frame the selected place from the safe view point. Aim at the
+            // upper-middle of an explicit visual height (for non-solid tips) or
+            // its real collision height, so towers present their complete crown
+            // while a low museum/park structure stays near eye level.
+            this.controls.yaw = Math.atan2(-dx, -dz);
+            const targetRoof = roofBelow(lookAt.x, lookAt.z, 1200, this.colNear(lookAt.x, lookAt.z)) ?? 20;
+            const aimY = spawnLandmark?.arrivalAimY ?? Math.max(12, targetRoof * 0.52);
+            const horizontal = Math.hypot(dx, dz);
+            this.controls.pitch = Math.max(0.08, Math.min(0.75, Math.atan2(aimY - this.pos.y - this.eyeHeight, horizontal)));
+          }
+        }
+        this.spawnLookAt = null;
+        this.spawnLandmarkId = null;
         this.spawnResolve = false;
       }
       const prevX = this.pos.x, prevZ = this.pos.z;
@@ -1693,7 +1896,7 @@ export class World {
       // the lead); kit managers (entrances/bikes) keep the true position — their
       // evict radii are small enough that leading would despawn kits still in
       // view just behind
-      this.tiles.update(leadX, leadZ);
+      this.tiles.update(leadX, leadZ, this.pos.y);
       this.entrances.update(this.pos.x, this.pos.z, dt);
       this.plaques.unloadRadius = 440 + lead; // same trailing-edge guard as tiles
       this.plaques.update(leadX, leadZ, dt);
@@ -1836,7 +2039,7 @@ export class World {
         this.pos.set(h.pos.x, heightAt(h.pos.x, h.pos.z), h.pos.z);
         if (this.sun) followSun(this.sun, this.pos.x, this.pos.z, this.pos.y, fwd.x, fwd.z);
         this.waterUpdate?.(dt);
-        this.tiles.update(this.pos.x, this.pos.z);
+        this.tiles.update(this.pos.x, this.pos.z, this.pos.y);
         this.entrances.update(this.pos.x, this.pos.z, dt);
         this.bikes.update(this.pos.x, this.pos.z, dt);
         this.tram.update(this.pos.x, this.pos.z, dt);

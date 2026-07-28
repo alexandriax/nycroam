@@ -10,8 +10,12 @@ import { LANDMARKS_PLACED } from './landmarks/registry';
 // tile pipeline shipped as generic massing — suppressed here so the bespoke
 // landmark build doesn't stand beside a windowed duplicate of itself.
 const CLEAR_ZONES = LANDMARKS_PLACED
-  .filter((l) => l.clear)
-  .map((l) => ({ x: l.x, z: l.z, r2: l.clear! * l.clear! }));
+  .filter((l) => l.clear || l.clearName)
+  .map((l) => ({
+    x: l.x, z: l.z,
+    r2: (l.clear ?? 0) * (l.clear ?? 0),
+    name: l.clearName,
+  }));
 
 // NYC DOT bike-lane green (thermoplastic paint) + white edge stripes. Keep the
 // blue channel at/below red so it renders a warm leaf-green, never a cool teal
@@ -546,6 +550,8 @@ function buildTile(tile: TileJson): BuildResponse {
         cx /= rn; cz /= rn;
         let cleared = false;
         for (const zn of CLEAR_ZONES) {
+          if (zn.name && b.n === zn.name) { cleared = true; break; }
+          if (!zn.r2) continue;
           const dx = cx - zn.x, dz = cz - zn.z;
           if (dx * dx + dz * dz < zn.r2) { cleared = true; break; }
         }

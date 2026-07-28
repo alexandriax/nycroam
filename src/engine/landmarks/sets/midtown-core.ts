@@ -27,6 +27,14 @@ const ICE_WHITE = new THREE.MeshLambertMaterial({ color: '#dfe9f2' });
 const FIRE_GOLD = new THREE.MeshBasicMaterial({ color: '#ffd97a' });
 // planting green (GREEN_PATINA is verdigris — it reads as teal plastic on a hedge)
 const FOLIAGE = new THREE.MeshLambertMaterial({ color: '#2f5c2b' });
+// Top of the Rock's warm pavers and nearly colourless laminated wind screens.
+// The glass is intentionally transparent here: these eight broad panels are
+// cheap to sort and should not read like the old opaque blue rooftop blocks.
+const ROCK_TERRACE = new THREE.MeshStandardMaterial({ color: '#887567', roughness: 0.74, metalness: 0.04 });
+const ROCK_GLASS = new THREE.MeshStandardMaterial({
+  color: '#cde4ea', metalness: 0.12, roughness: 0.08,
+  transparent: true, opacity: 0.34, depthWrite: false,
+});
 
 /** Thin two-sided solid-colour flag jutting +x from a vertical pole. */
 function flagpole(h: number, flagMat: THREE.Material): THREE.Group {
@@ -347,31 +355,54 @@ export const builders: Record<string, (ctx: LandmarkCtx) => THREE.Group> = {
     return g;
   },
 
-  // Top of the Rock: 30 Rock's summit only — stepped decks + art-deco crown fins at y259
-  'top-of-the-rock': () => {
+  // Top of the Rock spans the source massing's real 235m, 245m and 260m
+  // setbacks (67th, 69th and 70th floors). The old build started at 259.5m,
+  // then stacked three decks and a 12m equipment box to roughly 280m even
+  // though 30 Rock's documented architectural top is 850ft / 259.1m.
+  'top-of-the-rock': (ctx) => {
     const g = new THREE.Group();
-    // three tiered observation slabs with glass parapet walls
-    const decks: [number, number, number][] = [[46, 22, 259.5], [38, 17, 263.4], [30, 13, 267.2]];
-    for (const [w, d, y] of decks) {
-      g.add(box(w, 1.0, d, LIMESTONE, 0, y, 0));
-      g.add(box(w, 1.3, 0.25, GLASS_LM, 0, y + 1.1, d / 2));
-      g.add(box(w, 1.3, 0.25, GLASS_LM, 0, y + 1.1, -d / 2));
-      g.add(box(0.25, 1.3, d, GLASS_LM, w / 2, y + 1.1, 0));
-      g.add(box(0.25, 1.3, d, GLASS_LM, -w / 2, y + 1.1, 0));
-    }
-    // crown mass on the top setback with stepped art-deco limestone fins
-    const cy = 268;
-    g.add(box(24, 12, 9, LIMESTONE, 0, cy + 6, -1));
-    for (let i = 0; i < 11; i++) {
-      const x = -10 + i * 2;
-      const fh = 6 + (5 - Math.abs(i - 5)) * 1.3;
-      g.add(box(1.1, fh, 0.8, LIMESTONE, x, cy + fh / 2, 4.2));
-    }
-    for (let i = 0; i < 5; i++) {
-      const z = -4 + i * 2;
-      const fh = 5 + i * 0.4;
-      g.add(box(0.8, fh, 1.1, LIMESTONE, 12.5, cy + fh / 2, z));
-      g.add(box(0.8, fh, 1.1, LIMESTONE, -12.5, cy + fh / 2, z));
+    const fitW = ctx.fit?.w ?? 100.4;
+    const fitD = ctx.fit?.d ?? 31.3;
+    const roof = ctx.fit?.roofH ?? 260;
+    const topW = ctx.fit?.topW ?? 70.5;
+    const topD = ctx.fit?.topD ?? 19.3;
+
+    // These footprint centers and dimensions come directly from the retained
+    // OSM bands after transforming them into the fit's local frame. Thin
+    // terrace skins sit just above the existing roofs, eliminating coplanar
+    // overlap while preserving the accurate Art Deco setback silhouette.
+    const decks = [
+      { x: 2.4, y: roof - 25, w: fitW - 4.8, d: fitD, glass: true },
+      { x: 4.7, y: roof - 15, w: fitW - 9.4, d: fitD, glass: true },
+      { x: -5.6, y: roof, w: topW, d: topD, glass: false },
+    ] as const;
+    for (const deck of decks) {
+      g.add(box(deck.w - 0.4, 0.12, deck.d - 0.4, ROCK_TERRACE, deck.x, deck.y + 0.07, 0));
+      if (deck.glass) {
+        // The 67th/69th floors use laminated glass wind screens. Four broad
+        // panes and four steel cap rails per level retain their transparent,
+        // ocean-liner-deck character for only eight transparent objects.
+        const ph = 2.05, inset = 0.18;
+        for (const z of [-deck.d / 2 + inset, deck.d / 2 - inset]) {
+          g.add(box(deck.w - 0.8, ph, 0.10, ROCK_GLASS, deck.x, deck.y + ph / 2 + 0.12, z));
+          g.add(box(deck.w - 0.6, 0.09, 0.16, STEEL_LM, deck.x, deck.y + ph + 0.16, z));
+        }
+        for (const x of [deck.x - deck.w / 2 + inset, deck.x + deck.w / 2 - inset]) {
+          g.add(box(0.10, ph, deck.d - 0.8, ROCK_GLASS, x, deck.y + ph / 2 + 0.12, 0));
+          g.add(box(0.16, 0.09, deck.d - 0.6, STEEL_LM, x, deck.y + ph + 0.16, 0));
+        }
+      } else {
+        // The 70th-floor roof is explicitly fully open-air and has no glass
+        // screen. A waist-high limestone parapet is the complete skyline cap;
+        // no invented equipment room or crown rises above it.
+        const h = 0.72, t = 0.42;
+        for (const z of [-deck.d / 2 + t / 2, deck.d / 2 - t / 2]) {
+          g.add(box(deck.w, h, t, LIMESTONE, deck.x, deck.y + h / 2 + 0.12, z));
+        }
+        for (const x of [deck.x - deck.w / 2 + t / 2, deck.x + deck.w / 2 - t / 2]) {
+          g.add(box(t, h, deck.d - t * 2, LIMESTONE, x, deck.y + h / 2 + 0.12, 0));
+        }
+      }
     }
     return g;
   },
