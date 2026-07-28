@@ -721,7 +721,12 @@ export const builders: Record<string, (ctx: LandmarkCtx) => THREE.Group> = {
     windowGeo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
     windowGeo.setAttribute('normal', new THREE.Float32BufferAttribute(norm, 3));
     windowGeo.setIndex(idx);
-    g.add(new THREE.Mesh(windowGeo, MET_GLASS));
+    // This one mesh spans every face and tier; its aggregate AABB is not a
+    // solid building volume. Excluding it prevents a redundant full-width
+    // collision ring from sealing the real setbacks above the 132m shaft.
+    const windows = new THREE.Mesh(windowGeo, MET_GLASS);
+    windows.userData.noCollision = true;
+    g.add(windows);
 
     // Four working-time clock faces. They bake the visitor's local time when
     // the landmark streams in, so the icon behaves like a clock rather than a
