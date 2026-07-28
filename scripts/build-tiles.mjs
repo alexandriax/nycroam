@@ -644,6 +644,11 @@ async function main() {
     // minH: the 120m base obb centered the crown 13m off the tower shaft — the
     // verdigris crown floated beside the top (the "topper near City Hall" bug)
     { id: 'woolworth', lat: 40.7124, lon: -74.0083, r: 40, minH: 150 },
+    // Rebuild the New York Life Building's upper tower from the 115m setback.
+    // OSM's 148m shaft, four corner turrets and 187.5m pyramidal roof are
+    // otherwise emitted as flat generic prisms, including a solid gold block
+    // where the landmark's signature six-story gilded crown should be.
+    { id: 'new-york-life', lat: 40.742735, lon: -73.985608, r: 48, minH: 100, clearAboveH: 148 },
     // minH: obb only over the tall slab — low wings shifted the center 34m off
     // the shaft and the summit crown hung off the roof edge
     { id: 'top-of-the-rock', lat: 40.7591, lon: -73.9794, r: 40, minH: 120 },

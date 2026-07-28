@@ -15,6 +15,15 @@ import {
 // local tones (kept module-scope so the merger sees one instance per material)
 const GRASS = new THREE.MeshLambertMaterial({ color: '#6d8f3a' });
 const GRAVEL = new THREE.MeshLambertMaterial({ color: '#9a958a' });
+const NYL_GLASS = new THREE.MeshStandardMaterial({ color: '#263a3e', metalness: 0.38, roughness: 0.23 });
+const NYL_GOLD = new THREE.MeshStandardMaterial({
+  color: '#d7ad2f', metalness: 0.84, roughness: 0.27,
+  emissive: '#392400', emissiveIntensity: 0.12,
+});
+const NYL_GOLD_SHADE = new THREE.MeshStandardMaterial({
+  color: '#a77914', metalness: 0.88, roughness: 0.32,
+  emissive: '#281700', emissiveIntensity: 0.1,
+});
 
 /** Park bench (matches the Central Park style). */
 function bench(mat: THREE.Material = DARKSTONE): THREE.Group {
@@ -145,6 +154,93 @@ export const builders: Record<string, (ctx: LandmarkCtx) => THREE.Group> = {
       g.add(edgeBar(a[0], a[1], b[0], b[1], yC, 2.6, 2.4, LIMESTONE)); // projecting cornice ring
       g.add(edgeBar(a[0], a[1], b[0], b[1], yC + 2.4, 0.8, 2.0, LIMESTONE)); // 2m parapet above
     }
+    return g;
+  },
+
+  // New York Life Building: rebuild the generic OSM upper massing with the
+  // real 115m setback, limestone tower, four corner turrets and six-story
+  // gilded octagonal crown. The tile pipeline clears only the replaced parts.
+  'new-york-life': (ctx) => {
+    const g = new THREE.Group();
+    const setbackY = ctx.fit?.keptH ?? 115;
+    const roofY = ctx.fit?.roofH ?? 188;
+    const shaftTop = Math.min(148, roofY - 36);
+    const shaftW = 33, shaftD = 35;
+
+    // Limestone upper tower. Individual recessed panes retain close-up Gothic
+    // rhythm but merge into one glass draw call when the landmark is placed.
+    g.add(box(shaftW, shaftTop - setbackY, shaftD, LIMESTONE, 0, (setbackY + shaftTop) / 2, 0));
+    g.add(box(shaftW + 2.2, 1.2, shaftD + 2.2, LIMESTONE, 0, setbackY + 0.6, 0));
+    g.add(box(shaftW + 1.6, 1.5, shaftD + 1.6, LIMESTONE, 0, shaftTop - 0.75, 0));
+
+    const floorCount = 8;
+    for (let floor = 0; floor < floorCount; floor++) {
+      const y = setbackY + 3.0 + floor * ((shaftTop - setbackY - 5.2) / (floorCount - 1));
+      for (let bay = -3; bay <= 3; bay++) {
+        const u = bay * 4.05;
+        g.add(box(2.65, 2.25, 0.16, NYL_GLASS, u, y, shaftD / 2 + 0.09));
+        g.add(box(2.65, 2.25, 0.16, NYL_GLASS, u, y, -shaftD / 2 - 0.09));
+        g.add(box(0.16, 2.25, 2.65, NYL_GLASS, shaftW / 2 + 0.09, y, u));
+        g.add(box(0.16, 2.25, 2.65, NYL_GLASS, -shaftW / 2 - 0.09, y, u));
+      }
+    }
+    // Strong vertical piers and a final row of tall arched-window proportions.
+    for (const x of [-15.2, 15.2]) for (const z of [-15.8, 15.8]) {
+      g.add(box(1.2, shaftTop - setbackY + 1.0, 1.2, LIMESTONE, x, (setbackY + shaftTop) / 2, z));
+    }
+    for (const u of [-8, 0, 8]) {
+      g.add(box(4.3, 4.7, 0.18, NYL_GLASS, u, shaftTop - 3.4, shaftD / 2 + 0.1));
+      g.add(box(4.3, 4.7, 0.18, NYL_GLASS, u, shaftTop - 3.4, -shaftD / 2 - 0.1));
+      g.add(box(0.18, 4.7, 4.3, NYL_GLASS, shaftW / 2 + 0.1, shaftTop - 3.4, u));
+      g.add(box(0.18, 4.7, 4.3, NYL_GLASS, -shaftW / 2 - 0.1, shaftTop - 3.4, u));
+    }
+
+    // Four real corner turrets occupy measured OSM centers on the shaft roof.
+    for (const x of [-12.6, 12.6]) for (const z of [-13.4, 13.4]) {
+      g.add(cyl(1.75, 1.9, 3.0, LIMESTONE, x, shaftTop - 1.5, z, 8));
+      g.add(cyl(0.08, 1.8, 4.5, NYL_GOLD, x, shaftTop + 2.25, z, 8));
+      g.add(cyl(0.08, 0.18, 1.4, NYL_GOLD, x, shaftTop + 5.2, z, 6));
+    }
+    // Open parapet between the turrets, deliberately segmented at the corners.
+    for (const z of [-shaftD / 2, shaftD / 2]) {
+      g.add(box(20, 1.1, 0.45, LIMESTONE, 0, shaftTop + 0.55, z));
+    }
+    for (const x of [-shaftW / 2, shaftW / 2]) {
+      g.add(box(0.45, 1.1, 21, LIMESTONE, x, shaftTop + 0.55, 0));
+    }
+
+    // The official crown is an octagonal pyramid. Eight separately shaded
+    // facets plus low-profile ribs suggest the gold-dipped ceramic tile work
+    // without a texture or transparency cost at skyline distance.
+    const crownBase = shaftTop;
+    const lanternBase = Math.max(crownBase + 28, roofY - 7);
+    const half = Math.min(ctx.fit?.topW ?? 24, ctx.fit?.topD ?? 24) / 2;
+    const clip = half * 0.42;
+    const rim = [
+      new THREE.Vector3(-clip, crownBase, -half), new THREE.Vector3(clip, crownBase, -half),
+      new THREE.Vector3(half, crownBase, -clip), new THREE.Vector3(half, crownBase, clip),
+      new THREE.Vector3(clip, crownBase, half), new THREE.Vector3(-clip, crownBase, half),
+      new THREE.Vector3(-half, crownBase, clip), new THREE.Vector3(-half, crownBase, -clip),
+    ];
+    const apex = new THREE.Vector3(0, lanternBase, 0);
+    for (let i = 0; i < rim.length; i++) {
+      const a = rim[i], b = rim[(i + 1) % rim.length];
+      const geo = new THREE.BufferGeometry().setFromPoints([b, a, apex]);
+      geo.setIndex([0, 1, 2]);
+      geo.computeVertexNormals();
+      g.add(new THREE.Mesh(geo, i % 2 ? NYL_GOLD_SHADE : NYL_GOLD));
+      g.add(strut(a, apex, 0.07, NYL_GOLD_SHADE, 5));
+    }
+    for (const t of [0.27, 0.52, 0.76]) {
+      const ring = rim.map((p) => p.clone().lerp(apex, t));
+      for (let i = 0; i < ring.length; i++) {
+        g.add(strut(ring[i], ring[(i + 1) % ring.length], 0.055, NYL_GOLD_SHADE, 5));
+      }
+    }
+    // The 18-ton lantern and spire finish at the measured 187.5m roof height.
+    g.add(cyl(1.2, 1.55, 2.2, NYL_GOLD, 0, lanternBase + 1.1, 0, 8));
+    g.add(cyl(0.32, 0.75, 2.0, NYL_GOLD_SHADE, 0, lanternBase + 3.2, 0, 8));
+    g.add(cyl(0.03, 0.3, Math.max(1, roofY - lanternBase - 4.2), NYL_GOLD, 0, (lanternBase + roofY + 4.2) / 2, 0, 6));
     return g;
   },
 
