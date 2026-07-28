@@ -613,10 +613,15 @@ export const builders: Record<string, (ctx: LandmarkCtx) => THREE.Group> = {
   // the correct stacked silhouette but rendered every part as an unadorned
   // prism. Rebuild the 1909 Venetian-campanile landmark at its measured host
   // center, using the documented 213.4m architectural height.
-  'met-life-tower': () => {
+  'met-life-tower': (ctx) => {
     const g = new THREE.Group();
-    const W = 33, D = 32;
-    const shaftTop = 151;
+    // The National Historic Landmark survey gives an 85x75ft (25.9x22.9m)
+    // lot. The tile fit independently measures 26x22m; use that real plan
+    // instead of the old 33x32m box that made the campanile read squat.
+    const W = ctx.fit?.w ?? 25.9, D = ctx.fit?.d ?? 22.9;
+    const baseTop = 20.7;  // five-storey, 68ft base
+    const shaftTop = 132.3; // +366ft simple shaft through the 28th storey
+    const loggiaBase = 138.0, loggiaTop = 160.5, plinthBase = 162.0;
     const roofBase = 178;
     const pyramidTop = 197;
     const totalH = 213.4;
@@ -624,17 +629,21 @@ export const builders: Record<string, (ctx: LandmarkCtx) => THREE.Group> = {
     // Subtle entasis and stepped cornices preserve the tower's base/shaft/
     // capital proportions after its simplified 1960s limestone recladding.
     g.add(box(W, 50, D, MET_STONE, 0, 25, 0));
-    g.add(box(W - 0.5, 50, D - 0.5, MET_STONE, 0, 75, 0));
-    g.add(box(W - 1.0, 51, D - 1.0, MET_STONE, 0, 125.5, 0));
-    for (const [y, grow, h] of [[8, 1.0, 0.8], [50, 0.8, 0.65], [100, 0.7, 0.65], [150, 2.0, 1.8]] as const) {
+    g.add(box(W - 0.35, 50, D - 0.35, MET_STONE, 0, 75, 0));
+    g.add(box(W - 0.7, shaftTop - 100, D - 0.7, MET_STONE, 0, (100 + shaftTop) / 2, 0));
+    for (const [y, grow, h] of [
+      [8, 1.0, 0.8], [baseTop, 1.15, 0.95], [50, 0.7, 0.65],
+      [100, 0.6, 0.65], [shaftTop, 2.0, 1.8],
+    ] as const) {
       g.add(box(W + grow, h, D + grow, MET_STONE, 0, y, 0));
     }
 
-    // All regular windows live in one hand-packed quad mesh: 1,116 panes but
-    // only one primitive and one final draw, avoiding a four-figure object-tree
-    // hitch when this skyline landmark streams in.
+    // Every regular window lives in one hand-packed quad mesh and therefore one
+    // final draw. Nine bays echo the survey's three sets of triple windows.
     const pos: number[] = [], norm: number[] = [], idx: number[] = [];
-    const clockY = 133.5, clockSize = 10.2;
+    const clockY = 120.0;
+    const clockSize = 8.08; // documented 26.5ft dial, not the old 10.2m disc
+    const bayPitch = (Math.min(W, D) - 3.0) / 8;
     const addQuad = (
       cx: number, cy: number, cz: number,
       hx: number, hz: number, nx: number, nz: number,
@@ -651,28 +660,30 @@ export const builders: Record<string, (ctx: LandmarkCtx) => THREE.Group> = {
       for (let i = 0; i < 4; i++) norm.push(nx, 0, nz);
       idx.push(base, base + 1, base + 2, base, base + 2, base + 3);
     };
-    for (let row = 0; row < 31; row++) {
-      const y = 12 + row * 3.55;
-      const faceW = y < 50 ? W : y < 100 ? W - 0.5 : W - 1.0;
-      const faceD = y < 50 ? D : y < 100 ? D - 0.5 : D - 1.0;
+    for (let y = 9.5; y < shaftTop - 1.5; y += 3.75) {
+      const faceW = y < 50 ? W : y < 100 ? W - 0.35 : W - 0.7;
+      const faceD = y < 50 ? D : y < 100 ? D - 0.35 : D - 0.7;
       for (let bay = -4; bay <= 4; bay++) {
-        const u = bay * 2.9;
-        addQuad(u, y, faceD / 2 + 0.025, 1, 0, 0, 1, 1.55, 2.05);
-        addQuad(u, y, -faceD / 2 - 0.025, -1, 0, 0, -1, 1.55, 2.05);
-        addQuad(faceW / 2 + 0.025, y, u, 0, -1, 1, 0, 1.55, 2.05);
-        addQuad(-faceW / 2 - 0.025, y, u, 0, 1, -1, 0, 1.55, 2.05);
+        const u = bay * bayPitch;
+        if (Math.abs(u) < clockSize / 2 + 0.7 && Math.abs(y - clockY) < clockSize / 2 + 0.55) continue;
+        addQuad(u, y, faceD / 2 + 0.025, 1, 0, 0, 1, 1.35, 2.15);
+        addQuad(u, y, -faceD / 2 - 0.025, -1, 0, 0, -1, 1.35, 2.15);
+        addQuad(faceW / 2 + 0.025, y, u, 0, -1, 1, 0, 1.35, 2.15);
+        addQuad(-faceW / 2 - 0.025, y, u, 0, 1, -1, 0, 1.35, 2.15);
       }
     }
-    // Continue the fenestration through the clock tier, omitting only panes
-    // physically covered by each 8m dial instead of leaving a blank stone band.
-    for (const y of [123, 127, 131, 136, 141, 146]) {
-      for (let bay = -4; bay <= 4; bay++) {
-        const u = bay * 2.9;
-        if (Math.abs(u) < 5.5 && Math.abs(y - clockY) < 5.5) continue;
-        addQuad(u, y, (D - 1) / 2 + 0.025, 1, 0, 0, 1, 1.55, 2.05);
-        addQuad(u, y, -(D - 1) / 2 - 0.025, -1, 0, 0, -1, 1.55, 2.05);
-        addQuad((W - 1) / 2 + 0.025, y, u, 0, -1, 1, 0, 1.55, 2.05);
-        addQuad(-(W - 1) / 2 - 0.025, y, u, 0, 1, -1, 0, 1.55, 2.05);
+    // Two restrained window rows articulate the recessed four-storey plinth
+    // below the roof. Keep them in the shaft's packed façade draw: the real
+    // crown has five small openings per face here, not a blank limestone box.
+    const plinthW = W - 2.0, plinthD = D - 2.0;
+    const plinthPitch = (Math.min(plinthW, plinthD) - 4.0) / 4;
+    for (const y of [166.4, 172.2]) {
+      for (let bay = -2; bay <= 2; bay++) {
+        const u = bay * plinthPitch;
+        addQuad(u, y, plinthD / 2 + 0.025, 1, 0, 0, 1, 1.25, 1.9);
+        addQuad(-u, y, -plinthD / 2 - 0.025, -1, 0, 0, -1, 1.25, 1.9);
+        addQuad(plinthW / 2 + 0.025, y, -u, 0, -1, 1, 0, 1.25, 1.9);
+        addQuad(-plinthW / 2 - 0.025, y, u, 0, 1, -1, 0, 1.25, 1.9);
       }
     }
     const windowGeo = new THREE.BufferGeometry();
@@ -703,12 +714,12 @@ export const builders: Record<string, (ctx: LandmarkCtx) => THREE.Group> = {
         c.lineWidth = i % 5 === 0 ? 4 : 2;
         c.strokeStyle = '#263238'; c.stroke();
       }
-      const romans = ['XII', 'I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX', 'X', 'XI'];
+      const numerals = ['12', '1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11'];
       c.fillStyle = '#263238'; c.textAlign = 'center'; c.textBaseline = 'middle';
-      c.font = 'bold 18px Georgia, serif';
+      c.font = 'bold 22px Georgia, serif';
       for (let i = 0; i < 12; i++) {
         const a = (i / 12) * Math.PI * 2;
-        c.fillText(romans[i], Math.sin(a) * (r - 29), -Math.cos(a) * (r - 29));
+        c.fillText(numerals[i], Math.sin(a) * (r - 29), -Math.cos(a) * (r - 29));
       }
       const hand = (turn: number, len: number, width: number) => {
         const a = turn * Math.PI * 2;
@@ -725,19 +736,25 @@ export const builders: Record<string, (ctx: LandmarkCtx) => THREE.Group> = {
     const addFace = (mesh: THREE.Mesh, x: number, z: number, ry: number) => {
       mesh.position.set(x, clockY, z); mesh.rotation.y = ry; g.add(mesh);
     };
-    addFace(new THREE.Mesh(new THREE.PlaneGeometry(clockSize, clockSize), clockMat), 0, D / 2 + 0.09, 0);
-    addFace(new THREE.Mesh(new THREE.PlaneGeometry(clockSize, clockSize), clockMat), 0, -D / 2 - 0.09, Math.PI);
-    addFace(new THREE.Mesh(new THREE.PlaneGeometry(clockSize, clockSize), clockMat), W / 2 + 0.09, 0, Math.PI / 2);
-    addFace(new THREE.Mesh(new THREE.PlaneGeometry(clockSize, clockSize), clockMat), -W / 2 - 0.09, 0, -Math.PI / 2);
-    for (const [x, z, ry] of [[0, D / 2 + 0.04, 0], [0, -D / 2 - 0.04, Math.PI], [W / 2 + 0.04, 0, Math.PI / 2], [-W / 2 - 0.04, 0, -Math.PI / 2]] as const) {
-      const ring = new THREE.Mesh(new THREE.TorusGeometry(5.05, 0.38, 8, 32), MET_STONE);
+    const clockW = W - 0.7, clockD = D - 0.7;
+    addFace(new THREE.Mesh(new THREE.PlaneGeometry(clockSize, clockSize), clockMat), 0, clockD / 2 + 0.09, 0);
+    addFace(new THREE.Mesh(new THREE.PlaneGeometry(clockSize, clockSize), clockMat), 0, -clockD / 2 - 0.09, Math.PI);
+    addFace(new THREE.Mesh(new THREE.PlaneGeometry(clockSize, clockSize), clockMat), clockW / 2 + 0.09, 0, Math.PI / 2);
+    addFace(new THREE.Mesh(new THREE.PlaneGeometry(clockSize, clockSize), clockMat), -clockW / 2 - 0.09, 0, -Math.PI / 2);
+    for (const [x, z, ry] of [
+      [0, clockD / 2 + 0.04, 0], [0, -clockD / 2 - 0.04, Math.PI],
+      [clockW / 2 + 0.04, 0, Math.PI / 2], [-clockW / 2 - 0.04, 0, -Math.PI / 2],
+    ] as const) {
+      const ring = new THREE.Mesh(new THREE.TorusGeometry(clockSize / 2, 0.31, 8, 32), MET_STONE);
       ring.position.set(x, clockY, z); ring.rotation.y = ry; g.add(ring);
     }
 
-    // Five-bay arcaded capital and open balustrade, retained through the tower's
-    // modern recladding and essential to its St Mark's Campanile silhouette.
+    // Two balcony storeys, five-storey arcaded loggia and recessed four-storey
+    // plinth follow the landmark survey's vertical sequence. The previous
+    // shaft ran 19m too high and compressed this defining campanile capital.
     g.add(box(W + 3.2, 2.2, D + 3.2, MET_STONE, 0, shaftTop + 1.1, 0));
-    g.add(box(W + 1.2, roofBase - shaftTop - 2.2, D + 1.2, MET_STONE, 0, (shaftTop + roofBase + 2.2) / 2, 0));
+    g.add(box(W + 3.6, 0.9, D + 3.6, MET_STONE, 0, loggiaBase - 0.45, 0));
+    g.add(box(W + 1.2, loggiaTop - loggiaBase, D + 1.2, MET_STONE, 0, (loggiaBase + loggiaTop) / 2, 0));
     const archPanel = (w: number, h: number) => {
       const s = new THREE.Shape();
       const r = w / 2, spring = h / 2 - r;
@@ -745,8 +762,9 @@ export const builders: Record<string, (ctx: LandmarkCtx) => THREE.Group> = {
       s.absarc(0, spring, r, 0, Math.PI, false); s.lineTo(-r, -h / 2); s.closePath();
       return new THREE.ShapeGeometry(s, 8);
     };
+    const capitalPitch = (Math.min(W, D) - 4.4) / 4;
     for (let bay = -2; bay <= 2; bay++) {
-      const u = bay * 5.0;
+      const u = bay * capitalPitch;
       const panels = [
         { x: u, z: D / 2 + 0.72, ry: 0 },
         { x: -u, z: -D / 2 - 0.72, ry: Math.PI },
@@ -754,24 +772,30 @@ export const builders: Record<string, (ctx: LandmarkCtx) => THREE.Group> = {
         { x: -W / 2 - 0.72, z: u, ry: -Math.PI / 2 },
       ];
       for (const p of panels) {
-        const panel = new THREE.Mesh(archPanel(3.2, 10.8), MET_GLASS);
-        panel.position.set(p.x, 161.6, p.z); panel.rotation.y = p.ry; g.add(panel);
+        const panel = new THREE.Mesh(archPanel(2.8, 12.2), MET_GLASS);
+        panel.position.set(p.x, (loggiaBase + loggiaTop) / 2 + 0.2, p.z);
+        panel.rotation.y = p.ry;
+        g.add(panel);
       }
     }
     for (const z of [-D / 2 - 1.0, D / 2 + 1.0]) {
-      g.add(box(W + 2.0, 0.7, 0.55, MET_STONE, 0, 169.2, z));
-      for (let x = -14; x <= 14; x += 2) g.add(box(0.28, 2.0, 0.28, MET_STONE, x, 170.2, z));
+      g.add(box(W + 2.0, 0.7, 0.55, MET_STONE, 0, loggiaTop + 0.35, z));
+      for (let x = -W / 2; x <= W / 2; x += 1.8) {
+        g.add(box(0.28, 1.8, 0.28, MET_STONE, x, loggiaTop + 1.25, z));
+      }
     }
     for (const x of [-W / 2 - 1.0, W / 2 + 1.0]) {
-      g.add(box(0.55, 0.7, D + 2.0, MET_STONE, x, 169.2, 0));
-      for (let z = -13.5; z <= 13.5; z += 2) g.add(box(0.28, 2.0, 0.28, MET_STONE, x, 170.2, z));
+      g.add(box(0.55, 0.7, D + 2.0, MET_STONE, x, loggiaTop + 0.35, 0));
+      for (let z = -D / 2; z <= D / 2; z += 1.8) {
+        g.add(box(0.28, 1.8, 0.28, MET_STONE, x, loggiaTop + 1.25, z));
+      }
     }
-    g.add(box(29, 7.2, 28, MET_STONE, 0, 174.4, 0));
-    g.add(box(31, 1.2, 30, MET_STONE, 0, roofBase - 0.6, 0));
+    g.add(box(plinthW, roofBase - plinthBase, plinthD, MET_STONE, 0, (plinthBase + roofBase) / 2, 0));
+    g.add(box(W, 1.2, D, MET_STONE, 0, roofBase - 0.6, 0));
 
     // Four steep roof facets, seam ribs and oculi. Normal-aware triangle winding
     // keeps every face visible with standard one-sided materials.
-    const rhw = 15, rhd = 14.5;
+    const rhw = plinthW / 2, rhd = plinthD / 2;
     const corners = [
       new THREE.Vector3(-rhw, roofBase, -rhd), new THREE.Vector3(rhw, roofBase, -rhd),
       new THREE.Vector3(rhw, roofBase, rhd), new THREE.Vector3(-rhw, roofBase, rhd),
@@ -799,14 +823,14 @@ export const builders: Record<string, (ctx: LandmarkCtx) => THREE.Group> = {
     }
 
     // Gilded cupola and the illuminated "light that never fails" lantern.
-    g.add(cyl(3.7, 4.2, 1.0, MET_GOLD, 0, pyramidTop + 0.5, 0, 8));
-    g.add(cyl(2.7, 2.7, 6.2, MET_GLASS, 0, pyramidTop + 4.0, 0, 8));
+    g.add(cyl(3.3, 3.8, 1.0, MET_GOLD, 0, pyramidTop + 0.5, 0, 8));
+    g.add(cyl(2.4, 2.4, 6.2, MET_GLASS, 0, pyramidTop + 4.0, 0, 8));
     for (let i = 0; i < 8; i++) {
       const a = (i / 8) * Math.PI * 2;
-      g.add(cyl(0.16, 0.19, 6.4, MET_GOLD, Math.cos(a) * 2.75, pyramidTop + 4.0, Math.sin(a) * 2.75, 6));
+      g.add(cyl(0.14, 0.18, 6.4, MET_GOLD, Math.cos(a) * 2.45, pyramidTop + 4.0, Math.sin(a) * 2.45, 6));
     }
-    g.add(cyl(3.4, 3.1, 0.8, MET_GOLD, 0, pyramidTop + 7.4, 0, 8));
-    g.add(cyl(0.45, 3.0, 2.8, MET_GOLD, 0, pyramidTop + 9.2, 0, 8));
+    g.add(cyl(3.0, 2.8, 0.8, MET_GOLD, 0, pyramidTop + 7.4, 0, 8));
+    g.add(cyl(0.45, 2.7, 2.8, MET_GOLD, 0, pyramidTop + 9.2, 0, 8));
     g.add(cyl(1.05, 1.05, 2.2, MET_LANTERN, 0, pyramidTop + 11.7, 0, 8));
     g.add(cyl(0.05, 1.0, 1.7, MET_GOLD, 0, pyramidTop + 13.65, 0, 8));
     g.add(cyl(0.035, 0.16, Math.max(0.4, totalH - pyramidTop - 14.5), MET_GOLD, 0, (totalH + pyramidTop + 14.5) / 2, 0, 6));
