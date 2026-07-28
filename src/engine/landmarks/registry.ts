@@ -19,11 +19,10 @@ import { lonLatToXZ } from '../geo';
  * - `alwaysOn` places once at init and never disposes (the Statue of
  *   Liberty must hold the harbor horizon from The Battery).
  * - `clear` suppresses baked tile buildings whose footprint centroid falls
- *   within that many meters of the anchor: OSM maps some monuments (the
- *   Columbus column, the Washington Arch) as building rings, and the tile
- *   pipeline shipped them as generic massing — without this the procedural
- *   monument stands beside a duplicate windowed tower of itself. Applied by
- *   the tile worker at build time, so collision disappears with the mesh.
+ *   within that many meters of the anchor. `clearName` targets one exact OSM
+ *   building name where a radius would also erase neighboring buildings.
+ *   Both are applied by the tile worker, so duplicate collision disappears
+ *   with the generic mesh.
  */
 export interface LandmarkEntry {
   id: string;
@@ -37,6 +36,7 @@ export interface LandmarkEntry {
   alwaysOn?: boolean;
   needsRoads?: boolean; // defer build until road tiles load, then nudge props out of roadbeds (Times Square masts)
   clear?: number; // meters: suppress baked OSM massing of the monument itself
+  clearName?: string; // exact baked OSM name: suppress only this source mass
   /**
    * Preferred street-arrival bearing from the landmark center, in the world
    * x/z frame (0=east, PI/2=south). Used only as a tie-break among safe,
@@ -377,7 +377,19 @@ export const LANDMARKS_REG: LandmarkEntry[] = [
   // real arch position, dead center of the 77th-81st block) so the full 224m
   // quadrangle clears both cross streets. clear covers the flat OSM slab.
   { id: 'amnh', name: 'American Museum of Natural History', lat: 40.780977, lon: -73.973527, set: 'uptown', r: 600, rot: GRID + Math.PI / 2 },
-  { id: 'met-museum', name: 'Metropolitan Museum of Art', lat: 40.779391, lon: -73.962542, set: 'uptown', r: 600, rot: GRID },
+  // The source relation is one 305x190m flat extrusion. Replace it by exact
+  // name: a radial clear would also erase multiple Fifth Avenue buildings
+  // whose centroids are closer to this entrance anchor than the museum's is.
+  // Like AMNH, the main facade faces east, so +z needs the crosstown axis.
+  {
+    id: 'met-museum', name: 'Metropolitan Museum of Art',
+    lat: 40.779391, lon: -73.962542, set: 'uptown', r: 700,
+    rot: GRID + Math.PI / 2, clearName: 'The Metropolitan Museum of Art',
+    // Fifth Avenue sidewalk at E 81st: an oblique 78m sightline frames the
+    // complete entrance while avoiding the trees, fountains and opposite
+    // apartment wall that block a straight-across presentation.
+    arrivalLat: 40.778687, arrivalLon: -73.962582,
+  },
   { id: 'guggenheim', name: 'Guggenheim Museum', lat: 40.783, lon: -73.959, set: 'uptown', r: 550, rot: GRID },
   // moored IN the Hudson off Pier 86 (the old anchor sat on the pier building
   // itself). rot points the bow river-ward along the pier axis; the center sits

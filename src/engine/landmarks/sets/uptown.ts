@@ -1253,10 +1253,69 @@ export const builders: Record<string, (ctx: LandmarkCtx) => THREE.Group> = {
     return g;
   },
 
-  // Met Museum: 100m Beaux-Arts facade (paired columns, 3 arched niches, attic), grand stairs, flanking fountains, banners
+  // Metropolitan Museum of Art. The entrance anchor sits on the Fifth Avenue
+  // facade; local +z faces the avenue and the campus extends west into the park.
+  // Its former bespoke build was only this front wall, leaving the 305x190m
+  // source footprint as one enormous flat slab behind it. Articulated McKim,
+  // Lehman/Sackler and rear gallery ranges now fill the surveyed outline while
+  // preserving open light courts and a varied roofscape.
   'met-museum': () => {
     const g = new THREE.Group();
-    const W = 100;
+    const W = 116;
+
+    const masses = [
+      // South, central and north Fifth Avenue ranges.
+      { w: 108, h: 24, d: 96, x: -130, z: -40 },
+      // Stop behind the Hunt facade: projecting this range to z=+5 used to
+      // occlude its arches and paired columns from Fifth Avenue.
+      { w: 120, h: 31, d: 104, x: -12, z: -57 },
+      { w: 68, h: 23, d: 98, x: 86, z: -42 },
+      // The older park-side ranges, separated just enough to retain the real
+      // courtyards/light wells rather than reading as another monolithic roof.
+      { w: 72, h: 21, d: 65, x: -148, z: -121 },
+      { w: 150, h: 23, d: 48, x: -30, z: -128 },
+      { w: 52, h: 22, d: 65, x: 82, z: -123 },
+      { w: 46, h: 27, d: 68, x: -27, z: -137 },
+    ] as const;
+    for (const mass of masses) {
+      // Sink the masonry slightly so Central Park's rolling grade never opens
+      // a daylight seam under the far western galleries.
+      g.add(box(mass.w, mass.h + 1.5, mass.d, LIMESTONE, mass.x, mass.h / 2 - 0.75, mass.z));
+      g.add(towerDetail(box(
+        mass.w + 1.2, 0.8, mass.d + 1.2, MARBLE,
+        mass.x, mass.h + 0.4, mass.z,
+      )));
+    }
+
+    // Long clerestories and sawtooth skylights make the museum roof legible
+    // from helicopter height without dozens of separate gallery slabs.
+    for (const [x, z, w, d, y] of [
+      [-130, -42, 82, 12, 25.1],
+      [-12, -57, 84, 15, 32.1],
+      [86, -43, 46, 11, 24.1],
+      [-78, -129, 52, 10, 24.1],
+      [20, -129, 52, 10, 24.1],
+      [82, -124, 34, 10, 23.1],
+    ] as const) {
+      g.add(towerDetail(box(w, 2.2, d, GLASS_LM, x, y, z)));
+      for (const side of [-1, 1]) {
+        g.add(towerDetail(box(w + 0.8, 0.22, 0.28, STEEL_LM, x, y + 1.2, z + side * d / 2)));
+      }
+    }
+
+    // Exterior gallery window courses on the two wings. Broad continuous
+    // ribbons keep the read crisp at altitude and avoid a field of tiny nodes.
+    for (const wing of [
+      { x: -130, w: 98 },
+      { x: 86, w: 58 },
+    ]) {
+      for (const y of [8, 15]) {
+        g.add(towerDetail(box(wing.w, 2.5, 0.24, DARKSTONE, wing.x, y, 8.12)));
+        g.add(towerDetail(box(wing.w, 0.24, 0.45, MARBLE, wing.x, y + 1.5, 8.28)));
+      }
+    }
+
+    // The Richard Morris Hunt / McKim, Mead & White Beaux-Arts front.
     g.add(box(W, 4, 8, LIMESTONE, 0, 2, -3));       // stylobate the facade sits on
     g.add(box(W, 30, 6, LIMESTONE, 0, 19, -3));     // main facade wall
     g.add(box(W + 2, 1.5, 8, MARBLE, 0, 34.5, -3)); // cornice band
@@ -1277,6 +1336,14 @@ export const builders: Record<string, (ctx: LandmarkCtx) => THREE.Group> = {
       g.add(box(9, 1.0, 5, GRANITE, sx * 40, 0.5, 17));
       const w = new THREE.Mesh(new THREE.PlaneGeometry(7.6, 3.6), WATER_LM); w.rotation.x = -Math.PI / 2; w.position.set(sx * 40, 0.85, 17); g.add(w);
     }
+
+    // Fifth Avenue wing cornices and central rooftop pavilions complete the
+    // front silhouette that was previously hidden inside the source slab.
+    for (const [x, w, h] of [[-130, 108, 24], [86, 68, 23]] as const) {
+      g.add(towerDetail(box(w + 2, 1.2, 5, MARBLE, x, h + 0.6, 5.5)));
+    }
+    g.add(box(42, 8, 28, LIMESTONE, -12, 35, -48));
+    g.add(towerDetail(box(44, 0.9, 30, MARBLE, -12, 39.45, -48)));
     return g;
   },
 
