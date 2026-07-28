@@ -543,20 +543,39 @@ export const builders: Record<string, (ctx: LandmarkCtx) => THREE.Group> = {
       [HW - cut, HD], [-HW + cut, HD],
       [-HW, HD - cut], [-HW, -HD + cut],
     ];
+    // The broad elevations stay in one vertical plane. Hearst's bird's-mouth
+    // articulation is confined to the cut-back corners, so add a third point
+    // inside each chamfer and move only that point at a module midpoint. The
+    // previous eight-point loft moved the endpoints of every broad face by
+    // 4.5m, corrugating the entire curtain wall into reflected zigzags.
+    const glassPlan = (cornerInset: number): PlanPoint[] => {
+      const halfCut = nodeCut / 2;
+      return [
+        [-HW + nodeCut, -HD], [HW - nodeCut, -HD],
+        [HW - halfCut - cornerInset, -HD + halfCut + cornerInset],
+        [HW, -HD + nodeCut], [HW, HD - nodeCut],
+        [HW - halfCut - cornerInset, HD - halfCut - cornerInset],
+        [HW - nodeCut, HD], [-HW + nodeCut, HD],
+        [-HW + halfCut + cornerInset, HD - halfCut - cornerInset],
+        [-HW, HD - nodeCut], [-HW, -HD + nodeCut],
+        [-HW + halfCut + cornerInset, -HD + halfCut + cornerInset],
+      ];
+    };
     g.add(towerFacade(plan(nodeCut), baseH, y0, lobbyMat, 2.8, 3.35));
     g.add(towerSolid(plan(nodeCut), baseH, y1, HEARST_COLLISION));
 
     // Forty upper floors: ten four-storey structural modules. At every module
-    // midpoint the eight-sided ring pulls 4.5m farther in at the corners,
-    // producing the repeating concave facets visible in real skyline views.
+    // midpoint only each chamfer's center pulls 4.5m inward, producing the
+    // corner bird's mouths while the four principal glass elevations stay flat.
     const modules = 10;
     const moduleH = (y1 - y0) / modules;
+    const birdMouthInset = biteCut - nodeCut;
     const levels: { y: number; points: PlanPoint[] }[] = [];
     for (let r = 0; r < modules; r++) {
       const yb = y0 + r * moduleH;
-      if (r === 0) levels.push({ y: yb, points: plan(nodeCut) });
-      levels.push({ y: yb + moduleH / 2, points: plan(biteCut) });
-      levels.push({ y: yb + moduleH, points: plan(nodeCut) });
+      if (r === 0) levels.push({ y: yb, points: glassPlan(0) });
+      levels.push({ y: yb + moduleH / 2, points: glassPlan(birdMouthInset) });
+      levels.push({ y: yb + moduleH, points: glassPlan(0) });
     }
     g.add(loftFacade(levels, glassMat, 2.8, moduleH / 4));
 
