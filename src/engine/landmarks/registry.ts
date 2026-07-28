@@ -37,6 +37,13 @@ export interface LandmarkEntry {
   alwaysOn?: boolean;
   needsRoads?: boolean; // defer build until road tiles load, then nudge props out of roadbeds (Times Square masts)
   clear?: number; // meters: suppress baked OSM massing of the monument itself
+  /**
+   * Preferred street-arrival bearing from the landmark center, in the world
+   * x/z frame (0=east, PI/2=south). Used only as a tie-break among safe,
+   * unobstructed presentation points when a nearby non-collision structure
+   * such as the Park Avenue viaduct would otherwise dominate the first view.
+   */
+  arrivalBearing?: number;
 }
 
 // Manhattan street-grid rotation. NEGATIVE: rotation.y = -0.507 maps local +x
@@ -152,7 +159,12 @@ export const LANDMARKS_REG: LandmarkEntry[] = [
 
   // ---- midtown east ----
   { id: 'grand-central', name: 'Grand Central Terminal', lat: 40.7519, lon: -73.9772, set: 'midtown-east', r: 600, rot: GRID },
-  { id: 'chrysler', name: 'Chrysler Building', lat: 40.7516, lon: -73.9755, set: 'midtown-east', r: 1500, rot: GRID },
+  // Approach from Third Avenue to the east: the generic scorer's western choice
+  // looks through the visually massive but collision-passable Park Avenue
+  // viaduct. Always-on because the bake clears the generic crown: this compact
+  // replacement is also the distant skyline LOD, avoiding a truncated 199m
+  // shaft across town.
+  { id: 'chrysler', name: 'Chrysler Building', lat: 40.7516, lon: -73.9755, set: 'midtown-east', r: 1500, rot: GRID, arrivalBearing: 0, alwaysOn: true },
   { id: 'one-vanderbilt', name: 'One Vanderbilt', lat: 40.7529, lon: -73.9787, set: 'midtown-east', r: 1400, rot: GRID },
   { id: 'summit-1v', name: 'Summit One Vanderbilt', lat: 40.7529, lon: -73.9787, set: 'midtown-east', r: 1400, aliasOf: 'one-vanderbilt' },
   // anchored on the real Secretariat slab center, rot aligning the slab with the

@@ -45,6 +45,31 @@ const ONE_V_GLASS = new THREE.MeshStandardMaterial({
   flatShading: true,
 });
 
+// Chrysler crown palette. High metalness rendered the old crown almost black
+// because the street scene intentionally has no expensive environment map.
+// These still react as stainless steel, but a cool emissive floor preserves
+// Van Alen's bright, silvery sunburst on shaded and mobile-quality faces.
+const CHRYSLER_STEEL = new THREE.MeshStandardMaterial({
+  color: '#d5dde2', metalness: 0.42, roughness: 0.2,
+  emissive: '#60717c', emissiveIntensity: 0.34,
+  flatShading: true,
+});
+const CHRYSLER_STEEL_ALT = new THREE.MeshStandardMaterial({
+  color: '#aebcc5', metalness: 0.38, roughness: 0.24,
+  emissive: '#4d606b', emissiveIntensity: 0.3,
+  flatShading: true,
+});
+const CHRYSLER_RIB = new THREE.MeshStandardMaterial({
+  color: '#bac6cd', metalness: 0.44, roughness: 0.18,
+  emissive: '#53656f', emissiveIntensity: 0.24,
+});
+const CHRYSLER_WINDOW = new THREE.MeshStandardMaterial({
+  color: '#21333e', metalness: 0.18, roughness: 0.12,
+  emissive: '#0a1820', emissiveIntensity: 0.72,
+});
+const CHRYSLER_RED = new THREE.MeshBasicMaterial({ color: '#ff3b30' });
+const CHRYSLER_COLLISION = new THREE.MeshBasicMaterial({ visible: false });
+
 // Tapered 4-leg lattice tower (X-braced), origin at ground; reused by the bridge towers.
 function latticeTower(h: number, baseHalf: number, topHalf: number, mat: THREE.Material, legR: number, levels: number): THREE.Group {
   const t = new THREE.Group();
@@ -65,17 +90,142 @@ function latticeTower(h: number, baseHalf: number, topHalf: number, mat: THREE.M
   return t;
 }
 
-// Abstract Chrysler corner eagle: angled neck + head block + beak cone, projecting +x.
+function chryslerDetail<T extends THREE.Mesh>(mesh: T): T {
+  mesh.userData.noCollision = true;
+  return mesh;
+}
+
+// Streamlined 61st-floor eagle gargoyle. The group projects toward local +z;
+// callers rotate it onto all four corners of the tower.
 function chryslerEagle(): THREE.Group {
   const e = new THREE.Group();
-  const neck = box(8, 1.8, 1.8, STEEL_LM, 13, 0, 0);
-  neck.rotation.z = 0.12;
-  e.add(neck);
-  e.add(box(2.2, 2.2, 2.2, STEEL_LM, 17.4, 0.7, 0)); // head
-  const beak = cyl(0, 1.0, 3.0, STEEL_LM, 19.7, 0.5, 0, 6); // beak points +x
-  beak.rotation.z = -Math.PI / 2;
+  const wing = new THREE.Shape();
+  wing.moveTo(0, 0.5);
+  wing.lineTo(-4.5, 1.4);
+  wing.lineTo(-3.4, 3.2);
+  wing.lineTo(-1.2, 4.2);
+  wing.lineTo(0, 3.4);
+  wing.lineTo(1.2, 4.2);
+  wing.lineTo(3.4, 3.2);
+  wing.lineTo(4.5, 1.4);
+  wing.closePath();
+  const wings = chryslerDetail(new THREE.Mesh(
+    new THREE.ExtrudeGeometry(wing, { depth: 0.28, bevelEnabled: false }),
+    CHRYSLER_RIB,
+  ));
+  wings.geometry.translate(0, 0, -0.14);
+  wings.rotation.x = Math.PI / 2;
+  wings.position.set(0, 0.2, 0.2);
+  e.add(wings);
+  e.add(chryslerDetail(strut(
+    new THREE.Vector3(0, 0.35, 0.2),
+    new THREE.Vector3(0, 0.7, 5.5),
+    0.66, CHRYSLER_STEEL, 7,
+  )));
+  const head = chryslerDetail(new THREE.Mesh(new THREE.SphereGeometry(0.7, 8, 6), CHRYSLER_STEEL));
+  head.position.set(0, 0.95, 5.7);
+  e.add(head);
+  const beak = chryslerDetail(cyl(0, 0.48, 1.5, CHRYSLER_RIB, 0, 0, 0, 6));
+  beak.rotation.x = Math.PI / 2;
+  beak.position.set(0, 0.9, 6.8);
   e.add(beak);
   return e;
+}
+
+/** One alternating stainless facet of the crown's groin-vault shell. */
+function chryslerDomeSector(
+  profile: [number, number][],
+  a0: number,
+  a1: number,
+  mat: THREE.Material,
+): THREE.Mesh {
+  const pos: number[] = [];
+  const uv: number[] = [];
+  const idx: number[] = [];
+  for (let i = 0; i < profile.length; i++) {
+    const [y, r] = profile[i];
+    pos.push(Math.sin(a0) * r, y, Math.cos(a0) * r);
+    pos.push(Math.sin(a1) * r, y, Math.cos(a1) * r);
+    uv.push(0, i / (profile.length - 1), 1, i / (profile.length - 1));
+    if (i) {
+      const o = (i - 1) * 2;
+      // Counter-clockwise from outside the radial shell. The old order faced
+      // inward, so back-face culling hid the stainless skin and left a hollow
+      // cage of arch ribs against the sky.
+      idx.push(o, o + 1, o + 2, o + 1, o + 3, o + 2);
+    }
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  geo.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+  geo.setIndex(idx);
+  geo.computeVertexNormals();
+  return chryslerDetail(new THREE.Mesh(geo, mat));
+}
+
+/** A true open stainless arch band in a vertical x/y plane. */
+function chryslerArchBand(
+  width: number,
+  springY: number,
+  peakY: number,
+  thickness: number,
+): THREE.Mesh {
+  const rx = width / 2;
+  const ry = peakY - springY;
+  const innerRx = Math.max(0.25, rx - thickness);
+  const innerSpring = springY + thickness * 0.28;
+  const innerRy = Math.max(0.25, peakY - thickness - innerSpring);
+  const shape = new THREE.Shape();
+  const steps = 18;
+  for (let i = 0; i <= steps; i++) {
+    const a = Math.PI - (i / steps) * Math.PI;
+    const x = Math.cos(a) * rx;
+    const y = springY + Math.sin(a) * ry;
+    if (i === 0) shape.moveTo(x, y);
+    else shape.lineTo(x, y);
+  }
+  for (let i = 0; i <= steps; i++) {
+    const a = (i / steps) * Math.PI;
+    shape.lineTo(Math.cos(a) * innerRx, innerSpring + Math.sin(a) * innerRy);
+  }
+  shape.closePath();
+  const geo = new THREE.ExtrudeGeometry(shape, {
+    depth: 0.24, bevelEnabled: false, curveSegments: 1, steps: 1,
+  });
+  geo.translate(0, 0, -0.12);
+  return chryslerDetail(new THREE.Mesh(geo, CHRYSLER_RIB));
+}
+
+/** Recessed triangular crown window, facing local +z. */
+function chryslerWindow(x: number, y: number, w: number, h: number): THREE.Mesh {
+  const shape = new THREE.Shape();
+  shape.moveTo(-w / 2, -h / 2);
+  shape.lineTo(w / 2, -h / 2);
+  shape.lineTo(0, h / 2);
+  shape.closePath();
+  const mesh = chryslerDetail(new THREE.Mesh(new THREE.ShapeGeometry(shape), CHRYSLER_WINDOW));
+  mesh.position.set(x, y, 0);
+  return mesh;
+}
+
+/** Exact octagonal collision band following one slice of the crown taper. */
+function chryslerCollisionBand(radius: number, y0: number, y1: number): THREE.Mesh {
+  const shape = new THREE.Shape();
+  for (let i = 0; i < 8; i++) {
+    const a = (i / 8) * Math.PI * 2 + Math.PI / 8;
+    const x = Math.cos(a) * radius;
+    const z = Math.sin(a) * radius;
+    if (i === 0) shape.moveTo(x, -z);
+    else shape.lineTo(x, -z);
+  }
+  shape.closePath();
+  const mesh = new THREE.Mesh(
+    new THREE.ExtrudeGeometry(shape, { depth: y1 - y0, bevelEnabled: false, steps: 1 }),
+    CHRYSLER_COLLISION,
+  );
+  mesh.rotation.x = -Math.PI / 2;
+  mesh.position.y = y0;
+  return mesh;
 }
 
 /**
@@ -176,50 +326,152 @@ export const builders: Record<string, (ctx: LandmarkCtx) => THREE.Group> = {
     return g;
   },
 
-  // Chrysler iconic crown: seven terraced steel arcs with triangular window slots, needle spire, corner eagles
+  // Chrysler Building crown: a complete replacement for the overlapping OSM
+  // roof prisms above the retained 199m shaft. The raw map geometry records the
+  // real nested arc peaks at 229/235/242/249/256/262/267/272m and the crown cap
+  // at 282m; CTBUH records the architectural tip at 318.9m. Four open arch
+  // faces, recessed triangular glass, fan ribs and the 61st-floor eagles give
+  // the close view its real Art Deco depth. Alternating faceted shell panels
+  // retain the glint in the skyline with just two body-material draw calls.
   chrysler: (ctx) => {
     const g = new THREE.Group();
-    // The crown seats on the MEASURED shaft shoulder (the pipeline clears
-    // OSM's stacked crown parts and tells us where the kept massing ends),
-    // so it can never float above or sink into the tower.
-    const base = ctx.fit?.keptH ?? 240; // shaft shoulder
-    const tipY = (ctx.fit?.roofH ?? base + 42) + 37; // real spire tops ~37m past the old roof
-    const crownH = (ctx.fit?.roofH ?? base + 42) - base;
-    const R = Math.max(10, Math.min(16, ((ctx.fit?.topW ?? 30) + (ctx.fit?.topD ?? 30)) / 4 + 4));
-    g.add(cyl(4, R, crownH, STEEL_LM, 0, base + crownH / 2, 0, 8)); // tapered core under the arches
-    const depth = 3;
-    for (let f = 0; f < 4; f++) {
-      const facePane = new THREE.Group();
-      facePane.rotation.y = (f * Math.PI) / 2;
-      for (let i = 0; i < 7; i++) {
-        const r = R - (R - 3.9) * (i / 6); // R -> 3.9
-        const cy = base + (crownH / 7) * i; // spring lines climb the crown zone
-        const zPos = r - depth / 2;
-        const arch = new THREE.Mesh(
-          new THREE.CylinderGeometry(r, r, depth, 12, 1, true, -Math.PI / 2, Math.PI),
-          STEEL_LM,
-        );
-        arch.rotation.x = -Math.PI / 2; // lay the half-cylinder up as an arch (peak at cy + r)
-        arch.position.set(0, cy, zPos);
-        facePane.add(arch);
-        for (const b of [0.45, 0.95, 1.57, 2.19, 2.69]) {
-          const rr = r * 0.6;
-          const slot = box(0.5, r * 0.34, 0.5, DARKSTONE, rr * Math.cos(b), cy + rr * Math.sin(b), zPos + 0.2);
-          slot.rotation.z = b - Math.PI / 2; // radial triangular-window slot
-          facePane.add(slot);
-        }
-      }
-      g.add(facePane);
+    const base = ctx.fit?.keptH ?? 199;
+    const crownTop = ctx.fit?.roofH ?? 282;
+    const tipY = 318.9;
+    // The crown footprints in the raw OSM mapping average ~0.9m west and 1.1m
+    // south of the full-shaft OBB center. Preserve that measured small offset
+    // so the spire grows from the actual upper tower, not the block centroid.
+    const ox = -0.9, oz = 1.1;
+    const startR = Math.min(14.5, Math.max(11, (ctx.fit?.topW ?? 22) / 2 + 3.5));
+
+    // Dark-brick mechanical shoulder closes the 199m handoff from the baked
+    // shaft and carries the chrome terrace/eagle mounts.
+    const shoulder = box(startR * 1.92, 2.2, startR * 1.92, DARKSTONE, ox, base + 1.1, oz);
+    shoulder.userData.noCollision = true;
+    g.add(shoulder);
+    const terrace = chryslerDetail(cyl(startR * 0.92, startR, 1.25, CHRYSLER_RIB, ox, base + 1.8, oz, 8));
+    terrace.rotation.y = Math.PI / 8;
+    g.add(terrace);
+
+    // Measured crown silhouette. Sixteen angular sectors create directional
+    // stainless reflections; no transparent shell or dense window grid needed.
+    const profile: [number, number][] = [
+      [base + 1, startR],
+      [229, 12.0],
+      [235, 10.8],
+      [242, 9.6],
+      [249, 8.2],
+      [256, 6.7],
+      [262, 4.9],
+      [267, 3.8],
+      [272, 2.7],
+      [crownTop, 0.72],
+    ];
+    for (let i = 0; i < 16; i++) {
+      const panel = chryslerDomeSector(
+        profile,
+        (i / 16) * Math.PI * 2,
+        ((i + 1) / 16) * Math.PI * 2,
+        i % 2 ? CHRYSLER_STEEL_ALT : CHRYSLER_STEEL,
+      );
+      panel.position.set(ox, 0, oz);
+      g.add(panel);
     }
-    g.add(cyl(0.05, 1.2, 37, STEEL_LM, 0, tipY - 18.5, 0, 8)); // needle spire
-    const ball = new THREE.Mesh(new THREE.SphereGeometry(0.35, 6, 5), STEEL_LM);
-    ball.position.y = tipY;
-    g.add(ball);
+
+    // The mapped upper roof is eight nested arch profiles. Render all four
+    // outward faces instead of wrapping half-cylinders around a cone: the
+    // result reads as the real cruciform groin vault from every approach.
+    const arches: [number, number, number, number][] = [
+      [28.6, base + 1, 229, 0.46],
+      [22.3, 224, 235, 0.42],
+      [20.6, base + 1, 242, 0.40],
+      [17.4, base + 1, 249, 0.36],
+      [13.9, base + 1, 256, 0.34],
+      [10.0, 256, 262, 0.30],
+      [8.2, 262, 267, 0.26],
+      [5.9, 267, 272, 0.22],
+    ];
+    for (let f = 0; f < 4; f++) {
+      const face = new THREE.Group();
+      face.position.set(ox, 0, oz);
+      face.rotation.y = (f * Math.PI) / 2;
+      for (const [width, spring, peak, thick] of arches) {
+        const arch = chryslerArchBand(width, spring, peak, thick);
+        arch.position.z = width * 0.485 - 0.18;
+        face.add(arch);
+      }
+
+      // Recessed triangular windows: genuine geometry rather than black bars.
+      // The narrowing pairs reproduce the signature stacked chevrons at close
+      // range and merge into one dark-glass draw call.
+      const windows: [number, number, number, number][] = [
+        [-7.6, 211.8, 3.7, 5.7], [0, 214.5, 4.0, 6.5], [7.6, 211.8, 3.7, 5.7],
+        [-5.8, 225.0, 3.4, 5.5], [0, 228.3, 3.7, 6.1], [5.8, 225.0, 3.4, 5.5],
+        [-4.5, 238.0, 2.9, 4.9], [0, 241.0, 3.2, 5.5], [4.5, 238.0, 2.9, 4.9],
+        [-3.3, 249.0, 2.45, 4.2], [0, 251.5, 2.7, 4.7], [3.3, 249.0, 2.45, 4.2],
+        [-2.2, 258.5, 1.9, 3.3], [0, 260.5, 2.05, 3.7], [2.2, 258.5, 1.9, 3.3],
+        [-1.2, 266.5, 1.3, 2.4], [1.2, 266.5, 1.3, 2.4],
+      ];
+      for (const [x, y, w, h] of windows) {
+        const win = chryslerWindow(x, y, w, h);
+        // Face depth follows the taper; the slight inset leaves the bright
+        // arch/rib geometry visibly proud of the dark glass.
+        const t = (y - (base + 1)) / (crownTop - (base + 1));
+        win.position.z = startR * (1 - t) + 0.72 * t + 0.42;
+        face.add(win);
+      }
+
+      // Nine true stainless sunburst rays over each face. Cylinders are cheap
+      // after merge, catch highlights in motion, and make the crown hold up at
+      // helicopter-close distance without a large texture.
+      for (const x of [-11.2, -8.5, -5.7, -2.8, 0, 2.8, 5.7, 8.5, 11.2]) {
+        const q = Math.max(0, 1 - (x * x) / (14.3 * 14.3));
+        const y = base + 1 + 28 * Math.sqrt(q);
+        const t = (y - (base + 1)) / (crownTop - (base + 1));
+        face.add(chryslerDetail(strut(
+          new THREE.Vector3(0, base + 1.2, startR + 0.32),
+          new THREE.Vector3(x, y, startR * (1 - t) + 0.72 * t + 0.34),
+          0.065, CHRYSLER_RIB, 5,
+        )));
+      }
+      g.add(face);
+    }
+
+    // Four polished 61st-floor eagle gargoyles project from the terrace corners.
     for (let k = 0; k < 4; k++) {
       const e = chryslerEagle();
-      e.position.set(0, base - 5, 0);
-      e.rotation.y = Math.PI / 4 + (k * Math.PI) / 2; // diagonal corners
+      const a = Math.PI / 4 + (k * Math.PI) / 2;
+      // Suspend them below the crown ledge, as on the real 61st-floor
+      // terrace. Sitting them on top of the 199m shoulder hid the projections
+      // inside the first steel shell band from every normal approach.
+      e.position.set(ox + Math.sin(a) * startR * 0.95, base - 4.8, oz + Math.cos(a) * startR * 0.95);
+      e.rotation.y = a;
       g.add(e);
+    }
+
+    // The visible 121ft needle above the 282m crown cap. Three taper sections
+    // and collars are more legible and accurate than one uniform black spike.
+    const mast0 = crownTop - 0.3;
+    const mast1 = mast0 + (tipY - mast0) * 0.45;
+    const mast2 = mast0 + (tipY - mast0) * 0.78;
+    g.add(chryslerDetail(cyl(0.43, 1.02, mast1 - mast0, CHRYSLER_STEEL, ox, (mast0 + mast1) / 2, oz, 8)));
+    g.add(chryslerDetail(cyl(0.18, 0.5, mast2 - mast1, CHRYSLER_RIB, ox, (mast1 + mast2) / 2, oz, 8)));
+    g.add(chryslerDetail(cyl(0.035, 0.2, tipY - mast2, CHRYSLER_RIB, ox, (mast2 + tipY) / 2, oz, 6)));
+    for (const [y, r] of [[mast0 + 0.8, 1.25], [mast1, 0.58], [mast2, 0.26]] as [number, number][]) {
+      g.add(chryslerDetail(cyl(r, r, 0.35, CHRYSLER_RIB, ox, y, oz, 10)));
+    }
+    const beacon = chryslerDetail(new THREE.Mesh(new THREE.SphereGeometry(0.19, 6, 5), CHRYSLER_RED));
+    beacon.position.set(ox, tipY, oz);
+    g.add(beacon);
+
+    // Eight conservative octagonal bands make every major crown terrace
+    // landable without the old giant conical AABB blocking empty air.
+    for (let i = 0; i < profile.length - 2; i++) {
+      const [y0, r0] = profile[i], [y1] = profile[i + 1];
+      const col = chryslerCollisionBand(r0, y0, y1);
+      col.position.x = ox;
+      col.position.z = oz;
+      g.add(col);
     }
     return g;
   },

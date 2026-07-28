@@ -1998,6 +1998,25 @@ async function main() {
       `baked >=400m parts=${wtcBakedTall} -> ${wtcOk ? 'PASS' : 'FAIL'}`,
   );
 
+  // The Chrysler crown is procedural from the retained 199m shaft shoulder:
+  // the raw source's overlapping round-roof prisms must stay cleared, while
+  // their measured 282m crown cap remains available to seat the 318.9m build.
+  const chryslerXZ = lonLatToXZ(-73.9755, 40.7516);
+  const [chryslerTx, chryslerTz] = tileOf(chryslerXZ);
+  const chryslerKey = tileKeyOf(chryslerTx, chryslerTz);
+  const chryslerBuildings = tileBuildings.get(chryslerKey) || [];
+  const chryslerBakedCrown = chryslerBuildings.filter((b) => b.h >= 200).length;
+  const chryslerFit = fitOut.chrysler;
+  const chryslerOk = !!chryslerFit
+    && Math.abs(chryslerFit.roofH - 282) < 1
+    && Math.abs(chryslerFit.keptH - 199) < 1
+    && chryslerFit.clearedParts === 11
+    && chryslerBakedCrown === 0;
+  results.push(
+    `Chrysler replacement (${chryslerKey}): fit=${chryslerFit?.keptH ?? 0}-${chryslerFit?.roofH ?? 0}m, ` +
+      `cleared=${chryslerFit?.clearedParts ?? 0}, baked >=200m parts=${chryslerBakedCrown} -> ${chryslerOk ? 'PASS' : 'FAIL'}`,
+  );
+
   const timesSquareRoads = tileRoads.get('0_0') || [];
   const tsOk = timesSquareRoads.length > 0;
   results.push(`Tile 0_0 (Times Square): ${timesSquareRoads.length} road pieces -> ${tsOk ? 'PASS' : 'FAIL'}`);

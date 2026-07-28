@@ -856,7 +856,7 @@ export class World {
    * sit at the center of a 70-250m building, well beyond the old 26m spiral.
    * Only fall back to the wider spiral for overlapping/nested footprints.
    */
-  private freeSpawn(x: number, z: number, standOff = 0.75): [number, number] {
+  private freeSpawn(x: number, z: number, standOff = 0.75, preferredAngle: number | null = null): [number, number] {
     const near0 = this.colNear(x, z);
     const y0 = heightAt(x, z);
     if (!pointInBuildings(x, z, near0, y0)) return resolveBuildingCollision(x, z, 0.5, near0, y0);
@@ -926,7 +926,15 @@ export class World {
             const sy = heightAt(sx, sz);
             if (pointInBuildingsExcept(sx, sz, this.colNear(sx, sz), hostRings, sy)) blocked++;
           }
-          const score = blocked * 10000 + Math.abs(dist - ring);
+          // A few landmarks have a documented presentation axis because an
+          // elevated/passable structure is visually opaque but deliberately
+          // absent from collision (Park Avenue's viaduct by Chrysler). Keep
+          // occlusion dominant, then prefer that bearing among equally clear
+          // and equally distant street points.
+          const angleDelta = preferredAngle === null
+            ? 0
+            : Math.abs(Math.atan2(Math.sin(ang - preferredAngle), Math.cos(ang - preferredAngle)));
+          const score = blocked * 10000 + angleDelta * 100 + Math.abs(dist - ring);
           if (score < bestScore) { bestScore = score; best = candidate; }
         }
         if (best) return best;
@@ -1652,7 +1660,10 @@ export class World {
         || performance.now() - this.spawnWaitStarted > 8000;
       if (this.spawnResolve && !this.controls.fly && landmarkReady && this.tiles.readyAround(this.pos.x, this.pos.z)) {
         const lookAt = this.spawnLookAt;
-        const [rx, rz] = this.freeSpawn(this.pos.x, this.pos.z, lookAt ? 8 : 0.75);
+        const preferredAngle = this.spawnLandmarkId
+          ? LANDMARKS_REG.find((lm) => lm.id === this.spawnLandmarkId)?.arrivalBearing ?? null
+          : null;
+        const [rx, rz] = this.freeSpawn(this.pos.x, this.pos.z, lookAt ? 8 : 0.75, preferredAngle);
         this.pos.x = rx; this.pos.z = rz;
         this.pos.y = heightAt(rx, rz);
         if (lookAt) {
