@@ -28,6 +28,9 @@ const WOOL_STONE_HI = new THREE.MeshStandardMaterial({ color: '#f0e8d2', roughne
 const WOOL_GLASS = new THREE.MeshStandardMaterial({ color: '#263b45', roughness: 0.18, metalness: 0.38 });
 const WOOL_COPPER = new THREE.MeshStandardMaterial({ color: '#4d846d', roughness: 0.38, metalness: 0.48 });
 const WOOL_COPPER_HI = new THREE.MeshStandardMaterial({ color: '#6d9b81', roughness: 0.34, metalness: 0.42 });
+const MUNI_STONE = new THREE.MeshStandardMaterial({ color: '#d8d1bf', roughness: 0.68, metalness: 0.01 });
+const MUNI_STONE_HI = new THREE.MeshStandardMaterial({ color: '#eee7d7', roughness: 0.60, metalness: 0.01 });
+const MUNI_GLASS = new THREE.MeshStandardMaterial({ color: '#31444b', roughness: 0.20, metalness: 0.30 });
 
 // ---- local geometry helpers ------------------------------------------------
 
@@ -373,28 +376,140 @@ export const builders: Record<string, (ctx: LandmarkCtx) => THREE.Group> = {
     return g;
   },
 
-  // Municipal Building: gilt Civic Fame atop a colonnaded tempietto; street-level triumphal arch
-  'municipal-building': () => {
+  // Municipal Building: accurately centered wedding-cake tower and Civic Fame.
+  // The street arch has a different architectural center about 50m southwest,
+  // so it is placed at its surveyed offset instead of dragging the cupola off
+  // the mapped tower (the severe old "floating topper" failure).
+  'municipal-building': (ctx) => {
     const g = new THREE.Group();
-    // street-level triumphal arch through the building line
-    g.add(archWall(16, 13, 5, 6, 9, LIMESTONE));
-    for (const sx of [-11, 11]) {
-      const c = colonnade(3, 2.6, 0.6, 11, LIMESTONE);
-      c.position.set(sx, 0, 0);
-      g.add(c);
+
+    const W = ctx.fit?.w ?? 29, D = ctx.fit?.d ?? 26;
+    const squareW = 21.0, squareD = 19.6;
+
+    // The source survey records a 107m main roof, a broad 123m square stage,
+    // four corner pavilion pairs to 144m and a central 149m block. Rebuilding
+    // those exact bands removes twelve overlapping generic prisms while
+    // preserving the real C-plan office block and both 113m wing pavilions.
+    g.add(box(W, 16, D, MUNI_STONE, 0, 115, 0));              // 107..123
+    g.add(box(squareW, 26, squareD, MUNI_STONE, 0, 136, 0));  // 123..149
+    for (const [w, d, y, h] of [
+      [W + 1.0, D + 1.0, 107.5, 1.0],
+      [W + 1.6, D + 1.6, 122.3, 1.4],
+      [squareW + 1.4, squareD + 1.4, 148.3, 1.4],
+    ] as const) g.add(box(w, h, d, MUNI_STONE_HI, 0, y, 0));
+
+    // Hand-pack the two-story lower-stage openings and six upper office rows
+    // into one facade mesh. The whole premium crown remains a handful of draws.
+    const pos: number[] = [], norm: number[] = [], idx: number[] = [];
+    const addQuad = (
+      cx: number, cy: number, cz: number,
+      tx: number, tz: number, nx: number, nz: number,
+      w: number, h: number,
+    ) => {
+      const base = pos.length / 3;
+      const vx = tx * w / 2, vz = tz * w / 2, vy = h / 2;
+      pos.push(
+        cx - vx, cy - vy, cz - vz,
+        cx + vx, cy - vy, cz + vz,
+        cx + vx, cy + vy, cz + vz,
+        cx - vx, cy + vy, cz - vz,
+      );
+      for (let i = 0; i < 4; i++) norm.push(nx, 0, nz);
+      idx.push(base, base + 1, base + 2, base, base + 2, base + 3);
+    };
+    const facadeRow = (w: number, d: number, bays: number, y: number, paneH: number) => {
+      const pitchX = (w - 3.0) / bays, pitchZ = (d - 3.0) / bays;
+      for (let i = 0; i < bays; i++) {
+        const x = -w / 2 + 1.5 + pitchX * (i + 0.5);
+        const z = -d / 2 + 1.5 + pitchZ * (i + 0.5);
+        addQuad(x, y, d / 2 + 0.025, 1, 0, 0, 1, pitchX * 0.52, paneH);
+        addQuad(-x, y, -d / 2 - 0.025, -1, 0, 0, -1, pitchX * 0.52, paneH);
+        addQuad(w / 2 + 0.025, y, -z, 0, -1, 1, 0, pitchZ * 0.52, paneH);
+        addQuad(-w / 2 - 0.025, y, z, 0, 1, -1, 0, pitchZ * 0.52, paneH);
+      }
+    };
+    for (const y of [111.2, 117.8]) facadeRow(W, D, 7, y, 4.6);
+    for (let y = 126.1; y < 147; y += 4.0) facadeRow(squareW, squareD, 5, y, 2.55);
+    const windowGeo = new THREE.BufferGeometry();
+    windowGeo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    windowGeo.setAttribute('normal', new THREE.Float32BufferAttribute(norm, 3));
+    windowGeo.setIndex(idx);
+    const windows = new THREE.Mesh(windowGeo, MUNI_GLASS);
+    windows.userData.noCollision = true;
+    g.add(windows);
+
+    // Tall engaged piers carry the eye through the central block. Like the
+    // packed glazing, they are ornamental and never inflate player collision.
+    for (const face of [-1, 1]) for (const u of [-7.7, -3.85, 0, 3.85, 7.7]) {
+      const front = box(0.42, 24.5, 0.48, MUNI_STONE_HI, u, 136, face * (squareD / 2 + 0.18));
+      const flank = box(0.48, 24.5, 0.42, MUNI_STONE_HI, face * (squareW / 2 + 0.18), 136, u * squareD / squareW);
+      front.userData.noCollision = true;
+      flank.userData.noCollision = true;
+      g.add(front, flank);
     }
-    g.add(box(40, 2, 6, LIMESTONE, 0, 14, 0)); // entablature over arch + wings
-    // crown from y=155
-    g.add(box(20, 3, 20, LIMESTONE, 0, 156.5, 0)); // square base 155..158
-    g.add(cyl(8, 8.6, 4, LIMESTONE, 0, 160, 0, 14)); // drum 158..162
-    g.add(ringColonnade(10, 6.6, 0.5, 6, LIMESTONE, 162)); // round tempietto 162..168
-    g.add(cyl(7.2, 7.2, 1.2, LIMESTONE, 0, 168.6, 0, 14)); // entablature ring
-    g.add(cyl(4.6, 5.2, 4, LIMESTONE, 0, 171.2, 0, 12)); // stacked drum 169.2..173.2
-    g.add(cyl(3.0, 3.6, 3, LIMESTONE, 0, 174.7, 0, 12)); // top drum 173.2..176.2
-    g.add(ball(1.0, GOLD, 0, 176.4, 0)); // orb underfoot
-    const fame = figure(6, GOLD); // gilt Civic Fame ~177m
-    fame.position.y = 176.8;
+
+    // Four classical corner pavilions/obelisks retain the mapped 135m and 144m
+    // steps rather than collapsing into a single anonymous center shaft.
+    for (const sx of [-10.9, 10.9]) for (const sz of [-9.4, 9.4]) {
+      g.add(box(5.0, 12.0, 5.0, MUNI_STONE, sx, 129.0, sz));
+      const roof = hippedRoof(5.2, 5.2, 2.1, 2.1, 135.0, 142.8, MUNI_STONE_HI);
+      roof.position.set(sx, 0, sz);
+      g.add(roof);
+      const finial = cyl(0, 0.34, 1.2, MUNI_STONE_HI, sx, 143.4, sz, 6);
+      finial.userData.noCollision = true;
+      g.add(finial);
+    }
+
+    // Two stacked circular peristyles and a low dome form the documented
+    // wedding-cake cupola. Dark inner drums keep every opening genuinely deep.
+    g.add(box(14.2, 2.8, 14.2, MUNI_STONE_HI, 0, 150.4, 0));
+    g.add(cyl(5.0, 5.0, 8.2, MUNI_GLASS, 0, 156.0, 0, 16));
+    const lowerCols = ringColonnade(12, 5.8, 0.38, 7.8, MUNI_STONE_HI, 152.0);
+    lowerCols.traverse((o) => { o.userData.noCollision = true; });
+    g.add(lowerCols);
+    g.add(cyl(6.5, 6.5, 1.0, MUNI_STONE_HI, 0, 160.4, 0, 16));
+    g.add(cyl(4.1, 4.8, 2.4, MUNI_STONE, 0, 162.1, 0, 14));
+    g.add(cyl(2.55, 2.55, 4.6, MUNI_GLASS, 0, 165.6, 0, 12));
+    const upperCols = ringColonnade(8, 3.15, 0.28, 4.4, MUNI_STONE_HI, 163.3);
+    upperCols.traverse((o) => { o.userData.noCollision = true; });
+    g.add(upperCols);
+    g.add(cyl(3.7, 3.7, 0.85, MUNI_STONE_HI, 0, 168.1, 0, 14));
+    const dome = lathe([[3.4, 0], [3.0, 0.6], [2.1, 1.25], [1.0, 1.8], [0, 2.05]], MUNI_STONE_HI, 14);
+    dome.position.y = 168.5;
+    g.add(dome);
+
+    // Civic Fame: the official DCAS description calls it a 20-foot gilded
+    // copper figure. A sphere, shield, laurel and five-point crown make the
+    // skyline marker identifiable instead of a featureless gold pin.
+    g.add(ball(0.82, GOLD, 0, 170.65, 0, 12));
+    const fame = figure(7.1, GOLD);
+    fame.position.y = 170.65;
     g.add(fame);
+    g.add(strut(new THREE.Vector3(-0.35, 174.45, 0), new THREE.Vector3(-1.65, 175.0, 0), 0.13, GOLD, 7));
+    g.add(strut(new THREE.Vector3(0.35, 174.45, 0), new THREE.Vector3(1.65, 174.15, 0), 0.13, GOLD, 7));
+    g.add(strut(new THREE.Vector3(-1.65, 175.0, 0), new THREE.Vector3(-1.85, 176.2, 0), 0.07, GOLD, 6));
+    const shield = ball(0.52, GOLD, 1.45, 173.75, 0.12, 10);
+    shield.scale.set(0.55, 1.0, 0.28);
+    g.add(shield);
+    for (let i = 0; i < 5; i++) {
+      const a = (i / 5) * Math.PI * 2;
+      g.add(cyl(0, 0.09, 0.42, GOLD, Math.cos(a) * 0.28, 176.25, Math.sin(a) * 0.28, 5));
+    }
+
+    // Chambers Street passage. The old registry anchor happened to mark this
+    // arch, not the tower; transform that surveyed world delta into the fitted
+    // tower frame. Terrain delta keeps the large screen seated on its plaza.
+    const archX = 47.5, archZ = 15.9;
+    const archY = ctx.groundAt(archX, archZ) - ctx.groundAt(0, 0);
+    const passage = archWall(24, 23, 6, 13.5, 18.0, MUNI_STONE);
+    passage.position.set(archX, archY, archZ);
+    g.add(passage);
+    for (const side of [-1, 1]) {
+      const screen = colonnade(4, 3.25, 0.58, 19, MUNI_STONE_HI);
+      screen.position.set(archX + side * 18.0, archY, archZ);
+      g.add(screen);
+    }
+    g.add(box(50, 2.0, 6.6, MUNI_STONE_HI, archX, archY + 23.2, archZ));
     return g;
   },
 

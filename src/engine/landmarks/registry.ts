@@ -114,7 +114,16 @@ export const LANDMARKS_REG: LandmarkEntry[] = [
     arrivalLat: 40.712780, arrivalLon: -74.006560,
     arrivalLookLat: 40.712400, arrivalLookLon: -74.008300,
   },
-  { id: 'municipal-building', name: 'Manhattan Municipal Building', lat: 40.7127, lon: -74.0041, set: 'civic', r: 900, rot: 0.5 },
+  // The old point sat at the Chambers Street arch, placing the procedural
+  // cupola ~50m west of its real tower. Tile-fit now owns the measured crown;
+  // the builder separately offsets the arch back to the street axis.
+  {
+    id: 'municipal-building', name: 'Manhattan Municipal Building',
+    lat: 40.712960, lon: -74.003620, set: 'civic', r: 1100,
+    alwaysOn: true,
+    arrivalLat: 40.71314343, arrivalLon: -74.00528014,
+    arrivalLookLat: 40.712960, arrivalLookLon: -74.003620,
+  },
   { id: 'foley-square', name: 'Supreme Court & Foley Square', lat: 40.7143, lon: -74.0018, set: 'civic', r: 450, rot: -1.05 },
   { id: 'african-burial-ground', name: 'African Burial Ground', lat: 40.714769, lon: -74.004275, set: 'civic', r: 350, rot: 0.3 },
   { id: 'chinatown-gate', name: 'Chinatown', lat: 40.7157, lon: -73.997, set: 'civic', r: 420, rot: -0.62 },

@@ -695,6 +695,14 @@ async function main() {
     // base stays; one coherent premium build now supplies the progressively
     // smaller Gothic tower, copper crown and 241m spire above that shoulder.
     { id: 'woolworth', lat: 40.7124, lon: -74.0083, r: 40, minH: 150, clearAboveH: 170 },
+    // The registry point historically marked the Chambers Street triumphal
+    // arch, about 50m southwest of the actual central tower. Measure the tower
+    // at its own source-part center and clear only its 123–183m wedding-cake
+    // stack; the accurate 107m C-plan block and 113m wing pavilions remain.
+    {
+      id: 'municipal-building', lat: 40.712960, lon: -74.003620, r: 55,
+      minH: 123, clearAboveH: 123,
+    },
     // Rebuild the New York Life Building's upper tower from the 115m setback.
     // OSM's 148m shaft, four corner turrets and 187.5m pyramidal roof are
     // otherwise emitted as flat generic prisms, including a solid gold block
@@ -2192,6 +2200,42 @@ async function main() {
     `Woolworth upper replacement (${woolKey}): fit=${woolFit?.w ?? 0}x${woolFit?.d ?? 0}m, ` +
       `roof=${woolFit?.roofH ?? 0}m, cleared=${woolFit?.clearedParts ?? 0}, ` +
       `baked >=170m within 22m=${woolBakedUpper} -> ${woolOk ? 'PASS' : 'FAIL'}`,
+  );
+
+  // The Municipal Building's arch and cupola have different centers. The fit
+  // must clear only the twelve central 123–177m parts across the adjacent tile
+  // boundary while retaining the 107m C-plan block and both 113m pavilions.
+  const muniXZ = lonLatToXZ(-74.003620, 40.712960);
+  const [muniTx, muniTz] = tileOf(muniXZ);
+  const muniFit = fitOut['municipal-building'];
+  let muniBakedUpper = 0, muniWingPavilions = 0, muniBaseKept = false;
+  for (let dx = -1; dx <= 1; dx++) for (let dz = -1; dz <= 1; dz++) {
+    const tx = muniTx + dx, tz = muniTz + dz;
+    for (const b of tileBuildings.get(tileKeyOf(tx, tz)) || []) {
+      const center = outputBuildingCentroid(b, tx, tz);
+      if (!center || !muniFit) continue;
+      const d = Math.hypot(center[0] - muniFit.cx, center[1] - muniFit.cz);
+      if (b.h >= 123 && d <= 25) muniBakedUpper++;
+      if (Math.abs(b.h - 113) < 0.2 && Math.abs((b.m ?? 0) - 107) < 0.2 && d <= 60) {
+        muniWingPavilions++;
+      }
+      if (Math.abs(b.h - 107) < 0.2 && d <= 10) muniBaseKept = true;
+    }
+  }
+  const muniOk = !!muniFit
+    && Math.abs(muniFit.w - 29) < 1
+    && Math.abs(muniFit.d - 26) < 1
+    && Math.abs(muniFit.roofH - 177) < 1
+    && muniFit.keptH === 0
+    && muniFit.clearedParts === 12
+    && muniBakedUpper === 0
+    && muniWingPavilions === 2
+    && muniBaseKept;
+  results.push(
+    `Municipal crown replacement (${tileKeyOf(muniTx, muniTz)}): ` +
+      `fit=${muniFit?.w ?? 0}x${muniFit?.d ?? 0}m @ ${muniFit?.roofH ?? 0}m, ` +
+      `cleared=${muniFit?.clearedParts ?? 0}, upper residuals=${muniBakedUpper}, ` +
+      `base=${muniBaseKept}, wing pavilions=${muniWingPavilions} -> ${muniOk ? 'PASS' : 'FAIL'}`,
   );
 
   // Central Park Tower owns one broad retail podium plus a dense set of
