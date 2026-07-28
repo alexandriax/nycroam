@@ -640,6 +640,15 @@ async function main() {
     { id: 'hearst-tower', lat: 40.7666, lon: -73.9836, r: 55, clearAboveH: 5 },
     { id: 'chrysler', lat: 40.7516, lon: -73.9755, r: 45, clearAboveMin: 184, clearAboveH: 270 },
     { id: 'empire-state', lat: 40.7484, lon: -73.9857, r: 40, clearAboveMin: 325 },
+    // One Bryant Park is mapped as one 366m containing outline plus numerous
+    // ground-up/pyramidal parts between 12m and 366m. The architectural roof is
+    // actually 288m and the remaining height is a ~78m spire, so every opaque
+    // source part must go. Ownership grouping isolates the complete two-acre
+    // site without touching adjacent 4 Times Square.
+    {
+      id: 'one-bryant', lat: 40.7555573, lon: -73.9847166, r: 85,
+      clearAll: true,
+    },
     // Full coherent replacement for Foster + Partners' completed tower. The
     // source maps one full-block outline plus nine contiguous stepped bands;
     // their 130/250/330/382/423m tops accurately describe the fan silhouette,
@@ -2239,6 +2248,55 @@ async function main() {
       `roof=${park432Fit?.roofH ?? 0}m, cleared=${park432Fit?.clearedParts ?? 0}+podium, ` +
       `baked >=400m within 30m=${park432BakedTall}, retail kept=${park432Retail20Kept && park432Retail28Kept} ` +
       `-> ${park432Ok ? 'PASS' : 'FAIL'}`,
+  );
+
+  // One Bryant Park's source contains an especially misleading cluster: a
+  // solid 366m pyramidal "roof" plus overlapping 240–279m prisms. Verify the
+  // complete host OBB is empty after replacement while the 341m broadcast
+  // crown of adjacent 4 Times Square remains at its measured location.
+  const bryantFit = fitOut['one-bryant'];
+  let bryantResiduals = 0;
+  if (bryantFit) {
+    const cos = Math.cos(bryantFit.rot), sin = Math.sin(bryantFit.rot);
+    for (const [key, buildings] of tileBuildings) {
+      const [tx, tz] = key.split('_').map(Number);
+      for (const b of buildings) {
+        const center = outputBuildingCentroid(b, tx, tz);
+        if (!center) continue;
+        const dx = center[0] - bryantFit.cx, dz = center[1] - bryantFit.cz;
+        const lx = dx * cos - dz * sin;
+        const lz = dx * sin + dz * cos;
+        if (Math.abs(lx) < bryantFit.w / 2 - 1 && Math.abs(lz) < bryantFit.d / 2 - 1) {
+          bryantResiduals++;
+        }
+      }
+    }
+  }
+  const fourTimesXZ = lonLatToXZ(-73.9857361, 40.7559605);
+  let fourTimesKept = false;
+  for (const [key, buildings] of tileBuildings) {
+    const [tx, tz] = key.split('_').map(Number);
+    for (const b of buildings) {
+      if (Math.abs(b.h - 341) > 0.2) continue;
+      const center = outputBuildingCentroid(b, tx, tz);
+      if (center && Math.hypot(center[0] - fourTimesXZ[0], center[1] - fourTimesXZ[1]) < 12) {
+        fourTimesKept = true;
+      }
+    }
+  }
+  const bryantOk = !!bryantFit
+    && Math.abs(bryantFit.w - 131) < 3
+    && Math.abs(bryantFit.d - 62) < 3
+    && Math.abs(bryantFit.roofH - 366) < 1
+    && bryantFit.keptH === 0
+    && bryantFit.clearedParts >= 12
+    && bryantResiduals === 0
+    && fourTimesKept;
+  results.push(
+    `One Bryant Park replacement: fit=${bryantFit?.w ?? 0}x${bryantFit?.d ?? 0}m, ` +
+      `source roof=${bryantFit?.roofH ?? 0}m, cleared=${bryantFit?.clearedParts ?? 0}, ` +
+      `site residuals=${bryantResiduals}, 4 Times Square kept=${fourTimesKept} ` +
+      `-> ${bryantOk ? 'PASS' : 'FAIL'}`,
   );
 
   const timesSquareRoads = tileRoads.get('0_0') || [];

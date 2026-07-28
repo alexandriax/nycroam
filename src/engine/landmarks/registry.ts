@@ -132,6 +132,10 @@ export const LANDMARKS_REG: LandmarkEntry[] = [
 
   // ---- midtown south ----
   { id: 'empire-state', name: 'Empire State Building', lat: 40.7484, lon: -73.9857, set: 'midtown-south', r: 1500, rot: GRID },
+  // Full premium replacement for fourteen interpenetrating generic source
+  // parts. Its compact textured facades and open lattice spire stay resident
+  // as the distant skyline representation after the tile bake clears the site.
+  { id: 'one-bryant', name: 'Bank of America Tower at One Bryant Park', lat: 40.7555573, lon: -73.9847166, set: 'midtown-south', r: 1500, rot: GRID, alwaysOn: true },
   // facade replica fronts 5th Ave: +z (steps/lions) must face ESE = GRID + 90deg;
   // anchor mid-block on the avenue front of the real massing, not the 42nd corner
   { id: 'nypl', name: 'New York Public Library', lat: 40.75290, lon: -73.98165, set: 'midtown-south', r: 500, rot: GRID + Math.PI / 2 },

@@ -2,17 +2,17 @@ import * as THREE from 'three';
 import {
   type LandmarkCtx,
   LIMESTONE, GRANITE, DARKSTONE, MARBLE, GOLD, STEEL_LM, GLASS_LM, WHITE_LM,
-  WATER_LM, GREEN_PATINA,
+  WATER_LM, GREEN_PATINA, BRICK_RED,
   box, cyl, strut, lathe, figure, twoSidedPanel,
-  billboardTexture, billboardMaterial,
+  canvasTexture, billboardTexture, billboardMaterial,
 } from '../kit';
 
 /**
- * Midtown South set — Empire State crown, NYPL, Bryant Park, MSG, Times Square,
- * the theater district. Each builder returns a group whose origin sits at
- * ground level; the manager rotates/positions/merges it. Several of these
- * landmarks (Empire State shaft, MSG bowl) already exist from OSM — those
- * builders add only the signature crown/skin that OSM lacks.
+ * Midtown South set — Empire State crown, One Bryant Park, NYPL, Bryant Park,
+ * MSG, Times Square and the theater district. Each builder returns a group
+ * whose origin sits at ground level; the manager rotates/positions/merges it.
+ * Empire State and MSG retain useful OSM massing. One Bryant Park is a full,
+ * compact replacement for the source's overlapping 12–366m solid prisms.
  */
 
 // Warm pink-Tennessee-marble tint for the lions (Patience & Fortitude).
@@ -38,10 +38,187 @@ const ESB_LIGHT = new THREE.MeshStandardMaterial({
 });
 const ESB_BEACON = new THREE.MeshBasicMaterial({ color: '#ff493d' });
 
+// One Bryant Park palette. Ceramic-fritted low-e glass is the building's
+// dominant surface, but high metalness turns shaded mobile faces black in the
+// intentionally inexpensive street environment. A cool emissive floor keeps
+// the angular curtain wall bright without flattening its reflected-sky sheen.
+const BRYANT_STEEL = new THREE.MeshStandardMaterial({
+  color: '#b9c4c8', metalness: 0.46, roughness: 0.25,
+  emissive: '#43535a', emissiveIntensity: 0.26,
+});
+const BRYANT_SCREEN = new THREE.MeshStandardMaterial({
+  color: '#70858b', metalness: 0.28, roughness: 0.31,
+  emissive: '#34535d', emissiveIntensity: 0.54,
+});
+const BRYANT_LIGHT_GLASS = new THREE.MeshStandardMaterial({
+  color: '#b8d5dc', metalness: 0.16, roughness: 0.12,
+  emissive: '#587c86', emissiveIntensity: 0.54,
+  transparent: true, opacity: 0.76, depthWrite: false,
+});
+const BRYANT_LOBBY = new THREE.MeshStandardMaterial({
+  color: '#9db8bc', metalness: 0.14, roughness: 0.13,
+  emissive: '#b47e48', emissiveIntensity: 0.62,
+});
+const BRYANT_DOOR = new THREE.MeshStandardMaterial({
+  color: '#233e44', metalness: 0.3, roughness: 0.16,
+  emissive: '#183b43', emissiveIntensity: 0.7,
+});
+const BRYANT_WOOD = new THREE.MeshStandardMaterial({
+  color: '#ad7a48', metalness: 0.02, roughness: 0.52,
+  emissive: '#4e2d17', emissiveIntensity: 0.18,
+});
+const BRYANT_RED = new THREE.MeshBasicMaterial({ color: '#ff4136' });
+const BRYANT_COLLISION = new THREE.MeshBasicMaterial({ visible: false });
+
 /** Decorative facade pieces should never become separate collision volumes. */
 function esbDetail<T extends THREE.Mesh>(mesh: T): T {
   mesh.userData.noCollision = true;
   return mesh;
+}
+
+function oneBryantDetail<T extends THREE.Mesh>(mesh: T): T {
+  mesh.userData.noCollision = true;
+  return mesh;
+}
+
+type BryantLevel = {
+  y: number;
+  cx: number;
+  cz: number;
+  w: number;
+  d: number;
+  clip: number;
+};
+
+/** Clockwise facade ring, beginning on the local -z face. */
+function oneBryantRing(level: BryantLevel): THREE.Vector3[] {
+  const x0 = level.cx - level.w / 2;
+  const x1 = level.cx + level.w / 2;
+  const z0 = level.cz - level.d / 2;
+  const z1 = level.cz + level.d / 2;
+  const c = Math.min(level.clip, level.w * 0.2, level.d * 0.3);
+  return [
+    new THREE.Vector3(x0 + c, level.y, z0),
+    new THREE.Vector3(x1 - c, level.y, z0),
+    new THREE.Vector3(x1, level.y, z0 + c),
+    new THREE.Vector3(x1, level.y, z1 - c),
+    new THREE.Vector3(x1 - c, level.y, z1),
+    new THREE.Vector3(x0 + c, level.y, z1),
+    new THREE.Vector3(x0, level.y, z1 - c),
+    new THREE.Vector3(x0, level.y, z0 + c),
+  ];
+}
+
+/**
+ * One faceted, continuously tapered curtain-wall volume. Physical-scale UVs
+ * repeat a four-bay/eight-floor atlas, carrying hundreds of fritted panes and
+ * spandrels in eight clean facade strips rather than thousands of window
+ * meshes. Every segment owns distinct vertices so its angled normals stay
+ * crisp at the folds.
+ */
+function oneBryantEnvelope(
+  levels: BryantLevel[],
+  mat: THREE.Material,
+  cap = true,
+): THREE.Mesh {
+  const positions: number[] = [];
+  const uvs: number[] = [];
+  const indices: number[] = [];
+  const BAY_ATLAS = 6.096 * 4; // four real 20ft structural bays
+  const FLOOR_ATLAS = 4.42 * 8; // eight 14ft6in floors
+  const addQuad = (a: THREE.Vector3, b: THREE.Vector3, c: THREE.Vector3, d: THREE.Vector3,
+    u0: number, u1: number, v0: number, v1: number) => {
+    const n = positions.length / 3;
+    for (const p of [a, b, c, d]) positions.push(p.x, p.y, p.z);
+    uvs.push(u0, v0, u0, v1, u1, v1, u1, v0);
+    indices.push(n, n + 1, n + 2, n, n + 2, n + 3);
+  };
+
+  for (let band = 0; band < levels.length - 1; band++) {
+    const lower = oneBryantRing(levels[band]);
+    const upper = oneBryantRing(levels[band + 1]);
+    let along = 0;
+    for (let side = 0; side < lower.length; side++) {
+      const next = (side + 1) % lower.length;
+      const span = Math.max(
+        lower[side].distanceTo(lower[next]),
+        upper[side].distanceTo(upper[next]),
+      );
+      addQuad(
+        lower[side], upper[side], upper[next], lower[next],
+        along / BAY_ATLAS, (along + span) / BAY_ATLAS,
+        levels[band].y / FLOOR_ATLAS, levels[band + 1].y / FLOOR_ATLAS,
+      );
+      along += span;
+    }
+  }
+
+  if (cap) {
+    const ring = oneBryantRing(levels[levels.length - 1]);
+    const center = new THREE.Vector3(
+      levels[levels.length - 1].cx,
+      levels[levels.length - 1].y,
+      levels[levels.length - 1].cz,
+    );
+    for (let i = 0; i < ring.length; i++) {
+      const next = (i + 1) % ring.length;
+      const n = positions.length / 3;
+      // Reversed facade-ring order points the cap normal upward.
+      for (const p of [center, ring[next], ring[i]]) positions.push(p.x, p.y, p.z);
+      uvs.push(0.5, 0.5, 1, 1, 0, 1);
+      indices.push(n, n + 1, n + 2);
+    }
+  }
+
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  geo.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+  geo.setIndex(indices);
+  geo.computeVertexNormals();
+  return oneBryantDetail(new THREE.Mesh(geo, mat));
+}
+
+/**
+ * The 52nd–55th-floor mechanical screen rises as an asymmetric crystalline
+ * point. Individual top heights make the east/north faces climb toward the
+ * spire while the southwest screen falls away, matching the tower's defining
+ * "shard of quartz" silhouette.
+ */
+function oneBryantCrown(
+  base: BryantLevel,
+  mat: THREE.Material,
+): { mesh: THREE.Mesh; baseRing: THREE.Vector3[]; topRing: THREE.Vector3[] } {
+  const baseRing = oneBryantRing(base);
+  const highest = new THREE.Vector2(base.cx + base.w * 0.34, base.cz - base.d * 0.18);
+  const topHeights = [258, 285, 288, 276, 266, 248, 245, 252];
+  const topRing = baseRing.map((p, i) => new THREE.Vector3(
+    THREE.MathUtils.lerp(p.x, highest.x, 0.09),
+    topHeights[i],
+    THREE.MathUtils.lerp(p.z, highest.y, 0.09),
+  ));
+  const positions: number[] = [];
+  const indices: number[] = [];
+  for (let i = 0; i < baseRing.length; i++) {
+    const next = (i + 1) % baseRing.length;
+    const n = positions.length / 3;
+    for (const p of [baseRing[i], topRing[i], topRing[next], baseRing[next]]) {
+      positions.push(p.x, p.y, p.z);
+    }
+    indices.push(n, n + 1, n + 2, n, n + 2, n + 3);
+  }
+  // Triangulate the non-planar screen cap around a raised central ridge.
+  const center = new THREE.Vector3(highest.x, 270, highest.y);
+  for (let i = 0; i < topRing.length; i++) {
+    const next = (i + 1) % topRing.length;
+    const n = positions.length / 3;
+    for (const p of [center, topRing[next], topRing[i]]) positions.push(p.x, p.y, p.z);
+    indices.push(n, n + 1, n + 2);
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  geo.setIndex(indices);
+  geo.computeVertexNormals();
+  return { mesh: oneBryantDetail(new THREE.Mesh(geo, mat)), baseRing, topRing };
 }
 
 /** Elliptical octagonal prism for the faceted aluminum/glass mooring mast. */
@@ -309,6 +486,245 @@ export const builders: Record<string, (ctx: LandmarkCtx) => THREE.Group> = {
       g.add(esbDetail(cyl(r, r, 0.45, ESB_ALUMINUM, cx, y, cz, 10)));
       const beacon = esbDetail(cyl(r * 0.32, r * 0.32, 0.7, ESB_BEACON, cx, y + 0.55, cz, 8));
       g.add(beacon);
+    }
+    return g;
+  },
+
+  // Bank of America Tower at One Bryant Park: full replacement for fourteen
+  // overlapping source prisms. The pipeline supplies the surveyed two-acre
+  // 131x62m host and 366m tip. A four-bay/eight-floor atlas, angular setbacks,
+  // asymmetric 945ft screen wall and open 300ft lattice spire recreate
+  // COOKFOX's quartz-like silhouette with a tiny skyline/runtime footprint.
+  'one-bryant': (ctx) => {
+    const g = new THREE.Group();
+    const W = ctx.fit?.w ?? 131;
+    const D = ctx.fit?.d ?? 62;
+    const tip = ctx.fit?.roofH ?? 366;
+    const occupiedTop = 234.5; // CTBUH highest occupied floor: 769ft
+    const screenBase = 240;
+
+    const curtain = canvasTexture((c, w, h) => {
+      const cols = 4, rows = 8;
+      const cw = w / cols, ch = h / rows;
+      c.fillStyle = '#648994';
+      c.fillRect(0, 0, w, h);
+      for (let row = 0; row < rows; row++) {
+        for (let col = 0; col < cols; col++) {
+          const x = col * cw, y = row * ch;
+          const tone = (row * 11 + col * 7 + row * col) % 6;
+          const grad = c.createLinearGradient(x, y, x + cw, y);
+          grad.addColorStop(0, tone < 2 ? '#5c7f8a' : '#6f929c');
+          grad.addColorStop(0.48, tone % 3 === 0 ? '#b2cbd1' : '#91adb5');
+          grad.addColorStop(1, tone === 4 ? '#4e737e' : '#678b95');
+          c.fillStyle = grad;
+          c.fillRect(x, y, cw, ch);
+          // Ceramic frit softens glare while the dark edge preserves the
+          // floor-to-ceiling pane read from only a few meters away.
+          c.fillStyle = 'rgba(235,241,239,.48)';
+          c.fillRect(x, y + ch * 0.68, cw, ch * 0.08);
+          c.fillStyle = 'rgba(42,62,69,.82)';
+          c.fillRect(x, y + ch - 3, cw, 3);
+          c.fillStyle = 'rgba(218,230,231,.9)';
+          c.fillRect(x, y, 2, ch);
+          if ((row * 5 + col * 3) % 7 === 0) {
+            c.fillStyle = 'rgba(238,190,122,.26)';
+            c.fillRect(x + 3, y + 3, cw - 6, ch * 0.48);
+          }
+        }
+      }
+    }, 192, 256);
+    curtain.wrapS = curtain.wrapT = THREE.RepeatWrapping;
+    curtain.anisotropy = 4;
+    const glassA = new THREE.MeshStandardMaterial({
+      map: curtain, color: '#bed6db', metalness: 0.22, roughness: 0.17,
+      emissive: '#476d78', emissiveIntensity: 0.48, envMapIntensity: 1.12,
+    });
+    const glassB = new THREE.MeshStandardMaterial({
+      map: curtain, color: '#a9c7ce', metalness: 0.25, roughness: 0.2,
+      emissive: '#3b626e', emissiveIntensity: 0.5, envMapIntensity: 1.08,
+    });
+
+    // Broad, chamfered public base followed by the dramatically slimmer,
+    // east-shifted office tower. Separate envelopes leave the real setback
+    // terrace visible instead of stretching one frustum over the full site.
+    const baseLevels: BryantLevel[] = [
+      { y: 0, cx: 0, cz: 0, w: W - 1, d: D - 1, clip: 5.8 },
+      { y: 20, cx: 1.5, cz: 0, w: W - 3, d: D - 2.5, clip: 5.4 },
+      { y: 42, cx: 3.5, cz: -0.3, w: W - 9, d: D - 4, clip: 5.0 },
+    ];
+    const towerLevels: BryantLevel[] = [
+      { y: 42, cx: 10, cz: -0.2, w: 102, d: 52, clip: 4.6 },
+      { y: 120, cx: 12, cz: -0.5, w: 94, d: 49, clip: 4.2 },
+      { y: 190, cx: 15.5, cz: -0.8, w: 78, d: 45, clip: 3.8 },
+      { y: occupiedTop, cx: 19, cz: -1, w: 62, d: 41, clip: 3.2 },
+    ];
+    g.add(oneBryantEnvelope(baseLevels, glassB));
+    g.add(oneBryantEnvelope(towerLevels, glassA));
+
+    // Stainless fold lines and floor datum strips reinforce the tower's
+    // shifting, angular planes from both Bryant Park and the skyline.
+    for (let level = 0; level < towerLevels.length - 1; level++) {
+      const a = oneBryantRing(towerLevels[level]);
+      const b = oneBryantRing(towerLevels[level + 1]);
+      for (let i = 0; i < a.length; i++) {
+        g.add(oneBryantDetail(strut(a[i], b[i], 0.18, BRYANT_STEEL, 5)));
+      }
+    }
+    for (const l of towerLevels.slice(1)) {
+      const ring = oneBryantRing(l);
+      for (let i = 0; i < ring.length; i++) {
+        g.add(oneBryantDetail(strut(
+          ring[i], ring[(i + 1) % ring.length], 0.16, BRYANT_STEEL, 5,
+        )));
+      }
+    }
+
+    // Bryant Park / Sixth Avenue double wall: a second, highly transparent
+    // faceted veil floats outside the east face, with a diagonal fold and
+    // visible stainless cable-net edges.
+    const veil = new THREE.BufferGeometry();
+    const veilPoints = [
+      61.5, 12, -21, 63.2, 228, -16,
+      51.2, 232, 16, 64.4, 12, 23,
+    ];
+    veil.setAttribute('position', new THREE.Float32BufferAttribute(veilPoints, 3));
+    veil.setIndex([0, 1, 2, 0, 2, 3]);
+    veil.computeVertexNormals();
+    g.add(oneBryantDetail(new THREE.Mesh(veil, BRYANT_LIGHT_GLASS)));
+    for (const [a, b] of [
+      [[61.5, 12, -21], [63.2, 228, -16]],
+      [[63.2, 228, -16], [51.2, 232, 16]],
+      [[51.2, 232, 16], [64.4, 12, 23]],
+      [[61.5, 12, -21], [64.4, 12, 23]],
+      [[61.5, 12, -21], [51.2, 232, 16]],
+    ] as [number[], number[]][]) {
+      g.add(oneBryantDetail(strut(
+        new THREE.Vector3(a[0], a[1], a[2]),
+        new THREE.Vector3(b[0], b[1], b[2]),
+        0.14, BRYANT_STEEL, 5,
+      )));
+    }
+
+    // Floors 52–55: dark mechanical terrace and asymmetric crystalline
+    // screen, rising from the 769ft occupied roof to the official 945ft wall.
+    g.add(oneBryantDetail(box(58, 5.5, 37, BRYANT_SCREEN, 19, occupiedTop + 2.75, -1)));
+    g.add(box(57.5, 5.5, 36.5, BRYANT_COLLISION, 19, occupiedTop + 2.75, -1));
+    const crownBase: BryantLevel = {
+      y: screenBase, cx: 19, cz: -1, w: 62, d: 41, clip: 3.2,
+    };
+    const crown = oneBryantCrown(crownBase, BRYANT_SCREEN);
+    g.add(crown.mesh);
+    for (let i = 0; i < crown.baseRing.length; i++) {
+      g.add(oneBryantDetail(strut(crown.baseRing[i], crown.topRing[i], 0.22, BRYANT_STEEL, 5)));
+      g.add(oneBryantDetail(strut(
+        crown.topRing[i], crown.topRing[(i + 1) % crown.topRing.length],
+        0.18, BRYANT_STEEL, 5,
+      )));
+    }
+    // Horizontal louver rails stop the broad mechanical faces reading as one
+    // opaque black sail while adding only forty low-segment struts.
+    for (const t of [0.16, 0.32, 0.48, 0.64, 0.8]) {
+      for (let i = 0; i < crown.baseRing.length; i++) {
+        const next = (i + 1) % crown.baseRing.length;
+        g.add(oneBryantDetail(strut(
+          crown.baseRing[i].clone().lerp(crown.topRing[i], t),
+          crown.baseRing[next].clone().lerp(crown.topRing[next], t),
+          0.11, BRYANT_STEEL, 5,
+        )));
+      }
+    }
+
+    // Nearly 300ft architectural spire: four tapered lattice legs and five
+    // crossed structural panels surround the real 5ft10in-to-2ft2in pipe.
+    const mastX = 42.5, mastZ = -7.2, latticeTop = Math.min(338, tip - 18);
+    const mast0 = 286.5;
+    const baseHalf = 2.7, topHalf = 0.72;
+    const corners = [[-1, -1], [1, -1], [1, 1], [-1, 1]] as const;
+    const mastPoint = (corner: number, t: number) => {
+      const [sx, sz] = corners[corner];
+      const half = THREE.MathUtils.lerp(baseHalf, topHalf, t);
+      return new THREE.Vector3(
+        mastX + sx * half,
+        THREE.MathUtils.lerp(mast0, latticeTop, t),
+        mastZ + sz * half,
+      );
+    };
+    for (let i = 0; i < 4; i++) {
+      g.add(oneBryantDetail(strut(mastPoint(i, 0), mastPoint(i, 1), 0.2, BRYANT_STEEL, 6)));
+    }
+    const braceLevels = 5;
+    for (let face = 0; face < 4; face++) {
+      const next = (face + 1) % 4;
+      for (let level = 0; level < braceLevels; level++) {
+        const t0 = level / braceLevels, t1 = (level + 1) / braceLevels;
+        g.add(oneBryantDetail(strut(
+          mastPoint(face, t0), mastPoint(next, t1), 0.09, BRYANT_STEEL, 5,
+        )));
+        g.add(oneBryantDetail(strut(
+          mastPoint(next, t0), mastPoint(face, t1), 0.09, BRYANT_STEEL, 5,
+        )));
+        g.add(oneBryantDetail(strut(
+          mastPoint(face, t1), mastPoint(next, t1), 0.08, BRYANT_STEEL, 5,
+        )));
+      }
+    }
+    g.add(oneBryantDetail(cyl(0.33, 0.89, latticeTop - mast0, BRYANT_STEEL,
+      mastX, (mast0 + latticeTop) / 2, mastZ, 8)));
+    g.add(oneBryantDetail(cyl(0.08, 0.33, tip - latticeTop, BRYANT_STEEL,
+      mastX, (latticeTop + tip) / 2, mastZ, 6)));
+    for (const [y, r] of [[mast0, 1.15], [306, 0.72], [326, 0.48], [latticeTop, 0.32]] as [number, number][]) {
+      g.add(oneBryantDetail(cyl(r, r, 0.34, BRYANT_STEEL, mastX, y, mastZ, 8)));
+    }
+    for (const y of [latticeTop, tip]) {
+      const beacon = oneBryantDetail(new THREE.Mesh(new THREE.SphereGeometry(0.2, 6, 5), BRYANT_RED));
+      beacon.position.set(mastX, y, mastZ);
+      g.add(beacon);
+    }
+
+    // Street-level Bryant Park corner: 40ft cable-net lobby, warm bamboo
+    // canopy, green Urban Garden Room and transparent corner entrances.
+    const east = W / 2 + 0.05;
+    g.add(oneBryantDetail(box(0.32, 12.2, 43, BRYANT_LOBBY, east, 6.1, 1)));
+    g.add(oneBryantDetail(box(0.12, 9.5, 15.5, GREEN_PATINA, east + 0.22, 5.0, -14)));
+    for (const z of [-19, -14, -9, -4, 4, 9, 14, 19]) {
+      g.add(oneBryantDetail(box(0.18, 12.5, 0.18, BRYANT_STEEL, east + 0.28, 6.25, z)));
+    }
+    for (const z of [-7.5, -2.5, 2.5, 7.5]) {
+      g.add(oneBryantDetail(box(0.18, 8.8, 4.3, BRYANT_DOOR, east + 0.46, 4.4, z)));
+    }
+    for (const z of [-17.2, -5.7, 5.7, 17.2]) {
+      g.add(oneBryantDetail(box(7.2, 0.3, 10.0, BRYANT_WOOD, east + 3.4, 11.8, z)));
+      g.add(oneBryantDetail(box(0.18, 11.4, 0.18, BRYANT_STEEL, east + 6.5, 5.7, z - 3.9)));
+      g.add(oneBryantDetail(box(0.18, 11.4, 0.18, BRYANT_STEEL, east + 6.5, 5.7, z + 3.9)));
+    }
+
+    // Stephen Sondheim Theatre: restored 1918 Henry Miller façade survives
+    // within the north base, while the 1,055-seat house descends below grade.
+    const theatreZ = -D / 2 - 0.12;
+    g.add(oneBryantDetail(box(29, 18.5, 0.48, BRICK_RED, -37, 9.25, theatreZ)));
+    g.add(oneBryantDetail(box(31, 1.0, 0.9, LIMESTONE, -37, 18.0, theatreZ - 0.12)));
+    g.add(oneBryantDetail(box(29.8, 0.65, 0.72, LIMESTONE, -37, 4.1, theatreZ - 0.16)));
+    for (const x of [-45, -37, -29]) {
+      g.add(oneBryantDetail(box(5.0, 8.2, 0.34, BRYANT_DOOR, x, 8.1, theatreZ - 0.3)));
+      const head = oneBryantDetail(cyl(2.5, 2.5, 0.34, BRYANT_DOOR, x, 12.2, theatreZ - 0.3, 12));
+      head.rotation.x = Math.PI / 2;
+      g.add(head);
+      const arch = oneBryantDetail(new THREE.Mesh(
+        new THREE.TorusGeometry(2.75, 0.26, 5, 12, Math.PI),
+        LIMESTONE,
+      ));
+      arch.position.set(x, 12.2, theatreZ - 0.5);
+      arch.rotation.z = Math.PI;
+      g.add(arch);
+    }
+
+    // Four conservative bands follow the massing closely. Facade, lattice and
+    // entrance detail remain non-colliding; the 240m mechanical terrace is
+    // explicitly landable without a 366m full-site invisible wall.
+    g.add(box(W - 2, 42, D - 2, BRYANT_COLLISION, 0.8, 21, 0));
+    for (const [a, b] of [[towerLevels[0], towerLevels[1]], [towerLevels[1], towerLevels[2]], [towerLevels[2], towerLevels[3]]] as [BryantLevel, BryantLevel][]) {
+      g.add(box(a.w - 2, b.y - a.y, a.d - 2, BRYANT_COLLISION,
+        a.cx, (a.y + b.y) / 2, a.cz));
     }
     return g;
   },
