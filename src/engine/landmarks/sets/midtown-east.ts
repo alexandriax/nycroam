@@ -714,22 +714,29 @@ export const builders: Record<string, (ctx: LandmarkCtx) => THREE.Group> = {
     }
     g.add(oneVDetail(mergeBatch(fins, ONE_V_TERRACOTTA)));
 
-    const entranceParts: THREE.Mesh[] = [];
+    const entranceDoors: THREE.Mesh[] = [];
+    const entranceSteel: THREE.Mesh[] = [];
     for (const sign of [-1, 1]) {
       // North/south portals.
-      entranceParts.push(box(18.5, 9.2, 0.42, ONE_V_DOOR, 0, 4.6, sign * (podiumD / 2 + 0.25)));
-      entranceParts.push(box(19.4, 0.42, 5.6, ONE_V_STEEL, 0, 7.0, sign * (podiumD / 2 + 2.8)));
+      entranceDoors.push(box(18.5, 9.2, 0.42, ONE_V_DOOR, 0, 4.6, sign * (podiumD / 2 + 0.25)));
+      entranceSteel.push(box(19.4, 0.42, 5.6, ONE_V_STEEL, 0, 7.0, sign * (podiumD / 2 + 2.8)));
       for (const x of [-9.2, -4.6, 0, 4.6, 9.2]) {
-        entranceParts.push(box(0.22, 9.5, 0.55, ONE_V_STEEL, x, 4.75, sign * (podiumD / 2 + 0.48)));
+        entranceSteel.push(box(0.22, 9.5, 0.55, ONE_V_STEEL, x, 4.75, sign * (podiumD / 2 + 0.48)));
       }
       // Madison/Vanderbilt Avenue portals.
-      entranceParts.push(box(0.42, 9.2, 18.5, ONE_V_DOOR, sign * (podiumW / 2 + 0.25), 4.6, 0));
-      entranceParts.push(box(5.6, 0.42, 19.4, ONE_V_STEEL, sign * (podiumW / 2 + 2.8), 7.0, 0));
+      entranceDoors.push(box(0.42, 9.2, 18.5, ONE_V_DOOR, sign * (podiumW / 2 + 0.25), 4.6, 0));
+      entranceSteel.push(box(5.6, 0.42, 19.4, ONE_V_STEEL, sign * (podiumW / 2 + 2.8), 7.0, 0));
       for (const z of [-9.2, -4.6, 0, 4.6, 9.2]) {
-        entranceParts.push(box(0.55, 9.5, 0.22, ONE_V_STEEL, sign * (podiumW / 2 + 0.48), 4.75, z));
+        entranceSteel.push(box(0.55, 9.5, 0.22, ONE_V_STEEL, sign * (podiumW / 2 + 0.48), 4.75, z));
       }
     }
-    for (const mesh of entranceParts) g.add(oneVDetail(mesh));
+    if (entranceDoors.length !== 4 || entranceSteel.length !== 24) {
+      throw new Error('One Vanderbilt entrance detail count changed');
+    }
+    g.add(
+      oneVDetail(mergeBatch(entranceDoors, ONE_V_DOOR)),
+      oneVDetail(mergeBatch(entranceSteel, ONE_V_STEEL)),
+    );
 
     type Level = { y: number; cx: number; cz: number; w: number; d: number };
     const levels: Level[] = [
@@ -757,6 +764,11 @@ export const builders: Record<string, (ctx: LandmarkCtx) => THREE.Group> = {
     };
 
     // ---- four interlocking, individually terminating office volumes
+    // Collect all same-material sections before adding them: their physical
+    // UVs and taper remain exact, but LandmarkManager sees two facade nodes
+    // instead of traversing and re-baking every stacked quadrant.
+    const glassAFacades: THREE.Mesh[] = [];
+    const glassBFacades: THREE.Mesh[] = [];
     for (let i = 0; i < levels.length - 1; i++) {
       const a = levels[i], b = levels[i + 1];
       for (let q = 0; q < 4; q++) {
@@ -764,19 +776,23 @@ export const builders: Record<string, (ctx: LandmarkCtx) => THREE.Group> = {
         const y1 = Math.min(b.y, maxH[q]);
         const upper = levelAt.get(y1);
         if (!upper) continue; // every source-mapped terminal is a profile level
-        g.add(facadeFrustum(rectFor(a, q), rectFor(upper, q), a.y, y1, (q + i) % 2 ? glassA : glassB));
+        const useA = (q + i) % 2 !== 0;
+        (useA ? glassAFacades : glassBFacades).push(
+          facadeFrustum(rectFor(a, q), rectFor(upper, q), a.y, y1, useA ? glassA : glassB),
+        );
       }
     }
 
     // Warm terrace caps make the rotating setback sequence read from the
     // ground; a merged glass rail gives close fly-bys real depth.
     const rails: THREE.Mesh[] = [];
+    const terraceCaps: THREE.Mesh[] = [];
     for (let q = 0; q < 4; q++) {
       const y = maxH[q];
       const r = rectFor(levelAt.get(y)!, q);
       const w = r.x1 - r.x0, d = r.z1 - r.z0;
       const x = (r.x0 + r.x1) / 2, z = (r.z0 + r.z1) / 2;
-      g.add(oneVDetail(box(w + 0.8, 0.75, d + 0.8, ONE_V_TERRACOTTA, x, y + 0.375, z)));
+      terraceCaps.push(box(w + 0.8, 0.75, d + 0.8, ONE_V_TERRACOTTA, x, y + 0.375, z));
       rails.push(
         box(w + 0.5, 1.45, 0.18, ONE_V_SUMMIT, x, y + 1.1, r.z0 - 0.25),
         box(w + 0.5, 1.45, 0.18, ONE_V_SUMMIT, x, y + 1.1, r.z1 + 0.25),
@@ -784,6 +800,7 @@ export const builders: Record<string, (ctx: LandmarkCtx) => THREE.Group> = {
         box(0.18, 1.45, d + 0.5, ONE_V_SUMMIT, r.x1 + 0.25, y + 1.1, z),
       );
     }
+    g.add(oneVDetail(mergeBatch(terraceCaps, ONE_V_TERRACOTTA)));
     g.add(oneVDetail(mergeBatch(rails, ONE_V_SUMMIT)));
 
     // Sixteen conservative collision rings follow the real setbacks, rather
@@ -820,8 +837,17 @@ export const builders: Record<string, (ctx: LandmarkCtx) => THREE.Group> = {
     const crown0: FacadeRect = { x0: -5, x1: 19, z0: -20, z1: 2 };
     const crown1: FacadeRect = { x0: 0, x1: 15, z0: -16.5, z1: -2.5 };
     const crown2: FacadeRect = { x0: 4, x1: 10.5, z0: -12.5, z1: -5.5 };
-    g.add(facadeFrustum(crown0, crown1, 350, 376, glassA));
-    g.add(facadeFrustum(crown1, crown2, 376, 397, glassB));
+    glassAFacades.push(facadeFrustum(crown0, crown1, 350, 376, glassA));
+    glassBFacades.push(facadeFrustum(crown1, crown2, 376, 397, glassB));
+    if (glassAFacades.length !== 11 || glassBFacades.length !== 12) {
+      throw new Error(
+        `One Vanderbilt facade count changed: ${glassAFacades.length} A, ${glassBFacades.length} B`,
+      );
+    }
+    g.add(
+      oneVDetail(mergeBatch(glassAFacades, glassA)),
+      oneVDetail(mergeBatch(glassBFacades, glassB)),
+    );
     for (const [a, b, y0, y1] of [[crown0, crown1, 350, 376], [crown1, crown2, 376, 397]] as [FacadeRect, FacadeRect, number, number][]) {
       for (const [ix, iz] of [[0, 0], [1, 0], [1, 1], [0, 1]]) {
         const ax = ix ? a.x1 : a.x0, az = iz ? a.z1 : a.z0;
