@@ -37,13 +37,26 @@ const CPT_DOOR = new THREE.MeshStandardMaterial({
 });
 const CPT_GLOW = new THREE.MeshBasicMaterial({ color: '#d9c49a' });
 const CPT_COLLISION = new THREE.MeshBasicMaterial({ visible: false });
+const STW_TERRACOTTA = new THREE.MeshStandardMaterial({
+  color: '#d8c9a7', metalness: 0.08, roughness: 0.42,
+  emissive: '#6b5e48', emissiveIntensity: 0.24,
+});
+const STW_BRONZE = new THREE.MeshStandardMaterial({
+  color: '#6d5639', metalness: 0.68, roughness: 0.27,
+  emissive: '#2d2418', emissiveIntensity: 0.22,
+});
+const STW_DARK = new THREE.MeshStandardMaterial({
+  color: '#24353a', metalness: 0.35, roughness: 0.2,
+  emissive: '#142126', emissiveIntensity: 0.35,
+});
+const STW_COLLISION = new THREE.MeshBasicMaterial({ visible: false });
 
 // ---- shared local helpers ---------------------------------------------------
 
 type PlanPoint = [number, number];
 
 /** Decorative landmark detail never becomes its own coarse collision volume. */
-function cptDetail<T extends THREE.Mesh>(mesh: T): T {
+function towerDetail<T extends THREE.Mesh>(mesh: T): T {
   mesh.userData.noCollision = true;
   return mesh;
 }
@@ -53,7 +66,7 @@ function cptDetail<T extends THREE.Mesh>(mesh: T): T {
  * supply every floor, mullion and spandrel at close range while the complete
  * 422m shaft remains only four vertices per facade edge.
  */
-function cptFacade(
+function towerFacade(
   source: PlanPoint[],
   y0: number,
   y1: number,
@@ -89,11 +102,11 @@ function cptFacade(
   geo.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
   geo.setIndex(idx);
   geo.computeVertexNormals();
-  return cptDetail(new THREE.Mesh(geo, mat));
+  return towerDetail(new THREE.Mesh(geo, mat));
 }
 
 /** Exact invisible solid used only by LandmarkManager's polygonal collision. */
-function cptSolid(points: PlanPoint[], y0: number, y1: number): THREE.Mesh {
+function towerSolid(points: PlanPoint[], y0: number, y1: number, mat: THREE.Material = CPT_COLLISION): THREE.Mesh {
   const shape = new THREE.Shape();
   points.forEach(([x, z], i) => {
     if (i === 0) shape.moveTo(x, -z);
@@ -102,7 +115,7 @@ function cptSolid(points: PlanPoint[], y0: number, y1: number): THREE.Mesh {
   shape.closePath();
   const mesh = new THREE.Mesh(
     new THREE.ExtrudeGeometry(shape, { depth: y1 - y0, bevelEnabled: false }),
-    CPT_COLLISION,
+    mat,
   );
   mesh.rotation.x = -Math.PI / 2;
   mesh.position.y = y0;
@@ -110,17 +123,71 @@ function cptSolid(points: PlanPoint[], y0: number, y1: number): THREE.Mesh {
 }
 
 /** Flat roof following an exact measured plan. */
-function cptRoof(points: PlanPoint[], y: number, mat: THREE.Material): THREE.Mesh {
+function towerRoof(points: PlanPoint[], y: number, mat: THREE.Material): THREE.Mesh {
   const shape = new THREE.Shape();
   points.forEach(([x, z], i) => {
     if (i === 0) shape.moveTo(x, -z);
     else shape.lineTo(x, -z);
   });
   shape.closePath();
-  const mesh = cptDetail(new THREE.Mesh(new THREE.ShapeGeometry(shape), mat));
+  const mesh = towerDetail(new THREE.Mesh(new THREE.ShapeGeometry(shape), mat));
   mesh.rotation.x = -Math.PI / 2;
   mesh.position.y = y;
   return mesh;
+}
+
+/** One physically UV-scaled facade quad parallel to local x. */
+function towerWallX(
+  x0: number,
+  x1: number,
+  z: number,
+  y0: number,
+  y1: number,
+  mat: THREE.Material,
+  normalZ: -1 | 1,
+  bayW = 1.2,
+  floorH = 4.8,
+): THREE.Mesh {
+  const a = normalZ > 0 ? x0 : x1;
+  const b = normalZ > 0 ? x1 : x0;
+  const u1 = Math.abs(x1 - x0) / bayW;
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute([
+    a, y0, z, b, y0, z, b, y1, z, a, y1, z,
+  ], 3));
+  geo.setAttribute('uv', new THREE.Float32BufferAttribute([
+    0, y0 / floorH, u1, y0 / floorH, u1, y1 / floorH, 0, y1 / floorH,
+  ], 2));
+  geo.setIndex([0, 1, 2, 0, 2, 3]);
+  geo.computeVertexNormals();
+  return towerDetail(new THREE.Mesh(geo, mat));
+}
+
+/** One physically UV-scaled facade quad parallel to local z. */
+function towerWallZ(
+  z0: number,
+  z1: number,
+  x: number,
+  y0: number,
+  y1: number,
+  mat: THREE.Material,
+  normalX: -1 | 1,
+  bayW = 1.5,
+  floorH = 4.8,
+): THREE.Mesh {
+  const a = normalX > 0 ? z0 : z1;
+  const b = normalX > 0 ? z1 : z0;
+  const u1 = Math.abs(z1 - z0) / bayW;
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute([
+    x, y0, a, x, y1, a, x, y1, b, x, y0, b,
+  ], 3));
+  geo.setAttribute('uv', new THREE.Float32BufferAttribute([
+    0, y0 / floorH, 0, y1 / floorH, u1, y1 / floorH, u1, y0 / floorH,
+  ], 2));
+  geo.setIndex([0, 1, 2, 0, 2, 3]);
+  geo.computeVertexNormals();
+  return towerDetail(new THREE.Mesh(geo, mat));
 }
 
 /** Straight park bench (matches the exemplar set's proportions). */
@@ -314,7 +381,7 @@ export const builders: Record<string, (ctx: LandmarkCtx) => THREE.Group> = {
     const tip = ctx.fit?.roofH ?? 472;
 
     const towerTex = canvasTexture((c, w, h) => {
-      const glass = c.createLinearGradient(0, 0, w, h);
+      const glass = c.createLinearGradient(0, 0, w, 0);
       glass.addColorStop(0, '#afc5cd');
       glass.addColorStop(0.45, '#7394a2');
       glass.addColorStop(1, '#4d7180');
@@ -412,9 +479,9 @@ export const builders: Record<string, (ctx: LandmarkCtx) => THREE.Group> = {
       plan: PlanPoint[], y0: number, y1: number, mat: THREE.Material,
       bay = 1.5, floor = 4.4,
     ) => {
-      g.add(cptFacade(plan, y0, y1, mat, bay, floor));
-      g.add(cptSolid(plan, y0, y1));
-      g.add(cptRoof(plan, y1 + 0.02, CPT_DARK));
+      g.add(towerFacade(plan, y0, y1, mat, bay, floor));
+      g.add(towerSolid(plan, y0, y1));
+      g.add(towerRoof(plan, y1 + 0.02, CPT_DARK));
     };
 
     // Seven-storey 300,000ft² retail base and its low 58th Street wing.
@@ -425,22 +492,22 @@ export const builders: Record<string, (ctx: LandmarkCtx) => THREE.Group> = {
     // Warm light is limited to thin headers: an opaque full-height glow plane
     // becomes a blank wall when inspected from the sidewalk.
     for (const x of [-19, -10, -1, 8]) {
-      g.add(cptDetail(box(7.1, 7.5, 0.18, CPT_DOOR, x, 4.1, -30.72)));
+      g.add(towerDetail(box(7.1, 7.5, 0.18, CPT_DOOR, x, 4.1, -30.72)));
       for (const dx of [-3.25, 0, 3.25]) {
-        g.add(cptDetail(box(0.12, 7.3, 0.08, CPT_STAINLESS, x + dx, 4.1, -30.84)));
+        g.add(towerDetail(box(0.12, 7.3, 0.08, CPT_STAINLESS, x + dx, 4.1, -30.84)));
       }
-      g.add(cptDetail(box(6.2, 0.22, 0.08, CPT_GLOW, x, 7.68, -30.85)));
+      g.add(towerDetail(box(6.2, 0.22, 0.08, CPT_GLOW, x, 7.68, -30.85)));
     }
     // Pattern-rolled fins physically undulate in front of the podium glazing.
     for (let i = 0; i < 24; i++) {
       const x = -23 + i * 1.58;
       const wave = Math.sin(i * 0.72) * 0.75;
-      g.add(cptDetail(box(0.16, 41, 0.32, CPT_STAINLESS, x, 22.5, -30.9 - wave)));
+      g.add(towerDetail(box(0.16, 41, 0.32, CPT_STAINLESS, x, 22.5, -30.9 - wave)));
     }
     for (let i = 0; i < 34; i++) {
       const x = -27.5 + i * 1.67;
       const wave = Math.sin(i * 0.6 + 1.1) * 0.55;
-      g.add(cptDetail(box(0.14, 20, 0.28, CPT_STAINLESS, x, 12, 25.8 + wave)));
+      g.add(towerDetail(box(0.14, 20, 0.28, CPT_STAINLESS, x, 12, 25.8 + wave)));
     }
 
     // Mapped shoulder volumes rise independently above the podium. The primary
@@ -449,7 +516,7 @@ export const builders: Record<string, (ctx: LandmarkCtx) => THREE.Group> = {
     addSolidFacade(SOUTH_SHOULDER, 44, 127, towerGlass);
     addSolidFacade(NORTH_SHOULDER, 44, 163, towerGlass);
     addSolidFacade(SHAFT, 44, 91, towerGlass);
-    g.add(cptDetail(box(31.5, 1.4, 30.5, CPT_STAINLESS, -22.45, 91, 8.15)));
+    g.add(towerDetail(box(31.5, 1.4, 30.5, CPT_STAINLESS, -22.45, 91, 8.15)));
 
     const occupiedTop = Math.min(432, tip - 34);
     addSolidFacade(SHAFT, 91, occupiedTop, towerGlass);
@@ -461,22 +528,192 @@ export const builders: Record<string, (ctx: LandmarkCtx) => THREE.Group> = {
     // inches from the facade; texture handles the interstitial bays.
     const finY0 = 91, finY1 = occupiedTop, finH = finY1 - finY0;
     for (let x = -28.7; x <= -8.3; x += 2.05) {
-      g.add(cptDetail(box(0.14, finH, 0.26, CPT_STAINLESS, x, (finY0 + finY1) / 2, -6.86)));
-      g.add(cptDetail(box(0.14, finH, 0.26, CPT_STAINLESS, x, (finY0 + finY1) / 2, 23.14)));
+      g.add(towerDetail(box(0.14, finH, 0.26, CPT_STAINLESS, x, (finY0 + finY1) / 2, -6.86)));
+      g.add(towerDetail(box(0.14, finH, 0.26, CPT_STAINLESS, x, (finY0 + finY1) / 2, 23.14)));
     }
     for (let z = -5.5; z <= 21.8; z += 2.1) {
-      g.add(cptDetail(box(0.26, finH, 0.14, CPT_STAINLESS, -29.94, (finY0 + finY1) / 2, z)));
-      g.add(cptDetail(box(0.26, finH, 0.14, CPT_STAINLESS, -7.16, (finY0 + finY1) / 2, z)));
+      g.add(towerDetail(box(0.26, finH, 0.14, CPT_STAINLESS, -29.94, (finY0 + finY1) / 2, z)));
+      g.add(towerDetail(box(0.26, finH, 0.14, CPT_STAINLESS, -7.16, (finY0 + finY1) / 2, z)));
     }
     for (let z = 1.6; z <= 17; z += 2.1) {
-      g.add(cptDetail(box(0.26, finH, 0.14, CPT_STAINLESS, -38.24, (finY0 + finY1) / 2, z)));
+      g.add(towerDetail(box(0.26, finH, 0.14, CPT_STAINLESS, -38.24, (finY0 + finY1) / 2, z)));
     }
     // Mapped massing transitions double as subtle mechanical/refuge bands.
     for (const y of [127, 163, 237, 332, occupiedTop]) {
       if (y >= occupiedTop) continue;
-      g.add(cptDetail(box(23.2, 0.55, 30.3, CPT_STAINLESS, -18.55, y, 8.15)));
+      g.add(towerDetail(box(23.2, 0.55, 30.3, CPT_STAINLESS, -18.55, y, 8.15)));
     }
-    g.add(cptDetail(box(23.5, 0.9, 30.6, CPT_STAINLESS, -18.55, tip + 0.45, 8.15)));
+    g.add(towerDetail(box(23.5, 0.9, 30.6, CPT_STAINLESS, -18.55, tip + 0.45, 8.15)));
+    return g;
+  },
+
+  // 111 West 57th Street / Steinway Tower. The source resolves SHoP's
+  // feathered zoning envelope unusually well: thirteen contiguous north/south
+  // strips, each only ~1.7m deep and terminating at its real setback height.
+  // Rebuild those exact bands rather than approximating the tower as one taper,
+  // then use a repeating physical-scale skin plus a small number of real fins.
+  // This keeps the landmark below a few thousand triangles while preserving
+  // its defining 1:24 silhouette, terracotta moiré and historic Steinway Hall.
+  'steinway-tower': (ctx) => {
+    const g = new THREE.Group();
+    const tip = ctx.fit?.roofH ?? 435;
+    const hs = tip / 435;
+    const hallWall = 55;
+
+    const terraTex = canvasTexture((c, w, h) => {
+      const body = c.createLinearGradient(0, 0, w, 0);
+      body.addColorStop(0, '#a88e69');
+      body.addColorStop(0.18, '#eadfca');
+      body.addColorStop(0.48, '#c9b693');
+      body.addColorStop(0.76, '#f0e6d4');
+      body.addColorStop(1, '#9a805e');
+      c.fillStyle = body;
+      c.fillRect(0, 0, w, h);
+      // Glazed involute tile: alternating highlights produce the long-distance
+      // moiré, while a narrow bronze reveal separates each vertical pilaster.
+      c.fillStyle = 'rgba(255,250,235,.42)';
+      c.fillRect(13, 0, 9, h);
+      c.fillStyle = 'rgba(77,58,38,.38)';
+      c.fillRect(w - 9, 0, 9, h);
+      c.fillStyle = '#6a5135';
+      c.fillRect(w - 4, 0, 4, h);
+      c.fillStyle = 'rgba(71,59,46,.34)';
+      c.fillRect(0, h - 7, w, 7);
+    }, 64, 96);
+    terraTex.wrapS = terraTex.wrapT = THREE.RepeatWrapping;
+    terraTex.anisotropy = 4;
+    const terraSkin = new THREE.MeshStandardMaterial({
+      map: terraTex, color: '#efe7d8', metalness: 0.12, roughness: 0.33,
+      emissive: '#625542', emissiveIntensity: 0.27,
+    });
+
+    const glassTex = canvasTexture((c, w, h) => {
+      const glass = c.createLinearGradient(0, 0, w, h);
+      glass.addColorStop(0, '#9db6be');
+      glass.addColorStop(0.42, '#456a78');
+      glass.addColorStop(0.7, '#b9cbd0');
+      glass.addColorStop(1, '#385866');
+      c.fillStyle = glass;
+      c.fillRect(0, 0, w, h);
+      c.fillStyle = 'rgba(228,238,240,.23)';
+      c.fillRect(w * 0.18, 5, w * 0.28, h - 13);
+      c.fillStyle = '#59472f';
+      c.fillRect(0, 0, 4, h);
+      c.fillStyle = 'rgba(33,49,55,.62)';
+      c.fillRect(0, h - 7, w, 7);
+    }, 72, 96);
+    glassTex.wrapS = glassTex.wrapT = THREE.RepeatWrapping;
+    glassTex.anisotropy = 4;
+    const glassSkin = new THREE.MeshStandardMaterial({
+      map: glassTex, color: '#d6e1e3', metalness: 0.28, roughness: 0.16,
+      emissive: '#36515b', emissiveIntensity: 0.38,
+    });
+
+    const hallTex = canvasTexture((c, w, h) => {
+      c.fillStyle = '#c9bea9';
+      c.fillRect(0, 0, w, h);
+      c.fillStyle = '#ded5c3';
+      c.fillRect(4, 0, w - 8, h);
+      c.fillStyle = '#45575b';
+      c.fillRect(14, 15, w - 28, h - 29);
+      c.fillStyle = 'rgba(155,190,197,.44)';
+      c.fillRect(18, 18, 12, h - 35);
+      c.fillStyle = '#94866f';
+      c.fillRect(0, h - 8, w, 8);
+      c.fillStyle = 'rgba(245,238,219,.52)';
+      c.fillRect(0, 0, w, 5);
+    }, 96, 96);
+    hallTex.wrapS = hallTex.wrapT = THREE.RepeatWrapping;
+    hallTex.anisotropy = 4;
+    const hallSkin = new THREE.MeshStandardMaterial({
+      map: hallTex, color: '#eee7d8', metalness: 0.04, roughness: 0.48,
+      emissive: '#5b554a', emissiveIntensity: 0.2,
+    });
+
+    // Exact source plan in the measured fit frame. Local +x runs south along
+    // the avenue axis; +z runs west along West 57th Street.
+    const HALL: PlanPoint[] = [
+      [-21.3, -9.1], [-21.3, 9], [-17, 9], [-15.3, 9],
+      [-13.5, 9], [-11.8, 9], [-10.1, 9], [-8.4, 9],
+      [-6.7, 9], [-5, 9], [-3.3, 9], [-1.6, 9],
+      [0.2, 9], [1.9, 9], [3.6, 9], [3.6, 6.4],
+      [5.5, 5.1], [21.3, 5.1], [21.3, 21.6], [3, 21.6],
+      [-12.4, 21.6], [-40.1, 21.6], [-40.1, -9.1],
+    ];
+    const steps = [
+      [-21.3, -17, 435], [-17, -15.3, 417], [-15.3, -13.5, 405],
+      [-13.6, -11.8, 393], [-11.9, -10.1, 383], [-10.1, -8.4, 373],
+      [-8.4, -6.7, 358], [-6.7, -5, 343], [-5, -3.3, 328],
+      [-3.3, -1.6, 308], [-1.6, 0.2, 283], [0.1, 1.9, 248],
+      [1.8, 3.6, 200],
+    ] as const;
+
+    // Warren & Wetmore's landmarked hall: exact footprint, limestone window
+    // rhythm, deep West 57th entrance, restored copper roof and lantern.
+    g.add(towerFacade(HALL, 0, hallWall, hallSkin, 3.5, 4.2));
+    g.add(towerSolid(HALL, 0, hallWall, STW_COLLISION));
+    g.add(towerRoof(HALL, hallWall + 0.02, STW_DARK));
+    // The landmark's narrow West 57th frontage is more monumental than the
+    // repeating side/rear bays: a limestone base, deep arched portal, bronze
+    // doors and classical entablature make it read at sidewalk distance.
+    g.add(towerWallZ(5.05, 21.65, 21.52, 0, 14.2, LIMESTONE, 1, 4.2, 6.6));
+    for (const y of [3.2, 12.2, 32.5, 51.8, 54.6]) {
+      g.add(towerDetail(box(0.34, y === 54.6 ? 1.1 : 0.45, 30.4, STW_TERRACOTTA, 21.42, y, 6.3)));
+    }
+    for (const z of [-7.2, -3.2, 0.8, 6.8, 11.2, 15.4, 19.5]) {
+      g.add(towerDetail(box(0.38, 52, 0.42, STW_TERRACOTTA, 21.45, 27.5, z)));
+    }
+    g.add(towerDetail(box(0.3, 9.2, 5.7, STW_DARK, 21.62, 4.8, 13.35)));
+    const hallPortal = towerDetail(archWall(9.2, 13.7, 0.72, 5.9, 10.8, STW_TERRACOTTA));
+    hallPortal.rotation.y = Math.PI / 2;
+    hallPortal.position.set(21.78, 0, 13.35);
+    g.add(hallPortal);
+    for (const z of [10.25, 13.35, 16.45]) {
+      g.add(towerDetail(box(0.28, 9.1, 0.34, STW_BRONZE, 21.8, 4.85, z)));
+    }
+    for (const z of [7.9, 18.8]) {
+      g.add(towerDetail(cyl(0.42, 0.55, 11.4, STW_TERRACOTTA, 21.85, 5.7, z, 10)));
+    }
+    g.add(towerDetail(box(0.3, 0.5, 7.2, GOLD, 21.88, 12.65, 13.35)));
+    g.add(towerDetail(box(0.42, 1.05, 11.2, STW_TERRACOTTA, 21.77, 13.55, 13.35)));
+    const hallRoof = towerDetail(cyl(8.2, 11.2, 7.2, GREEN_PATINA, -25.5, 58.6, 8, 4));
+    hallRoof.rotation.y = Math.PI / 4;
+    g.add(hallRoof);
+    g.add(towerDetail(box(4.8, 4.2, 4.8, GREEN_PATINA, -25.5, 64.1, 8)));
+    g.add(towerDetail(cyl(0.22, 0.42, 4.2, GOLD, -25.5, 68.3, 8, 8)));
+
+    // The 13 measured setback bands are contiguous, not nested full-height
+    // prisms. Their shared terracotta side walls form the east/west elevations;
+    // the exposed south risers and north end wall remain bronze-trimmed glass.
+    for (let si = 0; si < steps.length; si++) {
+      const [x0, x1, sourceH] = steps[si];
+      const h = sourceH * hs;
+      const nextH = (steps[si + 1]?.[2] ?? hallWall) * hs;
+      g.add(towerWallX(x0, x1, 9.03, hallWall, h, terraSkin, 1, 1.05, 4.8));
+      g.add(towerWallX(x0, x1, -9.13, hallWall, h, terraSkin, -1, 1.05, 4.8));
+      g.add(towerWallZ(-9.05, 9.05, x1 + 0.02, Math.max(hallWall, nextH), h, glassSkin, 1, 1.5, 4.8));
+      g.add(towerDetail(box(x1 - x0, 0.24, 18.15, STW_DARK, (x0 + x1) / 2, h + 0.12, 0)));
+      g.add(box(x1 - x0, h, 18.05, STW_COLLISION, (x0 + x1) / 2, h / 2, 0));
+
+      // Real relief only where it pays off: multiple narrow glazed terracotta
+      // pilasters per band on both elevations. The texture fills the 43,000
+      // interstitial tiles; these ~90 merged boxes hold highlights up close.
+      const count = Math.max(2, Math.round((x1 - x0) / 0.58));
+      for (let i = 0; i < count; i++) {
+        const x = x0 + ((i + 0.5) / count) * (x1 - x0);
+        const finMat = (i + si) % 4 === 0 ? STW_BRONZE : STW_TERRACOTTA;
+        const relief = 0.23 + Math.sin((i + si * 1.7) * 1.4) * 0.09;
+        g.add(towerDetail(box(0.13, h - hallWall, 0.22, finMat, x, (hallWall + h) / 2, 9.16 + relief)));
+        g.add(towerDetail(box(0.13, h - hallWall, 0.22, finMat, x, (hallWall + h) / 2, -9.26 - relief)));
+      }
+    }
+
+    // Full north glass wall and true-depth bronze mullions finish the tip.
+    g.add(towerWallZ(-9.05, 9.05, -21.32, hallWall, tip, glassSkin, -1, 1.5, 4.8));
+    for (let z = -8.1; z <= 8.1; z += 1.48) {
+      g.add(towerDetail(box(0.2, tip - hallWall, 0.1, STW_BRONZE, -21.43, (hallWall + tip) / 2, z)));
+    }
+    g.add(towerDetail(box(4.55, 0.55, 18.35, STW_BRONZE, -19.15, tip + 0.28, 0)));
     return g;
   },
 

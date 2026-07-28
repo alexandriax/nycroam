@@ -210,6 +210,18 @@ export const LANDMARKS_REG: LandmarkEntry[] = [
     arrivalBearing: -Math.PI / 2, arrivalLat: 40.768050, arrivalLon: -73.980580,
     alwaysOn: true,
   },
+  // SHoP's 435m feathered tower replaces all 14 source pieces plus the
+  // separately mapped Steinway Hall. Keep its compact textured/finned build in
+  // the skyline: this is Manhattan's tallest remaining generic supertall and
+  // its terracotta east/west elevations are recognizable from across Midtown.
+  {
+    id: 'steinway-tower', name: '111 West 57th Street (Steinway Tower)',
+    lat: 40.764998, lon: -73.977437, set: 'uptown', r: 1700, rot: GRID,
+    // Surveyed on a Central Park footpath: 1.2m from its centerline, nearest
+    // tree canopy 13.7m away, with the complete feathered upper tower visible.
+    arrivalBearing: Math.PI, arrivalLat: 40.7670091, arrivalLon: -73.9774284,
+    alwaysOn: true,
+  },
   { id: 'plaza-hotel', name: 'The Plaza Hotel', lat: 40.7644, lon: -73.9745, set: 'uptown', r: 550, rot: GRID },
   { id: 'pulitzer-fountain', name: 'Pulitzer Fountain', lat: 40.764, lon: -73.9737, set: 'uptown', r: 400, rot: GRID },
   { id: 'lincoln-center', name: 'Lincoln Center', lat: 40.772709, lon: -73.982946, set: 'uptown', r: 550, rot: GRID },

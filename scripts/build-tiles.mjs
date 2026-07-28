@@ -656,6 +656,15 @@ async function main() {
       id: 'central-park-tower', lat: 40.766410, lon: -73.980772, r: 62,
       clearAll: true, clearAdjacentAboveH: 200, clearAdjacentWithin: 30,
     },
+    // 111 West 57th's current source is thirteen ground-up rectangles stacked
+    // at every feathered setback, plus its containing development outline and
+    // south lobby volume. Measure and clear that exact ownership group so the
+    // premium tower can express one coherent terracotta profile without
+    // hidden full-height slabs multiplying its silhouette and collision.
+    {
+      id: 'steinway-tower', lat: 40.764998, lon: -73.977437, r: 40,
+      clearAll: true,
+    },
     // Full coherent replacement. The source maps the KPF tower as more than 20
     // overlapping full-height prisms: accurate in aggregate, but flat generic
     // boxes in the renderer, plus a 77m solid pyramid where the staggered glass
@@ -844,6 +853,12 @@ async function main() {
     // build stands alone. r=30 catches only that centroid; Hayden House (190m NE)
     // and everything across CPW/Columbus survive.
     ['amnh', 40.780962, -73.974258, 30],
+    // The modern 111 W 57th source group and the landmarked 1925 Steinway Hall
+    // are separate OSM ownership outlines but physically form one development.
+    // A tight centroid clear removes only the 67m hall that the premium builder
+    // recreates; Windsor Park and every neighboring 57th/58th Street building
+    // are more than 25m from this centroid.
+    ['steinway-hall', 40.7649461, -73.9775890, 8],
     // Times Square's bowtie is our billboard-stack canyon; drop the generic
     // brick OSM massing in the core so the spectaculars stand free instead of
     // spearing through buildings (the district's real towers beyond r remain).
@@ -2094,6 +2109,18 @@ async function main() {
       `baked >=300m parts=${chaseBakedTall} -> ${chaseOk ? 'PASS' : 'FAIL'}`,
   );
 
+  const outputBuildingCentroid = (b, tx, tz) => {
+    const outer = b.p?.[0];
+    if (!outer?.length) return null;
+    let sx = 0, sz = 0;
+    for (let i = 0; i < outer.length; i += 2) {
+      sx += tx * TILE_SIZE + outer[i] / 10;
+      sz += tz * TILE_SIZE + outer[i + 1] / 10;
+    }
+    const n = outer.length / 2;
+    return [sx / n, sz / n];
+  };
+
   // Central Park Tower owns one broad retail podium plus a dense set of
   // overlapping shaft, shoulder, cantilever and cap pieces. The premium
   // always-on build must be the only >=200m object within the tower's tight
@@ -2103,15 +2130,9 @@ async function main() {
   const cptKey = tileKeyOf(cptTx, cptTz);
   const cptBuildings = tileBuildings.get(cptKey) || [];
   const cptBakedTall = cptBuildings.filter((b) => {
-    if (b.h < 200 || !b.p?.[0]?.length) return false;
-    const outer = b.p[0];
-    let sx = 0, sz = 0;
-    for (let i = 0; i < outer.length; i += 2) {
-      sx += cptTx * TILE_SIZE + outer[i] / 10;
-      sz += cptTz * TILE_SIZE + outer[i + 1] / 10;
-    }
-    const n = outer.length / 2;
-    return Math.hypot(sx / n - cptXZ[0], sz / n - cptXZ[1]) <= 30;
+    if (b.h < 200) return false;
+    const center = outputBuildingCentroid(b, cptTx, cptTz);
+    return !!center && Math.hypot(center[0] - cptXZ[0], center[1] - cptXZ[1]) <= 30;
   }).length;
   const cptFit = fitOut['central-park-tower'];
   const cptOk = !!cptFit
@@ -2126,6 +2147,41 @@ async function main() {
     `Central Park Tower replacement (${cptKey}): fit=${cptFit?.w ?? 0}x${cptFit?.d ?? 0}m, ` +
       `roof=${cptFit?.roofH ?? 0}m, cleared=${cptFit?.clearedParts ?? 0}, ` +
       `baked >=200m parts within 30m=${cptBakedTall} -> ${cptOk ? 'PASS' : 'FAIL'}`,
+  );
+
+  // 111 West 57th is a complete replacement of fourteen contiguous source
+  // bands plus the separately mapped Steinway Hall. A tight spatial test
+  // proves no tall strip remains behind the feathered build, while the named
+  // Windsor Park neighbor proves that ownership clearing stayed surgical.
+  const stwXZ = lonLatToXZ(-73.977437, 40.764998);
+  const [stwTx, stwTz] = tileOf(stwXZ);
+  const stwKey = tileKeyOf(stwTx, stwTz);
+  const stwBuildings = tileBuildings.get(stwKey) || [];
+  const stwBakedTall = stwBuildings.filter((b) => {
+    if (b.h < 150) return false;
+    const center = outputBuildingCentroid(b, stwTx, stwTz);
+    return !!center && Math.hypot(center[0] - stwXZ[0], center[1] - stwXZ[1]) <= 30;
+  }).length;
+  const stwHallBaked = stwBuildings.some((b) => b.n === 'Steinway Hall');
+  const stwNeighborKept = stwBuildings.some((b) => b.n === 'Windsor Park');
+  const stwFit = fitOut['steinway-tower'];
+  const stwOk = !!stwFit
+    && Math.abs(stwFit.w - 43) < 1
+    && Math.abs(stwFit.d - 18) < 1
+    && Math.abs(stwFit.roofH - 435) < 1
+    && Math.abs(stwFit.topW - 4) < 1
+    && Math.abs(stwFit.topD - 18) < 1
+    && stwFit.keptH === 0
+    && stwFit.parts === 14
+    && stwFit.clearedParts === 14
+    && stwBakedTall === 0
+    && !stwHallBaked
+    && stwNeighborKept;
+  results.push(
+    `111 West 57th replacement (${stwKey}): fit=${stwFit?.w ?? 0}x${stwFit?.d ?? 0}m, ` +
+      `tip=${stwFit?.topW ?? 0}x${stwFit?.topD ?? 0}m @ ${stwFit?.roofH ?? 0}m, ` +
+      `cleared=${stwFit?.clearedParts ?? 0}+hall, baked >=150m within 30m=${stwBakedTall}, ` +
+      `Windsor Park kept=${stwNeighborKept} -> ${stwOk ? 'PASS' : 'FAIL'}`,
   );
 
   const timesSquareRoads = tileRoads.get('0_0') || [];
