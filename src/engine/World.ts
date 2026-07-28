@@ -172,6 +172,7 @@ export class World {
   private transitioning = false;
   private lastEnterGuard = 0; // avoid instant re-trigger loops
   private spawnResolve = false; // eject from a building after a teleport/exit, once tiles load
+  private spawnLookAt: { x: number; z: number } | null = null; // menu jump target, cleared after safe arrival
   private skyDome: THREE.Object3D | null = null;
   private lastRaf = 0;
   private tickInterval = 0;
@@ -388,6 +389,7 @@ export class World {
       if (entry) {
         this.teleport(entry.lat, entry.lon);
         this.controls.fly = true;
+        this.spawnLookAt = null; // deep-link camera look is restored below
       }
     }
 
@@ -797,6 +799,7 @@ export class World {
     this.leaveTransit();            // abandon any train/bus/tram/bike so `pos` takes effect
     const [x, z] = lonLatToXZ(lon, lat);
     this.pos.set(x, 0, z);
+    this.spawnLookAt = { x, z };
     this.spawnResolve = true; // resolved out of any building once tiles arrive
     this.save();
   }
@@ -833,21 +836,82 @@ export class World {
 
   /**
    * A standing point at/near (x,z) that is NOT inside a building. If the target
-   * is already clear, just resolve grazing contact. Otherwise spiral outward and
-   * take the nearest open point — guarantees a teleport/exit never leaves the
-   * player embedded in a building (where they could then walk out through walls).
+   * is already clear, just resolve grazing contact. If it is inside, project
+   * directly through the nearest footprint edge first: landmark anchors often
+   * sit at the center of a 70-250m building, well beyond the old 26m spiral.
+   * Only fall back to the wider spiral for overlapping/nested footprints.
    */
-  private freeSpawn(x: number, z: number): [number, number] {
+  private freeSpawn(x: number, z: number, standOff = 0.75): [number, number] {
     const near0 = this.colNear(x, z);
     const y0 = heightAt(x, z);
     if (!pointInBuildings(x, z, near0, y0)) return resolveBuildingCollision(x, z, 0.5, near0, y0);
-    for (let ring = 2.5; ring <= 26; ring += 2.5) {
-      for (let a = 0; a < 16; a++) {
-        const ang = (a / 16) * Math.PI * 2;
+
+    // The collision resolver already knows the exact polygon edges, so this is
+    // both closer and much cheaper than sampling every few metres from a large
+    // building's center (AMNH is ~267x237m; New York Life is ~70m wide). Repeat
+    // until stable because a multi-volume landmark can push out of one ring and
+    // into the clearance band of another later in the same resolver pass.
+    const settle = (sx: number, sz: number): [number, number] | null => {
+      let px = sx, pz = sz;
+      for (let pass = 0; pass < 10; pass++) {
+        const py = heightAt(px, pz);
+        const near = this.colNear(px, pz);
+        const [nx, nz] = resolveBuildingCollision(px, pz, standOff, near, py);
+        const moved2 = (nx - px) ** 2 + (nz - pz) ** 2;
+        px = nx; pz = nz;
+        if (moved2 < 0.01) {
+          const finalY = heightAt(px, pz);
+          return pointInBuildings(px, pz, this.colNear(px, pz), finalY) ? null : [px, pz];
+        }
+      }
+      return null;
+    };
+
+    // Menu jumps should PRESENT a building, not merely eject to the closest
+    // courtyard or service slot. Estimate the containing massing's reach from
+    // its collision AABBs, then look for a clearance-stable point just beyond
+    // it. Small buildings land across the street; campus-sized landmarks such
+    // as AMNH land beyond the whole complex (typically in Central Park).
+    if (standOff >= 4) {
+      let reach = 0;
+      for (const set of near0) {
+        const n = set.ringStart.length - 1;
+        for (let i = 0; i < n; i++) {
+          if (y0 + 1.75 <= set.base[i] || y0 >= set.top[i] - 0.6) continue;
+          const x0 = set.aabb[i * 4], z0 = set.aabb[i * 4 + 1];
+          const x1 = set.aabb[i * 4 + 2], z1 = set.aabb[i * 4 + 3];
+          if (x < x0 || x > x1 || z < z0 || z > z1) continue;
+          reach = Math.max(reach, x - x0, x1 - x, z - z0, z1 - z);
+        }
+      }
+      const firstRing = Math.max(32, Math.min(170, reach + 24));
+      for (let ring = firstRing; ring <= Math.min(210, firstRing + 48); ring += 16) {
+        const samples = Math.max(28, Math.ceil((Math.PI * 2 * ring) / 12));
+        for (let a = 0; a < samples; a++) {
+          const ang = (a / samples) * Math.PI * 2;
+          const tx = x + Math.cos(ang) * ring, tz = z + Math.sin(ang) * ring;
+          const candidate = settle(tx, tz);
+          if (!candidate) continue;
+          const dist = Math.hypot(candidate[0] - x, candidate[1] - z);
+          if (dist >= firstRing * 0.72) return candidate;
+        }
+      }
+    }
+
+    const projected = settle(x, z);
+    if (projected) return projected;
+
+    for (let ring = 4; ring <= 160; ring += 4) {
+      const samples = Math.max(20, Math.ceil((Math.PI * 2 * ring) / 8));
+      for (let a = 0; a < samples; a++) {
+        const ang = (a / samples) * Math.PI * 2;
         const tx = x + Math.cos(ang) * ring, tz = z + Math.sin(ang) * ring;
         const near = this.colNear(tx, tz);
         const ty = heightAt(tx, tz);
-        if (!pointInBuildings(tx, tz, near, ty)) return resolveBuildingCollision(tx, tz, 0.5, near, ty);
+        if (!pointInBuildings(tx, tz, near, ty)) {
+          const candidate = settle(tx, tz);
+          if (candidate) return candidate;
+        }
       }
     }
     return [x, z]; // fully enclosed (shouldn't happen in Manhattan) — leave as-is
@@ -1549,9 +1613,24 @@ export class World {
       // tiles here have integrated, push out to the nearest sidewalk. Skip while
       // flying — the helicopter teleport lands you above the rooftops on purpose.
       if (this.spawnResolve && !this.controls.fly && this.tiles.readyAround(this.pos.x, this.pos.z)) {
-        const [rx, rz] = this.freeSpawn(this.pos.x, this.pos.z);
+        const lookAt = this.spawnLookAt;
+        const [rx, rz] = this.freeSpawn(this.pos.x, this.pos.z, lookAt ? 8 : 0.75);
         this.pos.x = rx; this.pos.z = rz;
         this.pos.y = heightAt(rx, rz);
+        if (lookAt) {
+          const dx = lookAt.x - rx, dz = lookAt.z - rz;
+          if (dx * dx + dz * dz > 4) {
+            // Frame the selected place from the safe view point. Aim at the
+            // upper-middle of its real collision height, so a tower presents its
+            // crown while a low museum/park structure stays near eye level.
+            this.controls.yaw = Math.atan2(-dx, -dz);
+            const targetRoof = roofBelow(lookAt.x, lookAt.z, 1200, this.colNear(lookAt.x, lookAt.z)) ?? 20;
+            const aimY = Math.max(12, targetRoof * 0.58);
+            const horizontal = Math.hypot(dx, dz);
+            this.controls.pitch = Math.max(0.08, Math.min(0.75, Math.atan2(aimY - this.pos.y - this.eyeHeight, horizontal)));
+          }
+        }
+        this.spawnLookAt = null;
         this.spawnResolve = false;
       }
       const prevX = this.pos.x, prevZ = this.pos.z;
