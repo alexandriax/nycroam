@@ -727,6 +727,14 @@ async function main() {
       id: 'edge-deck', lat: 40.753949, lon: -74.000555, r: 60,
       clearAll: true, fitRot: 2.638,
     },
+    // Foster + Partners' full-block tower is accurately mapped as a 33m
+    // podium, a 160m western shoulder and one 308m generic glass extrusion.
+    // Measure that ownership group as a whole, then replace it with the real
+    // three-block white-stone/glass vertical campus and illuminated roof halo.
+    {
+      id: 'fifty-hudson', lat: 40.754519, lon: -74.000119, r: 55,
+      clearAll: true, fitRot: 2.638,
+    },
   ].map((e) => { const [x, z] = lonLatToXZ(e.lon, e.lat); return { ...e, x, z }; });
 
   console.log('Measuring landmark host buildings...');
@@ -2438,10 +2446,8 @@ async function main() {
       `-> ${bryantOk ? 'PASS' : 'FAIL'}`,
   );
 
-  // 30 Hudson Yards' full replacement must remove every tall source slab while
-  // retaining 50 Hudson Yards immediately northeast. A broad radius clear
-  // would silently punch a second 308m hole in the development, so validate
-  // both sides of the ownership boundary.
+  // 30 Hudson Yards' full replacement must remove every tall source slab
+  // without reaching across the ownership boundary into the adjacent site.
   const edgeFit = fitOut['edge-deck'];
   const edgeAnchorXZ = lonLatToXZ(-74.000555, 40.753949);
   let edgeTallResiduals = 0;
@@ -2455,31 +2461,51 @@ async function main() {
       }
     }
   }
-  const fiftyHudsonXZ = lonLatToXZ(-74.000119, 40.754519);
-  let fiftyHudsonKept = false;
-  for (const [key, buildings] of tileBuildings) {
-    const [tx, tz] = key.split('_').map(Number);
-    for (const b of buildings) {
-      if (Math.abs(b.h - 308.2) > 0.3) continue;
-      const center = outputBuildingCentroid(b, tx, tz);
-      if (center && Math.hypot(center[0] - fiftyHudsonXZ[0], center[1] - fiftyHudsonXZ[1]) < 18) {
-        fiftyHudsonKept = true;
-      }
-    }
-  }
   const edgeOk = !!edgeFit
     && Math.abs(edgeFit.w - 117) < 3
     && Math.abs(edgeFit.d - 58) < 3
     && Math.abs(edgeFit.roofH - 395) < 1
     && edgeFit.keptH === 0
     && edgeFit.clearedParts >= 7
-    && edgeTallResiduals === 0
-    && fiftyHudsonKept;
+    && edgeTallResiduals === 0;
   results.push(
     `30 Hudson Yards replacement: fit=${edgeFit?.w ?? 0}x${edgeFit?.d ?? 0}m, ` +
       `source roof=${edgeFit?.roofH ?? 0}m, cleared=${edgeFit?.clearedParts ?? 0}, ` +
-      `tall residuals=${edgeTallResiduals}, 50 Hudson Yards kept=${fiftyHudsonKept} ` +
+      `tall residuals=${edgeTallResiduals} ` +
       `-> ${edgeOk ? 'PASS' : 'FAIL'}`,
+  );
+
+  // 50 Hudson Yards must clear exactly its stacked source group while retaining
+  // The Spiral one block north. This guards the same dense-site ownership edge
+  // that previously protected 50 Hudson Yards from the 30 Hudson replacement.
+  const fiftyFit = fitOut['fifty-hudson'];
+  const fiftyHudsonXZ = lonLatToXZ(-74.000119, 40.754519);
+  let fiftyResiduals = 0;
+  let spiralKept = false;
+  for (const [key, buildings] of tileBuildings) {
+    const [tx, tz] = key.split('_').map(Number);
+    for (const b of buildings) {
+      const center = outputBuildingCentroid(b, tx, tz);
+      if (!center) continue;
+      if (b.h >= 30 && Math.hypot(center[0] - fiftyHudsonXZ[0], center[1] - fiftyHudsonXZ[1]) < 55) {
+        fiftyResiduals++;
+      }
+      if (b.n === 'The Spiral' && Math.abs(b.h - 317.3) < 0.3) spiralKept = true;
+    }
+  }
+  const fiftyOk = !!fiftyFit
+    && Math.abs(fiftyFit.w - 107) < 3
+    && Math.abs(fiftyFit.d - 57) < 3
+    && Math.abs(fiftyFit.roofH - 308.2) < 1
+    && fiftyFit.keptH === 0
+    && fiftyFit.clearedParts >= 3
+    && fiftyResiduals === 0
+    && spiralKept;
+  results.push(
+    `50 Hudson Yards replacement: fit=${fiftyFit?.w ?? 0}x${fiftyFit?.d ?? 0}m, ` +
+      `source roof=${fiftyFit?.roofH ?? 0}m, cleared=${fiftyFit?.clearedParts ?? 0}, ` +
+      `site residuals=${fiftyResiduals}, The Spiral kept=${spiralKept} ` +
+      `-> ${fiftyOk ? 'PASS' : 'FAIL'}`,
   );
 
   const timesSquareRoads = tileRoads.get('0_0') || [];

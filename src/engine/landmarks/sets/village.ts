@@ -81,14 +81,40 @@ const HY_DOOR = new THREE.MeshStandardMaterial({
 const HY_GLOW = new THREE.MeshBasicMaterial({ color: '#e9f2f4' });
 const HY_COLLISION = new THREE.MeshBasicMaterial({ visible: false });
 
+// Foster + Partners' 50 Hudson Yards palette: pale structural stone frames
+// around cool low-e glazing, a warm transparent lobby and the summit halo.
+const FIFTY_STONE = new THREE.MeshStandardMaterial({
+  color: '#e2e0d8', metalness: 0.12, roughness: 0.38,
+  emissive: '#4c4b47', emissiveIntensity: 0.12,
+});
+const FIFTY_CORE = new THREE.MeshStandardMaterial({
+  color: '#20343a', metalness: 0.42, roughness: 0.2,
+  emissive: '#17282e', emissiveIntensity: 0.4, envMapIntensity: 1.05,
+});
+const FIFTY_ROOF = new THREE.MeshStandardMaterial({
+  color: '#777f7f', metalness: 0.42, roughness: 0.44,
+});
+const FIFTY_SCREEN = new THREE.MeshStandardMaterial({
+  color: '#cdd9d9', metalness: 0.34, roughness: 0.2,
+  emissive: '#91a5a7', emissiveIntensity: 0.3,
+  transparent: true, opacity: 0.72, depthWrite: false,
+});
+const FIFTY_LOBBY = new THREE.MeshStandardMaterial({
+  color: '#79969d', metalness: 0.16, roughness: 0.12,
+  emissive: '#a87545', emissiveIntensity: 0.5,
+  transparent: true, opacity: 0.82,
+});
+const FIFTY_HALO = new THREE.MeshBasicMaterial({ color: '#f3f5e9' });
+const FIFTY_COLLISION = new THREE.MeshBasicMaterial({ visible: false });
+
 function hyDetail<T extends THREE.Mesh>(mesh: T): T {
   mesh.userData.noCollision = true;
   return mesh;
 }
 
 /** Bake a same-material throwaway detail batch before it enters the scene. */
-function mergeHyDetails(
-  meshes: THREE.Mesh[], material: THREE.Material,
+function mergeDetailBatch(
+  meshes: THREE.Mesh[], material: THREE.Material, label: string,
 ): THREE.Mesh {
   const geometries = meshes.map((mesh) => {
     mesh.updateMatrix();
@@ -98,7 +124,7 @@ function mergeHyDetails(
   if (!merged) {
     for (const geometry of geometries) geometry.dispose();
     for (const mesh of meshes) mesh.geometry.dispose();
-    throw new Error(`Could not merge 30 Hudson Yards detail batch of ${meshes.length} meshes`);
+    throw new Error(`Could not merge ${label} detail batch of ${meshes.length} meshes`);
   }
   for (const geometry of geometries) geometry.dispose();
   for (const mesh of meshes) mesh.geometry.dispose();
@@ -1457,9 +1483,9 @@ export const builders: Record<string, (ctx: LandmarkCtx) => THREE.Group> = {
         + `${darkSteelDetails.length}/35 dark steel, ${edgeFasciaDetails.length}/2 fascia`,
       );
     }
-    g.add(hyDetail(mergeHyDetails(steelDetails, HY_STEEL)));
-    g.add(hyDetail(mergeHyDetails(darkSteelDetails, HY_DARK_STEEL)));
-    g.add(hyDetail(mergeHyDetails(edgeFasciaDetails, HY_EDGE_UNDERSIDE)));
+    g.add(hyDetail(mergeDetailBatch(steelDetails, HY_STEEL, '30 Hudson Yards steel')));
+    g.add(hyDetail(mergeDetailBatch(darkSteelDetails, HY_DARK_STEEL, '30 Hudson Yards dark steel')));
+    g.add(hyDetail(mergeDetailBatch(edgeFasciaDetails, HY_EDGE_UNDERSIDE, 'Edge fascia')));
 
     // Conservative, tiered collision follows the real occupied massing and
     // leaves both the open crown and Edge's underside free. The podium, 310m
@@ -1467,6 +1493,213 @@ export const builders: Record<string, (ctx: LandmarkCtx) => THREE.Group> = {
     g.add(polygonPrism(podiumPlan, 130, HY_COLLISION));
     g.add(polygonPrism(main0, 310, HY_COLLISION));
     g.add(polygonPrism(upper310, 60, HY_COLLISION, 310));
+    return g;
+  },
+
+  // 50 Hudson Yards: Foster + Partners' full-block vertical campus. The source
+  // data has the right three-level silhouette but renders each level as a
+  // featureless prism; this replacement preserves those measured footprints
+  // while supplying the white structural frame, four-floor glass boxes,
+  // terraces, permeable lobby and illuminated summit halo.
+  'fifty-hudson': (ctx) => {
+    const g = new THREE.Group();
+    const siteW = ctx.fit?.w ?? 107;
+    const siteD = ctx.fit?.d ?? 57;
+    const roofH = ctx.fit?.roofH ?? 308.2;
+    const sx = siteW / 107;
+    const sz = siteD / 57;
+    const sy = roofH / 308.2;
+    const stoneDetails: THREE.Mesh[] = [];
+    const visual = <T extends THREE.Mesh>(mesh: T): T => {
+      mesh.userData.noCollision = true;
+      return mesh;
+    };
+    const addStone = (mesh: THREE.Mesh) => {
+      mesh.userData.noCollision = true;
+      stoneDetails.push(mesh);
+    };
+
+    // One exact facade atlas per block/elevation pair. Major four-floor stone
+    // bars are physical geometry below; the atlas carries floor plates, narrow
+    // mullions, reflected sky and sparse warm interiors without window meshes.
+    const facadeMaterial = (bays: number, floors: number, seed: number) => {
+      const tex = canvasTexture((c, w, h) => {
+        c.fillStyle = '#253d44';
+        c.fillRect(0, 0, w, h);
+        const panes = bays * 4;
+        const paneW = w / panes;
+        const floorH = h / floors;
+        for (let row = 0; row < floors; row++) {
+          for (let pane = 0; pane < panes; pane++) {
+            const x = pane * paneW;
+            const y = h - (row + 1) * floorH;
+            const tone = (row * 11 + pane * 7 + seed * 13) % 12;
+            const grad = c.createLinearGradient(x, y, x + paneW, y + floorH);
+            grad.addColorStop(0, tone < 4 ? '#29454d' : '#3b5c64');
+            grad.addColorStop(0.48, tone % 5 === 0 ? '#9db3b6' : '#6f8f94');
+            grad.addColorStop(1, tone === 9 ? '#20373e' : '#35535a');
+            c.fillStyle = grad;
+            c.fillRect(x + 1, y + 1, Math.max(1, paneW - 2), Math.max(1, floorH - 2));
+            if ((row * 17 + pane * 5 + seed) % 29 < 2) {
+              c.fillStyle = 'rgba(237,190,124,.35)';
+              c.fillRect(x + 2, y + 2, Math.max(1, paneW - 4), Math.max(1, floorH - 4));
+            }
+          }
+          c.fillStyle = 'rgba(17,29,33,.88)';
+          c.fillRect(0, h - row * floorH - 2, w, 2);
+        }
+        c.fillStyle = 'rgba(207,217,216,.72)';
+        for (let pane = 1; pane < panes; pane++) {
+          const x = Math.round(pane * paneW);
+          c.fillRect(x, 0, 1, h);
+        }
+        // The physical bars stay legible close up; a matching atlas trace keeps
+        // the grid present after those slim meshes fall below pixel size.
+        c.fillStyle = '#d9d9d2';
+        for (let bay = 0; bay <= bays; bay++) {
+          const x = Math.round((bay / bays) * w);
+          c.fillRect(Math.max(0, x - 3), 0, 6, h);
+        }
+        for (let floor = 0; floor <= floors; floor += 4) {
+          const y = Math.round(h - (floor / floors) * h);
+          c.fillRect(0, Math.max(0, y - 2), w, 4);
+        }
+        c.fillRect(0, 0, w, 4);
+      }, 256, 512);
+      tex.anisotropy = 4;
+      return new THREE.MeshStandardMaterial({
+        map: tex, color: '#d8e1e2', metalness: 0.3, roughness: 0.17,
+        emissive: '#283f44', emissiveIntensity: 0.34, envMapIntensity: 1.18,
+      });
+    };
+
+    type FiftyBlock = {
+      w: number; d: number; x: number; z: number;
+      y0: number; y1: number; floors: number; broadBays: number; sideBays: number;
+    };
+    const blocks: FiftyBlock[] = [
+      {
+        w: 107 * sx, d: 57 * sz, x: 0, z: 0,
+        y0: 0, y1: 33 * sy, floors: 8, broadBays: 6, sideBays: 3,
+      },
+      {
+        w: 95 * sx, d: 49 * sz, x: 1.5 * sx, z: -1 * sz,
+        y0: 33 * sy, y1: 160 * sy, floors: 24, broadBays: 4, sideBays: 3,
+      },
+      {
+        w: 76 * sx, d: 49 * sz, x: 10.8 * sx, z: -1 * sz,
+        y0: 160 * sy, y1: roofH, floors: 26, broadBays: 3, sideBays: 2,
+      },
+    ];
+
+    const addBlock = (b: FiftyBlock, index: number) => {
+      const h = b.y1 - b.y0;
+      const cy = b.y0 + h / 2;
+      g.add(visual(box(b.w - 0.8, h, b.d - 0.8, FIFTY_CORE, b.x, cy, b.z)));
+      const broad = facadeMaterial(b.broadBays, b.floors, index * 2 + 1);
+      const side = facadeMaterial(b.sideBays, b.floors, index * 2 + 2);
+      for (const z of [b.z - b.d / 2, b.z + b.d / 2]) {
+        g.add(visual(box(b.w - 0.7, h - 0.5, 0.16, broad, b.x, cy, z)));
+      }
+      for (const x of [b.x - b.w / 2, b.x + b.w / 2]) {
+        g.add(visual(box(0.16, h - 0.5, b.d - 0.7, side, x, cy, b.z)));
+      }
+
+      // Full-height perimeter structure and four-floor transfer bands. These
+      // are the building's defining white-stone grid, batched to one draw call.
+      for (let bay = 0; bay <= b.broadBays; bay++) {
+        const x = b.x - b.w / 2 + (bay / b.broadBays) * b.w;
+        for (const z of [b.z - b.d / 2 - 0.08, b.z + b.d / 2 + 0.08]) {
+          addStone(box(0.95, h, 0.48, FIFTY_STONE, x, cy, z));
+        }
+      }
+      for (let bay = 0; bay <= b.sideBays; bay++) {
+        const z = b.z - b.d / 2 + (bay / b.sideBays) * b.d;
+        for (const x of [b.x - b.w / 2 - 0.08, b.x + b.w / 2 + 0.08]) {
+          addStone(box(0.48, h, 0.95, FIFTY_STONE, x, cy, z));
+        }
+      }
+      const bandFloors = new Set<number>();
+      for (let floor = 0; floor <= b.floors; floor += 4) bandFloors.add(floor);
+      bandFloors.add(b.floors);
+      for (const floor of bandFloors) {
+        let y = b.y0 + (floor / b.floors) * h;
+        if (floor === 0) y += 0.36;
+        if (floor === b.floors) y -= 0.36;
+        for (const z of [b.z - b.d / 2 - 0.1, b.z + b.d / 2 + 0.1]) {
+          addStone(box(b.w + 0.15, 0.72, 0.5, FIFTY_STONE, b.x, y, z));
+        }
+        for (const x of [b.x - b.w / 2 - 0.1, b.x + b.w / 2 + 0.1]) {
+          addStone(box(0.5, 0.72, b.d + 0.15, FIFTY_STONE, x, y, b.z));
+        }
+      }
+    };
+    blocks.forEach(addBlock);
+
+    // Deep terrace datums separate the three stacked commercial blocks.
+    addStone(box(blocks[0].w + 0.6, 0.6, blocks[0].d + 0.6, FIFTY_STONE, 0, blocks[0].y1 - 0.3, 0));
+    addStone(box(
+      blocks[1].w + 0.6, 0.6, blocks[1].d + 0.6, FIFTY_STONE,
+      blocks[1].x, blocks[1].y1 - 0.3, blocks[1].z,
+    ));
+    for (const b of blocks.slice(0, 2)) {
+      const y = b.y1 + 0.64;
+      for (const z of [b.z - b.d / 2 + 0.4, b.z + b.d / 2 - 0.4]) {
+        g.add(visual(box(b.w - 0.8, 1.28, 0.1, FIFTY_SCREEN, b.x, y, z)));
+      }
+      for (const x of [b.x - b.w / 2 + 0.4, b.x + b.w / 2 - 0.4]) {
+        g.add(visual(box(0.1, 1.28, b.d - 0.8, FIFTY_SCREEN, x, y, b.z)));
+      }
+    }
+
+    // Four street-facing entrances sit behind shallow stone canopies; the
+    // warm cable-net lobby reads through the full-height glass after dark.
+    const base = blocks[0];
+    for (const z of [base.z - base.d / 2 - 0.12, base.z + base.d / 2 + 0.12]) {
+      g.add(visual(box(20 * sx, 9.5 * sy, 0.18, FIFTY_LOBBY, base.x, 4.75 * sy, z)));
+      addStone(box(22 * sx, 0.45, 4.8, FIFTY_STONE, base.x, 9.1 * sy, z));
+    }
+    for (const x of [base.x - base.w / 2 - 0.12, base.x + base.w / 2 + 0.12]) {
+      g.add(visual(box(0.18, 9.5 * sy, 15 * sz, FIFTY_LOBBY, x, 4.75 * sy, base.z)));
+      addStone(box(4.8, 0.45, 17 * sz, FIFTY_STONE, x, 9.1 * sy, base.z));
+    }
+
+    // A translucent louver screen hides rooftop plant while the bright
+    // perimeter halo gives the building its documented night-time crown.
+    const upper = blocks[2];
+    const screenH = Math.min(8 * sy, upper.y1 - upper.y0);
+    const screenY = roofH - screenH / 2 - 0.7;
+    for (const z of [upper.z - upper.d / 2 - 0.12, upper.z + upper.d / 2 + 0.12]) {
+      g.add(visual(box(upper.w - 1.6, screenH, 0.18, FIFTY_SCREEN, upper.x, screenY, z)));
+    }
+    for (const x of [upper.x - upper.w / 2 - 0.12, upper.x + upper.w / 2 + 0.12]) {
+      g.add(visual(box(0.18, screenH, upper.d - 1.6, FIFTY_SCREEN, x, screenY, upper.z)));
+    }
+    addStone(box(upper.w, 1.1, 0.8, FIFTY_STONE, upper.x, roofH - 0.55, upper.z - upper.d / 2));
+    addStone(box(upper.w, 1.1, 0.8, FIFTY_STONE, upper.x, roofH - 0.55, upper.z + upper.d / 2));
+    addStone(box(0.8, 1.1, upper.d, FIFTY_STONE, upper.x - upper.w / 2, roofH - 0.55, upper.z));
+    addStone(box(0.8, 1.1, upper.d, FIFTY_STONE, upper.x + upper.w / 2, roofH - 0.55, upper.z));
+    g.add(visual(box(upper.w - 1.2, 0.12, 0.2, FIFTY_HALO, upper.x, roofH + 0.08, upper.z - upper.d / 2)));
+    g.add(visual(box(upper.w - 1.2, 0.12, 0.2, FIFTY_HALO, upper.x, roofH + 0.08, upper.z + upper.d / 2)));
+    g.add(visual(box(0.2, 0.12, upper.d - 1.2, FIFTY_HALO, upper.x - upper.w / 2, roofH + 0.08, upper.z)));
+    g.add(visual(box(0.2, 0.12, upper.d - 1.2, FIFTY_HALO, upper.x + upper.w / 2, roofH + 0.08, upper.z)));
+    g.add(visual(box(upper.w - 3, 0.7, upper.d - 3, FIFTY_ROOF, upper.x, roofH - 0.35, upper.z)));
+
+    if (stoneDetails.length !== 136) {
+      throw new Error(`Incomplete 50 Hudson Yards stone frame: ${stoneDetails.length}/136 details`);
+    }
+    g.add(hyDetail(mergeDetailBatch(stoneDetails, FIFTY_STONE, '50 Hudson Yards stone')));
+
+    // Three independently landable masses follow the surveyed stacked plans.
+    g.add(box(base.w, base.y1, base.d, FIFTY_COLLISION, base.x, base.y1 / 2, base.z));
+    g.add(box(
+      blocks[1].w, blocks[1].y1 - blocks[1].y0, blocks[1].d, FIFTY_COLLISION,
+      blocks[1].x, (blocks[1].y0 + blocks[1].y1) / 2, blocks[1].z,
+    ));
+    g.add(box(
+      upper.w, upper.y1 - upper.y0, upper.d, FIFTY_COLLISION,
+      upper.x, (upper.y0 + upper.y1) / 2, upper.z,
+    ));
     return g;
   },
 };

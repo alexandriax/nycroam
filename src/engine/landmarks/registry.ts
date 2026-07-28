@@ -181,6 +181,17 @@ export const LANDMARKS_REG: LandmarkEntry[] = [
   { id: 'little-island', name: 'Little Island', lat: 40.742, lon: -74.01, set: 'village', r: 700, rot: GRID },
   { id: 'vessel', name: 'The Vessel', lat: 40.7538, lon: -74.0022, set: 'village', r: 800, rot: GRID },
   { id: 'hudson-yards', name: 'Hudson Yards', lat: 40.7536, lon: -74.0011, set: 'village', r: 600, rot: GRID, aliasOf: 'vessel' },
+  // Full Foster + Partners replacement for the three generic source slabs.
+  // Keep it resident beside 30 Hudson so the west-side skyline retains the
+  // real white-stone frame, stacked terraces and illuminated summit halo. The
+  // northwest plaza frames the full elevation; the automatic sampler lands in
+  // the W 33rd Street canyon and hides most of the tower behind adjacent slabs.
+  {
+    id: 'fifty-hudson', name: '50 Hudson Yards',
+    lat: 40.754519, lon: -74.000119, set: 'village', r: 1600,
+    rot: GRID, alwaysOn: true,
+    arrivalLat: 40.7562138, arrivalLon: -74.0019176,
+  },
   // Complete KPF tower + Edge replacement for eleven overlapping source
   // prisms. Keep the compact textured build resident after clearing those
   // slabs so Manhattan's west skyline never loses its 395m anchor. The
