@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import {
   type LandmarkCtx,
   LIMESTONE, GRANITE, DARKSTONE, MARBLE, BRONZE, GOLD, STEEL_LM, GLASS_LM,
@@ -559,17 +560,26 @@ export const builders: Record<string, (ctx: LandmarkCtx) => THREE.Group> = {
     }
     g.add(loftFacade(levels, glassMat, 2.8, moduleH / 4));
 
-    // All 500-odd lattice pieces share one five-sided unit cylinder before the
-    // landmark merger bakes them into one steel draw call. This retains close
-    // fly-by geometry while avoiding hundreds of CylinderGeometry allocations.
+    // Bake the 528-piece lattice straight into one geometry before it enters
+    // the landmark tree. Sharing the unit cylinder keeps every close fly-by
+    // beam identical, while pre-merging eliminates hundreds of Mesh nodes,
+    // matrix updates and LandmarkManager traversal steps on every approach.
     const beamGeo = new THREE.CylinderGeometry(1, 1, 1, 5);
-    const beam = (a: THREE.Vector3, b: THREE.Vector3, radius: number): THREE.Mesh => {
-      const m = towerDetail(new THREE.Mesh(beamGeo, HEARST_STEEL));
+    const beamGeos: THREE.BufferGeometry[] = [];
+    const beamUp = new THREE.Vector3(0, 1, 0);
+    const beamMid = new THREE.Vector3();
+    const beamDirection = new THREE.Vector3();
+    const beamRotation = new THREE.Quaternion();
+    const beamScale = new THREE.Vector3();
+    const beamMatrix = new THREE.Matrix4();
+    const addBeam = (a: THREE.Vector3, b: THREE.Vector3, radius: number): void => {
       const len = a.distanceTo(b);
-      m.scale.set(radius, len, radius);
-      m.position.copy(a).add(b).multiplyScalar(0.5);
-      m.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), b.clone().sub(a).normalize());
-      return m;
+      beamMid.copy(a).add(b).multiplyScalar(0.5);
+      beamDirection.copy(b).sub(a).normalize();
+      beamRotation.setFromUnitVectors(beamUp, beamDirection);
+      beamScale.set(radius, len, radius);
+      beamMatrix.compose(beamMid, beamRotation, beamScale);
+      beamGeos.push(beamGeo.clone().applyMatrix4(beamMatrix));
     };
     const faces = [
       { axis: 'z' as const, fixed: -HD - 0.12, half: HW - biteCut, bays: 4 },
@@ -588,8 +598,8 @@ export const builders: Record<string, (ctx: LandmarkCtx) => THREE.Group> = {
         const yb = y0 + r * moduleH, yt = yb + moduleH;
         for (let i = 0; i < face.bays; i++) {
           const a = -face.half + i * segment, b = a + segment;
-          g.add(beam(facePoint(face, a, yb), facePoint(face, b, yt), 0.52));
-          g.add(beam(facePoint(face, a, yt), facePoint(face, b, yb), 0.52));
+          addBeam(facePoint(face, a, yb), facePoint(face, b, yt), 0.52);
+          addBeam(facePoint(face, a, yt), facePoint(face, b, yb), 0.52);
         }
       }
     }
@@ -606,8 +616,10 @@ export const builders: Record<string, (ctx: LandmarkCtx) => THREE.Group> = {
         const nmB = new THREE.Vector3(bite[b][0], ym, bite[b][1]);
         const ntA = new THREE.Vector3(node[a][0], yt, node[a][1]);
         const ntB = new THREE.Vector3(node[b][0], yt, node[b][1]);
-        g.add(beam(nbA, nmB, 0.52), beam(nbB, nmA, 0.52));
-        g.add(beam(nmA, ntB, 0.52), beam(nmB, ntA, 0.52));
+        addBeam(nbA, nmB, 0.52);
+        addBeam(nbB, nmA, 0.52);
+        addBeam(nmA, ntB, 0.52);
+        addBeam(nmB, ntA, 0.52);
       }
     }
 
@@ -617,13 +629,23 @@ export const builders: Record<string, (ctx: LandmarkCtx) => THREE.Group> = {
       const ring = plan(nodeCut), y = y0 + r * moduleH;
       for (let i = 0; i < ring.length; i++) {
         const a = ring[i], b = ring[(i + 1) % ring.length];
-        g.add(beam(
+        addBeam(
           new THREE.Vector3(a[0], y, a[1]),
           new THREE.Vector3(b[0], y, b[1]),
           r === 0 || r === modules ? 0.38 : 0.25,
-        ));
+        );
       }
     }
+    const expectedBeamCount = 528;
+    if (beamGeos.length !== expectedBeamCount) {
+      throw new Error(`Hearst diagrid count changed: ${beamGeos.length} !== ${expectedBeamCount}`);
+    }
+    const mergedBeamGeo = mergeGeometries(beamGeos, false);
+    if (!mergedBeamGeo) throw new Error('Could not merge Hearst diagrid geometry');
+    for (const geometry of beamGeos) geometry.dispose();
+    beamGeo.dispose();
+    g.add(towerDetail(new THREE.Mesh(mergedBeamGeo, HEARST_STEEL)));
+
     g.add(towerRoof(plan(nodeCut), y1 + 0.05, HEARST_STEEL));
     return g;
   },
