@@ -195,7 +195,15 @@ export const LANDMARKS_REG: LandmarkEntry[] = [
   // web coordinates put him 7m off-axis into the wing notch, which read as
   // "in a courtyard" from the air.
   { id: 'atlas', name: 'Atlas Statue', lat: 40.758941, lon: -73.977217, set: 'midtown-core', r: 400, rot: GRID },
-  { id: 'top-of-the-rock', name: 'Top of the Rock', lat: 40.7591, lon: -73.9794, set: 'midtown-core', r: 1300, rot: GRID },
+  // Present the full 850ft slab on Rockefeller Plaza's Channel Gardens axis.
+  // The automatic radial sampler landed against/inside the retained west wall;
+  // this surveyed point is beyond the last fountain, centered in the pedestrian
+  // corridor, 11m from either flanking facade and clear of Fifth Avenue.
+  {
+    id: 'top-of-the-rock', name: 'Top of the Rock',
+    lat: 40.7591, lon: -73.9794, set: 'midtown-core', r: 1300, rot: GRID,
+    arrivalLat: 40.758271, arrivalLon: -73.977548,
+  },
   // portals (+z) face WNW toward 5th Ave — the cathedral sits on the avenue's east side
   { id: 'st-patricks', name: "St. Patrick's Cathedral", lat: 40.7585, lon: -73.976, set: 'midtown-core', r: 700, rot: GRID - Math.PI / 2 },
   { id: 'radio-city', name: 'Radio City Music Hall', lat: 40.7599, lon: -73.9801, set: 'midtown-core', r: 500, rot: GRID },
