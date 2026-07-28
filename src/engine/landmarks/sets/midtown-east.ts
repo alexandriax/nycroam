@@ -379,8 +379,13 @@ function mergeBatch(meshes: THREE.Mesh[], mat: THREE.Material): THREE.Mesh {
     m.updateMatrix();
     return (m.geometry as THREE.BufferGeometry).clone().applyMatrix4(m.matrix);
   });
-  const merged = mergeGeometries(geos, false) ?? geos[0];
-  for (const gm of geos) if (gm !== merged) gm.dispose();
+  const merged = mergeGeometries(geos, false);
+  if (!merged) {
+    for (const geometry of geos) geometry.dispose();
+    for (const mesh of meshes) mesh.geometry.dispose();
+    throw new Error(`Could not merge landmark detail batch of ${meshes.length} meshes`);
+  }
+  for (const geometry of geos) geometry.dispose();
   for (const m of meshes) m.geometry.dispose();
   return new THREE.Mesh(merged, mat);
 }
