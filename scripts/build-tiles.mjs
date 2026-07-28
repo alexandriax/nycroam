@@ -2238,6 +2238,39 @@ async function main() {
       `base=${muniBaseKept}, wing pavilions=${muniWingPavilions} -> ${muniOk ? 'PASS' : 'FAIL'}`,
   );
 
+  // New York Life keeps its real 115m lower block, but its generic 148–188m
+  // shaft/turret/roof stack is wholly replaced by the always-on procedural
+  // upper tower. Guard both halves of that contract: no cleared crown residual
+  // may survive, and the accurately mapped base must not be collateral damage.
+  const nylXZ = lonLatToXZ(-73.985608, 40.742735);
+  const [nylTx, nylTz] = tileOf(nylXZ);
+  const nylFit = fitOut['new-york-life'];
+  let nylBakedUpper = 0, nylBaseKept = false;
+  for (let dx = -1; dx <= 1; dx++) for (let dz = -1; dz <= 1; dz++) {
+    const tx = nylTx + dx, tz = nylTz + dz;
+    for (const b of tileBuildings.get(tileKeyOf(tx, tz)) || []) {
+      const center = outputBuildingCentroid(b, tx, tz);
+      if (!center || !nylFit) continue;
+      const d = Math.hypot(center[0] - nylFit.cx, center[1] - nylFit.cz);
+      if (b.h >= 148 && d <= 45) nylBakedUpper++;
+      if (Math.abs(b.h - 115) < 0.2 && d <= 45) nylBaseKept = true;
+    }
+  }
+  const nylOk = !!nylFit
+    && Math.abs(nylFit.w - 70) < 1
+    && Math.abs(nylFit.d - 35) < 1
+    && Math.abs(nylFit.roofH - 188) < 1
+    && Math.abs(nylFit.keptH - 115) < 1
+    && nylFit.clearedParts === 6
+    && nylBakedUpper === 0
+    && nylBaseKept;
+  results.push(
+    `New York Life upper replacement (${tileKeyOf(nylTx, nylTz)}): ` +
+      `fit=${nylFit?.w ?? 0}x${nylFit?.d ?? 0}m, roof=${nylFit?.roofH ?? 0}m, ` +
+      `kept=${nylFit?.keptH ?? 0}m, cleared=${nylFit?.clearedParts ?? 0}, ` +
+      `upper residuals=${nylBakedUpper}, base=${nylBaseKept} -> ${nylOk ? 'PASS' : 'FAIL'}`,
+  );
+
   // Central Park Tower owns one broad retail podium plus a dense set of
   // overlapping shaft, shoulder, cantilever and cap pieces. The premium
   // always-on build must be the only >=200m object within the tower's tight

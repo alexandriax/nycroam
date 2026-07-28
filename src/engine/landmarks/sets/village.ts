@@ -15,14 +15,17 @@ import {
 // local tones (kept module-scope so the merger sees one instance per material)
 const GRASS = new THREE.MeshLambertMaterial({ color: '#6d8f3a' });
 const GRAVEL = new THREE.MeshLambertMaterial({ color: '#9a958a' });
-const NYL_GLASS = new THREE.MeshStandardMaterial({ color: '#263a3e', metalness: 0.38, roughness: 0.23 });
+const NYL_GLASS = new THREE.MeshStandardMaterial({
+  color: '#263a3e', metalness: 0.38, roughness: 0.23,
+  emissive: '#152528', emissiveIntensity: 0.28, envMapIntensity: 0.7,
+});
 const NYL_GOLD = new THREE.MeshStandardMaterial({
   color: '#d7ad2f', metalness: 0.84, roughness: 0.27,
-  emissive: '#392400', emissiveIntensity: 0.12,
+  emissive: '#493000', emissiveIntensity: 0.17,
 });
 const NYL_GOLD_SHADE = new THREE.MeshStandardMaterial({
-  color: '#a77914', metalness: 0.88, roughness: 0.32,
-  emissive: '#281700', emissiveIntensity: 0.1,
+  color: '#b8891c', metalness: 0.88, roughness: 0.32,
+  emissive: '#503300', emissiveIntensity: 0.22,
 });
 const FLAT_STONE = new THREE.MeshLambertMaterial({ color: '#d5cbb7' });
 const FLAT_TERRA = new THREE.MeshLambertMaterial({ color: '#c6b99f' });
@@ -532,33 +535,61 @@ export const builders: Record<string, (ctx: LandmarkCtx) => THREE.Group> = {
     const shaftTop = Math.min(148, roofY - 36);
     const shaftW = 33, shaftD = 35;
 
-    // Limestone upper tower. Individual recessed panes retain close-up Gothic
-    // rhythm but merge into one glass draw call when the landmark is placed.
+    // Limestone upper tower. All 236 recessed panes are authored directly into
+    // one quad mesh. This preserves the close-up Gothic bay rhythm without
+    // allocating/traversing hundreds of temporary BoxGeometry objects whenever
+    // the landmark streams in (and without turning the façade into collision).
     g.add(box(shaftW, shaftTop - setbackY, shaftD, LIMESTONE, 0, (setbackY + shaftTop) / 2, 0));
     g.add(box(shaftW + 2.2, 1.2, shaftD + 2.2, LIMESTONE, 0, setbackY + 0.6, 0));
     g.add(box(shaftW + 1.6, 1.5, shaftD + 1.6, LIMESTONE, 0, shaftTop - 0.75, 0));
 
+    const panePos: number[] = [], paneNorm: number[] = [], paneIdx: number[] = [];
+    const addPane = (
+      cx: number, cy: number, cz: number,
+      tx: number, tz: number, nx: number, nz: number,
+      w: number, h: number,
+    ) => {
+      const base = panePos.length / 3;
+      const vx = tx * w / 2, vz = tz * w / 2, vy = h / 2;
+      panePos.push(
+        cx - vx, cy - vy, cz - vz,
+        cx - vx, cy + vy, cz - vz,
+        cx + vx, cy + vy, cz + vz,
+        cx + vx, cy - vy, cz + vz,
+      );
+      for (let i = 0; i < 4; i++) paneNorm.push(nx, 0, nz);
+      paneIdx.push(base, base + 2, base + 1, base, base + 3, base + 2);
+    };
     const floorCount = 8;
     for (let floor = 0; floor < floorCount; floor++) {
       const y = setbackY + 3.0 + floor * ((shaftTop - setbackY - 5.2) / (floorCount - 1));
       for (let bay = -3; bay <= 3; bay++) {
         const u = bay * 4.05;
-        g.add(box(2.65, 2.25, 0.16, NYL_GLASS, u, y, shaftD / 2 + 0.09));
-        g.add(box(2.65, 2.25, 0.16, NYL_GLASS, u, y, -shaftD / 2 - 0.09));
-        g.add(box(0.16, 2.25, 2.65, NYL_GLASS, shaftW / 2 + 0.09, y, u));
-        g.add(box(0.16, 2.25, 2.65, NYL_GLASS, -shaftW / 2 - 0.09, y, u));
+        addPane(u, y, shaftD / 2 + 0.015, 1, 0, 0, 1, 2.65, 2.25);
+        addPane(-u, y, -shaftD / 2 - 0.015, -1, 0, 0, -1, 2.65, 2.25);
+        addPane(shaftW / 2 + 0.015, y, -u, 0, -1, 1, 0, 2.65, 2.25);
+        addPane(-shaftW / 2 - 0.015, y, u, 0, 1, -1, 0, 2.65, 2.25);
       }
     }
     // Strong vertical piers and a final row of tall arched-window proportions.
     for (const x of [-15.2, 15.2]) for (const z of [-15.8, 15.8]) {
-      g.add(box(1.2, shaftTop - setbackY + 1.0, 1.2, LIMESTONE, x, (setbackY + shaftTop) / 2, z));
+      const pier = box(1.2, shaftTop - setbackY + 1.0, 1.2, LIMESTONE, x, (setbackY + shaftTop) / 2, z);
+      pier.userData.noCollision = true;
+      g.add(pier);
     }
     for (const u of [-8, 0, 8]) {
-      g.add(box(4.3, 4.7, 0.18, NYL_GLASS, u, shaftTop - 3.4, shaftD / 2 + 0.1));
-      g.add(box(4.3, 4.7, 0.18, NYL_GLASS, u, shaftTop - 3.4, -shaftD / 2 - 0.1));
-      g.add(box(0.18, 4.7, 4.3, NYL_GLASS, shaftW / 2 + 0.1, shaftTop - 3.4, u));
-      g.add(box(0.18, 4.7, 4.3, NYL_GLASS, -shaftW / 2 - 0.1, shaftTop - 3.4, u));
+      addPane(u, shaftTop - 3.4, shaftD / 2 + 0.02, 1, 0, 0, 1, 4.3, 4.7);
+      addPane(-u, shaftTop - 3.4, -shaftD / 2 - 0.02, -1, 0, 0, -1, 4.3, 4.7);
+      addPane(shaftW / 2 + 0.02, shaftTop - 3.4, -u, 0, -1, 1, 0, 4.3, 4.7);
+      addPane(-shaftW / 2 - 0.02, shaftTop - 3.4, u, 0, 1, -1, 0, 4.3, 4.7);
     }
+    const paneGeo = new THREE.BufferGeometry();
+    paneGeo.setAttribute('position', new THREE.Float32BufferAttribute(panePos, 3));
+    paneGeo.setAttribute('normal', new THREE.Float32BufferAttribute(paneNorm, 3));
+    paneGeo.setIndex(paneIdx);
+    const panes = new THREE.Mesh(paneGeo, NYL_GLASS);
+    panes.userData.noCollision = true;
+    g.add(panes);
 
     // Four real corner turrets occupy measured OSM centers on the shaft roof.
     for (const x of [-12.6, 12.6]) for (const z of [-13.4, 13.4]) {

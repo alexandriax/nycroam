@@ -142,8 +142,18 @@ export const LANDMARKS_REG: LandmarkEntry[] = [
   // obb centers and rotates the cornice trim wrong (it floated rotated mid-air)
   { id: 'flatiron', name: 'Flatiron Building', lat: 40.74107, lon: -73.98964, set: 'village', r: 800, rot: 2.847 },
   // The manager snaps this upper-tower reconstruction to the pipeline-measured
-  // host center/rotation; the registry coordinate is only its streaming anchor.
-  { id: 'new-york-life', name: 'New York Life Building', lat: 40.742735, lon: -73.985608, set: 'village', r: 1400, rot: GRID },
+  // host center/rotation. Its six generic source crown pieces are cleared, so
+  // the compact packed build remains resident to keep the gold roof present in
+  // the distant skyline instead of disappearing outside the old stream radius.
+  // Its park arrival is clear of the nearest tree canopy and far enough west to
+  // frame the complete upper tower above Madison Square's open lawn.
+  {
+    id: 'new-york-life', name: 'New York Life Building',
+    lat: 40.742735, lon: -73.985608, set: 'village', r: 1400,
+    rot: GRID, alwaysOn: true,
+    arrivalLat: 40.7425679, arrivalLon: -73.9884054,
+    arrivalLookLat: 40.742735, arrivalLookLon: -73.985608,
+  },
   // Full 85x75ft, 700ft replacement for all eight source pieces. Its packed
   // windows and compact clock/crown geometry stay resident after clearing the
   // generic prisms, so the historic Madison Square skyline never loses its
