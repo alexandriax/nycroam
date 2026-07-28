@@ -189,6 +189,20 @@ export const LANDMARKS_REG: LandmarkEntry[] = [
   // generic source tower is fully cleared; this lean procedural build is also
   // the 423m distant skyline representation.
   { id: 'chase-hq', name: '270 Park Ave: JPMorganChase', lat: 40.755980, lon: -73.975987, set: 'midtown-east', r: 1400, rot: GRID, alwaysOn: true },
+  // Rafael Viñoly's 425.5m square concrete basket replaces the source's one
+  // solid 426m extrusion. The physically recessed six-window grid and five
+  // open windbreak bands stay resident as its skyline representation; at
+  // roughly five thousand triangles it is cheaper than a dense window mesh.
+  {
+    id: '432-park', name: '432 Park Avenue',
+    lat: 40.7615943, lon: -73.9718353, set: 'midtown-east', r: 1700,
+    rot: GRID,
+    // Park Avenue axial view from the E 51st Street sidewalk: 0.6m from the
+    // mapped footway, 7.4m from the nearest building and 56.5m from a tree.
+    // The full tower and all five windbreak bands remain framed by the avenue.
+    arrivalLat: 40.757620, arrivalLon: -73.973380,
+    alwaysOn: true,
+  },
   { id: 'queensboro-bridge', name: 'Ed Koch Queensboro Bridge', lat: 40.7595, lon: -73.9605, set: 'midtown-east', r: 1500, rot: GRID },
 
   // ---- uptown west (columbus circle -> UWS) + UES museums ----

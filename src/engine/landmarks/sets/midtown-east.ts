@@ -57,6 +57,33 @@ const ONE_V_DOOR = new THREE.MeshStandardMaterial({
 const ONE_V_RED = new THREE.MeshBasicMaterial({ color: '#ff3b30' });
 const ONE_V_COLLISION = new THREE.MeshBasicMaterial({ visible: false });
 
+// 432 Park Avenue palette. The exposed white-concrete basket is the tower:
+// keep it bright on shaded/mobile faces without making it glossy, and reserve
+// reflections for the deeply recessed blue-gray panes.
+const PARK432_CONCRETE = new THREE.MeshStandardMaterial({
+  color: '#e7e4dd', metalness: 0.02, roughness: 0.58,
+  emissive: '#77746d', emissiveIntensity: 0.2,
+});
+const PARK432_MECH = new THREE.MeshStandardMaterial({
+  color: '#303637', metalness: 0.22, roughness: 0.46,
+  emissive: '#181d1e', emissiveIntensity: 0.42,
+});
+const PARK432_LOBBY = new THREE.MeshStandardMaterial({
+  color: '#5f7479', metalness: 0.22, roughness: 0.12,
+  emissive: '#8b6840', emissiveIntensity: 0.54,
+});
+const PARK432_CANOPY = new THREE.MeshStandardMaterial({
+  color: '#c5d8dc', metalness: 0.2, roughness: 0.1,
+  emissive: '#5c747a', emissiveIntensity: 0.52,
+  transparent: true, opacity: 0.82,
+});
+const PARK432_DOOR = new THREE.MeshStandardMaterial({
+  color: '#263b40', metalness: 0.28, roughness: 0.14,
+  emissive: '#18383e', emissiveIntensity: 0.72,
+});
+const PARK432_GLOW = new THREE.MeshBasicMaterial({ color: '#d9a45f' });
+const PARK432_COLLISION = new THREE.MeshBasicMaterial({ visible: false });
+
 // Chrysler crown palette. High metalness rendered the old crown almost black
 // because the street scene intentionally has no expensive environment map.
 // These still react as stainless steel, but a cool emissive floor preserves
@@ -110,6 +137,11 @@ function chryslerDetail<T extends THREE.Mesh>(mesh: T): T {
 type FacadeRect = { x0: number; x1: number; z0: number; z1: number };
 
 function oneVDetail<T extends THREE.Mesh>(mesh: T): T {
+  mesh.userData.noCollision = true;
+  return mesh;
+}
+
+function park432Detail<T extends THREE.Mesh>(mesh: T): T {
   mesh.userData.noCollision = true;
   return mesh;
 }
@@ -794,6 +826,134 @@ export const builders: Record<string, (ctx: LandmarkCtx) => THREE.Group> = {
     const beacon = oneVDetail(new THREE.Mesh(new THREE.SphereGeometry(0.2, 6, 5), ONE_V_RED));
     beacon.position.set(mastX, tip, mastZ);
     g.add(beacon);
+    return g;
+  },
+
+  // 432 Park Avenue: one 93ft square, 1,396ft tall concrete basket. The source
+  // supplies the exact shaft center/orientation but is an opaque extrusion,
+  // hiding Viñoly's defining five open mechanical windbreaks. The real facade
+  // has six 10ft-square windows per side and about 90 visible rows. Build that
+  // rhythm as a physically proud concrete grid over recessed glass: hundreds
+  // of temporary frame bars pre-merge into one ~4.7k-triangle mesh, while six
+  // lightweight curtain-wall sections leave the windbreaks genuinely open.
+  '432-park': (ctx) => {
+    const g = new THREE.Group();
+    const tip = ctx.fit?.roofH ?? 426;
+    const side = 28.35; // architect's 93ft square floor plate
+    const half = side / 2;
+    const rows = 90;
+    const cell = tip / rows;
+    const opening = 3.05; // signature 10ft square windows
+    const frame = Math.max(1.35, cell - opening);
+    const frameDepth = 0.72;
+    const square: FacadeRect = { x0: -half, x1: half, z0: -half, z1: half };
+
+    // Twelve-floor atlas: real relief supplies every concrete reveal, while
+    // this tiny texture gives the recessed panes reflection and non-repeating
+    // interior variation without allocating one material per window.
+    const panes = canvasTexture((c, w, h) => {
+      const pw = w / 6, ph = h / 12;
+      c.fillStyle = '#536b73';
+      c.fillRect(0, 0, w, h);
+      for (let row = 0; row < 12; row++) {
+        for (let col = 0; col < 6; col++) {
+          const seed = (row * 17 + col * 29 + row * col * 3) % 13;
+          const cool = 65 + seed * 3;
+          c.fillStyle = `rgb(${cool},${cool + 20},${cool + 26})`;
+          c.fillRect(col * pw + 1, row * ph + 1, pw - 2, ph - 2);
+          if (seed === 2 || seed === 8 || seed === 11) {
+            c.fillStyle = 'rgba(225,184,121,.22)';
+            c.fillRect(col * pw + 2, row * ph + 2, pw - 4, ph - 4);
+          }
+          c.fillStyle = 'rgba(220,235,239,.2)';
+          c.fillRect(col * pw + pw * 0.18, row * ph + 2, Math.max(1, pw * 0.14), ph - 4);
+        }
+      }
+    }, 192, 256);
+    panes.wrapS = panes.wrapT = THREE.RepeatWrapping;
+    panes.anisotropy = 4;
+    const glass = new THREE.MeshStandardMaterial({
+      map: panes, color: '#b6c6c9', metalness: 0.28, roughness: 0.15,
+      emissive: '#34494f', emissiveIntensity: 0.48, envMapIntensity: 1.15,
+    });
+
+    // HDLC's documented illuminated mechanical bands sit at 310, 512, 744,
+    // 961 and 1,178ft. Each band is two facade rows (~31ft) tall, leaving
+    // twelve unglazed openings per elevation around the exposed central core.
+    const breakCenters = [310, 512, 744, 961, 1178].map((feet) => feet * 0.3048);
+    const breaks = breakCenters.map((center) => ({
+      y0: Math.max(0, center - cell),
+      y1: Math.min(tip, center + cell),
+    }));
+    let occupiedY = 0;
+    for (const gap of breaks) {
+      if (gap.y0 > occupiedY + 0.1) {
+        g.add(facadeFrustum(square, square, occupiedY, gap.y0, glass, side, cell * 12));
+      }
+      occupiedY = gap.y1;
+    }
+    if (occupiedY < tip) {
+      g.add(facadeFrustum(square, square, occupiedY, tip, glass, side, cell * 12));
+    }
+
+    // All 90 horizontal reveals and seven vertical grid lines per face have
+    // true depth. Pre-merging here avoids making LandmarkManager traverse and
+    // matrix-bake ~400 individual meshes during the frame-sensitive build.
+    const frameBars: THREE.Mesh[] = [];
+    for (let i = 0; i <= 6; i++) {
+      const x = -half + (i * side) / 6;
+      const z = -half + (i * side) / 6;
+      frameBars.push(
+        box(frame, tip, frameDepth, PARK432_CONCRETE, x, tip / 2, -half - frameDepth / 2),
+        box(frame, tip, frameDepth, PARK432_CONCRETE, x, tip / 2, half + frameDepth / 2),
+        box(frameDepth, tip, frame, PARK432_CONCRETE, -half - frameDepth / 2, tip / 2, z),
+        box(frameDepth, tip, frame, PARK432_CONCRETE, half + frameDepth / 2, tip / 2, z),
+      );
+    }
+    for (let row = 0; row <= rows; row++) {
+      const y = (row / rows) * tip;
+      frameBars.push(
+        box(side + frameDepth * 2, frame, frameDepth, PARK432_CONCRETE, 0, y, -half - frameDepth / 2),
+        box(side + frameDepth * 2, frame, frameDepth, PARK432_CONCRETE, 0, y, half + frameDepth / 2),
+        box(frameDepth, frame, side + frameDepth * 2, PARK432_CONCRETE, -half - frameDepth / 2, y, 0),
+        box(frameDepth, frame, side + frameDepth * 2, PARK432_CONCRETE, half + frameDepth / 2, y, 0),
+      );
+    }
+    g.add(park432Detail(mergeBatch(frameBars, PARK432_CONCRETE)));
+
+    // The open slots reveal round mechanical enclosures and a restrained warm
+    // lighting datum, reproducing their characteristic night-time bands while
+    // remaining dark enough to read as real voids in daylight.
+    for (const gap of breaks) {
+      const gapH = gap.y1 - gap.y0;
+      const cy = (gap.y0 + gap.y1) / 2;
+      g.add(park432Detail(cyl(4.4, 4.4, gapH - 0.9, PARK432_MECH, 0, cy, 0, 18)));
+      for (const sign of [-1, 1]) {
+        g.add(park432Detail(box(8.6, 0.18, 0.14, PARK432_GLOW, 0, cy, sign * 4.48)));
+        g.add(park432Detail(box(0.14, 0.18, 8.6, PARK432_GLOW, sign * 4.48, cy, 0)));
+      }
+    }
+
+    // Minimal 56th Street residential entry: warm double-height lobby,
+    // transparent canopy and slender stainless supports. It remains within
+    // the real tower/plaza footprint cleared by the data pipeline.
+    g.add(park432Detail(box(11.8, cell * 1.55, 0.22, PARK432_LOBBY, 0, cell * 0.86, -half - 0.16)));
+    for (const x of [-4.2, -1.4, 1.4, 4.2]) {
+      g.add(park432Detail(box(2.46, cell * 1.18, 0.08, PARK432_DOOR, x, cell * 0.63, -half - 0.43)));
+    }
+    g.add(park432Detail(box(13.0, 0.26, 4.0, PARK432_CANOPY, 0, cell * 1.72, -half - 2.0)));
+    g.add(park432Detail(box(12.7, 0.12, 0.12, PARK432_GLOW, 0, cell * 1.58, -half - 3.94)));
+    for (const x of [-5.6, -2.8, 0, 2.8, 5.6]) {
+      g.add(park432Detail(box(0.16, cell * 1.45, 0.18, STEEL_LM, x, cell * 0.78, -half - 0.42)));
+    }
+    for (const x of [-5.7, 5.7]) {
+      g.add(park432Detail(box(0.18, cell * 1.65, 0.18, STEEL_LM, x, cell * 0.82, -half - 3.6)));
+    }
+
+    // One exact collision shaft keeps walls solid and the flat roof landable;
+    // facade relief and elevated mechanical equipment stay decorative.
+    g.add(box(side - 0.15, tip, side - 0.15, PARK432_COLLISION, 0, tip / 2, 0));
+    g.add(park432Detail(box(side + frameDepth, 0.75, side + frameDepth, PARK432_CONCRETE, 0, tip + 0.375, 0)));
     return g;
   },
 

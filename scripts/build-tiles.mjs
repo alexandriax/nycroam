@@ -665,6 +665,15 @@ async function main() {
       id: 'steinway-tower', lat: 40.764998, lon: -73.977437, r: 40,
       clearAll: true,
     },
+    // Viñoly's 432 Park Avenue tower is one unusually clean 425.5m source
+    // part: measure only that square shaft so the adjacent low retail/office
+    // volumes retain their real footprints. The premium build replaces the
+    // shaft while exposing its five double-height windbreak floors instead of
+    // leaving the source's solid generic extrusion behind it.
+    {
+      id: '432-park', lat: 40.7615943, lon: -73.9718353, r: 22,
+      minH: 400, clearAboveH: 400,
+    },
     // Full coherent replacement. The source maps the KPF tower as more than 20
     // overlapping full-height prisms: accurate in aggregate, but flat generic
     // boxes in the renderer, plus a 77m solid pyramid where the staggered glass
@@ -853,6 +862,11 @@ async function main() {
     // build stands alone. r=30 catches only that centroid; Hayden House (190m NE)
     // and everything across CPW/Columbus survive.
     ['amnh', 40.780962, -73.974258, 30],
+    // The mapped 30m 432 Park podium wraps around the square tower and would
+    // otherwise swallow the premium lobby/plaza. Its centroid is 29m from the
+    // tall shaft; a 7m clear is surgical, while the development's separate
+    // 20.5m and 28.3m East 57th Street retail/office volumes remain intact.
+    ['432-park-podium', 40.7617805, -73.9719587, 7],
     // The modern 111 W 57th source group and the landmarked 1925 Steinway Hall
     // are separate OSM ownership outlines but physically form one development.
     // A tight centroid clear removes only the 67m hall that the premium builder
@@ -2182,6 +2196,49 @@ async function main() {
       `tip=${stwFit?.topW ?? 0}x${stwFit?.topD ?? 0}m @ ${stwFit?.roofH ?? 0}m, ` +
       `cleared=${stwFit?.clearedParts ?? 0}+hall, baked >=150m within 30m=${stwBakedTall}, ` +
       `Windsor Park kept=${stwNeighborKept} -> ${stwOk ? 'PASS' : 'FAIL'}`,
+  );
+
+  // 432 Park keeps the source's two detached East 57th Street volumes while
+  // replacing the square supertall shaft and its overlapping 30m podium. This
+  // guards both sides of the surgical clear: no solid 425m duplicate and no
+  // accidental erasure of the real four-/seven-storey development frontage.
+  const park432XZ = lonLatToXZ(-73.9718353, 40.7615943);
+  const [park432Tx, park432Tz] = tileOf(park432XZ);
+  const park432Key = tileKeyOf(park432Tx, park432Tz);
+  const park432Buildings = tileBuildings.get(park432Key) || [];
+  const park432Near = (lat, lon, radius, height) => {
+    const target = lonLatToXZ(lon, lat);
+    return park432Buildings.some((b) => {
+      if (height !== undefined && Math.abs(b.h - height) > 0.2) return false;
+      const center = outputBuildingCentroid(b, park432Tx, park432Tz);
+      return !!center && Math.hypot(center[0] - target[0], center[1] - target[1]) <= radius;
+    });
+  };
+  const park432BakedTall = park432Buildings.filter((b) => {
+    if (b.h < 400) return false;
+    const center = outputBuildingCentroid(b, park432Tx, park432Tz);
+    return !!center && Math.hypot(center[0] - park432XZ[0], center[1] - park432XZ[1]) <= 30;
+  }).length;
+  const park432PodiumKept = park432Near(40.7617805, -73.9719587, 7, 30);
+  const park432Retail20Kept = park432Near(40.7616284, -73.9715897, 8, 20.5);
+  const park432Retail28Kept = park432Near(40.7615889, -73.9715233, 8, 28.3);
+  const park432Fit = fitOut['432-park'];
+  const park432Ok = !!park432Fit
+    && Math.abs(park432Fit.w - 28) < 2
+    && Math.abs(park432Fit.d - 28) < 2
+    && Math.abs(park432Fit.roofH - 426) < 1
+    && park432Fit.keptH === 0
+    && park432Fit.parts === 1
+    && park432Fit.clearedParts === 1
+    && park432BakedTall === 0
+    && !park432PodiumKept
+    && park432Retail20Kept
+    && park432Retail28Kept;
+  results.push(
+    `432 Park Avenue replacement (${park432Key}): fit=${park432Fit?.w ?? 0}x${park432Fit?.d ?? 0}m, ` +
+      `roof=${park432Fit?.roofH ?? 0}m, cleared=${park432Fit?.clearedParts ?? 0}+podium, ` +
+      `baked >=400m within 30m=${park432BakedTall}, retail kept=${park432Retail20Kept && park432Retail28Kept} ` +
+      `-> ${park432Ok ? 'PASS' : 'FAIL'}`,
   );
 
   const timesSquareRoads = tileRoads.get('0_0') || [];
