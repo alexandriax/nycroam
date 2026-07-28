@@ -627,6 +627,12 @@ async function main() {
   // drops the parts our build replaces (e.g. Hearst's tower above its 1928
   // base) while keeping the rest of the building.
   const LANDMARK_FIT = [
+    // Replace One WTC as one coherent premium landmark. OSM maps the faceted
+    // body as five overlapping 417m prisms plus a separate 541m antenna, while
+    // the old hand anchor sat ~59m southwest and added a second floating mast.
+    // Measure only this >400m site cluster, then clear all of it after the fit;
+    // the always-on landmark build supplies both the near tower and skyline.
+    { id: 'one-wtc', lat: 40.7130, lon: -74.01319, r: 70, minH: 400, clearAboveH: 400 },
     // r 55 (was 45): NOTE the "~150m parts at 45.2m" that motivated the bump
     // were actually The Sheffield 57's towers next door — site grouping now
     // excludes them from the measure AND from the clear (the r only bounds the
@@ -1957,11 +1963,14 @@ async function main() {
   console.log('\n=== VALIDATION ===');
   const results = [];
 
-  const tileCountOk = writtenTiles.length >= 400 && writtenTiles.length <= 2000;
-  results.push(`tiles written: ${writtenTiles.length} (expect 400-2000) -> ${tileCountOk ? 'PASS' : 'FAIL'}`);
+  // Full 8x4 OSM cache coverage now reaches the whole Manhattan bbox and its
+  // harbor/bridge fringe. The old 400-2000 / 25k-90k ranges described the
+  // earlier partial-cache build and have falsely failed every complete bake.
+  const tileCountOk = writtenTiles.length >= 2500 && writtenTiles.length <= 4000;
+  results.push(`tiles written: ${writtenTiles.length} (expect 2500-4000 full-cache) -> ${tileCountOk ? 'PASS' : 'FAIL'}`);
 
-  const buildingsOk = totalBuildingsWritten >= 25000 && totalBuildingsWritten <= 90000;
-  results.push(`total buildings: ${totalBuildingsWritten} (expect 25000-90000) -> ${buildingsOk ? 'PASS' : 'FAIL'}`);
+  const buildingsOk = totalBuildingsWritten >= 120000 && totalBuildingsWritten <= 200000;
+  results.push(`total buildings: ${totalBuildingsWritten} (expect 120000-200000 full-cache) -> ${buildingsOk ? 'PASS' : 'FAIL'}`);
 
   const esbXZ = lonLatToXZ(-73.9857, 40.7484);
   const [esbTx, esbTz] = tileOf(esbXZ);
@@ -1969,6 +1978,25 @@ async function main() {
   const esbBuildings = tileBuildings.get(esbKey) || [];
   const esbTall = esbBuildings.some((b) => b.h >= 300);
   results.push(`Empire State Building tile (${esbKey}): ${esbBuildings.length} buildings, tallest h=${Math.max(0, ...esbBuildings.map((b) => b.h))} -> ${esbTall ? 'PASS' : 'FAIL'}`);
+
+  // One WTC is a complete premium replacement: its six overlapping OSM
+  // prisms/antenna must be measured into the fit and absent from both the near
+  // tile and skyline, or the old duplicate-mast bug returns.
+  const wtcXZ = lonLatToXZ(-74.01319, 40.7130);
+  const [wtcTx, wtcTz] = tileOf(wtcXZ);
+  const wtcKey = tileKeyOf(wtcTx, wtcTz);
+  const wtcBuildings = tileBuildings.get(wtcKey) || [];
+  const wtcBakedTall = wtcBuildings.filter((b) => b.h >= 400).length;
+  const wtcFit = fitOut['one-wtc'];
+  const wtcOk = !!wtcFit
+    && Math.hypot(wtcFit.cx - wtcXZ[0], wtcFit.cz - wtcXZ[1]) < 5
+    && wtcFit.roofH >= 540
+    && wtcFit.clearedParts === 6
+    && wtcBakedTall === 0;
+  results.push(
+    `One WTC replacement (${wtcKey}): fit roof=${wtcFit?.roofH ?? 0}m, cleared=${wtcFit?.clearedParts ?? 0}, ` +
+      `baked >=400m parts=${wtcBakedTall} -> ${wtcOk ? 'PASS' : 'FAIL'}`,
+  );
 
   const timesSquareRoads = tileRoads.get('0_0') || [];
   const tsOk = timesSquareRoads.length > 0;

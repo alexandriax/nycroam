@@ -109,7 +109,7 @@ export const LANDMARKS: { name: string; lat: number; lon: number }[] = [
   { name: 'Columbus Circle', lat: 40.7681, lon: -73.9819 },
   { name: 'Washington Sq Park', lat: 40.7308, lon: -73.9973 },
   { name: 'Wall Street', lat: 40.7069, lon: -74.0113 },
-  { name: 'One World Trade', lat: 40.7127, lon: -74.0134 },
+  { name: 'One World Trade', lat: 40.7130, lon: -74.01319 },
   { name: 'The Battery', lat: 40.7033, lon: -74.017 },
   { name: 'Union Square', lat: 40.7359, lon: -73.9906 },
   { name: 'Rockefeller Center', lat: 40.7587, lon: -73.9787 },

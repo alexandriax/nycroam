@@ -56,7 +56,10 @@ const GRID = -0.507;
 // Park Av viaduct ribbons), and service-alley grazes (stylization noise).
 export const LANDMARKS_REG: LandmarkEntry[] = [
   // ---- financial district / battery ----
-  { id: 'one-wtc', name: 'One World Trade Center', lat: 40.712507, lon: -74.013462, set: 'fidi', r: 1400 },
+  // Always-on: its OSM duplicate is cleared so this compact premium model is
+  // also the distant skyline representation. Anchor is the measured host
+  // center (the old point was ~59m southwest, leaving a floating second mast).
+  { id: 'one-wtc', name: 'One World Trade Center', lat: 40.7130, lon: -74.01319, set: 'fidi', r: 1400, alwaysOn: true },
   { id: 'sept11-museum', name: '9/11 Memorial Museum', lat: 40.7115, lon: -74.0125, set: 'fidi', r: 450 },
   // anchored at the midpoint of the two BAKED memorial pools (54.2m water squares
   // in the tile areas); GRID aligns local x with their edges — the builder places
