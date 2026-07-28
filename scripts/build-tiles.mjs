@@ -647,6 +647,15 @@ async function main() {
     // stack. Measure the ownership group, then let the premium builder recreate
     // the lifted base, glass envelope and correctly limited east/west bracing.
     { id: 'chase-hq', lat: 40.755980, lon: -73.975987, r: 60, clearAll: true },
+    // Central Park Tower is currently ten overlapping generic prisms,
+    // including its 8.5m eastern cantilever and 472m architectural cap. Measure
+    // the complete 217 W 57th ownership group and replace it coherently so the
+    // Nordstrom podium, slender shaft and stainless pinstripe skin read as one
+    // landmark instead of stacked anonymous boxes.
+    {
+      id: 'central-park-tower', lat: 40.766410, lon: -73.980772, r: 62,
+      clearAll: true, clearAdjacentAboveH: 400,
+    },
     // Full coherent replacement. The source maps the KPF tower as more than 20
     // overlapping full-height prisms: accurate in aggregate, but flat generic
     // boxes in the renderer, plus a 77m solid pyramid where the staggered glass
@@ -733,6 +742,14 @@ async function main() {
     if (cands.length !== rawCands.length) {
       console.log(`  fit ${lf.id}: site grouping excluded ${rawCands.length - cands.length}/${rawCands.length} foreign parts`);
     }
+    // Central Park Tower's 8.4m eastern cantilever is mapped as a separate
+    // building:part whose centroid falls outside the containing podium outline,
+    // so strict ownership (correctly) classifies it as adjacent. A very high
+    // threshold can claim that one explicitly while preserving all ordinary
+    // neighboring massing caught by the fit radius.
+    const adjacentCleared = lf.clearAdjacentAboveH === undefined
+      ? []
+      : rawCands.filter((b) => !cands.includes(b) && b.height >= lf.clearAdjacentAboveH);
     // dominant orientation: longest edge of the largest footprint
     const largest = cands.reduce((a, b) => (b.area > a.area ? b : a));
     let ex = 1, ez = 0, bestLen = 0;
@@ -764,11 +781,12 @@ async function main() {
     const isTall = (b) => lf.clearAll
       || (lf.clearAboveMin !== undefined && (b.minHeight ?? 0) >= lf.clearAboveMin)
       || (lf.clearAboveH !== undefined && b.height >= lf.clearAboveH);
-    const cleared = lf.clearAll || lf.clearAboveMin !== undefined || lf.clearAboveH !== undefined
+    const clearedOnSite = lf.clearAll || lf.clearAboveMin !== undefined || lf.clearAboveH !== undefined
       ? cands.filter(isTall)
       : [];
+    const cleared = clearedOnSite.concat(adjacentCleared);
     for (const b of cleared) fitCleared.add(b);
-    const kept = cands.filter((b) => !cleared.includes(b));
+    const kept = cands.filter((b) => !clearedOnSite.includes(b));
     // A full replacement intentionally leaves no host massing. Report keptH=0
     // so builders and validation cannot mistake the measured source roof for a
     // surviving slab.
@@ -786,10 +804,10 @@ async function main() {
       keptH: Math.round(keptM.roof),        // tallest massing left standing
       topW: Math.round(top.maxU - top.minU),
       topD: Math.round(top.maxV - top.minV),
-      parts: cands.length,
+      parts: cands.length + adjacentCleared.length,
       clearedParts: cleared.length,
     };
-    console.log(`  fit ${lf.id}: ${cands.length} parts, obb ${fitOut[lf.id].w}x${fitOut[lf.id].d}m rot ${fitOut[lf.id].rot}, roof ${fitOut[lf.id].roofH}m, kept ${fitOut[lf.id].keptH}m, cleared ${cleared.length}`);
+    console.log(`  fit ${lf.id}: ${fitOut[lf.id].parts} parts, obb ${fitOut[lf.id].w}x${fitOut[lf.id].d}m rot ${fitOut[lf.id].rot}, roof ${fitOut[lf.id].roofH}m, kept ${fitOut[lf.id].keptH}m, cleared ${cleared.length}`);
   }
   fs.writeFileSync(path.join(GEO_DIR, 'landmarks-fit.json'), JSON.stringify({ v: 1, fits: fitOut }));
 
@@ -2067,6 +2085,29 @@ async function main() {
     `270 Park replacement (${chaseKey}): fit=${chaseFit?.w ?? 0}x${chaseFit?.d ?? 0}m, ` +
       `roof=${chaseFit?.roofH ?? 0}m, cleared=${chaseFit?.clearedParts ?? 0}, ` +
       `baked >=300m parts=${chaseBakedTall} -> ${chaseOk ? 'PASS' : 'FAIL'}`,
+  );
+
+  // Central Park Tower owns one broad retail podium, six shaft/shoulder parts
+  // and its architectural cap. The premium always-on build must be the only
+  // 472m object at the site so close tiles and the far skyline cannot overlap.
+  const cptXZ = lonLatToXZ(-73.980772, 40.766410);
+  const [cptTx, cptTz] = tileOf(cptXZ);
+  const cptKey = tileKeyOf(cptTx, cptTz);
+  const cptBuildings = tileBuildings.get(cptKey) || [];
+  const cptBakedTall = cptBuildings.filter((b) => b.h >= 400).length;
+  const cptFit = fitOut['central-park-tower'];
+  const cptOk = !!cptFit
+    && Math.abs(cptFit.w - 60) < 1
+    && Math.abs(cptFit.d - 61) < 1
+    && Math.abs(cptFit.roofH - 472) < 1
+    && cptFit.keptH === 0
+    && cptFit.parts === 10
+    && cptFit.clearedParts === 10
+    && cptBakedTall === 0;
+  results.push(
+    `Central Park Tower replacement (${cptKey}): fit=${cptFit?.w ?? 0}x${cptFit?.d ?? 0}m, ` +
+      `roof=${cptFit?.roofH ?? 0}m, cleared=${cptFit?.clearedParts ?? 0}, ` +
+      `baked >=400m parts=${cptBakedTall} -> ${cptOk ? 'PASS' : 'FAIL'}`,
   );
 
   const timesSquareRoads = tileRoads.get('0_0') || [];

@@ -44,6 +44,13 @@ export interface LandmarkEntry {
    * such as the Park Avenue viaduct would otherwise dominate the first view.
    */
   arrivalBearing?: number;
+  /**
+   * Optional surveyed presentation point for a tower whose dense surrounding
+   * blocks leave no useful automatically sampled view. Both values are
+   * required together; teleport still aims at the landmark's own lat/lon.
+   */
+  arrivalLat?: number;
+  arrivalLon?: number;
 }
 
 // Manhattan street-grid rotation. NEGATIVE: rotation.y = -0.507 maps local +x
@@ -189,6 +196,20 @@ export const LANDMARKS_REG: LandmarkEntry[] = [
   // OSM maps the column as a stack of building rings — `clear` suppresses them
   { id: 'columbus-circle', name: 'Columbus Circle', lat: 40.768069, lon: -73.981897, set: 'uptown', r: 550, rot: GRID, clear: 16 },
   { id: 'hearst-tower', name: 'Hearst Tower', lat: 40.7666, lon: -73.9836, set: 'uptown', r: 900, rot: GRID },
+  // Full premium replacement for Central Park Tower's nine-part ownership
+  // group plus its separately mapped cantilever. The tile pipeline snaps the
+  // build to its measured 60x61m site and clears the generic 472m prism stack.
+  // Keep this compact textured build resident as the skyline representation,
+  // or Billionaires' Row would have a conspicuous hole whenever its streamed
+  // neighborhood unloaded. Present it from Central Park to the north: the
+  // west/8th-Avenue axis is blocked by the broad Nordstrom/neighboring slabs
+  // and only reveals a sliver of the tower.
+  {
+    id: 'central-park-tower', name: 'Central Park Tower',
+    lat: 40.766410, lon: -73.980772, set: 'uptown', r: 1700, rot: GRID,
+    arrivalBearing: -Math.PI / 2, arrivalLat: 40.768050, arrivalLon: -73.980580,
+    alwaysOn: true,
+  },
   { id: 'plaza-hotel', name: 'The Plaza Hotel', lat: 40.7644, lon: -73.9745, set: 'uptown', r: 550, rot: GRID },
   { id: 'pulitzer-fountain', name: 'Pulitzer Fountain', lat: 40.764, lon: -73.9737, set: 'uptown', r: 400, rot: GRID },
   { id: 'lincoln-center', name: 'Lincoln Center', lat: 40.772709, lon: -73.982946, set: 'uptown', r: 550, rot: GRID },

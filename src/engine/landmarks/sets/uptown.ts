@@ -3,7 +3,7 @@ import {
   type LandmarkCtx,
   LIMESTONE, GRANITE, DARKSTONE, MARBLE, BRONZE, GOLD, STEEL_LM, GLASS_LM,
   WHITE_LM, WATER_LM, GREEN_PATINA,
-  box, cyl, strut, colonnade, lathe, archWall, figure,
+  box, cyl, strut, colonnade, lathe, archWall, figure, canvasTexture,
 } from '../kit';
 
 /**
@@ -19,8 +19,109 @@ const WARM_GLOW = new THREE.MeshBasicMaterial({ color: '#f6c98a' });       // li
 const BANNER_A = new THREE.MeshLambertMaterial({ color: '#9c2b2b' });      // museum banners
 const BANNER_B = new THREE.MeshLambertMaterial({ color: '#2b4a7c' });
 const BANNER_C = new THREE.MeshLambertMaterial({ color: '#8a6d1f' });
+// Central Park Tower's skin is blue-gray glass articulated by bright,
+// pattern-rolled stainless fins. Keep metalness moderate: the world avoids an
+// expensive environment map, so a small emissive floor preserves the silvery
+// pinstripes on shaded and mobile-quality faces instead of turning them black.
+const CPT_STAINLESS = new THREE.MeshStandardMaterial({
+  color: '#c7d1d6', metalness: 0.45, roughness: 0.2,
+  emissive: '#536269', emissiveIntensity: 0.24,
+});
+const CPT_DARK = new THREE.MeshStandardMaterial({
+  color: '#354650', metalness: 0.28, roughness: 0.32,
+  emissive: '#18252c', emissiveIntensity: 0.35,
+});
+const CPT_DOOR = new THREE.MeshStandardMaterial({
+  color: '#426572', metalness: 0.16, roughness: 0.13,
+  emissive: '#294954', emissiveIntensity: 0.62,
+});
+const CPT_GLOW = new THREE.MeshBasicMaterial({ color: '#d9c49a' });
+const CPT_COLLISION = new THREE.MeshBasicMaterial({ visible: false });
 
 // ---- shared local helpers ---------------------------------------------------
+
+type PlanPoint = [number, number];
+
+/** Decorative landmark detail never becomes its own coarse collision volume. */
+function cptDetail<T extends THREE.Mesh>(mesh: T): T {
+  mesh.userData.noCollision = true;
+  return mesh;
+}
+
+/**
+ * Physically UV-scaled polygonal curtain wall. A tiny repeating texture can
+ * supply every floor, mullion and spandrel at close range while the complete
+ * 422m shaft remains only four vertices per facade edge.
+ */
+function cptFacade(
+  source: PlanPoint[],
+  y0: number,
+  y1: number,
+  mat: THREE.Material,
+  bayW = 1.5,
+  floorH = 4.4,
+): THREE.Mesh {
+  let area2 = 0;
+  for (let i = 0, j = source.length - 1; i < source.length; j = i++) {
+    area2 += source[j][0] * source[i][1] - source[i][0] * source[j][1];
+  }
+  // Side winding below assumes CCW in x/z (interior to the left, exterior to
+  // the right). The measured OSM rings happen to be clockwise.
+  const points = area2 < 0 ? [...source].reverse() : source;
+  const pos: number[] = [];
+  const uv: number[] = [];
+  const idx: number[] = [];
+  for (let i = 0; i < points.length; i++) {
+    const a = points[i], b = points[(i + 1) % points.length];
+    const u1 = Math.hypot(b[0] - a[0], b[1] - a[1]) / bayW;
+    const n = pos.length / 3;
+    pos.push(
+      a[0], y0, a[1],
+      a[0], y1, a[1],
+      b[0], y1, b[1],
+      b[0], y0, b[1],
+    );
+    uv.push(0, y0 / floorH, 0, y1 / floorH, u1, y1 / floorH, u1, y0 / floorH);
+    idx.push(n, n + 1, n + 2, n, n + 2, n + 3);
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  geo.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+  geo.setIndex(idx);
+  geo.computeVertexNormals();
+  return cptDetail(new THREE.Mesh(geo, mat));
+}
+
+/** Exact invisible solid used only by LandmarkManager's polygonal collision. */
+function cptSolid(points: PlanPoint[], y0: number, y1: number): THREE.Mesh {
+  const shape = new THREE.Shape();
+  points.forEach(([x, z], i) => {
+    if (i === 0) shape.moveTo(x, -z);
+    else shape.lineTo(x, -z);
+  });
+  shape.closePath();
+  const mesh = new THREE.Mesh(
+    new THREE.ExtrudeGeometry(shape, { depth: y1 - y0, bevelEnabled: false }),
+    CPT_COLLISION,
+  );
+  mesh.rotation.x = -Math.PI / 2;
+  mesh.position.y = y0;
+  return mesh;
+}
+
+/** Flat roof following an exact measured plan. */
+function cptRoof(points: PlanPoint[], y: number, mat: THREE.Material): THREE.Mesh {
+  const shape = new THREE.Shape();
+  points.forEach(([x, z], i) => {
+    if (i === 0) shape.moveTo(x, -z);
+    else shape.lineTo(x, -z);
+  });
+  shape.closePath();
+  const mesh = cptDetail(new THREE.Mesh(new THREE.ShapeGeometry(shape), mat));
+  mesh.rotation.x = -Math.PI / 2;
+  mesh.position.y = y;
+  return mesh;
+}
 
 /** Straight park bench (matches the exemplar set's proportions). */
 function bench(mat: THREE.Material = DARKSTONE): THREE.Group {
@@ -196,6 +297,186 @@ export const builders: Record<string, (ctx: LandmarkCtx) => THREE.Group> = {
       g.add(strut(P(f, -f.half, y1), P(f, f.half, y1), 0.45, STEEL_LM, 6));
     }
     g.add(box(HW * 2 - 2, 1.4, HD * 2 - 2, STEEL_LM, 0, y1 + 0.7, 0)); // roof rim
+    return g;
+  },
+
+  // Central Park Tower: full replacement of its nine mapped ownership parts
+  // plus the separately mapped eastern cantilever.
+  // The measured 60x61m seven-storey Nordstrom podium stays broad at street
+  // level; above it, the 22.5x29.7m residential shaft shifts to the east edge
+  // and gains its separately mapped 8.4m cantilever at the residential datum.
+  // A physically UV-scaled curtain texture supplies ~100 floors of glass,
+  // mullions and spandrels for a few hundred triangles, while real geometry
+  // is reserved for the
+  // light-catching stainless fins, the wave-like retail facade and the crown.
+  'central-park-tower': (ctx) => {
+    const g = new THREE.Group();
+    const tip = ctx.fit?.roofH ?? 472;
+
+    const towerTex = canvasTexture((c, w, h) => {
+      const glass = c.createLinearGradient(0, 0, w, h);
+      glass.addColorStop(0, '#afc5cd');
+      glass.addColorStop(0.45, '#7394a2');
+      glass.addColorStop(1, '#4d7180');
+      c.fillStyle = glass;
+      c.fillRect(0, 0, w, h);
+      // Pattern-rolled stainless pinstripe on every facade bay.
+      const fin = c.createLinearGradient(0, 0, 7, 0);
+      fin.addColorStop(0, '#71848d');
+      fin.addColorStop(0.45, '#e5edf0');
+      fin.addColorStop(1, '#778991');
+      c.fillStyle = fin;
+      c.fillRect(0, 0, 6, h);
+      // Recessed spandrel and a soft high-floor reflection.
+      c.fillStyle = 'rgba(25,48,58,.62)';
+      c.fillRect(0, h - 9, w, 9);
+      c.fillStyle = 'rgba(218,235,242,.13)';
+      c.fillRect(w * 0.36, 8, w * 0.25, h - 22);
+    }, 64, 96);
+    towerTex.wrapS = towerTex.wrapT = THREE.RepeatWrapping;
+    towerTex.anisotropy = 4;
+    const towerGlass = new THREE.MeshStandardMaterial({
+      map: towerTex, color: '#e4eef1', metalness: 0.2, roughness: 0.2,
+      emissive: '#42606c', emissiveIntensity: 0.4,
+    });
+
+    const podiumTex = canvasTexture((c, w, h) => {
+      const glass = c.createLinearGradient(0, 0, w, 0);
+      glass.addColorStop(0, '#314c59');
+      glass.addColorStop(0.5, '#9bb8c3');
+      glass.addColorStop(1, '#385866');
+      c.fillStyle = glass;
+      c.fillRect(0, 0, w, h);
+      c.fillStyle = 'rgba(229,211,169,.34)';
+      c.fillRect(8, 8, w - 16, h - 18);
+      c.fillStyle = '#213640';
+      c.fillRect(0, h - 8, w, 8);
+      c.fillStyle = 'rgba(225,235,238,.8)';
+      c.fillRect(0, 0, 5, h);
+    }, 96, 96);
+    podiumTex.wrapS = podiumTex.wrapT = THREE.RepeatWrapping;
+    podiumTex.anisotropy = 4;
+    const podiumGlass = new THREE.MeshStandardMaterial({
+      map: podiumTex, color: '#d2e0e4', metalness: 0.16, roughness: 0.24,
+      emissive: '#243b45', emissiveIntensity: 0.36,
+    });
+
+    const louverTex = canvasTexture((c, w, h) => {
+      c.fillStyle = '#34464f';
+      c.fillRect(0, 0, w, h);
+      for (let y = 0; y < h; y += 7) {
+        c.fillStyle = y % 14 ? '#8b9ba2' : '#d4dde0';
+        c.fillRect(0, y, w, 2);
+      }
+      c.fillStyle = 'rgba(218,231,235,.32)';
+      c.fillRect(5, 0, 5, h);
+    }, 48, 64);
+    louverTex.wrapS = louverTex.wrapT = THREE.RepeatWrapping;
+    const crownMat = new THREE.MeshStandardMaterial({
+      map: louverTex, color: '#d0d9dc', metalness: 0.34, roughness: 0.26,
+      emissive: '#34474f', emissiveIntensity: 0.28,
+    });
+
+    // Exact plans transformed into the fit frame by the tile audit. The broad
+    // irregular plan preserves the Broadway/57th/58th Street notches instead
+    // of walling off their sidewalks with a 60m generic bounding box.
+    const PODIUM: PlanPoint[] = [
+      [29.7, -15.7], [15.8, -15.6], [15.8, -30.5], [-24.2, -30.5],
+      [-29.8, -30.5], [-29.8, -15], [-29.8, -6.6], [-29.8, -6.1],
+      [-29.8, 17.9], [-29.7, 20], [-29.8, 22.6], [-29.8, 23],
+      [-29.8, 25.5], [29.8, 25.6], [29.9, 0],
+    ];
+    const NORTH_WING: PlanPoint[] = [
+      [29.8, 25.6], [29.9, 30.4], [-29.7, 30.3], [-29.8, 25.5],
+    ];
+    const SHAFT: PlanPoint[] = [
+      [-10.6, -6.7], [-29.8, -6.6], [-29.8, -6.1], [-29.8, 17.9],
+      [-29.7, 20], [-29.8, 22.6], [-29.8, 23], [-12.1, 22.8],
+      [-12, 18.1], [-7.3, 18], [-7.3, 10.8], [-7.4, -2.1], [-10.5, -2],
+    ];
+    // OSM maps the record cantilever as a separate adjacent-owned part. Its
+    // measured -38.2..-29.8m projection is 8.4m, matching Permasteelisa's
+    // published 8.5m figure, and its 433m terminal matches the occupied crown.
+    const CANTILEVER: PlanPoint[] = [
+      [-29.8, -6.1], [-33.5, -6.2], [-33.4, 0.6],
+      [-38.2, 0.7], [-38.1, 17.9], [-29.8, 17.9],
+    ];
+    const SOUTH_SHOULDER: PlanPoint[] = [
+      [-29.8, -15], [-7.5, -14.9], [-7.4, -6.8], [-10.6, -6.7], [-29.8, -6.6],
+    ];
+    const NORTH_SHOULDER: PlanPoint[] = [
+      [-7.3, 22.8], [11.7, 22.6], [11.8, 10.7], [-7.3, 10.8],
+    ];
+
+    const addSolidFacade = (
+      plan: PlanPoint[], y0: number, y1: number, mat: THREE.Material,
+      bay = 1.5, floor = 4.4,
+    ) => {
+      g.add(cptFacade(plan, y0, y1, mat, bay, floor));
+      g.add(cptSolid(plan, y0, y1));
+      g.add(cptRoof(plan, y1 + 0.02, CPT_DARK));
+    };
+
+    // Seven-storey 300,000ft² retail base and its low 58th Street wing.
+    addSolidFacade(PODIUM, 0, 44, podiumGlass, 3.2, 7.25);
+    addSolidFacade(NORTH_WING, 0, 23, podiumGlass, 3.2, 7.25);
+
+    // Deep glazed entrance/display bays on the primary West 57th Street face.
+    // Warm light is limited to thin headers: an opaque full-height glow plane
+    // becomes a blank wall when inspected from the sidewalk.
+    for (const x of [-19, -10, -1, 8]) {
+      g.add(cptDetail(box(7.1, 7.5, 0.18, CPT_DOOR, x, 4.1, -30.72)));
+      for (const dx of [-3.25, 0, 3.25]) {
+        g.add(cptDetail(box(0.12, 7.3, 0.08, CPT_STAINLESS, x + dx, 4.1, -30.84)));
+      }
+      g.add(cptDetail(box(6.2, 0.22, 0.08, CPT_GLOW, x, 7.68, -30.85)));
+    }
+    // Pattern-rolled fins physically undulate in front of the podium glazing.
+    for (let i = 0; i < 24; i++) {
+      const x = -23 + i * 1.58;
+      const wave = Math.sin(i * 0.72) * 0.75;
+      g.add(cptDetail(box(0.16, 41, 0.32, CPT_STAINLESS, x, 22.5, -30.9 - wave)));
+    }
+    for (let i = 0; i < 34; i++) {
+      const x = -27.5 + i * 1.67;
+      const wave = Math.sin(i * 0.6 + 1.1) * 0.55;
+      g.add(cptDetail(box(0.14, 20, 0.28, CPT_STAINLESS, x, 12, 25.8 + wave)));
+    }
+
+    // Mapped shoulder volumes rise independently above the podium. The primary
+    // structural shaft continues from its source-mapped 44m datum; the separate
+    // 8.4m eastern projection begins at the ~300ft residential datum.
+    addSolidFacade(SOUTH_SHOULDER, 44, 127, towerGlass);
+    addSolidFacade(NORTH_SHOULDER, 44, 163, towerGlass);
+    addSolidFacade(SHAFT, 44, 91, towerGlass);
+    g.add(cptDetail(box(31.5, 1.4, 30.5, CPT_STAINLESS, -22.45, 91, 8.15)));
+
+    const occupiedTop = Math.min(432, tip - 34);
+    addSolidFacade(SHAFT, 91, occupiedTop, towerGlass);
+    addSolidFacade(CANTILEVER, 91, Math.min(433, tip - 6), towerGlass);
+    addSolidFacade(SHAFT, occupiedTop, tip - 6, crownMat, 1.5, 2.3);
+    addSolidFacade(SHAFT, tip - 6, tip, towerGlass);
+
+    // True-depth stainless pinstripes remain legible when the player flies
+    // inches from the facade; texture handles the interstitial bays.
+    const finY0 = 91, finY1 = occupiedTop, finH = finY1 - finY0;
+    for (let x = -28.7; x <= -8.3; x += 2.05) {
+      g.add(cptDetail(box(0.14, finH, 0.26, CPT_STAINLESS, x, (finY0 + finY1) / 2, -6.86)));
+      g.add(cptDetail(box(0.14, finH, 0.26, CPT_STAINLESS, x, (finY0 + finY1) / 2, 23.14)));
+    }
+    for (let z = -5.5; z <= 21.8; z += 2.1) {
+      g.add(cptDetail(box(0.26, finH, 0.14, CPT_STAINLESS, -29.94, (finY0 + finY1) / 2, z)));
+      g.add(cptDetail(box(0.26, finH, 0.14, CPT_STAINLESS, -7.16, (finY0 + finY1) / 2, z)));
+    }
+    for (let z = 1.6; z <= 17; z += 2.1) {
+      g.add(cptDetail(box(0.26, finH, 0.14, CPT_STAINLESS, -38.24, (finY0 + finY1) / 2, z)));
+    }
+    // Mapped massing transitions double as subtle mechanical/refuge bands.
+    for (const y of [127, 163, 237, 332, occupiedTop]) {
+      if (y >= occupiedTop) continue;
+      g.add(cptDetail(box(23.2, 0.55, 30.3, CPT_STAINLESS, -18.55, y, 8.15)));
+    }
+    g.add(cptDetail(box(23.5, 0.9, 30.6, CPT_STAINLESS, -18.55, tip + 0.45, 8.15)));
     return g;
   },
 

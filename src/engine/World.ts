@@ -811,7 +811,17 @@ export class World {
     this.flyVel.set(0, 0, 0);
     this.flyTarget.set(0, 0, 0);
     const [x, z] = lonLatToXZ(lon, lat);
-    this.pos.set(x, 0, z);
+    const landmark = landmarkId ? LANDMARKS_REG.find((lm) => lm.id === landmarkId) : undefined;
+    // A few supertalls are surrounded by nearly continuous block-front slabs:
+    // automatic radial sampling can find a technically clear keyhole while the
+    // resulting first view is still mostly neighboring walls. A surveyed
+    // presentation point starts on a known-clear public path; freeSpawn below
+    // still validates building clearance and frames the real landmark target.
+    const hasArrival = landmark?.arrivalLat !== undefined && landmark.arrivalLon !== undefined;
+    const [spawnX, spawnZ] = hasArrival
+      ? lonLatToXZ(landmark.arrivalLon!, landmark.arrivalLat!)
+      : [x, z];
+    this.pos.set(spawnX, 0, spawnZ);
     this.spawnLookAt = { x, z };
     this.spawnLandmarkId = landmarkId;
     this.spawnWaitStarted = performance.now();
@@ -926,10 +936,22 @@ export class World {
           // tile tower completely block the selected landmark.
           let blocked = 0;
           const vx = (x - candidate[0]) / dist, vz = (z - candidate[1]) / dist;
-          for (let along = 10; along < dist - 10; along += 10) {
-            const sx = candidate[0] + vx * along, sz = candidate[1] + vz * along;
-            const sy = heightAt(sx, sz);
-            if (pointInBuildingsExcept(sx, sz, this.colNear(sx, sz), hostRings, sy)) blocked++;
+          // A single center ray can thread a meter-wide slot between two slabs
+          // and call the tower "visible" even though both screen edges are
+          // filled by foreground buildings. Trace the center plus rays toward
+          // the landmark's left/right facade edges; the edge separation grows
+          // toward the target like a real view cone. This rejects canyon
+          // keyholes while remaining a cheap, menu-jump-only test.
+          const edgeHalf = Math.min(18, Math.max(6, targetRoof * 0.03));
+          const sideX = -vz, sideZ = vx;
+          for (const edge of [-1, 0, 1]) {
+            for (let along = 10; along < dist - 10; along += 10) {
+              const spread = edge * edgeHalf * (along / dist);
+              const sx = candidate[0] + vx * along + sideX * spread;
+              const sz = candidate[1] + vz * along + sideZ * spread;
+              const sy = heightAt(sx, sz);
+              if (pointInBuildingsExcept(sx, sz, this.colNear(sx, sz), hostRings, sy)) blocked++;
+            }
           }
           // A few landmarks have a documented presentation axis because an
           // elevated/passable structure is visually opaque but deliberately
