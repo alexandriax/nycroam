@@ -36,6 +36,180 @@ const MET_ROOF_SHADE = new THREE.MeshStandardMaterial({ color: '#85867f', metaln
 const MET_GOLD = new THREE.MeshStandardMaterial({ color: '#c99f32', metalness: 0.84, roughness: 0.3 });
 const MET_LANTERN = new THREE.MeshBasicMaterial({ color: '#ffd27a' });
 
+// 30 Hudson Yards palette. Its dark blue curtain wall needs enough reflected
+// sky to stay crystalline, but a low emissive floor keeps shaded/mobile faces
+// from becoming a black monolith when the environment map is reduced.
+const HY_STEEL = new THREE.MeshStandardMaterial({
+  color: '#c5d0d4', metalness: 0.5, roughness: 0.23,
+  emissive: '#45555d', emissiveIntensity: 0.28,
+});
+const HY_DARK_STEEL = new THREE.MeshStandardMaterial({
+  color: '#38484e', metalness: 0.38, roughness: 0.34,
+  emissive: '#1b3038', emissiveIntensity: 0.46,
+});
+const HY_EDGE_UNDERSIDE = new THREE.MeshStandardMaterial({
+  color: '#9ba9ad', metalness: 0.58, roughness: 0.28,
+  emissive: '#35464d', emissiveIntensity: 0.3,
+  side: THREE.DoubleSide,
+});
+const HY_EDGE_GLASS = new THREE.MeshStandardMaterial({
+  color: '#bedce4', metalness: 0.12, roughness: 0.08,
+  emissive: '#527d89', emissiveIntensity: 0.5,
+  transparent: true, opacity: 0.62, depthWrite: false,
+  side: THREE.DoubleSide,
+});
+const HY_CROWN_GLASS = new THREE.MeshStandardMaterial({
+  color: '#416d79', metalness: 0.08, roughness: 0.3,
+  emissive: '#264c58', emissiveIntensity: 0.48, envMapIntensity: 0.45,
+  transparent: true, opacity: 0.78, depthWrite: false,
+  side: THREE.DoubleSide,
+});
+const HY_LOBBY = new THREE.MeshStandardMaterial({
+  color: '#99b7bd', metalness: 0.14, roughness: 0.12,
+  emissive: '#9f7148', emissiveIntensity: 0.58,
+  transparent: true, opacity: 0.82,
+});
+const HY_DOOR = new THREE.MeshStandardMaterial({
+  color: '#233c43', metalness: 0.3, roughness: 0.16,
+  emissive: '#183740', emissiveIntensity: 0.68,
+});
+const HY_GLOW = new THREE.MeshBasicMaterial({ color: '#e9f2f4' });
+const HY_COLLISION = new THREE.MeshBasicMaterial({ visible: false });
+
+function hyDetail<T extends THREE.Mesh>(mesh: T): T {
+  mesh.userData.noCollision = true;
+  return mesh;
+}
+
+type HyPoint = readonly [number, number];
+type HyLevel = { y: number; points: readonly HyPoint[] };
+
+/**
+ * One continuously faceted curtain-wall volume. Physical-scale UVs repeat a
+ * six-bay/eight-floor atlas across clean facade strips, so the 100-story tower
+ * retains mullions, spandrels and interior variation at close range without
+ * thousands of window meshes or draw calls.
+ */
+function hyEnvelope(levels: readonly HyLevel[], mat: THREE.Material, cap = true): THREE.Mesh {
+  const positions: number[] = [];
+  const uvs: number[] = [];
+  const indices: number[] = [];
+  const BAY_ATLAS = 1.52 * 6;
+  const FLOOR_ATLAS = 3.65 * 8;
+  const point = (p: HyPoint, y: number) => new THREE.Vector3(p[0], y, p[1]);
+  const addQuad = (
+    a: THREE.Vector3, b: THREE.Vector3, c: THREE.Vector3, d: THREE.Vector3,
+    u0: number, u1: number, v0: number, v1: number,
+  ) => {
+    const n = positions.length / 3;
+    for (const p of [a, b, c, d]) positions.push(p.x, p.y, p.z);
+    uvs.push(u0, v0, u0, v1, u1, v1, u1, v0);
+    indices.push(n, n + 1, n + 2, n, n + 2, n + 3);
+  };
+
+  for (let band = 0; band < levels.length - 1; band++) {
+    const lower = levels[band], upper = levels[band + 1];
+    if (lower.points.length !== upper.points.length) continue;
+    let along = 0;
+    for (let side = 0; side < lower.points.length; side++) {
+      const next = (side + 1) % lower.points.length;
+      const l0 = point(lower.points[side], lower.y);
+      const l1 = point(lower.points[next], lower.y);
+      const u0 = point(upper.points[side], upper.y);
+      const u1 = point(upper.points[next], upper.y);
+      const span = Math.max(l0.distanceTo(l1), u0.distanceTo(u1));
+      addQuad(
+        l0, u0, u1, l1,
+        along / BAY_ATLAS, (along + span) / BAY_ATLAS,
+        lower.y / FLOOR_ATLAS, upper.y / FLOOR_ATLAS,
+      );
+      along += span;
+    }
+  }
+
+  if (cap) {
+    const top = levels[levels.length - 1];
+    const center = new THREE.Vector3(
+      top.points.reduce((sum, p) => sum + p[0], 0) / top.points.length,
+      top.y,
+      top.points.reduce((sum, p) => sum + p[1], 0) / top.points.length,
+    );
+    for (let i = 0; i < top.points.length; i++) {
+      const next = (i + 1) % top.points.length;
+      const n = positions.length / 3;
+      for (const p of [center, point(top.points[next], top.y), point(top.points[i], top.y)]) {
+        positions.push(p.x, p.y, p.z);
+      }
+      uvs.push(0.5, 0.5, 1, 1, 0, 1);
+      indices.push(n, n + 1, n + 2);
+    }
+  }
+
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  geo.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+  geo.setIndex(indices);
+  geo.computeVertexNormals();
+  return hyDetail(new THREE.Mesh(geo, mat));
+}
+
+/** Flat x/z polygon used for Edge's transparent glass-floor window. */
+function hyHorizontalPanel(points: readonly HyPoint[], y: number, mat: THREE.Material): THREE.Mesh {
+  const positions = points.flatMap(([x, z]) => [x, y, z]);
+  const indices: number[] = [];
+  for (let i = 1; i < points.length - 1; i++) indices.push(0, i + 1, i);
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  geo.setIndex(indices);
+  geo.computeVertexNormals();
+  return hyDetail(new THREE.Mesh(geo, mat));
+}
+
+/** One transparent wall leaning the official 6.6° out from Edge's centroid. */
+function hyEdgeWall(
+  a: HyPoint,
+  b: HyPoint,
+  center: HyPoint,
+  y: number,
+  h: number,
+): { panel: THREE.Mesh; bottomA: THREE.Vector3; bottomB: THREE.Vector3; topA: THREE.Vector3; topB: THREE.Vector3 } {
+  const dx = b[0] - a[0], dz = b[1] - a[1];
+  const len = Math.max(0.001, Math.hypot(dx, dz));
+  let nx = dz / len, nz = -dx / len;
+  const mx = (a[0] + b[0]) / 2, mz = (a[1] + b[1]) / 2;
+  if (nx * (mx - center[0]) + nz * (mz - center[1]) < 0) {
+    nx = -nx; nz = -nz;
+  }
+  const lean = Math.tan(THREE.MathUtils.degToRad(6.6)) * h;
+  const bottomA = new THREE.Vector3(a[0], y, a[1]);
+  const bottomB = new THREE.Vector3(b[0], y, b[1]);
+  const topA = new THREE.Vector3(a[0] + nx * lean, y + h, a[1] + nz * lean);
+  const topB = new THREE.Vector3(b[0] + nx * lean, y + h, b[1] + nz * lean);
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute([
+    ...bottomA.toArray(), ...topA.toArray(), ...topB.toArray(), ...bottomB.toArray(),
+  ], 3));
+  geo.setAttribute('uv', new THREE.Float32BufferAttribute([0, 0, 0, 1, 1, 1, 1, 0], 2));
+  geo.setIndex([0, 1, 2, 0, 2, 3]);
+  geo.computeVertexNormals();
+  return {
+    panel: hyDetail(new THREE.Mesh(geo, HY_EDGE_GLASS)),
+    bottomA, bottomB, topA, topB,
+  };
+}
+
+/** Transparent triangular crown plane facing local +/-z. */
+function hyCrownPanel(points: readonly (readonly [number, number])[], z: number): THREE.Mesh {
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(
+    points.flatMap(([x, y]) => [x, y, z]),
+    3,
+  ));
+  geo.setIndex([0, 1, 2]);
+  geo.computeVertexNormals();
+  return hyDetail(new THREE.Mesh(geo, HY_CROWN_GLASS));
+}
+
 /** Park bench (matches the Central Park style). */
 function bench(mat: THREE.Material = DARKSTONE): THREE.Group {
   const g = new THREE.Group();
@@ -832,22 +1006,351 @@ export const builders: Record<string, (ctx: LandmarkCtx) => THREE.Group> = {
     return g;
   },
 
-  // Edge deck: the triangular cantilevered observation platform jutting at y=335
-  'edge-deck': () => {
+  // 30 Hudson Yards + Edge: full replacement for eleven overlapping generic
+  // source prisms. The data pipeline supplies the surveyed 117x58m site and
+  // 395m steel-crown height; this lean build recreates KPF's city-facing
+  // crystalline shift, 100-story curtain wall, open triangular crown, City
+  // Climb and the exact 1,100ft cantilevered Edge deck as one coherent object.
+  'edge-deck': (ctx) => {
     const g = new THREE.Group();
-    const y = 335;
-    const shape = new THREE.Shape(); // triangle, point at +z
-    shape.moveTo(-14, 0); shape.lineTo(14, 0); shape.lineTo(0, 24); shape.closePath();
-    const slab = new THREE.Mesh(new THREE.ExtrudeGeometry(shape, { depth: 0.7, bevelEnabled: false }), STEEL_LM);
-    slab.rotation.x = Math.PI / 2; slab.position.y = y; g.add(slab);
-    g.add(box(28, 1.3, 0.12, GLASS_LM, 0, y + 0.65, 0)); // back-edge glass parapet
-    g.add(edgeBar(-14, 0, 0, 24, y + 0.65, 0.12, 1.3, GLASS_LM)); // left-edge glass
-    g.add(edgeBar(14, 0, 0, 24, y + 0.65, 0.12, 1.3, GLASS_LM)); // right-edge glass
-    const tip = new THREE.Vector3(0, y - 0.7, 23);
-    g.add(strut(tip, new THREE.Vector3(-7, y - 20, 0), 0.35, STEEL_LM, 6)); // underside brace back to tower face
-    g.add(strut(tip, new THREE.Vector3(7, y - 20, 0), 0.35, STEEL_LM, 6));
-    g.add(strut(new THREE.Vector3(-11, y - 0.7, 1), new THREE.Vector3(-5, y - 18, 0), 0.3, STEEL_LM, 6));
-    g.add(strut(new THREE.Vector3(11, y - 0.7, 1), new THREE.Vector3(5, y - 18, 0), 0.3, STEEL_LM, 6));
+    const siteW = ctx.fit?.w ?? 117;
+    const siteD = ctx.fit?.d ?? 58;
+    const tipY = ctx.fit?.roofH ?? 395;
+    const sx = siteW / 117;
+    const sz = siteD / 58;
+    const P = (x: number, z: number): HyPoint => [x * sx, z * sz];
+    const scaled = (points: readonly HyPoint[]) => points.map(([x, z]) => P(x, z));
+
+    // Six facade bays by eight floors: dark blue low-e glass, pale mullions,
+    // broad horizontal spandrels and deterministic warm interior variation.
+    const curtain = canvasTexture((c, w, h) => {
+      const cols = 6, rows = 8;
+      const cw = w / cols, ch = h / rows;
+      c.fillStyle = '#315867';
+      c.fillRect(0, 0, w, h);
+      for (let row = 0; row < rows; row++) {
+        for (let col = 0; col < cols; col++) {
+          const x = col * cw, y = row * ch;
+          const tone = (row * 13 + col * 7 + row * col * 3) % 9;
+          const grad = c.createLinearGradient(x, y, x + cw, y);
+          grad.addColorStop(0, tone < 3 ? '#294e5d' : '#365f6e');
+          grad.addColorStop(0.48, tone % 4 === 0 ? '#89aeb9' : '#5e8794');
+          grad.addColorStop(1, tone === 7 ? '#244653' : '#315b69');
+          c.fillStyle = grad;
+          c.fillRect(x, y, cw, ch);
+          c.fillStyle = 'rgba(213,229,232,.24)';
+          c.fillRect(x + cw * 0.58, y + 2, 2, ch - 8);
+          if ((row * 5 + col * 11) % 13 < 2) {
+            c.fillStyle = 'rgba(239,189,122,.3)';
+            c.fillRect(x + 3, y + 3, cw - 6, ch * 0.48);
+          }
+          c.fillStyle = 'rgba(193,211,216,.92)';
+          c.fillRect(x, y, 2, ch);
+          c.fillStyle = '#263942';
+          c.fillRect(x, y + ch - 6, cw, 6);
+          c.fillStyle = 'rgba(158,189,196,.58)';
+          c.fillRect(x, y + ch - 6, cw, 1);
+        }
+      }
+    }, 192, 256);
+    curtain.wrapS = curtain.wrapT = THREE.RepeatWrapping;
+    curtain.anisotropy = 4;
+    const towerGlass = new THREE.MeshStandardMaterial({
+      map: curtain, color: '#94b7c0', metalness: 0.24, roughness: 0.18,
+      emissive: '#315965', emissiveIntensity: 0.52, envMapIntensity: 1.15,
+    });
+    const towerGlassShade = new THREE.MeshStandardMaterial({
+      map: curtain, color: '#739ba8', metalness: 0.26, roughness: 0.21,
+      emissive: '#284d59', emissiveIntensity: 0.54, envMapIntensity: 1.08,
+    });
+
+    // Measured source plans: the rail-platform podium spreads west while the
+    // office shaft rises from the eastern half, then shifts toward the city as
+    // it climbs. Six shared vertices keep every fold sharp and flicker-free.
+    const podiumPlan = scaled([
+      [-58.5, -29], [-15.3, -29], [-15.8, 4.6], [-26.5, 4.7],
+      [-36.7, 13], [-52, 12.2], [-53.8, -12.4], [-48.5, -15.4],
+    ]);
+    const podiumTop = scaled([
+      [-53.5, -28], [-14.5, -28], [-15.5, 5.5], [-25.5, 5.5],
+      [-35.5, 13], [-49.5, 12], [-51.5, -12], [-47, -15],
+    ]);
+    g.add(hyEnvelope([
+      { y: 0, points: podiumPlan },
+      { y: 70, points: podiumPlan },
+      { y: 130, points: podiumTop },
+    ], towerGlassShade));
+
+    const main0 = scaled([
+      [-16, -29], [51.7, -29], [51.7, -16.7],
+      [55, -14], [53, 20], [-16, 20],
+    ]);
+    const main130 = scaled([
+      [-16, -29], [51.7, -29], [51.7, -16.7],
+      [55, -14], [53, 20], [-16, 20],
+    ]);
+    const main250 = scaled([
+      [-12, -27], [53, -27], [53, -16],
+      [57, -13], [55, 23], [-12, 23],
+    ]);
+    const main310 = scaled([
+      [-9, -24], [54, -24], [54, -16],
+      [58, -13], [56, 26], [-9, 26],
+    ]);
+    // Above the 310m office roof, the mapped skillion volumes fold around
+    // Edge rather than continuing as one full rectangular prism. This
+    // concave reveal is what lets the real deck project 80ft into open air.
+    const upper310 = scaled([
+      [-9, -24], [54, -24], [54, -16], [58, -13],
+      [56, 26], [21, 26], [20, -15], [-9, -16],
+    ]);
+    const main335 = scaled([
+      [-8, -21], [55, -21], [55, -16], [58, -13],
+      [57, 27], [21, 27], [20, -15], [-8, -16],
+    ]);
+    const main370 = scaled([
+      [-6, -17], [57, -17], [57, -14], [58, -13],
+      [58, 28], [22, 28], [21, -14], [-6, -14],
+    ]);
+    const shaftLevels: HyLevel[] = [
+      { y: 0, points: main0 },
+      { y: 130, points: main130 },
+      { y: 250, points: main250 },
+      { y: 310, points: main310 },
+    ];
+    const upperLevels: HyLevel[] = [
+      { y: 310, points: upper310 },
+      { y: 335, points: main335 },
+      { y: 370, points: main370 },
+    ];
+    g.add(hyEnvelope(shaftLevels, towerGlass));
+    g.add(hyEnvelope(upperLevels, towerGlass, false));
+
+    // Stainless corner folds and major mechanical datums stay visible at
+    // skyline distance while the texture supplies all sub-floor detail.
+    for (const levels of [shaftLevels, upperLevels]) {
+      for (let level = 0; level < levels.length - 1; level++) {
+        const a = levels[level], b = levels[level + 1];
+        for (let i = 0; i < a.points.length; i++) {
+          g.add(hyDetail(strut(
+            new THREE.Vector3(a.points[i][0], a.y, a.points[i][1]),
+            new THREE.Vector3(b.points[i][0], b.y, b.points[i][1]),
+            0.17, HY_STEEL, 5,
+          )));
+        }
+      }
+    }
+    for (const level of [...shaftLevels.slice(1), ...upperLevels.slice(1)]) {
+      for (let i = 0; i < level.points.length; i++) {
+        const next = (i + 1) % level.points.length;
+        g.add(hyDetail(strut(
+          new THREE.Vector3(level.points[i][0], level.y, level.points[i][1]),
+          new THREE.Vector3(level.points[next][0], level.y, level.points[next][1]),
+          0.15, HY_STEEL, 5,
+        )));
+      }
+    }
+    // 1,296ft sloping crown. KPF's city elevation rises to one west apex and
+    // falls to the opposite shoulder; the old model inverted this into a
+    // horizontal scaffold. Translucent front/back wedges, floor datum rails,
+    // and the bright sloping perimeter preserve the glass-clad triangular
+    // silhouette without rebuilding OSM's three opaque 395m roof slabs.
+    const crownLeft = -6 * sx, crownRight = 58 * sx;
+    const frontZ = 28.2 * sz, backZ = -17.2 * sz;
+    const crownTri = [
+      [crownLeft, 370] as const,
+      [crownLeft, tipY] as const,
+      [crownRight, 370] as const,
+    ];
+    g.add(hyCrownPanel(crownTri, frontZ - 0.2));
+    g.add(hyCrownPanel(crownTri, backZ + 0.2));
+    const frontA = new THREE.Vector3(crownLeft, 370, frontZ);
+    const frontB = new THREE.Vector3(crownLeft, tipY, frontZ);
+    const frontC = new THREE.Vector3(crownRight, 370, frontZ);
+    const backA = new THREE.Vector3(crownLeft, 370, backZ);
+    const backB = new THREE.Vector3(crownLeft, tipY, backZ);
+    const backC = new THREE.Vector3(crownRight, 370, backZ);
+    for (const [a, b] of [
+      [frontA, frontB], [frontB, frontC], [frontC, frontA],
+      [backA, backB], [backB, backC], [backC, backA],
+      [frontA, backA], [frontB, backB], [frontC, backC],
+    ] as [THREE.Vector3, THREE.Vector3][]) {
+      g.add(hyDetail(strut(a, b, 0.52, HY_STEEL, 7)));
+    }
+    for (const t of [0.2, 0.4, 0.6, 0.8]) {
+      const y = THREE.MathUtils.lerp(370, tipY, t);
+      const x = THREE.MathUtils.lerp(crownRight, crownLeft, t);
+      const left = new THREE.Vector3(crownLeft, y, frontZ);
+      const right = new THREE.Vector3(x, y, frontZ);
+      const leftBack = new THREE.Vector3(crownLeft, y, backZ);
+      const rightBack = new THREE.Vector3(x, y, backZ);
+      g.add(hyDetail(strut(left, right, 0.16, HY_STEEL, 5)));
+      g.add(hyDetail(strut(leftBack, rightBack, 0.16, HY_STEEL, 5)));
+      g.add(hyDetail(strut(left, rightBack, 0.1, HY_DARK_STEEL, 5)));
+      g.add(hyDetail(strut(right, leftBack, 0.1, HY_DARK_STEEL, 5)));
+    }
+    // The diagonal silver reveal around City Climb remains legible from the
+    // High Line without turning the crown into a dense lattice.
+    const revealA = new THREE.Vector3(crownLeft + 2 * sx, 391, frontZ + 0.12);
+    const revealB = new THREE.Vector3(crownLeft + 11 * sx, 373, frontZ + 0.12);
+    const revealC = new THREE.Vector3(crownLeft + 25 * sx, 381, frontZ + 0.12);
+    for (const [a, b] of [
+      [revealA, revealB], [revealB, revealC], [revealC, revealA],
+    ] as [THREE.Vector3, THREE.Vector3][]) {
+      g.add(hyDetail(strut(a, b, 0.42, HY_STEEL, 7)));
+    }
+
+    // City Climb follows the exposed south crown slope to the highest outdoor
+    // platform. Twelve real step landings and paired rails make the ascent read
+    // in close helicopter passes without creating hundreds of objects.
+    const climbA = frontC.clone().add(new THREE.Vector3(0, 0.6, 0.45));
+    const climbB = frontB.clone().add(new THREE.Vector3(0, 0.6, 0.45));
+    for (let i = 0; i <= 12; i++) {
+      const t = i / 12;
+      const p = climbA.clone().lerp(climbB, t);
+      g.add(hyDetail(box(2.8, 0.18, 1.2, HY_DARK_STEEL, p.x, p.y, p.z)));
+    }
+    for (const zOff of [-0.75, 0.75]) {
+      g.add(hyDetail(strut(
+        climbA.clone().add(new THREE.Vector3(0, 1.1, zOff)),
+        climbB.clone().add(new THREE.Vector3(0, 1.1, zOff)),
+        0.08, HY_STEEL, 5,
+      )));
+    }
+    g.add(hyDetail(box(9, 0.55, 5, HY_DARK_STEEL, crownLeft + 3.5 * sx, tipY - 0.3, frontZ - 2.5)));
+    g.add(hyDetail(box(8, 0.18, 0.18, HY_GLOW, crownLeft + 3.5 * sx, tipY + 0.08, frontZ)));
+
+    // Edge at the official 1,100ft elevation. The mapped 7,500ft² outline
+    // fixes the old miniature deck's 16m placement error and gives it a true
+    // 80ft city-facing cantilever.
+    const deckY = 335;
+    const deckPlan = scaled([
+      [12.5, 16.1], [8.9, 9.9], [-8.3, -19.5], [48.4, -19.3],
+    ]);
+    const deckSlab = polygonPrism(deckPlan, 0.8, HY_STEEL, deckY);
+    const deckTop = deckY + 0.8;
+    deckSlab.userData.noCollision = true;
+    g.add(deckSlab);
+    const deckCenter: HyPoint = [
+      deckPlan.reduce((sum, p) => sum + p[0], 0) / deckPlan.length,
+      deckPlan.reduce((sum, p) => sum + p[1], 0) / deckPlan.length,
+    ];
+    // The real underside is a field of triangular linen-finish stainless
+    // plates. Four broad facets plus radial seams give the same shifting
+    // reflection at one merged draw call rather than a costly panel array.
+    for (let i = 0; i < deckPlan.length; i++) {
+      const next = (i + 1) % deckPlan.length;
+      g.add(hyHorizontalPanel(
+        [deckCenter, deckPlan[i], deckPlan[next]],
+        deckY - 0.025,
+        i % 2 ? HY_EDGE_UNDERSIDE : HY_STEEL,
+      ));
+      g.add(hyDetail(strut(
+        new THREE.Vector3(deckCenter[0], deckY - 0.08, deckCenter[1]),
+        new THREE.Vector3(deckPlan[i][0], deckY - 0.08, deckPlan[i][1]),
+        0.09, HY_DARK_STEEL, 5,
+      )));
+    }
+    // Collision extraction intentionally ignores sub-2m decorative meshes.
+    // Preserve the thin real slab visually while supplying the same footprint
+    // as an invisible 2m landing surface for flight-to-foot transitions.
+    g.add(polygonPrism(deckPlan, 2.0, HY_COLLISION, deckTop - 2.0));
+
+    // 225ft² triangular glass floor with a stainless perimeter.
+    const floorGlass = scaled([[11.8, 13.2], [2.6, -1.0], [21.3, -1.0]]);
+    g.add(hyHorizontalPanel(floorGlass, deckTop + 0.035, HY_EDGE_GLASS));
+    for (let i = 0; i < floorGlass.length; i++) {
+      const next = (i + 1) % floorGlass.length;
+      g.add(hyDetail(edgeBar(
+        floorGlass[i][0], floorGlass[i][1],
+        floorGlass[next][0], floorGlass[next][1],
+        deckTop + 0.10, 0.12, 0.18, HY_STEEL,
+      )));
+    }
+
+    // The real 79 non-reflective panels become three continuous glass walls
+    // plus correctly spaced posts, each leaning 6.6° outward. Invisible low
+    // walls preserve safe on-foot interaction without turning the whole crown
+    // into a collision box.
+    const publicEdges: [HyPoint, HyPoint][] = [
+      [deckPlan[0], deckPlan[1]],
+      [deckPlan[1], deckPlan[2]],
+      [deckPlan[3], deckPlan[0]],
+    ];
+    for (const [a, b] of publicEdges) {
+      const wall = hyEdgeWall(a, b, deckCenter, deckTop, 2.74);
+      g.add(wall.panel);
+      const len = wall.bottomA.distanceTo(wall.bottomB);
+      const posts = Math.max(1, Math.ceil(len / 3.8));
+      for (let i = 0; i <= posts; i++) {
+        const t = i / posts;
+        g.add(hyDetail(strut(
+          wall.bottomA.clone().lerp(wall.bottomB, t),
+          wall.topA.clone().lerp(wall.topB, t),
+          0.055, HY_STEEL, 5,
+        )));
+      }
+      g.add(edgeBar(a[0], a[1], b[0], b[1], deckTop + 1.37, 0.18, 2.74, HY_COLLISION));
+    }
+
+    // Skyline steps rise from level 100 to Peak on 101, with glass rails and
+    // the exposed triangular underside truss visible from the plaza.
+    for (let i = 0; i < 10; i++) {
+      g.add(hyDetail(box(
+        12, 0.28, 1.35, HY_DARK_STEEL,
+        29 * sx, deckTop + i * 0.30, (-14 + i * 1.0) * sz,
+      )));
+    }
+    for (const x of [23 * sx, 35 * sx]) {
+      g.add(hyDetail(strut(
+        new THREE.Vector3(x, deckTop + 0.7, -14 * sz),
+        new THREE.Vector3(x, deckTop + 3.5, -4 * sz),
+        0.08, HY_STEEL, 5,
+      )));
+    }
+    const deckTip = new THREE.Vector3(deckPlan[0][0], deckY - 0.8, deckPlan[0][1]);
+    for (const anchor of [
+      new THREE.Vector3(-4 * sx, deckY - 22, -18 * sz),
+      new THREE.Vector3(15 * sx, deckY - 24, -18 * sz),
+      new THREE.Vector3(37 * sx, deckY - 21, -18 * sz),
+    ]) {
+      g.add(hyDetail(strut(deckTip, anchor, 0.34, HY_STEEL, 7)));
+    }
+    g.add(hyDetail(strut(
+      new THREE.Vector3(deckPlan[2][0], deckY - 0.4, deckPlan[2][1]),
+      new THREE.Vector3(deckPlan[3][0], deckY - 0.4, deckPlan[3][1]),
+      0.32, HY_STEEL, 7,
+    )));
+
+    // Triple-height public lobby and Voices: a warm transparent cable-net wall,
+    // broad entrances and eleven suspended steel letter-orb silhouettes.
+    const lobbyZ = -29.2 * sz;
+    g.add(hyDetail(box(47 * sx, 17.5, 0.28, HY_LOBBY, 18 * sx, 8.75, lobbyZ)));
+    for (let x = -3; x <= 40; x += 5.4) {
+      g.add(hyDetail(box(0.17, 17.8, 0.22, HY_STEEL, x * sx, 8.9, lobbyZ - 0.18)));
+    }
+    for (const x of [9, 15, 21, 27]) {
+      g.add(hyDetail(box(4.7 * sx, 8.2, 0.18, HY_DOOR, x * sx, 4.1, lobbyZ - 0.34)));
+    }
+    g.add(hyDetail(box(22 * sx, 0.32, 6.2, HY_STEEL, 18 * sx, 8.4, lobbyZ - 3.1)));
+    for (let i = 0; i < 11; i++) {
+      const radius = 0.28 + (i % 4) * 0.12;
+      const orb = hyDetail(new THREE.Mesh(new THREE.IcosahedronGeometry(radius, 1), HY_STEEL));
+      orb.position.set((-2 + i * 4) * sx, 10.5 + (i % 3) * 1.6, lobbyZ + 0.5);
+      g.add(orb);
+      g.add(hyDetail(strut(
+        new THREE.Vector3(orb.position.x, orb.position.y + radius, orb.position.z),
+        new THREE.Vector3(orb.position.x, 17.2, orb.position.z),
+        0.025, HY_STEEL, 4,
+      )));
+    }
+
+    // Conservative, tiered collision follows the real occupied massing and
+    // leaves both the open crown and Edge's underside free. The podium, 310m
+    // shaft, 370m upper roof and 335.8m deck are all independently landable.
+    g.add(polygonPrism(podiumPlan, 130, HY_COLLISION));
+    g.add(polygonPrism(main0, 310, HY_COLLISION));
+    g.add(polygonPrism(upper310, 60, HY_COLLISION, 310));
     return g;
   },
 };

@@ -708,7 +708,15 @@ async function main() {
     // (flatiron was dropped from the fit list: a triangle's longest-edge obb
     // rotated and offset the cornice trim — it uses a measured registry rot now)
     { id: 'msg', lat: 40.7505, lon: -73.9934, r: 80 },
-    { id: 'edge-deck', lat: 40.7539, lon: -74.0006, r: 45 },
+    // 30 Hudson Yards is now mapped as eight overlapping 130–395m ground-up
+    // prisms, including three coincident 395m crown pieces and a separate Edge
+    // slab. Their aggregate OBB is accurate, but generic extrusion makes KPF's
+    // crystalline taper into an opaque stack. Replace the complete ownership
+    // group while preserving adjacent 50 Hudson Yards.
+    {
+      id: 'edge-deck', lat: 40.753949, lon: -74.000555, r: 60,
+      clearAll: true, fitRot: 2.638,
+    },
   ].map((e) => { const [x, z] = lonLatToXZ(e.lon, e.lat); return { ...e, x, z }; });
 
   console.log('Measuring landmark host buildings...');
@@ -785,14 +793,27 @@ async function main() {
         && Math.hypot(b.centroid[0] - lf.x, b.centroid[1] - lf.z) <= adjacentRadius
       );
     // dominant orientation: longest edge of the largest footprint
-    const largest = cands.reduce((a, b) => (b.area > a.area ? b : a));
-    let ex = 1, ez = 0, bestLen = 0;
-    const ring = largest.outer;
-    for (let i = 0; i < ring.length; i++) {
-      const a = ring[i], b = ring[(i + 1) % ring.length];
-      const dx = b[0] - a[0], dz = b[1] - a[1];
-      const len = dx * dx + dz * dz;
-      if (len > bestLen) { bestLen = len; const l = Math.sqrt(len); ex = dx / l; ez = dz / l; }
+    // A broad low podium can have a different longest edge from its tower. A
+    // landmark may nominate either the tall shaft as the orientation authority
+    // or a surveyed rotation while still measuring/clearing the complete
+    // ownership group (30 Hudson Yards' rail-platform base is the motivating
+    // case: its tall source parts are nearly square and numerically unstable).
+    const orientCands = lf.orientAboveH === undefined
+      ? cands
+      : cands.filter((b) => b.height >= lf.orientAboveH);
+    const largest = (orientCands.length ? orientCands : cands)
+      .reduce((a, b) => (b.area > a.area ? b : a));
+    let ex = lf.fitRot === undefined ? 1 : Math.cos(lf.fitRot);
+    let ez = lf.fitRot === undefined ? 0 : -Math.sin(lf.fitRot);
+    if (lf.fitRot === undefined) {
+      let bestLen = 0;
+      const ring = largest.outer;
+      for (let i = 0; i < ring.length; i++) {
+        const a = ring[i], b = ring[(i + 1) % ring.length];
+        const dx = b[0] - a[0], dz = b[1] - a[1];
+        const len = dx * dx + dz * dz;
+        if (len > bestLen) { bestLen = len; const l = Math.sqrt(len); ex = dx / l; ez = dz / l; }
+      }
     }
     const rot = Math.atan2(-ez, ex); // rotation.y mapping local +x onto the edge
     const proj = (pt) => {
@@ -2297,6 +2318,50 @@ async function main() {
       `source roof=${bryantFit?.roofH ?? 0}m, cleared=${bryantFit?.clearedParts ?? 0}, ` +
       `site residuals=${bryantResiduals}, 4 Times Square kept=${fourTimesKept} ` +
       `-> ${bryantOk ? 'PASS' : 'FAIL'}`,
+  );
+
+  // 30 Hudson Yards' full replacement must remove every tall source slab while
+  // retaining 50 Hudson Yards immediately northeast. A broad radius clear
+  // would silently punch a second 308m hole in the development, so validate
+  // both sides of the ownership boundary.
+  const edgeFit = fitOut['edge-deck'];
+  const edgeAnchorXZ = lonLatToXZ(-74.000555, 40.753949);
+  let edgeTallResiduals = 0;
+  for (const [key, buildings] of tileBuildings) {
+    const [tx, tz] = key.split('_').map(Number);
+    for (const b of buildings) {
+      if (b.h < 120) continue;
+      const center = outputBuildingCentroid(b, tx, tz);
+      if (center && Math.hypot(center[0] - edgeAnchorXZ[0], center[1] - edgeAnchorXZ[1]) < 52) {
+        edgeTallResiduals++;
+      }
+    }
+  }
+  const fiftyHudsonXZ = lonLatToXZ(-74.000119, 40.754519);
+  let fiftyHudsonKept = false;
+  for (const [key, buildings] of tileBuildings) {
+    const [tx, tz] = key.split('_').map(Number);
+    for (const b of buildings) {
+      if (Math.abs(b.h - 308.2) > 0.3) continue;
+      const center = outputBuildingCentroid(b, tx, tz);
+      if (center && Math.hypot(center[0] - fiftyHudsonXZ[0], center[1] - fiftyHudsonXZ[1]) < 18) {
+        fiftyHudsonKept = true;
+      }
+    }
+  }
+  const edgeOk = !!edgeFit
+    && Math.abs(edgeFit.w - 117) < 3
+    && Math.abs(edgeFit.d - 58) < 3
+    && Math.abs(edgeFit.roofH - 395) < 1
+    && edgeFit.keptH === 0
+    && edgeFit.clearedParts >= 7
+    && edgeTallResiduals === 0
+    && fiftyHudsonKept;
+  results.push(
+    `30 Hudson Yards replacement: fit=${edgeFit?.w ?? 0}x${edgeFit?.d ?? 0}m, ` +
+      `source roof=${edgeFit?.roofH ?? 0}m, cleared=${edgeFit?.clearedParts ?? 0}, ` +
+      `tall residuals=${edgeTallResiduals}, 50 Hudson Yards kept=${fiftyHudsonKept} ` +
+      `-> ${edgeOk ? 'PASS' : 'FAIL'}`,
   );
 
   const timesSquareRoads = tileRoads.get('0_0') || [];

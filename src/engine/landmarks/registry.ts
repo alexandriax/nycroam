@@ -128,7 +128,18 @@ export const LANDMARKS_REG: LandmarkEntry[] = [
   { id: 'little-island', name: 'Little Island', lat: 40.742, lon: -74.01, set: 'village', r: 700, rot: GRID },
   { id: 'vessel', name: 'The Vessel', lat: 40.7538, lon: -74.0022, set: 'village', r: 800, rot: GRID },
   { id: 'hudson-yards', name: 'Hudson Yards', lat: 40.7536, lon: -74.0011, set: 'village', r: 600, rot: GRID, aliasOf: 'vessel' },
-  { id: 'edge-deck', name: 'Edge Observation Deck', lat: 40.7539, lon: -74.0006, set: 'village', r: 1200, rot: GRID },
+  // Complete KPF tower + Edge replacement for eleven overlapping source
+  // prisms. Keep the compact textured build resident after clearing those
+  // slabs so Manhattan's west skyline never loses its 395m anchor. The
+  // waterfront greenway is the nearest clear ground-level presentation that
+  // frames the complete tower; the auto sampler otherwise lands in a narrow
+  // W 33rd Street keyhole between 10/30/50 Hudson Yards.
+  {
+    id: 'edge-deck', name: '30 Hudson Yards & Edge',
+    lat: 40.753949, lon: -74.000555, set: 'village', r: 1600,
+    rot: GRID, alwaysOn: true,
+    arrivalLat: 40.754000, arrivalLon: -74.008000,
+  },
 
   // ---- midtown south ----
   { id: 'empire-state', name: 'Empire State Building', lat: 40.7484, lon: -73.9857, set: 'midtown-south', r: 1500, rot: GRID },
