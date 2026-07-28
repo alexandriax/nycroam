@@ -654,7 +654,7 @@ async function main() {
     // landmark instead of stacked anonymous boxes.
     {
       id: 'central-park-tower', lat: 40.766410, lon: -73.980772, r: 62,
-      clearAll: true, clearAdjacentAboveH: 400,
+      clearAll: true, clearAdjacentAboveH: 200, clearAdjacentWithin: 30,
     },
     // Full coherent replacement. The source maps the KPF tower as more than 20
     // overlapping full-height prisms: accurate in aggregate, but flat generic
@@ -742,14 +742,21 @@ async function main() {
     if (cands.length !== rawCands.length) {
       console.log(`  fit ${lf.id}: site grouping excluded ${rawCands.length - cands.length}/${rawCands.length} foreign parts`);
     }
-    // Central Park Tower's 8.4m eastern cantilever is mapped as a separate
-    // building:part whose centroid falls outside the containing podium outline,
-    // so strict ownership (correctly) classifies it as adjacent. A very high
-    // threshold can claim that one explicitly while preserving all ordinary
-    // neighboring massing caught by the fit radius.
+    // Central Park Tower's east shaft/cantilever pieces are mapped as separate
+    // building:parts whose centroids fall outside the containing podium outline,
+    // so strict ownership (correctly) classifies four of them as adjacent.
+    // Require BOTH a landmark-specific height and a tight centroid radius:
+    // this claims those 237–433m pieces without deleting the 259–290m parts of
+    // 220 Central Park South whose centroids also fall inside the broad fit
+    // radius.
+    const adjacentRadius = lf.clearAdjacentWithin ?? Infinity;
     const adjacentCleared = lf.clearAdjacentAboveH === undefined
       ? []
-      : rawCands.filter((b) => !cands.includes(b) && b.height >= lf.clearAdjacentAboveH);
+      : rawCands.filter((b) =>
+        !cands.includes(b)
+        && b.height >= lf.clearAdjacentAboveH
+        && Math.hypot(b.centroid[0] - lf.x, b.centroid[1] - lf.z) <= adjacentRadius
+      );
     // dominant orientation: longest edge of the largest footprint
     const largest = cands.reduce((a, b) => (b.area > a.area ? b : a));
     let ex = 1, ez = 0, bestLen = 0;
@@ -2087,27 +2094,38 @@ async function main() {
       `baked >=300m parts=${chaseBakedTall} -> ${chaseOk ? 'PASS' : 'FAIL'}`,
   );
 
-  // Central Park Tower owns one broad retail podium, six shaft/shoulder parts
-  // and its architectural cap. The premium always-on build must be the only
-  // 472m object at the site so close tiles and the far skyline cannot overlap.
+  // Central Park Tower owns one broad retail podium plus a dense set of
+  // overlapping shaft, shoulder, cantilever and cap pieces. The premium
+  // always-on build must be the only >=200m object within the tower's tight
+  // 30m site radius. 220 Central Park South begins farther north and must stay.
   const cptXZ = lonLatToXZ(-73.980772, 40.766410);
   const [cptTx, cptTz] = tileOf(cptXZ);
   const cptKey = tileKeyOf(cptTx, cptTz);
   const cptBuildings = tileBuildings.get(cptKey) || [];
-  const cptBakedTall = cptBuildings.filter((b) => b.h >= 400).length;
+  const cptBakedTall = cptBuildings.filter((b) => {
+    if (b.h < 200 || !b.p?.[0]?.length) return false;
+    const outer = b.p[0];
+    let sx = 0, sz = 0;
+    for (let i = 0; i < outer.length; i += 2) {
+      sx += cptTx * TILE_SIZE + outer[i] / 10;
+      sz += cptTz * TILE_SIZE + outer[i + 1] / 10;
+    }
+    const n = outer.length / 2;
+    return Math.hypot(sx / n - cptXZ[0], sz / n - cptXZ[1]) <= 30;
+  }).length;
   const cptFit = fitOut['central-park-tower'];
   const cptOk = !!cptFit
     && Math.abs(cptFit.w - 60) < 1
     && Math.abs(cptFit.d - 61) < 1
     && Math.abs(cptFit.roofH - 472) < 1
     && cptFit.keptH === 0
-    && cptFit.parts === 10
-    && cptFit.clearedParts === 10
+    && cptFit.parts === 13
+    && cptFit.clearedParts === 13
     && cptBakedTall === 0;
   results.push(
     `Central Park Tower replacement (${cptKey}): fit=${cptFit?.w ?? 0}x${cptFit?.d ?? 0}m, ` +
       `roof=${cptFit?.roofH ?? 0}m, cleared=${cptFit?.clearedParts ?? 0}, ` +
-      `baked >=400m parts=${cptBakedTall} -> ${cptOk ? 'PASS' : 'FAIL'}`,
+      `baked >=200m parts within 30m=${cptBakedTall} -> ${cptOk ? 'PASS' : 'FAIL'}`,
   );
 
   const timesSquareRoads = tileRoads.get('0_0') || [];
