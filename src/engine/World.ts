@@ -9,7 +9,7 @@ import {
 } from './collision';
 import { PATH_KIND_ROAD, type RoadPaths } from './tileTypes';
 import { setupSky, setupLights, followSun, SKY } from './sky';
-import { quality } from './quality';
+import { mobileQualityRequested, quality } from './quality';
 import { makeSkylineMaterial, makeFlatMaterial, makeWaterMaterial } from './materials';
 import { EntranceManager, disposeGroup } from './EntranceManager';
 import { PlaqueManager, type PlaqueInfo } from './PlaqueManager';
@@ -201,7 +201,7 @@ export class World {
   onInfo: ((info: PlaqueInfo) => void) | null = null; // open the building-info modal (i key / mobile button)
 
   constructor(canvas: HTMLCanvasElement) {
-    this.isMobile = /Android|iPhone|iPad|Mobile/i.test(navigator.userAgent) || navigator.maxTouchPoints > 1;
+    this.isMobile = mobileQualityRequested();
     const q = quality();
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
     this.maxPixelRatio = Math.min(window.devicePixelRatio, q.pixelRatioCap);

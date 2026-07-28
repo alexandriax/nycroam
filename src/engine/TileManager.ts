@@ -317,9 +317,14 @@ export class TileManager {
     // handing off to the skyline layer past the load radius). Thresholds scale
     // with loadRadius so walk, heli and mobile all shed proportionally; the
     // 30m hysteresis band keeps tiles from flickering at a boundary.
-    const t1 = Math.max(420, this.loadRadius * 0.35);
-    const t2 = Math.max(700, this.loadRadius * 0.58);
-    const t3 = Math.max(1000, this.loadRadius * 0.82);
+    // The old 420/700/1000m floors were sensible for the 1150m desktop ring,
+    // but broke the proportional contract on mobile's 750m ring: tier 3 sat
+    // outside the load radius, so mobile never reached buildings-only LOD.
+    // These floors preserve a generous ~300m full-detail neighborhood while
+    // allowing every device/radius to shed all three tiers before the fog edge.
+    const t1 = Math.max(300, this.loadRadius * 0.35);
+    const t2 = Math.max(450, this.loadRadius * 0.58);
+    const t3 = Math.max(620, this.loadRadius * 0.82);
     const H = 30;
     const grow1 = (t1 + H) ** 2, grow2 = (t2 + H) ** 2, grow3 = (t3 + H) ** 2;
     const shrink1 = (t1 - H) ** 2, shrink2 = (t2 - H) ** 2, shrink3 = (t3 - H) ** 2;
@@ -367,7 +372,14 @@ export class TileManager {
       const dz = Math.max(0, Math.abs(camZ - cz) - TILE_SIZE * 0.55);
       dSq = dx * dx + dy * dy + dz * dz;
     }
-    const threshold = rec.facadeDetailed ? 900 : 760;
+    // Scale the premium-facade handoff with the resident ring too. A fixed
+    // 900m exit threshold meant a 750m mobile ring kept the expensive window
+    // shader on every building tile. Desktop still resolves to its existing
+    // ~900/760m pair; mobile uses ~585/445m. The same wide 140m hysteresis
+    // prevents material chatter while moving quickly across a boundary.
+    const detailOut = Math.min(900, this.loadRadius * 0.78);
+    const detailIn = detailOut - 140;
+    const threshold = rec.facadeDetailed ? detailOut : detailIn;
     const detailed = dSq < threshold * threshold;
     if (detailed === rec.facadeDetailed) return;
     rec.facadeDetailed = detailed;

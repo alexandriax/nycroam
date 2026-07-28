@@ -172,8 +172,8 @@ export default function NYCRoam() {
 
   useEffect(() => {
     if (!canvasRef.current) return;
-    // ?touch=1 forces the touch layout on a desktop browser (joystick, GO,
-    // half-size map) — same spirit as ?tick=1 / ?station=
+    // ?touch=1 forces the complete mobile QA path on desktop: this touch
+    // layout plus World/quality's mobile stream radius, LOD and render tier.
     setIsTouch(navigator.maxTouchPoints > 1 || new URLSearchParams(location.search).has('touch'));
     const world = new World(canvasRef.current);
     worldRef.current = world;
