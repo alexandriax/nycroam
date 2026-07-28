@@ -912,6 +912,11 @@ export class World {
           const tx = x + Math.cos(ang) * ring, tz = z + Math.sin(ang) * ring;
           const candidate = settle(tx, tz);
           if (!candidate) continue;
+          // Trees are intentionally passable world detail, so collision alone
+          // cannot tell that this "safe" point puts the first-person camera
+          // inside opaque leaves. TileManager retains the already-streamed
+          // five-float tree records specifically for this teleport-only test.
+          if (this.tiles.treeCanopyNear(candidate[0], candidate[1])) continue;
           const dist = Math.hypot(candidate[0] - x, candidate[1] - z);
           if (dist < firstRing * 0.72) continue;
 

@@ -19,6 +19,7 @@ interface TileRecord {
   group: THREE.Group | null;
   collision: CollisionData | null;
   roadPaths: RoadPaths | null;
+  trees: Float32Array | null; // [x,y,z,scale,hue] for canopy-safe teleport arrivals
   signs: BuildResponse['signs']; // kept for the "current street" HUD lookup
   geometries: THREE.BufferGeometry[];
   textures: THREE.Texture[];
@@ -167,6 +168,30 @@ export class TileManager {
     return out;
   }
 
+  /**
+   * True when a street point sits inside a loaded tree's visible crown.
+   * Trees deliberately have no physics collision, but a landmark presentation
+   * should never place the camera inside opaque leaves. Called only while
+   * resolving a teleport, not per frame.
+   */
+  treeCanopyNear(x: number, z: number, padding = 1.5): boolean {
+    const tx = Math.floor(x / TILE_SIZE), tz = Math.floor(z / TILE_SIZE);
+    for (let dx = -1; dx <= 1; dx++) {
+      for (let dz = -1; dz <= 1; dz++) {
+        const trees = this.records.get(tileKey(tx + dx, tz + dz))?.trees;
+        if (!trees) continue;
+        for (let i = 0; i < trees.length; i += 5) {
+          const scale = trees[i + 3];
+          // The irregular canopy geometry reaches ~2.5 scale units from its
+          // trunk after its displaced crown and offset lobe are merged.
+          const r = 2.5 * scale + padding;
+          if ((trees[i] - x) ** 2 + (trees[i + 2] - z) ** 2 < r * r) return true;
+        }
+      }
+    }
+    return false;
+  }
+
   /** Street-sign assemblies (names + blade bearings) around (x,z) — 3×3 tiles. */
   signsNear(x: number, z: number): NonNullable<BuildResponse['signs']> {
     const tx = Math.floor(x / TILE_SIZE), tz = Math.floor(z / TILE_SIZE);
@@ -261,7 +286,7 @@ export class TileManager {
         if ((cx - camX) ** 2 + (cz - camZ) ** 2 > loadRadiusSq) continue;
         this.records.set(key, {
           key, tx, tz, state: 'queued', group: null, collision: null, roadPaths: null,
-          signs: null, geometries: [], textures: [], lod: 0, facade: null,
+          trees: null, signs: null, geometries: [], textures: [], lod: 0, facade: null,
           facadeDetailed: true,
         });
         this.queue.push(key);
@@ -546,6 +571,7 @@ export class TileManager {
     rec.group = group;
     rec.collision = res.collision;
     rec.roadPaths = res.roadPaths;
+    rec.trees = res.trees;
     rec.signs = res.signs;
     rec.state = 'ready';
     // Collision / readiness are set above so gameplay never waits on the GPU;
