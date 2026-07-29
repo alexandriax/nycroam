@@ -452,7 +452,11 @@ export const builders: Record<string, (ctx: LandmarkCtx) => THREE.Group> = {
       emissive: '#574f42', emissiveIntensity: 0.2,
     });
 
-    const glassTex = canvasTexture((c, w, h) => {
+    // The retained 1928 lobby uses a subtle interior gradient for depth. The
+    // upper Foster tower deliberately does not sample it: real Hearst glazing
+    // reads as one continuous blue-grey plane, with variation coming from sun,
+    // sky and the environment probe rather than a rectangle repeated per pane.
+    const lobbyGlassTex = canvasTexture((c, w, h) => {
       const glass = c.createLinearGradient(0, 0, w, 0);
       glass.addColorStop(0, '#1e3039');
       glass.addColorStop(0.23, '#648391');
@@ -470,14 +474,15 @@ export const builders: Record<string, (ctx: LandmarkCtx) => THREE.Group> = {
       c.fillStyle = 'rgba(236,242,241,.42)';
       c.fillRect(w - 3, 0, 3, h);
     }, 80, 96);
-    glassTex.wrapS = glassTex.wrapT = THREE.RepeatWrapping;
-    glassTex.anisotropy = 4;
+    lobbyGlassTex.wrapS = lobbyGlassTex.wrapT = THREE.RepeatWrapping;
+    lobbyGlassTex.anisotropy = 4;
     const glassMat = new THREE.MeshStandardMaterial({
-      map: glassTex, color: '#aabcc1', metalness: 0.03, roughness: 0.12,
-      emissive: '#263b44', emissiveIntensity: 0.05, envMapIntensity: 1.35,
+      color: '#557889', metalness: 0.02, roughness: 0.16,
+      emissive: '#17272e', emissiveIntensity: 0.025, envMapIntensity: 1.45,
     });
+    glassMat.userData.hearstSolidReflectiveGlass = true;
     const lobbyMat = new THREE.MeshStandardMaterial({
-      map: glassTex, color: '#a9c0c8', metalness: 0.22, roughness: 0.12,
+      map: lobbyGlassTex, color: '#a9c0c8', metalness: 0.22, roughness: 0.12,
       emissive: '#344d56', emissiveIntensity: 0.58,
       transparent: true, opacity: 0.82, depthWrite: false,
     });

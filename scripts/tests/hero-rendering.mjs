@@ -250,6 +250,29 @@ test('Hearst steel is one continuous 40-foot perimeter diagrid', () => {
   }
 });
 
+test('Hearst upper glazing is one solid reflective material without pane gradients', () => {
+  const uptownUrl = new URL(
+    '../../src/engine/landmarks/sets/uptown.ts',
+    import.meta.url,
+  );
+  const source = readFileSync(uptownUrl, 'utf8');
+  const start = source.indexOf("'hearst-tower':");
+  const end = source.indexOf("'central-park-tower':", start);
+  assert.ok(start >= 0 && end > start);
+  const hearstSource = source.slice(start, end);
+  const glassInitializer = hearstSource.match(
+    /const glassMat = new THREE\.MeshStandardMaterial\(\{([\s\S]*?)\}\);/,
+  );
+  assert.ok(glassInitializer);
+  assert.doesNotMatch(
+    glassInitializer[1],
+    /\bmap\s*:/,
+    'upper glass must receive variation from scene lighting, not a repeated map',
+  );
+  assert.match(hearstSource, /hearstSolidReflectiveGlass = true/);
+  assert.match(hearstSource, /envMapIntensity:\s*1\.45/);
+});
+
 test('the recognizable hero set is complete, bounded and backed by registry entries', () => {
   assert.ok(HERO_LANDMARK_LOD_IDS.size >= 15);
   assert.ok(HERO_LANDMARK_LOD_IDS.size <= 25);
