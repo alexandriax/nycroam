@@ -3,6 +3,7 @@ import test from 'node:test';
 import {
   POPULATION_BUDGETS,
   populationCeiling,
+  populationRebuildDistance,
 } from '../../src/engine/population/budgets.ts';
 import {
   advanceLaneProgress,
@@ -55,6 +56,12 @@ test('population ceilings are explicit and remain below the street budget', () =
     ),
     { low: 416, medium: 862, high: 1428, ultra: 2000 },
   );
+});
+
+test('population rebuild cadence preserves walking detail and amortizes fast travel', () => {
+  assert.equal(populationRebuildDistance(5), 36);
+  assert.equal(populationRebuildDistance(22), 82);
+  assert.equal(populationRebuildDistance(130), 260);
 });
 
 test('one-way topology and open endpoints never create visible wraps', () => {

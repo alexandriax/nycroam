@@ -15,6 +15,13 @@ export interface PopulationBudget {
   farUpdateHz: number;
 }
 
+/** Spatial rebuild hysteresis for a population field hundreds of metres wide. */
+export function populationRebuildDistance(speedMps: number): number {
+  if (speedMps > 55) return 260;
+  if (speedMps > 15) return 82;
+  return 36;
+}
+
 /**
  * Hard population pool contracts. These are capacities, not targets: the
  * density field and available road geometry normally leave some slots empty.

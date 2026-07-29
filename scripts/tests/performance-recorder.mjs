@@ -28,6 +28,8 @@ test('performance recorder reports frame, GPU, draw and one-percent-low percenti
       rendererWith({ calls: 300 + i, triangles: 500_000 + i * 1000 }),
       i === 99 ? 50 : 16,
       5 + i / 100,
+      2 + i / 200,
+      3 + i / 200,
       8 + i / 100,
       i / 200,
       24,
@@ -42,6 +44,7 @@ test('performance recorder reports frame, GPU, draw and one-percent-low percenti
   assert.equal(report.drawCalls.max, 399);
   assert.equal(report.shadowCalls.max, 24);
   assert.equal(report.gpuMs.availableSamples, 100);
+  assert.ok(report.cpuBreakdown.update.p95 < report.cpuBreakdown.render.p95);
 });
 
 test('resource and shadow estimates deduplicate shared GPU resources', () => {

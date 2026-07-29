@@ -216,6 +216,11 @@ export class TileManager {
     };
   }
 
+  /** Per-frame queue signal without the record traversal used by HUD stats. */
+  pendingCount(): number {
+    return this.queue.length + this.inFlight.size + this.pendingAdd.length;
+  }
+
   /** Fixed-window worker/decode/integration and queue-pressure diagnostics. */
   streamingReport(): TileStreamingReport {
     const detailCounts: [number, number, number] = [0, 0, 0];
@@ -457,9 +462,9 @@ export class TileManager {
     // outside the load radius, so mobile never reached buildings-only LOD.
     // These floors preserve a generous ~300m full-detail neighborhood while
     // allowing every device/radius to shed all three tiers before the fog edge.
-    const t1 = Math.max(300, this.loadRadius * 0.35);
-    const t2 = Math.max(450, this.loadRadius * 0.58);
-    const t3 = Math.max(620, this.loadRadius * 0.82);
+    const t1 = Math.max(280, this.loadRadius * 0.3);
+    const t2 = Math.max(400, this.loadRadius * 0.48);
+    const t3 = Math.max(580, this.loadRadius * 0.7);
     const H = 30;
     const grow1 = (t1 + H) ** 2, grow2 = (t2 + H) ** 2, grow3 = (t3 + H) ** 2;
     const shrink1 = (t1 - H) ** 2, shrink2 = (t2 - H) ** 2, shrink3 = (t3 - H) ** 2;
@@ -878,7 +883,14 @@ export class TileManager {
       // Mid roof equipment and near facade relief are additive overlays on the
       // same massing. Casting each layer would submit the city to the shadow
       // pass three times without changing its silhouette.
-      { cast: false, receive: true, bounds: true },
+      {
+        cast: false,
+        receive: true,
+        bounds: true,
+        // Near façade relief is sub-pixel outside the full-detail ring; roof
+        // equipment survives through the mid ring. Base massing is permanent.
+        tier: res.detail === 2 ? 1 : res.detail === 1 ? 2 : undefined,
+      },
     );
     if (facade) {
       rec.facadeMeshes.push(facade);

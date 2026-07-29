@@ -16,6 +16,69 @@ import {
 
 type BuilderMap = Record<string, (ctx: LandmarkCtx) => THREE.Group>;
 
+const SECONDARY_LOD_MATERIAL = new THREE.MeshLambertMaterial({ vertexColors: true });
+const SECONDARY_LOD_DISTANCE: Record<ReturnType<typeof quality>['level'], number> = {
+  low: 120,
+  medium: 175,
+  high: 245,
+  ultra: 320,
+};
+
+/**
+ * One-draw colored massing for non-hero landmarks beyond readable detail.
+ * Hero landmarks preserve their authored stepped silhouettes at every tier;
+ * secondary objects become a single conservative landmark-scale volume only
+ * after façade and crown geometry is sub-pixel.
+ */
+function secondaryLandmarkSilhouette(raw: THREE.Group): THREE.Mesh {
+  raw.updateMatrixWorld(true);
+  // One traversal/box keeps streamed landmark construction cheap. Hero
+  // landmarks retain authored stepped silhouettes; this path is specifically
+  // for secondary objects after their details are sub-pixel.
+  const box = new THREE.Box3().setFromObject(raw);
+  if (box.isEmpty()) box.set(
+    new THREE.Vector3(-2, 0, -2),
+    new THREE.Vector3(2, 5, 2),
+  );
+  const size = box.getSize(new THREE.Vector3());
+  const center = box.getCenter(new THREE.Vector3());
+  const geometry = new THREE.BoxGeometry(
+    Math.max(0.2, size.x),
+    Math.max(0.2, size.y),
+    Math.max(0.2, size.z),
+  );
+  geometry.translate(center.x, center.y, center.z);
+  const color = new THREE.Color(0x8d8b86);
+  const colors = new Float32Array(geometry.getAttribute('position').count * 3);
+  for (let i = 0; i < colors.length; i += 3) {
+    colors[i] = color.r;
+    colors[i + 1] = color.g;
+    colors[i + 2] = color.b;
+  }
+  geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+  geometry.computeBoundingSphere();
+  const mesh = new THREE.Mesh(geometry, SECONDARY_LOD_MATERIAL);
+  mesh.name = 'Secondary landmark silhouette';
+  mesh.castShadow = false;
+  mesh.receiveShadow = true;
+  mesh.matrixAutoUpdate = false;
+  return mesh;
+}
+
+function secondaryLandmarkLod(
+  high: THREE.Group,
+  silhouette: THREE.Mesh,
+  level: ReturnType<typeof quality>['level'],
+): THREE.Group {
+  const lod = new THREE.LOD();
+  lod.name = 'Secondary landmark geometric LOD';
+  lod.addLevel(high, 0, 0.12);
+  lod.addLevel(silhouette, SECONDARY_LOD_DISTANCE[level], 0.18);
+  const group = new THREE.Group();
+  group.add(lod);
+  return group;
+}
+
 /**
  * A SOLID extruded mass carries its true plan in the 2D shape it was extruded
  * from. When that shape has been stood up so the extrusion axis is vertical (a
@@ -326,16 +389,19 @@ export class LandmarkManager {
       // defaults through the merger; source primitives use Three's false
       // defaults and the old replacement meshes silently remained unshadowed.
       const q = quality();
-      const group = HERO_LANDMARK_LOD_IDS.has(lm.id)
+      const hero = HERO_LANDMARK_LOD_IDS.has(lm.id);
+      const secondarySilhouette = hero ? null : secondaryLandmarkSilhouette(raw);
+      const group = hero
         ? await buildHeroLandmarkLod(raw, q.level, q.shadows, () => this.yieldFrame())
-        : mergeByMaterial(raw, {
+        : secondaryLandmarkLod(mergeByMaterial(raw, {
           // The 23 visually dominant landmarks own one silhouette proxy each.
           // Secondary landmarks remain fully shaded receivers; their many
           // bespoke material batches do not duplicate the generic OSM massing
           // already casting beneath them.
           castShadow: false,
           receiveShadow: q.shadows,
-        });
+        }), secondarySilhouette!, q.level);
+      group.name = lm.name;
       const lodProfile = landmarkLodStats(group);
       if (lodProfile) this.lodProfiles.set(lm.id, lodProfile);
       group.position.set(px, gy, pz);

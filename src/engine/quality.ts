@@ -148,11 +148,11 @@ const TIERS: Record<QualityLevel, Omit<QualityTier, 'level'>> = {
   },
   high: {
     shadows: true, stationShadows: true, shadowMapSize: 2048, stationShadowMapSize: 2048,
-    pixelRatioCap: 2, anisotropy: 8, clouds: 8, loadRadius: 1150, farPlane: 6500, tileWorkers: 3,
+    pixelRatioCap: 2, anisotropy: 8, clouds: 8, loadRadius: 1000, farPlane: 6500, tileWorkers: 3,
   },
   ultra: {
     shadows: true, stationShadows: true, shadowMapSize: 4096, stationShadowMapSize: 2048,
-    pixelRatioCap: 2, anisotropy: 16, clouds: 10, loadRadius: 1350, farPlane: 7200, tileWorkers: 4,
+    pixelRatioCap: 2, anisotropy: 16, clouds: 10, loadRadius: 1200, farPlane: 7200, tileWorkers: 4,
   },
 };
 

@@ -3,6 +3,8 @@ import * as THREE from 'three';
 export interface PerformanceFrame {
   frameMs: number;
   cpuMs: number;
+  updateCpuMs: number;
+  renderCpuMs: number;
   gpuMs: number | null;
   drawCalls: number;
   shadowCalls: number;
@@ -20,6 +22,10 @@ export interface PerformanceReport {
   frameMs: { p50: number; p95: number; p99: number };
   fps: { median: number; onePercentLow: number };
   cpuMs: { p50: number; p95: number; p99: number };
+  cpuBreakdown: {
+    update: { p50: number; p95: number; p99: number };
+    render: { p50: number; p95: number; p99: number };
+  };
   gpuMs: { availableSamples: number; p50: number | null; p95: number | null; p99: number | null };
   drawCalls: { p50: number; p95: number; max: number };
   shadowCalls: { p50: number; p95: number; max: number };
@@ -84,6 +90,8 @@ export class PerformanceRecorder {
     renderer: THREE.WebGLRenderer,
     frameMs: number,
     cpuMs: number,
+    updateCpuMs: number,
+    renderCpuMs: number,
     gpuMs: number | null,
     streamingPressure: number,
     estimatedShadowCalls: number,
@@ -92,6 +100,8 @@ export class PerformanceRecorder {
     this.frames.push({
       frameMs: finite(frameMs),
       cpuMs: finite(cpuMs),
+      updateCpuMs: finite(updateCpuMs),
+      renderCpuMs: finite(renderCpuMs),
       gpuMs: typeof gpuMs === 'number' && Number.isFinite(gpuMs) ? gpuMs : null,
       drawCalls: info.render.calls,
       shadowCalls: Math.max(0, Math.round(estimatedShadowCalls)),
@@ -110,6 +120,8 @@ export class PerformanceRecorder {
   report(): PerformanceReport {
     const frames = this.frames.map((f) => f.frameMs);
     const cpus = this.frames.map((f) => f.cpuMs);
+    const updateCpus = this.frames.map((f) => f.updateCpuMs);
+    const renderCpus = this.frames.map((f) => f.renderCpuMs);
     const gpus = this.frames.flatMap((f) => f.gpuMs === null ? [] : [f.gpuMs]);
     const draws = this.frames.map((f) => f.drawCalls);
     const shadows = this.frames.map((f) => f.shadowCalls);
@@ -135,6 +147,18 @@ export class PerformanceRecorder {
         p50: percentile(cpus, 0.5),
         p95: percentile(cpus, 0.95),
         p99: percentile(cpus, 0.99),
+      },
+      cpuBreakdown: {
+        update: {
+          p50: percentile(updateCpus, 0.5),
+          p95: percentile(updateCpus, 0.95),
+          p99: percentile(updateCpus, 0.99),
+        },
+        render: {
+          p50: percentile(renderCpus, 0.5),
+          p95: percentile(renderCpus, 0.95),
+          p99: percentile(renderCpus, 0.99),
+        },
       },
       gpuMs: {
         availableSamples: gpus.length,

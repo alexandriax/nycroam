@@ -48,8 +48,9 @@ const WORLD_TIME_START = 7200;
 const STOP_PLACE_R2 = 300 * 300;
 const STOP_REMOVE_R2 = 340 * 340;
 const STOP_CAP = 120;
-const BUS_MESH_R2 = 420 * 420;
-const BUS_CULL_R2 = 460 * 460;
+const BUS_MESH_R2 = 250 * 250;
+const BUS_CULL_R2 = 285 * 285;
+const STOP_DETAIL_R2 = 86 * 86;
 const STOP_TICK = 0.7;
 const BUS_TICK = 0.35;
 
@@ -315,6 +316,7 @@ export class BusSystem {
    */
   private sepSide = new Map<number, number>();
   private placedStops = new Map<string, PlacedStop>();
+  private stopTemplates = new Map<string, THREE.Group>();
   private stopTimer = 0;
   private busTimer = 0;
 
@@ -581,11 +583,11 @@ export class BusSystem {
     if (this.busTimer <= 0) { this.busTimer = BUS_TICK; this.maintainBuses(px, pz); }
 
     // per-frame: transform every meshed bus (newly built ones included)
-    this.stepMeshed(dt);
+    this.stepMeshed(px, pz, dt);
     if (this.ride) this.refreshRide();
   }
 
-  private stepMeshed(dt: number) {
+  private stepMeshed(px: number, pz: number, dt: number) {
     // PASS 1 — timetable: each in-service meshed bus's DESIRED on-lane pose, plus
     // its purely-scheduled outputs (doors, next-stop sign). The anti-overlap pass
     // then decides where it actually renders.
@@ -622,7 +624,7 @@ export class BusSystem {
       mb.fx = _tan.x; mb.fz = _tan.z;    // travel forward = shape tangent
       vis.push(mb);
     }
-    const finished = this.clampSeparate(vis, dt);
+    const finished = this.clampSeparate(vis, dt, px, pz);
     for (const mb of finished) this.removeMeshed(mb);
   }
 
@@ -647,7 +649,7 @@ export class BusSystem {
    *     two apart along the shared street's perpendicular by their footprint
    *     penetration. Fires only on a real oriented-footprint overlap.
    */
-  private clampSeparate(vis: MeshedBus[], dt: number): MeshedBus[] {
+  private clampSeparate(vis: MeshedBus[], dt: number, px: number, pz: number): MeshedBus[] {
     const n = vis.length;
     if (n === 0) return [];
     const rx = new Float64Array(n), rz = new Float64Array(n);   // rendered pose
@@ -910,6 +912,10 @@ export class BusSystem {
       else { a.y += (gy - a.y) * yK; a.yaw = angLerp(a.yaw, rawYaw, yawK); }
       g.position.set(rx[i], a.y, rz[i]);
       g.rotation.y = a.yaw;
+      a.model.setViewerDistanceSq?.(
+        (rx[i] - px) ** 2 + (rz[i] - pz) ** 2,
+        a.key === this.riddenKey,
+      );
       let ds = a.rs - a.lastRS; if (ds < 0) ds = 0;
       a.lastRS = a.rs;
       a.model.setSpeed(dt > 0 ? ds / dt : 0, dt);
@@ -1000,10 +1006,18 @@ export class BusSystem {
     // removals first (frees the cap)
     for (const ps of Array.from(this.placedStops.values())) {
       const dx = ps.x - px, dz = ps.z - pz;
-      if (dx * dx + dz * dz > STOP_REMOVE_R2) {
+      const d2 = dx * dx + dz * dz;
+      if (d2 > STOP_REMOVE_R2) {
         this.scene.remove(ps.group);
         disposeGroup(ps.group);
         this.placedStops.delete(ps.id);
+      } else {
+        // Keep the blue flag readable down the block; shelter panels, bench,
+        // guide box and trim switch on only where their geometry resolves.
+        const detailed = d2 <= STOP_DETAIL_R2;
+        for (const child of ps.group.children) {
+          child.visible = detailed || child.userData.busStopLodAnchor === true;
+        }
       }
     }
     // placements — amortized: at most 2 stop kits actually seated per pass
@@ -1059,7 +1073,22 @@ export class BusSystem {
       }
     }
     const shelter = badges.length >= 2 && hash01(st.seed * 13 + 2) < 0.45;
-    const group = this.makeStop(badges, st.seed, shelter);
+    const templateKey = `${shelter ? 1 : 0}|${badges
+      .map((badge) => `${badge.id}:${badge.color}:${badge.sbs ? 1 : 0}`)
+      .sort()
+      .join(',')}`;
+    let template = this.stopTemplates.get(templateKey);
+    if (!template) {
+      template = this.makeStop(badges, st.seed, shelter);
+      template.traverse((child) => {
+        if (!(child instanceof THREE.Mesh)) return;
+        if (child.userData.shared !== true) child.userData.stopTemplateOwned = true;
+        child.userData.shared = true;
+      });
+      this.stopTemplates.set(templateKey, template);
+    }
+    const group = template.clone(true);
+    group.name = 'Bus Stop';
     group.position.set(sx, heightAt(sx, sz), sz);
     group.rotation.y = yaw;
     this.scene.add(group);
@@ -1250,6 +1279,14 @@ export class BusSystem {
       disposeGroup(ps.group);
     }
     this.placedStops.clear();
+    for (const template of this.stopTemplates.values()) {
+      template.traverse((child) => {
+        if (child instanceof THREE.Mesh && child.userData.stopTemplateOwned === true) {
+          child.geometry.dispose();
+        }
+      });
+    }
+    this.stopTemplates.clear();
     this.riddenKey = null;
     this.ride = null;
   }

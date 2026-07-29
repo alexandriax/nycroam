@@ -319,10 +319,51 @@ async function withTimeout(promise, milliseconds, message) {
 async function captureRoute(page, routeId, iteration) {
   const startedAt = new Date().toISOString();
   const started = performance.now();
-  const report = await page.evaluate(
-    (id) => window.__nyc.runBenchmarkRoute(id),
-    routeId,
-  );
+  const { report, sceneCensus } = await page.evaluate(async (id) => {
+    const report = await window.__nyc.runBenchmarkRoute(id);
+    const scene = window.__nyc.activeRenderScene;
+    const roots = [];
+    const categories = new Map();
+    const visit = (object, visible, totals) => {
+      const active = visible && object.visible !== false;
+      if (!active) return;
+      if (object.isMesh) {
+        const calls = Array.isArray(object.material)
+          ? Math.max(1, object.geometry?.groups?.length || object.material.length)
+          : 1;
+        totals.calls += calls;
+        totals.meshes++;
+        if (object.castShadow) totals.shadowCalls += calls;
+      }
+      for (const child of object.children || []) visit(child, active, totals);
+    };
+    for (const root of scene?.children || []) {
+      const totals = { calls: 0, meshes: 0, shadowCalls: 0 };
+      visit(root, true, totals);
+      const tile = (root.children || []).some(
+        (child) => Number.isInteger(child.userData?.tileDetail),
+      );
+      const category = tile ? 'streamed tiles'
+        : root.name || root.type || 'unnamed';
+      const current = categories.get(category) || { calls: 0, meshes: 0, roots: 0, shadowCalls: 0 };
+      current.calls += totals.calls;
+      current.meshes += totals.meshes;
+      current.roots++;
+      current.shadowCalls += totals.shadowCalls;
+      categories.set(category, current);
+      if (totals.calls) roots.push({ category, ...totals });
+    }
+    return {
+      report,
+      sceneCensus: {
+        categories: [...categories.entries()]
+          .map(([category, totals]) => ({ category, ...totals }))
+          .sort((a, b) => b.calls - a.calls)
+          .slice(0, 40),
+        roots: roots.sort((a, b) => b.calls - a.calls).slice(0, 40),
+      },
+    };
+  }, routeId);
   return {
     routeId,
     routeKind: routeKind(routeId),
@@ -330,6 +371,7 @@ async function captureRoute(page, routeId, iteration) {
     startedAt,
     wallDurationSeconds: (performance.now() - started) / 1000,
     report,
+    sceneCensus,
   };
 }
 

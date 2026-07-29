@@ -13,6 +13,7 @@ import {
   POPULATION_BUDGETS,
   POPULATION_TRIANGLES,
   populationCeiling,
+  populationRebuildDistance,
   type PopulationBudget,
 } from './population/budgets';
 import {
@@ -579,9 +580,17 @@ export class StreetLife {
   ): void {
     this.matrixWrites = 0;
     const movedSq = (camX - this.lastBuildX) ** 2 + (camZ - this.lastBuildZ) ** 2;
+    const elapsed = Math.max(1 / 120, nowSeconds - this.lastBuildAt);
+    const rebuildSpeed = Number.isFinite(movedSq) ? Math.sqrt(movedSq) / elapsed : 0;
+    // The graph/candidate field extends hundreds of metres. Rebuilding it every
+    // 36m is right at walking pace, but makes a bike/aircraft/camera flythrough
+    // pay the full OSM candidate scan several times per second. Larger
+    // speed-aware hysteresis remains well inside that field and leaves the
+    // per-frame traffic/pedestrian simulation continuous between rebuilds.
+    const rebuildDistance = populationRebuildDistance(rebuildSpeed);
     if (
       !Number.isFinite(movedSq)
-      || movedSq > 36 * 36
+      || movedSq > rebuildDistance * rebuildDistance
       || nowSeconds - this.lastBuildAt > 3
     ) {
       const resolvedPaths = typeof paths === 'function' ? paths() : paths;
@@ -612,7 +621,9 @@ export class StreetLife {
     const next = Math.max(0.35, Math.min(1, scale));
     if (Math.abs(next - this.populationScale) < 0.04) return;
     this.populationScale = next;
-    this.lastBuildAt = Number.NEGATIVE_INFINITY;
+    // Capacity changes apply at the next ordinary spatial/time rebuild. Forcing
+    // an immediate full road-candidate scan made each governor rung itself a
+    // frame spike while the system was already under CPU pressure.
   }
 
   /**
@@ -621,9 +632,10 @@ export class StreetLife {
    * rebuild; it never creates scene objects or materials.
    */
   addContextAnchors(anchors: DensityAnchor[]): void {
-    if (this.density.addMany(anchors) > 0) {
-      this.lastBuildAt = Number.NEGATIVE_INFINITY;
-    }
+    // The field is sampled on every ordinary spatial/time rebuild. Coalesce
+    // streamed batches into that cadence instead of forcing a full road graph
+    // scan for each tile integration while the camera is already moving.
+    this.density.addMany(anchors);
   }
 
   get stats(): StreetLifeStats {

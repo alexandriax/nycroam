@@ -206,6 +206,7 @@ export class World {
   private activeRenderScene: THREE.Scene = this.streetScene;
   private shadowDrawEstimate = 0;
   private benchmarkActive = false;
+  private benchmarkPhases = new Map<string, number[]>();
   private governorSawTransition = false;
   /** What the adaptive loop has given up so far, newest last (settings UI + debug). */
   perfNotes: string[] = [];
@@ -1951,7 +1952,13 @@ export class World {
         }
       }
       const spd = Math.hypot(this.velSX, this.velSZ);
-      const lead = spd > 7 ? Math.min(420, spd * 6) : 0; // ~6s of travel, capped
+      // Ground travel cannot outrun ~22m/s, so letting an automation teleport
+      // or a collision correction produce the helicopter's 420m lead needlessly
+      // shifts an entire 1.1km resident ring. Cap by the actual movement mode:
+      // walking gets a modest look-ahead, bikes keep ~6s, aircraft keep 420m.
+      const leadCap = this.controls.fly ? 420 : this.riding ? 160 : 72;
+      const leadSeconds = this.controls.fly || this.riding ? 6 : 3;
+      const lead = spd > 7 ? Math.min(leadCap, spd * leadSeconds) : 0;
       const leadX = lead > 0 ? this.pos.x + (this.velSX / spd) * lead : this.pos.x;
       const leadZ = lead > 0 ? this.pos.z + (this.velSZ / spd) * lead : this.pos.z;
 
@@ -1976,21 +1983,39 @@ export class World {
       // the lead); kit managers (entrances/bikes) keep the true position — their
       // evict radii are small enough that leading would despawn kits still in
       // view just behind
+      let phaseAt = this.benchmarkActive ? performance.now() : 0;
       this.tiles.update(leadX, leadZ, this.pos.y);
+      this.recordBenchmarkPhase('tiles', phaseAt);
+      phaseAt = this.benchmarkActive ? performance.now() : 0;
       this.updateRetailPopulationContext(dt);
+      this.recordBenchmarkPhase('retailContext', phaseAt);
+      phaseAt = this.benchmarkActive ? performance.now() : 0;
       this.entrances.update(this.pos.x, this.pos.z, dt);
+      this.recordBenchmarkPhase('entrances', phaseAt);
+      phaseAt = this.benchmarkActive ? performance.now() : 0;
       this.plaques.unloadRadius = 440 + lead; // same trailing-edge guard as tiles
       this.plaques.update(leadX, leadZ, dt);
+      this.recordBenchmarkPhase('plaques', phaseAt);
+      phaseAt = this.benchmarkActive ? performance.now() : 0;
       this.bikes.update(this.pos.x, this.pos.z, dt);
+      this.recordBenchmarkPhase('bikes', phaseAt);
+      phaseAt = this.benchmarkActive ? performance.now() : 0;
       this.buses.update(this.pos.x, this.pos.z, dt);
+      this.recordBenchmarkPhase('buses', phaseAt);
+      phaseAt = this.benchmarkActive ? performance.now() : 0;
       this.tram.update(this.pos.x, this.pos.z, dt);
+      this.recordBenchmarkPhase('tram', phaseAt);
+      phaseAt = this.benchmarkActive ? performance.now() : 0;
       this.landmarks.update(this.pos.x, this.pos.z, dt);
+      this.recordBenchmarkPhase('landmarks', phaseAt);
+      phaseAt = this.benchmarkActive ? performance.now() : 0;
       this.streetLife.update(
         this.pos.x,
         this.pos.z,
         () => this.tiles.roadPathsNear(this.pos.x, this.pos.z, 1),
         performance.now() / 1000,
       );
+      this.recordBenchmarkPhase('streetLife', phaseAt);
 
       if (this.riding && this.bikeView) {
         // ground speed, not input: ride into a wall and the pedals stop too
@@ -2317,20 +2342,28 @@ export class World {
       this.activeRenderScene = scene;
       this.shadowDrawEstimate = estimateShadowDrawCalls(scene);
     }
+    const renderStartedAt = performance.now();
     this.renderer.info.reset();
     this.gpuTimer.beginFrame();
     this.rendering.render(scene, this.mode, dt);
     this.gpuTimer.endFrame();
     this.lastGpuMs = this.gpuTimer.poll() ?? this.lastGpuMs;
     const cpuMs = performance.now() - cpuStartedAt;
+    const renderCpuMs = performance.now() - renderStartedAt;
+    const updateCpuMs = Math.max(0, cpuMs - renderCpuMs);
+    // Sample the live queue, not the 2Hz HUD cache. A short completed burst
+    // previously remained reported as full pressure for another half-second,
+    // corrupting p95 and teaching the governor from stale state.
     const streamingPressure = Math.min(
       1,
-      this.hud.tilesPending / Math.max(4, this.tileWorkerCount * 3),
+      this.tiles.pendingCount() / Math.max(4, this.tileWorkerCount * 3),
     );
     this.performanceRecorder.sample(
       this.renderer,
       rawDt * 1000,
       cpuMs,
+      updateCpuMs,
+      renderCpuMs,
       this.lastGpuMs,
       streamingPressure,
       this.shadowDrawEstimate,
@@ -2614,8 +2647,37 @@ export class World {
     return [];
   }
   getRide() { return this.ride?.hudInfo ?? null; }
+  private recordBenchmarkPhase(name: string, startedAt: number) {
+    if (!this.benchmarkActive || startedAt === 0) return;
+    const values = this.benchmarkPhases.get(name) ?? [];
+    values.push(performance.now() - startedAt);
+    if (values.length > 1200) values.shift();
+    this.benchmarkPhases.set(name, values);
+  }
+
+  private benchmarkPhaseReport() {
+    const percentile = (values: number[], quantile: number) => {
+      if (!values.length) return 0;
+      const sorted = [...values].sort((a, b) => a - b);
+      return sorted[Math.min(sorted.length - 1, Math.floor((sorted.length - 1) * quantile))];
+    };
+    return Object.fromEntries([...this.benchmarkPhases].map(([name, values]) => [
+      name,
+      {
+        samples: values.length,
+        p50: percentile(values, 0.5),
+        p95: percentile(values, 0.95),
+        p99: percentile(values, 0.99),
+        max: values.length ? Math.max(...values) : 0,
+      },
+    ]));
+  }
+
   /** Start a bounded performance capture for browser/device golden-route QA. */
-  resetPerformanceCapture(label = 'manual') { this.performanceRecorder.reset(label); }
+  resetPerformanceCapture(label = 'manual') {
+    this.benchmarkPhases.clear();
+    this.performanceRecorder.reset(label);
+  }
   /**
    * Debug/automation report with true frame percentiles, GPU query samples,
    * submitted draw/triangle counts, memory estimates and active post effects.
@@ -2634,6 +2696,7 @@ export class World {
       landmarks: this.landmarks.lodStats(),
       governor: this.qualityGovernor.snapshot,
       materials: materialLibrary.report(),
+      updatePhases: this.benchmarkPhaseReport(),
     };
   }
   /**
@@ -2667,7 +2730,7 @@ export class World {
         if (!spec) throw new Error(`Benchmark station not found: ${route.stationSearch}`);
         await this.enterStation(spec, spec.pos);
         await wait(900);
-        this.performanceRecorder.reset(route.label);
+        this.resetPerformanceCapture(route.label);
         const initialYaw = this.controls.yaw;
         await animateFor(route.seconds * 1000, (t) => {
           // Two measured turns exercise view-dependent station cells and shadow
@@ -2692,7 +2755,7 @@ export class World {
         const [firstX, firstZ] = lonLatToXZ(first.lon, first.lat);
         this.pos.set(firstX, heightAt(firstX, firstZ), firstZ);
         this.spawnResolve = false;
-        this.performanceRecorder.reset(route.label);
+        this.resetPerformanceCapture(route.label);
         for (let i = 1; i < route.points.length; i++) {
           const previous = route.points[i - 1];
           const next = route.points[i];
