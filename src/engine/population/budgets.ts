@@ -173,9 +173,13 @@ export function populationCeiling(level: QualityLevel): PopulationCeiling {
     // near person, and one cyclist plus its contact blob. Parked matrices
     // remain untouched between rebuilds.
     dynamicMatrixWritesPerNearTick:
-      b.movingVehicles * 8 + b.pedestriansNear * 3 + b.cyclists * 2,
-    // One billboard transform for each far pedestrian.
-    dynamicMatrixWritesPerFarTick: b.pedestriansFar,
+      b.movingVehicles * 8
+      + b.pedestriansNear * 3
+      + b.pedestriansFar
+      + b.cyclists * 2,
+    // Far walkers now commit with the shared actor collision snapshot at the
+    // near cadence; this tick remains available for distant traffic LOD work.
+    dynamicMatrixWritesPerFarTick: 0,
     matrixWritesPerRebuild:
       vehicles * 8
       + b.lamps * 3

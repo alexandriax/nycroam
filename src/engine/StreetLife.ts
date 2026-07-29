@@ -33,11 +33,21 @@ import {
   type RoadGraph,
 } from './population/roadGraph';
 import {
+  resolveTrafficMotionTransactions,
   trafficFootprintsOverlap,
+  trafficMotionConflicts,
+  trafficPairMotionsConflict,
   trafficSweptConflict,
   yieldsTo,
   type TrafficFootprint,
+  type TrafficMotion,
 } from './population/trafficSafety';
+import {
+  advancePedestrianProgress,
+  pedestrianLaneOffset,
+  pedestrianStepHitsTraffic,
+  pedestrianSweepsOverlap,
+} from './population/pedestrianSafety';
 import { buildVehicleBodyGeometry } from './population/vehicleGeometry';
 import { buildCyclistGeometry } from './population/cyclistGeometry';
 import {
@@ -76,8 +86,10 @@ interface PedestrianPlacement {
   key: string;
   segment: GraphSegment;
   distance: number;
+  direction: 1 | -1;
   speed: number;
   side: -1 | 1;
+  laneOffset: number;
   phase: number;
   color: THREE.Color;
   skinColor: THREE.Color;
@@ -163,6 +175,9 @@ const VEHICLE_SCALES: Record<VehicleKind, readonly [number, number, number]> = {
   van: [1.12, 1.34, 1.06],
   taxi: [1.02, 1.02, 1],
 };
+const PEDESTRIAN_RADIUS = 0.31;
+const PEDESTRIAN_CLEARANCE = 0.08;
+const PEDESTRIAN_LANE_SEPARATION = 0.39;
 
 function hashInt(value: number): number {
   let x = value | 0;
@@ -449,6 +464,7 @@ export class StreetLife {
   private lastNearUpdate = Number.NEGATIVE_INFINITY;
   private lastFarUpdate = Number.NEGATIVE_INFINITY;
   private lastTrafficStep = Number.NaN;
+  private lastPedestrianStep = Number.NaN;
   private lastRoadRevision = -1;
   private observedRoadRevision = -1;
   private observedDensityRevision = -1;
@@ -469,16 +485,38 @@ export class StreetLife {
   private readonly routeSample: RouteSample = { x: 0, z: 0, dx: 1, dz: 0 };
   private readonly cyclistAheadSample: RouteSample = { x: 0, z: 0, dx: 1, dz: 0 };
   private readonly pedestrianPosition: RouteSample = { x: 0, z: 0, dx: 1, dz: 0 };
+  private readonly pedestrianProposal: RouteSample = { x: 0, z: 0, dx: 1, dz: 0 };
   private readonly wheelTurn = new THREE.Quaternion().setFromAxisAngle(
     new THREE.Vector3(1, 0, 0),
     Math.PI / 2,
   );
   private pedestrianShaders: THREE.WebGLProgramParametersWithUniforms[] = [];
-  private trafficObstacles: readonly TrafficFootprint[] = [];
+  private busTrafficMotions: readonly TrafficMotion[] = [];
+  private readonly busTrafficObstacles: TrafficFootprint[] = [];
+  private readonly pedestrianOrder: PedestrianPlacement[] = [];
+  private readonly pedestrianTrafficObstacles: TrafficFootprint[] = [];
+  private readonly pedestrianTrafficMotions: TrafficMotion[] = [];
+  private readonly staticVehicleObstacles: TrafficFootprint[] = [];
+  private readonly actorTrafficObstacles: TrafficFootprint[] = [];
+  private readonly pedestrianBlockingTraffic: TrafficFootprint[] = [];
+  private readonly pedestrianCollisionCells = new Map<string, number[]>();
+  private readonly pedestrianTrafficCells =
+    new Map<string, TrafficFootprint[]>();
+  private readonly nearbyPedestrianTraffic: TrafficFootprint[] = [];
+  private readonly pedestrianCurrentX: Float64Array;
+  private readonly pedestrianCurrentZ: Float64Array;
+  private readonly pedestrianAcceptedX: Float64Array;
+  private readonly pedestrianAcceptedZ: Float64Array;
 
   constructor(scene: THREE.Scene, level: QualityLevel) {
     this.level = level;
     this.budget = POPULATION_BUDGETS[level];
+    const pedestrianCapacity =
+      this.budget.pedestriansNear + this.budget.pedestriansFar;
+    this.pedestrianCurrentX = new Float64Array(pedestrianCapacity);
+    this.pedestrianCurrentZ = new Float64Array(pedestrianCapacity);
+    this.pedestrianAcceptedX = new Float64Array(pedestrianCapacity);
+    this.pedestrianAcceptedZ = new Float64Array(pedestrianCapacity);
 
     const bodyGeo = buildVehicleBodyGeometry();
     const cabinGeo = buildVehicleCabinGeometry();
@@ -821,10 +859,14 @@ export class StreetLife {
     paths: RoadPaths[] | (() => RoadPaths[]),
     nowSeconds: number,
     roadRevision = 0,
-    trafficObstacles: readonly TrafficFootprint[] = [],
+    trafficMotions: readonly TrafficMotion[] = [],
   ): void {
     this.matrixWrites = 0;
-    this.trafficObstacles = trafficObstacles;
+    this.busTrafficMotions = trafficMotions;
+    this.busTrafficObstacles.length = 0;
+    for (const motion of trafficMotions) {
+      this.busTrafficObstacles.push(motion.end);
+    }
     const movedSq = (camX - this.lastBuildX) ** 2 + (camZ - this.lastBuildZ) ** 2;
     const elapsed = Math.max(1 / 120, nowSeconds - this.lastBuildAt);
     const rebuildSpeed = Number.isFinite(movedSq) ? Math.sqrt(movedSq) / elapsed : 0;
@@ -871,13 +913,21 @@ export class StreetLife {
     const nearDue = nowSeconds - this.lastNearUpdate >= 1 / this.budget.nearUpdateHz;
     const farDue = nowSeconds - this.lastFarUpdate >= 1 / this.budget.farUpdateHz;
     if (nearDue) {
+      // Pedestrians commit first from the prior immutable actor snapshot. Cars
+      // then see those committed bodies and buses see them on the next frame.
+      // No actor samples absolute wall time, so a suspended mobile tab cannot
+      // teleport a walker through somebody when it resumes.
+      this.updatePedestrianMotion(nowSeconds);
       this.updateTraffic(camX, camZ, nowSeconds, farDue);
-      this.updateNearPedestrians(nowSeconds);
+      this.updateNearPedestrians();
+      // Far pedestrian transforms must match the collision snapshot consumed
+      // by cars and buses; keeping the old low-rate visual pose would let a
+      // vehicle overlap the figure still on screen.
+      this.updateFarPedestrians();
       this.updateCyclists(nowSeconds);
       this.lastNearUpdate = nowSeconds;
     }
     if (farDue) {
-      this.updateFarPedestrians(camX, camZ, nowSeconds);
       this.lastFarUpdate = nowSeconds;
     }
   }
@@ -889,6 +939,16 @@ export class StreetLife {
     // Capacity changes apply at the next ordinary spatial/time rebuild. Forcing
     // an immediate full road-candidate scan made each governor rung itself a
     // frame spike while the system was already under CPU pressure.
+  }
+
+  /**
+   * Committed parked, moving-car, and pedestrian bodies for BusSystem's next
+   * two-phase traffic step. Parked cars are marked immovable so transit can
+   * merge around them rather than treating curb occupancy as a dead-end. The
+   * array is reused and consumed synchronously.
+   */
+  get actorObstacles(): readonly TrafficFootprint[] {
+    return this.actorTrafficObstacles;
   }
 
   /**
@@ -988,11 +1048,17 @@ export class StreetLife {
     this.trafficVehicles.length = 0;
     this.peopleNear.length = 0;
     this.peopleFar.length = 0;
+    this.pedestrianOrder.length = 0;
+    this.pedestrianTrafficObstacles.length = 0;
+    this.pedestrianTrafficMotions.length = 0;
+    this.staticVehicleObstacles.length = 0;
+    this.actorTrafficObstacles.length = 0;
     this.cyclists.length = 0;
     this.activities.length = 0;
     this.lamps.length = 0;
     this.signals.length = 0;
     this.rebuildCount++;
+    this.lastPedestrianStep = nowSeconds;
 
     const parkedLimit = Math.max(8, Math.round(this.budget.parkedVehicles * this.populationScale));
     const movingLimit = Math.max(2, Math.round(this.budget.movingVehicles * this.populationScale));
@@ -1011,7 +1077,7 @@ export class StreetLife {
     const vehicleCells = new Map<string, Array<readonly [number, number]>>();
     const vehicleCellSize = 5.2;
     const personCells = new Map<string, Array<readonly [number, number]>>();
-    const personCellSize = 0.72;
+    const personCellSize = 0.8;
     const addOccupant = (
       cells: Map<string, Array<readonly [number, number]>>,
       cellSize: number,
@@ -1052,6 +1118,28 @@ export class StreetLife {
       this.vehicles.push(vehicle);
       addOccupant(vehicleCells, vehicleCellSize, vehicle.x, vehicle.z);
       retainedVehicleKeys.add(vehicle.key);
+    }
+    // Parked candidates are selected before retained traffic is reattached to
+    // refreshed route objects. Reserve those prior committed moving-car poses
+    // now so a rebuild can never spawn a parked car underneath one.
+    for (const vehicle of previousTraffic.values()) {
+      if ((vehicle.x - camX) ** 2 + (vehicle.z - camZ) ** 2 > retentionRadiusSq) continue;
+      addOccupant(vehicleCells, vehicleCellSize, vehicle.x, vehicle.z);
+    }
+    // Exact bodies back the coarse center-distance hash. This closes the long,
+    // narrow OBB cases where a bus or retained SUV can physically intersect a
+    // candidate even though their centers pass the approximate spacing gate.
+    const vehicleAdmissionBodies: TrafficFootprint[] = [
+      ...this.busTrafficObstacles,
+      ...this.vehicles.map((vehicle) => this.parkedVehicleFootprint(vehicle)),
+    ];
+    const reservedPreviousTrafficBodies = new Map<string, TrafficFootprint>();
+    for (const vehicle of previousTraffic.values()) {
+      if ((vehicle.x - camX) ** 2 + (vehicle.z - camZ) ** 2 > retentionRadiusSq) continue;
+      reservedPreviousTrafficBodies.set(
+        vehicle.traffic.key,
+        this.renderedVehicleFootprint(vehicle),
+      );
     }
     this.graph = buildRoadGraph(
       paths,
@@ -1222,8 +1310,7 @@ export class StreetLife {
             ? 'taxi'
             : 'sedan';
       const colorIndex = Math.floor(hash01(candidate.seed + 83) * CAR_COLORS.length);
-      if (overlapsOccupant(vehicleCells, vehicleCellSize, x, z, 4.9)) continue;
-      this.vehicles.push({
+      const parkedVehicle: VehiclePlacement = {
         key,
         x,
         z,
@@ -1231,7 +1318,19 @@ export class StreetLife {
         color: new THREE.Color(kind === 'taxi' ? 0xf2bd1d : CAR_COLORS[colorIndex]),
         kind,
         shadowIndex: this.vehicles.length,
-      });
+      };
+      const parkedFootprint = this.parkedVehicleFootprint(parkedVehicle);
+      if (
+        overlapsOccupant(vehicleCells, vehicleCellSize, x, z, 4.9)
+        || vehicleAdmissionBodies.some((obstacle) => (
+          trafficFootprintsOverlap(parkedFootprint, obstacle, 0.12)
+        ))
+        || [...reservedPreviousTrafficBodies.values()].some((obstacle) => (
+          trafficFootprintsOverlap(parkedFootprint, obstacle, 0.12)
+        ))
+      ) continue;
+      this.vehicles.push(parkedVehicle);
+      vehicleAdmissionBodies.push(parkedFootprint);
       addOccupant(vehicleCells, vehicleCellSize, x, z);
     }
 
@@ -1255,9 +1354,14 @@ export class StreetLife {
     }
     const specsByKey = new Map(routeSpecs.map((spec) => [spec.key, spec]));
     const retainedTrafficKeys = new Set<string>();
+    const acceptedReboundMotions: TrafficMotion[] = [];
     for (const previous of previousTraffic.values()) {
       if (this.trafficVehicles.length >= this.budget.movingVehicles) break;
       if ((previous.x - camX) ** 2 + (previous.z - camZ) ** 2 > retentionRadiusSq) continue;
+      const oldFootprint = reservedPreviousTrafficBodies.get(
+        previous.traffic.key,
+      );
+      reservedPreviousTrafficBodies.delete(previous.traffic.key);
       const spec = specsByKey.get(previous.key);
       if (spec) {
         previous.traffic.route = spec.route;
@@ -1267,9 +1371,68 @@ export class StreetLife {
           Math.max(1.2, spec.route.width * 0.22),
         );
       }
+      const reboundFootprint = this.trafficFootprint(previous);
+      let reboundBlocked = vehicleAdmissionBodies.some((obstacle) => (
+        oldFootprint
+          ? trafficMotionConflicts(
+            oldFootprint,
+            reboundFootprint,
+            obstacle,
+            0.12,
+          )
+          : trafficFootprintsOverlap(reboundFootprint, obstacle, 0.12)
+      ));
+      if (!reboundBlocked && oldFootprint) {
+        reboundBlocked = this.busTrafficMotions.some((motion) => (
+          trafficPairMotionsConflict(
+            oldFootprint,
+            reboundFootprint,
+            motion.start,
+            motion.end,
+            0.12,
+          )
+        ));
+      }
+      if (!reboundBlocked && oldFootprint) {
+        reboundBlocked = acceptedReboundMotions.some((motion) => (
+          trafficPairMotionsConflict(
+            oldFootprint,
+            reboundFootprint,
+            motion.start,
+            motion.end,
+            0.12,
+          )
+        ));
+      }
+      if (!reboundBlocked) {
+        for (const obstacle of reservedPreviousTrafficBodies.values()) {
+          if (
+            oldFootprint
+              ? trafficMotionConflicts(
+                oldFootprint,
+                reboundFootprint,
+                obstacle,
+                0.12,
+              )
+              : trafficFootprintsOverlap(reboundFootprint, obstacle, 0.12)
+          ) {
+            reboundBlocked = true;
+            break;
+          }
+        }
+      }
+      if (reboundBlocked) continue;
+      previous.x = reboundFootprint.x;
+      previous.z = reboundFootprint.z;
+      previous.yaw = Math.atan2(-reboundFootprint.fz, reboundFootprint.fx);
       previous.shadowIndex = this.vehicles.length;
       this.vehicles.push(previous);
       this.trafficVehicles.push(previous);
+      vehicleAdmissionBodies.push(reboundFootprint);
+      acceptedReboundMotions.push({
+        start: oldFootprint ?? reboundFootprint,
+        end: reboundFootprint,
+      });
       addOccupant(vehicleCells, vehicleCellSize, previous.x, previous.z);
       retainedTrafficKeys.add(previous.key);
     }
@@ -1323,20 +1486,51 @@ export class StreetLife {
           footprint.z,
           5.2,
         )
-        || this.trafficObstacles.some((obstacle) => (
-          trafficFootprintsOverlap(footprint, obstacle, 0.45)
+        || vehicleAdmissionBodies.some((obstacle) => (
+          trafficFootprintsOverlap(footprint, obstacle, 0.12)
         ))
       ) continue;
       this.vehicles.push(vehicle);
       this.trafficVehicles.push(vehicle);
+      vehicleAdmissionBodies.push(footprint);
       addOccupant(vehicleCells, vehicleCellSize, vehicle.x, vehicle.z);
     }
 
+    this.staticVehicleObstacles.length = 0;
+    for (const vehicle of this.vehicles) {
+      if (!vehicle.traffic) {
+        this.staticVehicleObstacles.push(this.parkedVehicleFootprint(vehicle));
+      }
+    }
+    const pedestrianTrafficBodies: TrafficFootprint[] = [
+      ...this.busTrafficObstacles,
+      ...this.staticVehicleObstacles,
+      ...this.trafficVehicles.map((vehicle) => this.trafficFootprint(vehicle)),
+    ];
+
     const retainedPeopleKeys = new Set<string>();
     for (const { person, wasNear } of previousPeople) {
-      const sample = this.pedestrianSample(person, nowSeconds);
+      const sample = this.pedestrianSample(person);
       const distanceSq = (sample.x - camX) ** 2 + (sample.z - camZ) ** 2;
       if (distanceSq > retentionRadiusSq) continue;
+      if (
+        overlapsOccupant(
+          personCells,
+          personCellSize,
+          sample.x,
+          sample.z,
+          (PEDESTRIAN_RADIUS + PEDESTRIAN_CLEARANCE) * 2,
+        )
+        || pedestrianStepHitsTraffic(
+          sample.x,
+          sample.z,
+          sample.x,
+          sample.z,
+          PEDESTRIAN_RADIUS * person.scale,
+          pedestrianTrafficBodies,
+          PEDESTRIAN_CLEARANCE,
+        )
+      ) continue;
       const nearThreshold = wasNear
         ? this.budget.nearRadius + 16
         : Math.max(12, this.budget.nearRadius - 12);
@@ -1358,12 +1552,24 @@ export class StreetLife {
       const segment = candidate.segment;
       const speed = 0.75 + hash01(candidate.seed + 89) * 0.9;
       const phase = hash01(candidate.seed + 97) * Math.PI * 2;
+      const initial = advancePedestrianProgress(
+        0,
+        1,
+        candidate.distance + hash01(candidate.seed + 91) * segment.length,
+        segment.length,
+      );
       const person: PedestrianPlacement = {
         key,
         segment,
-        distance: candidate.distance + hash01(candidate.seed + 91) * segment.length,
+        distance: initial.distance,
+        direction: initial.direction,
         speed,
         side: candidate.side,
+        laneOffset: pedestrianLaneOffset(
+          initial.direction,
+          candidate.side,
+          PEDESTRIAN_LANE_SEPARATION,
+        ),
         phase,
         color: new THREE.Color(
           PERSON_COLORS[Math.floor(hash01(candidate.seed + 101) * PERSON_COLORS.length)],
@@ -1374,7 +1580,7 @@ export class StreetLife {
         scale: 0.92 + hash01(candidate.seed + 107) * 0.14,
         shadowIndex: -1,
       };
-      const animated = this.pedestrianSample(person, nowSeconds);
+      const animated = this.pedestrianSample(person);
       const animatedX = animated.x;
       const animatedZ = animated.z;
       if (
@@ -1383,7 +1589,16 @@ export class StreetLife {
           personCellSize,
           animatedX,
           animatedZ,
-          0.72,
+          (PEDESTRIAN_RADIUS + PEDESTRIAN_CLEARANCE) * 2,
+        )
+        || pedestrianStepHitsTraffic(
+          animatedX,
+          animatedZ,
+          animatedX,
+          animatedZ,
+          PEDESTRIAN_RADIUS * person.scale,
+          pedestrianTrafficBodies,
+          PEDESTRIAN_CLEARANCE,
         )
       ) continue;
       const near = (animatedX - camX) ** 2 + (animatedZ - camZ) ** 2 <= nearRadiusSq;
@@ -1398,6 +1613,17 @@ export class StreetLife {
     for (let i = 0; i < this.peopleNear.length; i++) {
       this.peopleNear[i].shadowIndex = this.vehicles.length + i;
     }
+    this.pedestrianOrder.push(...this.peopleNear, ...this.peopleFar);
+    this.pedestrianOrder.sort((a, b) => a.key.localeCompare(b.key));
+    this.refreshPedestrianObstacles();
+    for (let index = 0; index < this.pedestrianOrder.length; index++) {
+      const sample = this.pedestrianSample(this.pedestrianOrder[index]);
+      this.pedestrianCurrentX[index] = sample.x;
+      this.pedestrianCurrentZ[index] = sample.z;
+      this.pedestrianAcceptedX[index] = sample.x;
+      this.pedestrianAcceptedZ[index] = sample.z;
+    }
+    this.refreshPedestrianMotions();
 
     activityCandidates.sort((a, b) => b.score - a.score || a.seed - b.seed);
     const selectedActivities: Candidate[] = [];
@@ -1476,11 +1702,14 @@ export class StreetLife {
 
     this.writeStaticVehicles();
     this.writeStaticMeshes();
-    this.updateTraffic(camX, camZ, nowSeconds, true);
-    this.updateNearPedestrians(nowSeconds);
-    this.updateFarPedestrians(camX, camZ, nowSeconds);
-    this.updateCyclists(nowSeconds);
+    // Rebinding retained cars already accounts for the entire previously
+    // rendered pose→refreshed-route motion. Do not compose an additional normal
+    // traffic step into the same visible frame.
     this.lastTrafficStep = nowSeconds;
+    this.updateTraffic(camX, camZ, nowSeconds, true);
+    this.updateNearPedestrians();
+    this.updateFarPedestrians();
+    this.updateCyclists(nowSeconds);
     this.lastNearUpdate = nowSeconds;
     this.lastFarUpdate = nowSeconds;
   }
@@ -1577,6 +1806,31 @@ export class StreetLife {
     };
   }
 
+  private renderedVehicleFootprint(
+    vehicle: VehiclePlacement,
+  ): TrafficFootprint {
+    const [sx, , sz] = VEHICLE_SCALES[vehicle.kind];
+    return {
+      key: vehicle.traffic ? `car:${vehicle.traffic.key}` : vehicle.key,
+      x: vehicle.x,
+      z: vehicle.z,
+      fx: Math.cos(vehicle.yaw),
+      fz: -Math.sin(vehicle.yaw),
+      halfLength: 2.3 * sx,
+      halfWidth: 0.94 * sz,
+      speed: vehicle.traffic?.speed ?? 0,
+    };
+  }
+
+  private parkedVehicleFootprint(vehicle: VehiclePlacement): TrafficFootprint {
+    const footprint = this.renderedVehicleFootprint(vehicle);
+    return {
+      ...footprint,
+      priority: true,
+      immovable: true,
+    };
+  }
+
   private updateTraffic(
     camX: number,
     camZ: number,
@@ -1630,7 +1884,13 @@ export class StreetLife {
       for (const obstacle of current.values()) {
         desired = constrainTrafficSpeed(footprint, obstacle, desired);
       }
-      for (const obstacle of this.trafficObstacles) {
+      for (const obstacle of this.busTrafficObstacles) {
+        desired = constrainTrafficSpeed(footprint, obstacle, desired);
+      }
+      for (const obstacle of this.staticVehicleObstacles) {
+        desired = constrainTrafficSpeed(footprint, obstacle, desired);
+      }
+      for (const obstacle of this.pedestrianTrafficObstacles) {
         desired = constrainTrafficSpeed(footprint, obstacle, desired);
       }
       const response = desired < traffic.speed ? 4.5 : 1.2;
@@ -1642,36 +1902,26 @@ export class StreetLife {
       ) * Math.min(1, dt * 2.8);
     }
 
-    // Prediction handles braking; this exact final-body pass is the invariant.
-    // If a large/slow frame would still penetrate another body, roll the stable
-    // yielding vehicle back to its prior route state instead of hiding either.
-    for (let pass = 0; pass < 2; pass++) {
-      const final = new Map(
-        this.trafficVehicles.map((vehicle) => [vehicle, this.trafficFootprint(vehicle)]),
-      );
-      for (const vehicle of this.trafficVehicles) {
-        const footprint = final.get(vehicle)!;
-        let blocker: TrafficFootprint | null = null;
-        for (const obstacle of this.trafficObstacles) {
-          if (trafficFootprintsOverlap(footprint, obstacle, 0.18)) {
-            blocker = obstacle;
-            break;
-          }
-        }
-        if (!blocker) {
-          for (const other of this.trafficVehicles) {
-            if (other === vehicle) continue;
-            const obstacle = final.get(other)!;
-            if (
-              yieldsTo(footprint, obstacle)
-              && trafficFootprintsOverlap(footprint, obstacle, 0.12)
-            ) {
-              blocker = obstacle;
-              break;
-            }
-          }
-        }
-        if (!blocker) continue;
+    // Prediction handles braking; this stable sequential transaction is the
+    // committed-body invariant. Each proposal must clear already-accepted car
+    // poses and every later car's still-safe prior pose, so a rollback cannot
+    // reveal a new overlap behind the iterator (the old fixed two-pass scheme
+    // could fail on three-car chains). A held leader can advance next frame;
+    // safety costs at most one frame of follower latency, never a phase-through.
+    const trafficStarts = this.trafficVehicles.map((vehicle) => current.get(vehicle)!);
+    const trafficEnds = this.trafficVehicles.map((vehicle) => this.trafficFootprint(vehicle));
+    const blockedMotions = resolveTrafficMotionTransactions(
+      trafficStarts,
+      trafficEnds,
+      this.staticVehicleObstacles,
+      [
+        ...this.busTrafficMotions,
+        ...this.pedestrianTrafficMotions,
+      ],
+    );
+    for (let index = 0; index < this.trafficVehicles.length; index++) {
+      if (blockedMotions[index]) {
+        const vehicle = this.trafficVehicles[index];
         const state = before.get(vehicle)!;
         vehicle.traffic.distance = state.distance;
         vehicle.traffic.direction = state.direction;
@@ -1698,38 +1948,287 @@ export class StreetLife {
       vehicle.traffic.lastVisualAt = nowSeconds;
     }
     this.markVehicleBuffers();
+    this.refreshActorObstacles();
   }
 
-  private pedestrianSample(
+  private pedestrianSampleAt(
     pedestrian: PedestrianPlacement,
-    nowSeconds: number,
+    distance: number,
+    direction: 1 | -1,
+    laneOffset: number,
+    out: RouteSample,
   ): RouteSample {
     const segment = pedestrian.segment;
-    const period = Math.max(1, segment.length * 2);
-    let distance = (
-      pedestrian.distance + nowSeconds * pedestrian.speed + pedestrian.phase * 0.37
-    ) % period;
-    let direction = 1;
-    if (distance > segment.length) {
-      distance = period - distance;
-      direction = -1;
-    }
-    const offset = segment.width * 0.5 + 1.45;
-    this.pedestrianPosition.x =
+    const offset = segment.width * 0.5 + 1.45 + laneOffset;
+    out.x =
       segment.ax + segment.dx * distance - segment.dz * offset * pedestrian.side;
-    this.pedestrianPosition.z =
+    out.z =
       segment.az + segment.dz * distance + segment.dx * offset * pedestrian.side;
-    this.pedestrianPosition.dx = segment.dx * direction;
-    this.pedestrianPosition.dz = segment.dz * direction;
-    return this.pedestrianPosition;
+    out.dx = segment.dx * direction;
+    out.dz = segment.dz * direction;
+    return out;
   }
 
-  private updateNearPedestrians(nowSeconds: number): void {
+  private pedestrianSample(pedestrian: PedestrianPlacement): RouteSample {
+    return this.pedestrianSampleAt(
+      pedestrian,
+      pedestrian.distance,
+      pedestrian.direction,
+      pedestrian.laneOffset,
+      this.pedestrianPosition,
+    );
+  }
+
+  private refreshPedestrianObstacles(): void {
+    this.pedestrianTrafficObstacles.length = 0;
+    for (const pedestrian of this.pedestrianOrder) {
+      const sample = this.pedestrianSample(pedestrian);
+      const radius = PEDESTRIAN_RADIUS * pedestrian.scale;
+      this.pedestrianTrafficObstacles.push({
+        key: `ped:${pedestrian.key}`,
+        x: sample.x,
+        z: sample.z,
+        fx: sample.dx,
+        fz: sample.dz,
+        halfLength: radius,
+        halfWidth: radius,
+        speed: pedestrian.speed,
+        priority: true,
+      });
+    }
+  }
+
+  private pedestrianMotionBody(
+    pedestrian: PedestrianPlacement,
+    x: number,
+    z: number,
+  ): TrafficFootprint {
+    const radius = PEDESTRIAN_RADIUS * pedestrian.scale;
+    return {
+      key: `ped:${pedestrian.key}`,
+      x,
+      z,
+      // The square circumscribes the circular ground body. Holding its axes
+      // fixed makes pair sweeps conservative without artificial rotation.
+      fx: 1,
+      fz: 0,
+      halfLength: radius,
+      halfWidth: radius,
+      speed: pedestrian.speed,
+      priority: true,
+    };
+  }
+
+  private refreshPedestrianMotions(): void {
+    this.pedestrianTrafficMotions.length = 0;
+    for (let index = 0; index < this.pedestrianOrder.length; index++) {
+      const pedestrian = this.pedestrianOrder[index];
+      this.pedestrianTrafficMotions.push({
+        start: this.pedestrianMotionBody(
+          pedestrian,
+          this.pedestrianCurrentX[index],
+          this.pedestrianCurrentZ[index],
+        ),
+        end: this.pedestrianMotionBody(
+          pedestrian,
+          this.pedestrianAcceptedX[index],
+          this.pedestrianAcceptedZ[index],
+        ),
+      });
+    }
+  }
+
+  private refreshActorObstacles(): void {
+    this.actorTrafficObstacles.length = 0;
+    this.actorTrafficObstacles.push(...this.staticVehicleObstacles);
+    for (const vehicle of this.trafficVehicles) {
+      this.actorTrafficObstacles.push(this.trafficFootprint(vehicle));
+    }
+    this.actorTrafficObstacles.push(...this.pedestrianTrafficObstacles);
+  }
+
+  /**
+   * Commit all walkers from one immutable actor snapshot. Stable key ordering,
+   * continuous disc sweeps, and accepted-position checks make the result
+   * deterministic and preserve separation even when two walkers exchange
+   * places or reverse at the same endpoint.
+   */
+  private updatePedestrianMotion(nowSeconds: number): void {
+    const dt = Number.isFinite(this.lastPedestrianStep)
+      ? Math.max(0, Math.min(0.2, nowSeconds - this.lastPedestrianStep))
+      : 0;
+    this.lastPedestrianStep = nowSeconds;
+    const count = this.pedestrianOrder.length;
+    this.pedestrianBlockingTraffic.length = 0;
+    this.pedestrianBlockingTraffic.push(
+      ...this.busTrafficObstacles,
+      ...this.staticVehicleObstacles,
+    );
+    for (const vehicle of this.trafficVehicles) {
+      this.pedestrianBlockingTraffic.push(this.trafficFootprint(vehicle));
+    }
+    const trafficCellSize = 12;
+    this.pedestrianTrafficCells.clear();
+    for (const body of this.pedestrianBlockingTraffic) {
+      const cellKey = `${Math.floor(body.x / trafficCellSize)}:${Math.floor(body.z / trafficCellSize)}`;
+      const cell = this.pedestrianTrafficCells.get(cellKey);
+      if (cell) cell.push(body);
+      else this.pedestrianTrafficCells.set(cellKey, [body]);
+    }
+
+    const pedestrianCellSize = 1.6;
+    this.pedestrianCollisionCells.clear();
+    for (let index = 0; index < count; index++) {
+      const sample = this.pedestrianSample(this.pedestrianOrder[index]);
+      this.pedestrianCurrentX[index] = sample.x;
+      this.pedestrianCurrentZ[index] = sample.z;
+      this.pedestrianAcceptedX[index] = sample.x;
+      this.pedestrianAcceptedZ[index] = sample.z;
+      const cellKey = `${Math.floor(sample.x / pedestrianCellSize)}:${Math.floor(sample.z / pedestrianCellSize)}`;
+      const cell = this.pedestrianCollisionCells.get(cellKey);
+      if (cell) cell.push(index);
+      else this.pedestrianCollisionCells.set(cellKey, [index]);
+    }
+    if (!(dt > 0)) {
+      this.refreshPedestrianObstacles();
+      this.refreshPedestrianMotions();
+      return;
+    }
+
+    for (let index = 0; index < count; index++) {
+      const pedestrian = this.pedestrianOrder[index];
+      const next = advancePedestrianProgress(
+        pedestrian.distance,
+        pedestrian.direction,
+        pedestrian.speed * dt,
+        pedestrian.segment.length,
+      );
+      const laneTarget = pedestrianLaneOffset(
+        next.direction,
+        pedestrian.side,
+        PEDESTRIAN_LANE_SEPARATION,
+      );
+      const nextLaneOffset = pedestrian.laneOffset
+        + (laneTarget - pedestrian.laneOffset) * Math.min(1, dt * 4);
+      const proposal = this.pedestrianSampleAt(
+        pedestrian,
+        next.distance,
+        next.direction,
+        nextLaneOffset,
+        this.pedestrianProposal,
+      );
+      const radius = PEDESTRIAN_RADIUS * pedestrian.scale;
+      this.nearbyPedestrianTraffic.length = 0;
+      const trafficCellX = Math.floor(
+        ((this.pedestrianCurrentX[index] + proposal.x) * 0.5)
+        / trafficCellSize,
+      );
+      const trafficCellZ = Math.floor(
+        ((this.pedestrianCurrentZ[index] + proposal.z) * 0.5)
+        / trafficCellSize,
+      );
+      for (let cellZ = trafficCellZ - 1; cellZ <= trafficCellZ + 1; cellZ++) {
+        for (let cellX = trafficCellX - 1; cellX <= trafficCellX + 1; cellX++) {
+          const cell = this.pedestrianTrafficCells.get(`${cellX}:${cellZ}`);
+          if (cell) this.nearbyPedestrianTraffic.push(...cell);
+        }
+      }
+      let blocked = pedestrianStepHitsTraffic(
+        this.pedestrianCurrentX[index],
+        this.pedestrianCurrentZ[index],
+        proposal.x,
+        proposal.z,
+        radius,
+        this.nearbyPedestrianTraffic,
+        PEDESTRIAN_CLEARANCE,
+      );
+      if (!blocked) {
+        const pedestrianStart = this.pedestrianMotionBody(
+          pedestrian,
+          this.pedestrianCurrentX[index],
+          this.pedestrianCurrentZ[index],
+        );
+        const pedestrianEnd = this.pedestrianMotionBody(
+          pedestrian,
+          proposal.x,
+          proposal.z,
+        );
+        blocked = this.busTrafficMotions.some((motion) => (
+          trafficPairMotionsConflict(
+            pedestrianStart,
+            pedestrianEnd,
+            motion.start,
+            motion.end,
+            PEDESTRIAN_CLEARANCE,
+          )
+        ));
+      }
+      if (!blocked) {
+        const minCellX = Math.floor(
+          Math.min(this.pedestrianCurrentX[index], proposal.x)
+          / pedestrianCellSize,
+        ) - 1;
+        const maxCellX = Math.floor(
+          Math.max(this.pedestrianCurrentX[index], proposal.x)
+          / pedestrianCellSize,
+        ) + 1;
+        const minCellZ = Math.floor(
+          Math.min(this.pedestrianCurrentZ[index], proposal.z)
+          / pedestrianCellSize,
+        ) - 1;
+        const maxCellZ = Math.floor(
+          Math.max(this.pedestrianCurrentZ[index], proposal.z)
+          / pedestrianCellSize,
+        ) + 1;
+        pedestrianPairs:
+        for (let cellZ = minCellZ; cellZ <= maxCellZ; cellZ++) {
+          for (let cellX = minCellX; cellX <= maxCellX; cellX++) {
+            const cell = this.pedestrianCollisionCells.get(`${cellX}:${cellZ}`);
+            if (!cell) continue;
+            for (const other of cell) {
+              if (other === index) continue;
+              const otherPedestrian = this.pedestrianOrder[other];
+              if (pedestrianSweepsOverlap(
+                this.pedestrianCurrentX[index],
+                this.pedestrianCurrentZ[index],
+                proposal.x,
+                proposal.z,
+                radius,
+                this.pedestrianCurrentX[other],
+                this.pedestrianCurrentZ[other],
+                other < index
+                  ? this.pedestrianAcceptedX[other]
+                  : this.pedestrianCurrentX[other],
+                other < index
+                  ? this.pedestrianAcceptedZ[other]
+                  : this.pedestrianCurrentZ[other],
+                PEDESTRIAN_RADIUS * otherPedestrian.scale,
+                PEDESTRIAN_CLEARANCE,
+              )) {
+                blocked = true;
+                break pedestrianPairs;
+              }
+            }
+          }
+        }
+      }
+      if (blocked) continue;
+      pedestrian.distance = next.distance;
+      pedestrian.direction = next.direction;
+      pedestrian.laneOffset = nextLaneOffset;
+      this.pedestrianAcceptedX[index] = proposal.x;
+      this.pedestrianAcceptedZ[index] = proposal.z;
+    }
+    this.refreshPedestrianObstacles();
+    this.refreshPedestrianMotions();
+  }
+
+  private updateNearPedestrians(): void {
     const phases = this.pedestriansNear.geometry.getAttribute('instancePhase');
     const skinPhases = this.pedestrianSkin.geometry.getAttribute('instancePhase');
     for (let i = 0; i < this.peopleNear.length; i++) {
       const pedestrian = this.peopleNear[i];
-      const sample = this.pedestrianSample(pedestrian, nowSeconds);
+      const sample = this.pedestrianSample(pedestrian);
       const y = heightAt(sample.x, sample.z) + 0.04;
       this.yawQ.setFromAxisAngle(
         THREE.Object3D.DEFAULT_UP,
@@ -1768,10 +2267,10 @@ export class StreetLife {
     this.contactShadows.instanceMatrix.needsUpdate = true;
   }
 
-  private updateFarPedestrians(camX: number, camZ: number, nowSeconds: number): void {
+  private updateFarPedestrians(): void {
     for (let i = 0; i < this.peopleFar.length; i++) {
       const pedestrian = this.peopleFar[i];
-      const sample = this.pedestrianSample(pedestrian, nowSeconds);
+      const sample = this.pedestrianSample(pedestrian);
       const y = heightAt(sample.x, sample.z) + 0.04;
       const yaw = Math.atan2(-sample.dz, sample.dx);
       this.yawQ.setFromAxisAngle(THREE.Object3D.DEFAULT_UP, yaw);

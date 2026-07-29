@@ -2004,7 +2004,12 @@ export class World {
       this.bikes.update(this.pos.x, this.pos.z, dt);
       this.recordBenchmarkPhase('bikes', phaseAt);
       phaseAt = this.benchmarkActive ? performance.now() : 0;
-      this.buses.update(this.pos.x, this.pos.z, dt);
+      this.buses.update(
+        this.pos.x,
+        this.pos.z,
+        dt,
+        this.streetLife.actorObstacles,
+      );
       this.recordBenchmarkPhase('buses', phaseAt);
       phaseAt = this.benchmarkActive ? performance.now() : 0;
       this.tram.update(this.pos.x, this.pos.z, dt);
@@ -2019,7 +2024,7 @@ export class World {
         () => this.tiles.roadPathsNear(this.pos.x, this.pos.z, 1),
         performance.now() / 1000,
         this.tiles.roadNetworkRevision,
-        this.buses.trafficObstacles(),
+        this.buses.trafficMotions(),
       );
       this.recordBenchmarkPhase('streetLife', phaseAt);
 
@@ -2151,7 +2156,12 @@ export class World {
     } else if (this.mode === 'bus' && this.busRide) {
       const h = this.busRide;
       // the world streams around the MOVING bus — that's the whole ride view
-      this.buses.update(h.pos.x, h.pos.z, dt);
+      this.buses.update(
+        h.pos.x,
+        h.pos.z,
+        dt,
+        this.streetLife.actorObstacles,
+      );
       if (!h.active) {
         // the run ended out from under us (terminal auto-exit should catch it
         // first) — step off right where the bus vanished, no fade
@@ -2184,7 +2194,7 @@ export class World {
           () => this.tiles.roadPathsNear(this.pos.x, this.pos.z, 1),
           performance.now() / 1000,
           this.tiles.roadNetworkRevision,
-          this.buses.trafficObstacles(),
+          this.buses.trafficMotions(),
         );
         this.hoodTimer -= dt;
         if (this.hoodTimer <= 0) {

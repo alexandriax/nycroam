@@ -18,10 +18,24 @@ import {
   smoothDensityFalloff,
 } from '../../src/engine/population/densityKernel.ts';
 import {
+  findTrafficLateralEscape,
+  resolveTrafficMotionTransactions,
   trafficFootprintsOverlap,
+  trafficForwardClearance,
+  trafficLateralEscape,
+  trafficMotionConflicts,
+  trafficPairMotionsConflict,
+  trafficPairKey,
   trafficSweptConflict,
   yieldsTo,
 } from '../../src/engine/population/trafficSafety.ts';
+import {
+  advancePedestrianProgress,
+  pedestrianLaneOffset,
+  pedestrianStepHitsTraffic,
+  pedestrianSweepsOverlap,
+  pedestrianTrafficOverlap,
+} from '../../src/engine/population/pedestrianSafety.ts';
 import { buildVehicleBodyGeometry } from '../../src/engine/population/vehicleGeometry.ts';
 import {
   buildCyclistGeometry,
@@ -74,6 +88,16 @@ test('population ceilings are explicit and remain below the street budget', () =
     ),
     { low: 470, medium: 978, high: 1622, ultra: 2272 },
   );
+  assert.deepEqual(
+    Object.fromEntries(
+      Object.keys(POPULATION_BUDGETS).map((level) => [
+        level,
+        populationCeiling(level).dynamicMatrixWritesPerNearTick,
+      ]),
+    ),
+    { low: 142, medium: 284, high: 468, ultra: 648 },
+  );
+  assert.equal(populationCeiling('ultra').dynamicMatrixWritesPerFarTick, 0);
 });
 
 test('cyclist pool keeps a rounded riding silhouette in one bounded geometry', () => {
@@ -241,6 +265,602 @@ test('oriented traffic bodies prevent car, cross-traffic, and transit phasing', 
   assert.equal(yieldsTo(car, bus), true);
   assert.equal(yieldsTo(bus, car), false);
   assert.equal(yieldsTo(car, crossing), car.key > crossing.key);
+});
+
+test('continuous traffic SAT catches conflicts between old sample times', () => {
+  const a = {
+    key: 'car:a',
+    x: -7.4197958456,
+    z: 1.4020831953,
+    fx: 0.2164656637,
+    fz: -0.9762902317,
+    halfLength: 2.3,
+    halfWidth: 0.95,
+    speed: 7.0762880566,
+  };
+  const b = {
+    key: 'car:b',
+    x: -14.8721952341,
+    z: -3.6899288138,
+    fx: 0.9259713766,
+    fz: 0.37759371,
+    halfLength: 2.3,
+    halfWidth: 0.95,
+    speed: 6.7754101537,
+  };
+  const beforeA = { ...a };
+  const beforeB = { ...b };
+  assert.equal(trafficSweptConflict(a, b, 1.35), true);
+  assert.deepEqual(a, beforeA, 'swept SAT cannot mutate actor snapshots');
+  assert.deepEqual(b, beforeB, 'swept SAT cannot mutate actor snapshots');
+  assert.notEqual(
+    trafficPairKey(1, 1_048_578),
+    trafficPairKey(2, 2),
+    'large bus ids cannot alias a remembered separation pair',
+  );
+});
+
+test('committed traffic motion catches endpoint turns and routes around parked bodies', () => {
+  const start = {
+    key: 'car:turning',
+    x: -1.7,
+    z: -3.2,
+    fx: 1,
+    fz: 0,
+    halfLength: 2.3,
+    halfWidth: 0.94,
+    speed: 8,
+  };
+  const end = {
+    ...start,
+    x: 1.7,
+    z: 3.2,
+    fx: -1,
+    fz: 0,
+  };
+  const pedestrian = {
+    key: 'ped:crossing',
+    x: 0,
+    z: 0,
+    fx: 0,
+    fz: 1,
+    halfLength: 0.31,
+    halfWidth: 0.31,
+    speed: 0,
+    priority: true,
+  };
+  assert.equal(
+    trafficFootprintsOverlap(start, pedestrian, 0.18),
+    false,
+  );
+  assert.equal(
+    trafficFootprintsOverlap(end, pedestrian, 0.18),
+    false,
+  );
+  assert.equal(
+    trafficMotionConflicts(start, end, pedestrian, 0.18),
+    true,
+    'a lane reversal cannot tunnel through a pedestrian between clear endpoints',
+  );
+
+  const bus = {
+    key: 'bus:1',
+    x: 0,
+    z: 0,
+    fx: 1,
+    fz: 0,
+    halfLength: 6.1,
+    halfWidth: 1.35,
+    speed: 5,
+    priority: true,
+  };
+  const parked = {
+    key: 'parked:1',
+    x: 8,
+    z: 1.2,
+    fx: 1,
+    fz: 0,
+    halfLength: 2.3,
+    halfWidth: 0.94,
+    speed: 0,
+    priority: true,
+    immovable: true,
+  };
+  assert.ok(
+    trafficLateralEscape(bus, parked) < 0,
+    'a parked body on the right produces a leftward bus lane-change target',
+  );
+  assert.equal(
+    trafficLateralEscape(bus, { ...parked, immovable: false }),
+    0,
+    'moving actors remain longitudinal yielding conflicts, not lane geometry',
+  );
+  const leftCorridorCar = {
+    ...parked,
+    key: 'parked:left',
+    x: 8,
+    z: -2.42,
+  };
+  const rightCorridorCar = {
+    ...parked,
+    key: 'parked:right',
+    x: 9,
+    z: 2.42,
+  };
+  assert.equal(trafficLateralEscape(bus, leftCorridorCar), 0);
+  assert.equal(trafficLateralEscape(bus, rightCorridorCar), 0);
+  assert.equal(
+    trafficForwardClearance(bus, leftCorridorCar, 0.08),
+    null,
+  );
+  assert.equal(
+    trafficForwardClearance(bus, rightCorridorCar, 0.08),
+    null,
+    'a bus preserves a centered corridor with exact two-sided clearance',
+  );
+
+  const turningBusStart = {
+    ...bus,
+    x: 0,
+    z: 0,
+    fx: 1,
+    fz: 0,
+  };
+  const turnYaw = 13.5 * Math.PI / 180;
+  const turningBusEnd = {
+    ...turningBusStart,
+    x: 0.7,
+    z: 0.7,
+    fx: Math.cos(turnYaw),
+    fz: -Math.sin(turnYaw),
+  };
+  const outerCornerCar = {
+    ...parked,
+    key: 'parked:outer-corner',
+    x: -3.925,
+    z: 2.55,
+  };
+  assert.equal(
+    trafficMotionConflicts(
+      turningBusStart,
+      turningBusEnd,
+      outerCornerCar,
+      0.08,
+    ),
+    true,
+  );
+  const evasive = findTrafficLateralEscape(
+    turningBusStart,
+    turningBusEnd,
+    [outerCornerCar],
+    0.4,
+    0.08,
+  );
+  assert.ok(evasive);
+  assert.equal(evasive.heldRoute, true);
+  assert.equal(
+    trafficMotionConflicts(
+      turningBusStart,
+      evasive.end,
+      outerCornerCar,
+      0.08,
+    ),
+    false,
+    'a blocked tail swing can make a bounded lateral-only escape',
+  );
+});
+
+test('sequential traffic transactions close rollback chains to a safe fixed state', () => {
+  const body = (key, z) => ({
+    key,
+    x: 0,
+    z,
+    fx: 1,
+    fz: 0,
+    halfLength: 2.3,
+    halfWidth: 0.94,
+    speed: 5,
+  });
+  // Deliberately provide reverse array order. C's proposal is blocked by the
+  // fixed body; A must then see C's restored start, and B must see A's restored
+  // start. A fixed two-pass iterator left B stacked on A in this exact chain.
+  const starts = [
+    body('car:2', -5),
+    body('car:1', -2.5),
+    body('car:0', 0),
+  ];
+  const ends = [
+    body('car:2', -2.5),
+    body('car:1', 0),
+    body('car:0', 2.5),
+  ];
+  const fixed = [{
+    ...body('parked:blocker', 2.5),
+    speed: 0,
+    priority: true,
+    immovable: true,
+  }];
+  assert.deepEqual(
+    [...resolveTrafficMotionTransactions(starts, ends, fixed)],
+    [1, 1, 1],
+  );
+});
+
+test('synchronized turning bodies cannot cross between clear endpoints', () => {
+  const carAStart = {
+    key: 'car:z',
+    x: 0,
+    z: 0,
+    fx: -0.34266545057553005,
+    fz: 0.9394574971662469,
+    halfLength: 2.3,
+    halfWidth: 0.94,
+    speed: 4.235201541334391,
+  };
+  const carAEnd = {
+    ...carAStart,
+    x: -0.4516084939185256,
+    z: 0.6739295542400623,
+    fx: -0.7965235114083169,
+    fz: 0.6046075551742344,
+  };
+  const carBStart = {
+    key: 'car:a',
+    x: 4.2367981195922075,
+    z: -0.032770313418475826,
+    fx: 0.9612843804411594,
+    fz: 0.2755582332645067,
+    halfLength: 2.3,
+    halfWidth: 0.94,
+    speed: 3.2062693550251424,
+  };
+  const carBEnd = {
+    ...carBStart,
+    x: 4.306226918867602,
+    z: 0.036170600615641986,
+    fx: 0.36809109927518224,
+    fz: 0.9297897303339008,
+  };
+  assert.equal(
+    trafficFootprintsOverlap(carAStart, carBStart, 0.12),
+    false,
+  );
+  assert.equal(
+    trafficFootprintsOverlap(carAEnd, carBEnd, 0.12),
+    false,
+  );
+  assert.equal(
+    trafficPairMotionsConflict(
+      carAStart,
+      carAEnd,
+      carBStart,
+      carBEnd,
+      0.12,
+    ),
+    true,
+  );
+  assert.ok(
+    [...resolveTrafficMotionTransactions(
+      [carAStart, carBStart],
+      [carAEnd, carBEnd],
+      [],
+    )].some(Boolean),
+    'one synchronized car proposal must yield',
+  );
+
+  const busAStart = {
+    key: 'bus:a',
+    x: 0,
+    z: 0,
+    fx: 0.9857607807896446,
+    fz: 0.16815374826922602,
+    halfLength: 6.1,
+    halfWidth: 1.35,
+    speed: 5,
+    priority: true,
+  };
+  const busAEnd = {
+    ...busAStart,
+    x: 1.464848027543334,
+    z: 0.9467898738526568,
+    fx: 0.9199481553475183,
+    fz: 0.392040038099042,
+  };
+  const busBStart = {
+    key: 'bus:b',
+    x: -5.062957670614499,
+    z: -9.432095378900291,
+    fx: -0.08841928973250265,
+    fz: -0.9960833445064724,
+    halfLength: 6.1,
+    halfWidth: 1.35,
+    speed: 5,
+    priority: true,
+  };
+  const busBEnd = {
+    ...busBStart,
+    x: -5.366389722772262,
+    z: -8.382450772234545,
+    fx: 0.30083779728563653,
+    fz: -0.9536753219646225,
+  };
+  assert.equal(
+    trafficPairMotionsConflict(
+      busAStart,
+      busAEnd,
+      busBStart,
+      busBEnd,
+      0.08,
+    ),
+    true,
+    'synchronized bus turns cannot pass through one another',
+  );
+});
+
+test('rotating traffic sweeps inflate samples enough to catch thin pedestrians', () => {
+  const start = {
+    key: 'car:rotating',
+    x: 1.2577549918,
+    z: 1.5719351005,
+    fx: -0.8524800276,
+    fz: 0.5227597944,
+    halfLength: 2.3,
+    halfWidth: 0.94,
+    speed: 4,
+  };
+  const end = {
+    ...start,
+    x: 1.2527256879,
+    z: 1.6161071987,
+    fx: -0.9166398457,
+    fz: 0.3997141394,
+  };
+  const pedestrian = {
+    key: 'ped:thin',
+    x: -1.6572145205,
+    z: 2.0414264401,
+    fx: 1,
+    fz: 0,
+    halfLength: 0.31,
+    halfWidth: 0.31,
+    speed: 0,
+    priority: true,
+  };
+  assert.equal(
+    trafficMotionConflicts(start, end, pedestrian, 0.12),
+    true,
+  );
+});
+
+test('rotating traffic sweeps preserve valid bend-away clearance', () => {
+  const start = {
+    key: 'car:bend-away',
+    x: 0,
+    z: 0,
+    fx: 1,
+    fz: 0,
+    halfLength: 2.3,
+    halfWidth: 0.94,
+    speed: 3,
+  };
+  const end = {
+    ...start,
+    z: -0.5,
+    fx: Math.cos(-0.12),
+    fz: Math.sin(-0.12),
+  };
+  const parked = {
+    key: 'parked:nearby',
+    x: 0,
+    z: 2.18,
+    fx: 1,
+    fz: 0,
+    halfLength: 2.3,
+    halfWidth: 0.94,
+    speed: 0,
+    priority: true,
+    immovable: true,
+  };
+  assert.equal(trafficFootprintsOverlap(start, parked, 0.18), false);
+  assert.equal(trafficFootprintsOverlap(end, parked, 0.18), false);
+  assert.equal(
+    trafficMotionConflicts(start, end, parked, 0.18),
+    false,
+    'conservative rotation inflation must not permanently block a safe turn away',
+  );
+});
+
+test('bus, pedestrian, and car motion snapshots close cross-system sweeps', () => {
+  const carStart = {
+    key: 'car',
+    x: 0,
+    z: 0,
+    fx: 0.6625088263903288,
+    fz: 0.7490541068273434,
+    halfLength: 2.3,
+    halfWidth: 0.94,
+    speed: 3.731988565530628,
+  };
+  const carEnd = {
+    ...carStart,
+    x: 0.4662167097764804,
+    z: 0.17397565303003526,
+    fx: 0.9814248637284945,
+    fz: -0.1918469099451591,
+  };
+  const pedestrianStart = {
+    key: 'ped',
+    x: -2.6285226326435804,
+    z: 0.2534427270293236,
+    fx: 1,
+    fz: 0,
+    halfLength: 0.31,
+    halfWidth: 0.31,
+    speed: 1.6144840238150209,
+    priority: true,
+  };
+  const pedestrianEnd = {
+    ...pedestrianStart,
+    x: -2.8435189073651075,
+    z: 0.3152184260359938,
+  };
+  assert.equal(
+    trafficPairMotionsConflict(
+      carStart,
+      carEnd,
+      pedestrianStart,
+      pedestrianEnd,
+      0.18,
+    ),
+    true,
+  );
+  assert.deepEqual(
+    [...resolveTrafficMotionTransactions(
+      [carStart],
+      [carEnd],
+      [],
+      [{ start: pedestrianStart, end: pedestrianEnd }],
+    )],
+    [1],
+    'a car must see the pedestrian motion committed earlier in StreetLife',
+  );
+
+  const busStart = {
+    key: 'bus',
+    x: 0,
+    z: 0,
+    fx: -0.8131617172,
+    fz: 0.5820378181,
+    halfLength: 6.1,
+    halfWidth: 1.35,
+    speed: 3.5,
+    priority: true,
+  };
+  const busEnd = {
+    ...busStart,
+    x: 0.8298605301,
+    z: -0.4639230007,
+    fx: -0.6519318627,
+    fz: 0.7582775524,
+  };
+  const walkerStart = {
+    key: 'ped:bus',
+    x: -2.4621019403,
+    z: 5.6154716141,
+    fx: 1,
+    fz: 0,
+    halfLength: 0.31,
+    halfWidth: 0.31,
+    speed: 1.4,
+    priority: true,
+  };
+  const walkerEnd = {
+    ...walkerStart,
+    x: -2.6540197829,
+    z: 5.1361153054,
+  };
+  assert.equal(
+    trafficPairMotionsConflict(
+      walkerStart,
+      walkerEnd,
+      busStart,
+      busEnd,
+      0.08,
+    ),
+    true,
+    'a pedestrian must see the bus motion already committed this frame',
+  );
+});
+
+test('pedestrian progress, lanes and sweeps prevent walker phasing', () => {
+  const upperBounce = advancePedestrianProgress(9.8, 1, 0.4, 10);
+  assert.equal(upperBounce.direction, -1);
+  assert.ok(Math.abs(upperBounce.distance - 9.8) < 1e-9);
+  const lowerBounce = advancePedestrianProgress(0.1, -1, 0.4, 10);
+  assert.equal(lowerBounce.direction, 1);
+  assert.ok(Math.abs(lowerBounce.distance - 0.3) < 1e-9);
+  assert.equal(pedestrianLaneOffset(1, 1), 0.39);
+  assert.equal(pedestrianLaneOffset(-1, 1), -0.39);
+  assert.equal(pedestrianLaneOffset(1, -1), -0.39);
+  assert.equal(
+    pedestrianSweepsOverlap(
+      -0.5, 0, 0.5, 0, 0.31,
+      0.5, 0, -0.5, 0, 0.31,
+      0.08,
+    ),
+    true,
+    'walkers cannot swap positions through one another',
+  );
+  assert.equal(
+    pedestrianSweepsOverlap(
+      -0.5, -0.39, 0.5, -0.39, 0.31 * 1.06,
+      0.5, 0.39, -0.5, 0.39, 0.31 * 1.06,
+      0.08,
+    ),
+    false,
+    'opposite keep-right lanes retain passing clearance',
+  );
+});
+
+test('pedestrian, car and bus footprints share exact contact geometry', () => {
+  const bus = {
+    key: 'bus:1',
+    x: 0,
+    z: 0,
+    fx: 1,
+    fz: 0,
+    halfLength: 6.1,
+    halfWidth: 1.35,
+    speed: 0,
+    priority: true,
+  };
+  assert.equal(pedestrianTrafficOverlap(0, 1.5, 0.31, bus, 0.08), true);
+  assert.equal(pedestrianTrafficOverlap(0, 1.8, 0.31, bus, 0.08), false);
+  assert.equal(
+    pedestrianStepHitsTraffic(-7, 0, -5.5, 0, 0.31, [bus], 0.08),
+    true,
+    'a pedestrian step cannot enter a bus body',
+  );
+  assert.equal(
+    pedestrianStepHitsTraffic(
+      -2.7772550516,
+      0.6708976096,
+      -2.6202347097,
+      1.1244314018,
+      0.2852,
+      [{
+        key: 'car:corner',
+        x: 0,
+        z: 0,
+        fx: 1,
+        fz: 0,
+        halfLength: 2.3,
+        halfWidth: 0.94,
+        speed: 0,
+      }],
+      0.08,
+    ),
+    true,
+    'a short diagonal step cannot tunnel through a rounded vehicle corner',
+  );
+  const pedestrian = {
+    key: 'ped:1',
+    x: 8,
+    z: 0,
+    fx: 0,
+    fz: 1,
+    halfLength: 0.31,
+    halfWidth: 0.31,
+    speed: 1.2,
+    priority: true,
+  };
+  assert.ok(trafficForwardClearance(bus, pedestrian, 0.25) > 1);
+  pedestrian.z = 3;
+  assert.equal(
+    trafficForwardClearance(bus, pedestrian, 0.25),
+    null,
+    'a body outside the lane does not stop traffic',
+  );
 });
 
 test('one-way topology and open endpoints never create visible wraps', () => {
