@@ -126,6 +126,7 @@ export class TileManager {
   private lastSpatialAt = 0;
   private destroyed = false;
   private requestSequence = 0;
+  private roadRevision = 0;
   private readonly streamTelemetry = new TileStreamingTelemetry();
   private compile: ((g: THREE.Object3D) => Promise<void>) | null;
   loadRadius = 1100;
@@ -274,6 +275,11 @@ export class TileManager {
       }
     }
     return out;
+  }
+
+  /** Changes only when the resident immutable road topology changes. */
+  get roadNetworkRevision(): number {
+    return this.roadRevision;
   }
 
   /**
@@ -443,6 +449,7 @@ export class TileManager {
     for (const [key, rec] of this.records) {
       const cx = (rec.tx + 0.5) * TILE_SIZE, cz = (rec.tz + 0.5) * TILE_SIZE;
       if ((cx - camX) ** 2 + (cz - camZ) ** 2 > unloadRadiusSq) {
+        if (rec.roadPaths) this.roadRevision++;
         this.dispose(rec);
         this.records.delete(key);
       }
@@ -1043,7 +1050,9 @@ export class TileManager {
 
     // Base owns immutable collision and road topology. Near owns activity
     // anchors/furniture. Null delta fields never clear an earlier tier.
+    const installedRoadTopology = !rec.roadPaths && Boolean(res.roadPaths);
     retainTileResponseState(rec, res);
+    if (installedRoadTopology) this.roadRevision++;
     rec.state = 'ready';
     const tileCx = (rec.tx + 0.5) * TILE_SIZE;
     const tileCz = (rec.tz + 0.5) * TILE_SIZE;

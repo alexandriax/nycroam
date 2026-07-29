@@ -23,6 +23,29 @@ export function populationRebuildDistance(speedMps: number): number {
 }
 
 /**
+ * Population topology changes are debounced, spatial changes use hysteresis,
+ * and elapsed wall time alone is deliberately never a rebuild reason.
+ */
+export function populationRebuildRequired(
+  movedSq: number,
+  rebuildDistance: number,
+  streamChanged: boolean,
+  secondsSinceBuild: number,
+): boolean {
+  if (!Number.isFinite(movedSq)) return true;
+  if (movedSq > rebuildDistance * rebuildDistance) return true;
+  return streamChanged && secondsSinceBuild >= 0.75;
+}
+
+/** A burst of tile/context mutations produces one placement rebuild after idle. */
+export function populationStreamSettled(
+  pendingStreamChange: boolean,
+  secondsSinceLastStreamChange: number,
+): boolean {
+  return pendingStreamChange && secondsSinceLastStreamChange >= 1.5;
+}
+
+/**
  * Hard population pool contracts. These are capacities, not targets: the
  * density field and available road geometry normally leave some slots empty.
  * Keeping them in a data-only module makes the performance ceiling testable.
@@ -87,10 +110,10 @@ export const POPULATION_BUDGETS: Record<QualityLevel, PopulationBudget> = {
 };
 
 /**
- * The renderer owns exactly these fourteen instanced color submissions. Shadow
+ * The renderer owns exactly these sixteen instanced color submissions. Shadow
  * maps add at most two submissions (vehicle body + near people) on High/Ultra.
  */
-export const POPULATION_COLOR_DRAW_CALLS = 14;
+export const POPULATION_COLOR_DRAW_CALLS = 16;
 export const POPULATION_MAX_SHADOW_DRAW_CALLS = 2;
 
 /**
@@ -99,13 +122,15 @@ export const POPULATION_MAX_SHADOW_DRAW_CALLS = 2;
  * changing a primitive cannot silently move the production budget.
  */
 export const POPULATION_TRIANGLES = {
-  vehicleBody: 12,
+  vehicleBody: 92,
   vehicleCabin: 12,
-  vehicleWheels: 128,
+  vehicleWheels: 192,
+  vehicleDetails: 244,
   lamp: 52,
   signal: 72,
-  pedestrianNear: 48,
-  pedestrianFar: 2,
+  pedestrianNear: 164,
+  pedestrianSkin: 152,
+  pedestrianFar: 84,
   contactShadow: 12,
   cyclist: 168,
   activity: 100,
@@ -134,26 +159,29 @@ export function populationCeiling(level: QualityLevel): PopulationCeiling {
         POPULATION_TRIANGLES.vehicleBody
         + POPULATION_TRIANGLES.vehicleCabin
         + POPULATION_TRIANGLES.vehicleWheels
+        + POPULATION_TRIANGLES.vehicleDetails
       )
       + b.lamps * POPULATION_TRIANGLES.lamp
       + b.signals * POPULATION_TRIANGLES.signal
       + b.pedestriansNear * POPULATION_TRIANGLES.pedestrianNear
+      + b.pedestriansNear * POPULATION_TRIANGLES.pedestrianSkin
       + b.pedestriansFar * POPULATION_TRIANGLES.pedestrianFar
       + contactShadows * POPULATION_TRIANGLES.contactShadow
       + b.cyclists * POPULATION_TRIANGLES.cyclist
       + b.activities * POPULATION_TRIANGLES.activity,
-    // body + cabin + 4 wheels, one near-person matrix, one cyclist and its
-    // contact blob. Parked matrices remain untouched between rebuilds.
+    // body + cabin + detail kit + 4 wheels, clothing + skin matrices for each
+    // near person, and one cyclist plus its contact blob. Parked matrices
+    // remain untouched between rebuilds.
     dynamicMatrixWritesPerNearTick:
-      b.movingVehicles * 7 + b.pedestriansNear * 2 + b.cyclists * 2,
+      b.movingVehicles * 8 + b.pedestriansNear * 3 + b.cyclists * 2,
     // One billboard transform for each far pedestrian.
     dynamicMatrixWritesPerFarTick: b.pedestriansFar,
     matrixWritesPerRebuild:
-      vehicles * 7
+      vehicles * 8
       + b.lamps * 3
       + b.signals * 3
       + b.activities
-      + b.pedestriansNear * 2
+      + b.pedestriansNear * 3
       + b.pedestriansFar
       + b.cyclists * 2,
   };

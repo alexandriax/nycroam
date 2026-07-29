@@ -40,7 +40,10 @@ interface BusesContextJson {
   stops?: Record<string, { p: [number, number]; r?: string[] }>;
 }
 
-const CELL_SIZE = 160;
+// Five 96m cells cover the field's widest 190m influence diameter from any
+// point in the center cell, without pulling in the much larger 800m×800m
+// neighborhood produced by the previous 160m grid.
+const CELL_SIZE = 96;
 
 function cellKey(x: number, z: number): string {
   return `${Math.floor(x / CELL_SIZE)}:${Math.floor(z / CELL_SIZE)}`;
@@ -181,19 +184,35 @@ export class PopulationDensityField {
         const cell = this.cells.get(`${cx + dx}:${cz + dz}`);
         if (!cell) continue;
         for (const anchor of cell) {
-          const distance = Math.hypot(anchor.x - x, anchor.z - z);
+          const offsetX = anchor.x - x;
+          const offsetZ = anchor.z - z;
+          const distanceSq = offsetX * offsetX + offsetZ * offsetZ;
+          const radius = anchor.kind === 'station'
+            ? 150
+            : anchor.kind === 'bus'
+              ? 85
+              : anchor.kind === 'landmark'
+                ? 190
+                : anchor.kind === 'park'
+                  ? 135
+                  : anchor.kind === 'bike' ? 100 : 120;
+          if (distanceSq >= radius * radius) continue;
+          const influence = anchor.weight * smoothDensityFalloff(
+            Math.sqrt(distanceSq),
+            radius,
+          );
           if (anchor.kind === 'station') {
-            station = Math.max(station, anchor.weight * smoothDensityFalloff(distance, 150));
+            station = Math.max(station, influence);
           } else if (anchor.kind === 'bus') {
-            station = Math.max(station, anchor.weight * smoothDensityFalloff(distance, 85));
+            station = Math.max(station, influence);
           } else if (anchor.kind === 'landmark') {
-            landmark = Math.max(landmark, anchor.weight * smoothDensityFalloff(distance, 190));
+            landmark = Math.max(landmark, influence);
           } else if (anchor.kind === 'park') {
-            park = Math.max(park, anchor.weight * smoothDensityFalloff(distance, 135));
+            park = Math.max(park, influence);
           } else if (anchor.kind === 'bike') {
-            bike = Math.max(bike, anchor.weight * smoothDensityFalloff(distance, 100));
+            bike = Math.max(bike, influence);
           } else {
-            landmark = Math.max(landmark, anchor.weight * smoothDensityFalloff(distance, 120));
+            landmark = Math.max(landmark, influence);
           }
         }
       }
@@ -208,7 +227,7 @@ export class PopulationDensityField {
     kinds: readonly DensityAnchorKind[],
     maxDistance: number,
   ): number {
-    let best = maxDistance;
+    let bestSq = maxDistance * maxDistance;
     const cellRadius = Math.max(1, Math.ceil(maxDistance / CELL_SIZE));
     const cx = Math.floor(x / CELL_SIZE);
     const cz = Math.floor(z / CELL_SIZE);
@@ -218,11 +237,13 @@ export class PopulationDensityField {
         if (!cell) continue;
         for (const anchor of cell) {
           if (!kinds.includes(anchor.kind)) continue;
-          const distance = Math.hypot(anchor.x - x, anchor.z - z);
-          if (distance < best) best = distance;
+          const offsetX = anchor.x - x;
+          const offsetZ = anchor.z - z;
+          const distanceSq = offsetX * offsetX + offsetZ * offsetZ;
+          if (distanceSq < bestSq) bestSq = distanceSq;
         }
       }
     }
-    return best;
+    return Math.sqrt(bestSq);
   }
 }

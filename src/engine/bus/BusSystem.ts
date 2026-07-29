@@ -13,6 +13,7 @@ import {
   type BusHud,
   type BusArrival,
 } from './types';
+import type { TrafficFootprint } from '../population/trafficSafety';
 
 /**
  * Bus network simulation + street-level manager.
@@ -1264,6 +1265,33 @@ export class BusSystem {
           out.push({ x: _pt.x, z: _pt.z, color: rt.color });
         }
       }
+    }
+    return out;
+  }
+
+  /**
+   * Rendered nearby buses as physical traffic obstacles. StreetLife consumes
+   * this already-streamed set rather than scanning the island-wide timetable,
+   * so cars yield to the exact smoothed bus bodies the player can see.
+   */
+  trafficObstacles(): TrafficFootprint[] {
+    const out: TrafficFootprint[] = [];
+    for (const mb of this.meshed.values()) {
+      if (!mb.init || !mb.model.group.visible) continue;
+      out.push({
+        key: `bus:${mb.key}`,
+        x: mb.model.group.position.x,
+        z: mb.model.group.position.z,
+        fx: Math.cos(mb.yaw),
+        fz: -Math.sin(mb.yaw),
+        halfLength: BUS.length * 0.5,
+        halfWidth: BUS.width * 0.5,
+        // Timetable speeds are conservative here: a car begins yielding before
+        // the swept volumes meet, while the exact current rectangle still
+        // protects a dwelling bus.
+        speed: SPEED_LOCAL,
+        priority: true,
+      });
     }
     return out;
   }

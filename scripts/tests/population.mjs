@@ -4,6 +4,8 @@ import {
   POPULATION_BUDGETS,
   populationCeiling,
   populationRebuildDistance,
+  populationRebuildRequired,
+  populationStreamSettled,
 } from '../../src/engine/population/budgets.ts';
 import {
   advanceLaneProgress,
@@ -15,6 +17,11 @@ import {
   populationAnchorKey,
   smoothDensityFalloff,
 } from '../../src/engine/population/densityKernel.ts';
+import {
+  trafficFootprintsOverlap,
+  trafficSweptConflict,
+  yieldsTo,
+} from '../../src/engine/population/trafficSafety.ts';
 
 function path(kind, width, points, flags = 0) {
   return {
@@ -35,17 +42,17 @@ test('population ceilings are explicit and remain below the street budget', () =
       ]),
     ),
     {
-      low: 10036,
-      medium: 20940,
-      high: 35092,
-      ultra: 49528,
+      low: 30884,
+      medium: 65172,
+      high: 108688,
+      ultra: 152728,
     },
   );
   for (const level of Object.keys(POPULATION_BUDGETS)) {
     const ceiling = populationCeiling(level);
-    assert.equal(ceiling.colorDrawCalls, 14);
+    assert.equal(ceiling.colorDrawCalls, 16);
     assert.ok(ceiling.shadowDrawCalls <= 2);
-    assert.ok(ceiling.triangles < 55_000);
+    assert.ok(ceiling.triangles < 160_000);
   }
   assert.deepEqual(
     Object.fromEntries(
@@ -54,7 +61,7 @@ test('population ceilings are explicit and remain below the street budget', () =
         populationCeiling(level).matrixWritesPerRebuild,
       ]),
     ),
-    { low: 416, medium: 862, high: 1428, ultra: 2000 },
+    { low: 470, medium: 978, high: 1622, ultra: 2272 },
   );
 });
 
@@ -62,6 +69,44 @@ test('population rebuild cadence preserves walking detail and amortizes fast tra
   assert.equal(populationRebuildDistance(5), 36);
   assert.equal(populationRebuildDistance(22), 82);
   assert.equal(populationRebuildDistance(130), 260);
+  assert.equal(populationRebuildRequired(Number.NaN, 36, false, 0), true);
+  assert.equal(populationRebuildRequired(0, 36, false, 300), false);
+  assert.equal(populationRebuildRequired(0, 36, true, 0.74), false);
+  assert.equal(populationRebuildRequired(0, 36, true, 0.75), true);
+  assert.equal(populationRebuildRequired(37 ** 2, 36, false, 0.1), true);
+  assert.equal(populationStreamSettled(true, 1.49), false);
+  assert.equal(populationStreamSettled(true, 1.5), true);
+  assert.equal(populationStreamSettled(false, 20), false);
+});
+
+test('oriented traffic bodies prevent car, cross-traffic, and transit phasing', () => {
+  const car = {
+    key: 'car:b', x: 0, z: 0, fx: 1, fz: 0,
+    halfLength: 2.3, halfWidth: 0.95, speed: 9,
+  };
+  const leader = {
+    key: 'car:a', x: 4.2, z: 0, fx: 1, fz: 0,
+    halfLength: 2.3, halfWidth: 0.95, speed: 0,
+  };
+  assert.equal(trafficFootprintsOverlap(car, leader), true);
+  leader.x = 5;
+  assert.equal(trafficFootprintsOverlap(car, leader), false);
+
+  const crossing = {
+    key: 'car:c', x: 8, z: -8, fx: 0, fz: 1,
+    halfLength: 2.3, halfWidth: 0.95, speed: 9,
+  };
+  assert.equal(trafficSweptConflict(car, crossing), true);
+  crossing.x = 18;
+  assert.equal(trafficSweptConflict(car, crossing), false);
+
+  const bus = {
+    key: 'bus:1', x: 6, z: 0, fx: 1, fz: 0,
+    halfLength: 6.1, halfWidth: 1.35, speed: 0, priority: true,
+  };
+  assert.equal(yieldsTo(car, bus), true);
+  assert.equal(yieldsTo(bus, car), false);
+  assert.equal(yieldsTo(car, crossing), car.key > crossing.key);
 });
 
 test('one-way topology and open endpoints never create visible wraps', () => {

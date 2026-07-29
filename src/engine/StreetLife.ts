@@ -14,6 +14,8 @@ import {
   POPULATION_TRIANGLES,
   populationCeiling,
   populationRebuildDistance,
+  populationRebuildRequired,
+  populationStreamSettled,
   type PopulationBudget,
 } from './population/budgets';
 import {
@@ -30,6 +32,12 @@ import {
   type RouteSample,
   type RoadGraph,
 } from './population/roadGraph';
+import {
+  trafficFootprintsOverlap,
+  trafficSweptConflict,
+  yieldsTo,
+  type TrafficFootprint,
+} from './population/trafficSafety';
 
 type VehicleKind = 'sedan' | 'suv' | 'van' | 'taxi';
 
@@ -47,6 +55,7 @@ interface TrafficState {
 }
 
 interface VehiclePlacement {
+  key: string;
   x: number;
   z: number;
   yaw: number;
@@ -57,12 +66,15 @@ interface VehiclePlacement {
 }
 
 interface PedestrianPlacement {
+  key: string;
   segment: GraphSegment;
   distance: number;
   speed: number;
   side: -1 | 1;
   phase: number;
   color: THREE.Color;
+  skinColor: THREE.Color;
+  scale: number;
   shadowIndex: number;
 }
 
@@ -125,6 +137,9 @@ const PERSON_COLORS = [
   0x24324a, 0x4b2634, 0x6a5842, 0x293b31, 0xbab3a7,
   0x8f3b32, 0x31577a, 0xd0a442, 0x222326, 0x6b5a79,
 ];
+const SKIN_COLORS = [
+  0xf2c7a5, 0xdca47b, 0xb87955, 0x8a5438, 0x5d3528, 0x3d261f,
+];
 const ACTIVITY_COLORS = [0xd94938, 0xf2c744, 0x2a7f62, 0x3567a5, 0xe7e0cc];
 const FUNCTIONAL_ANCHORS: readonly DensityAnchorKind[] = ['station', 'bus', 'bike'];
 const WHEEL_OFFSETS: ReadonlyArray<readonly [number, number]> = [
@@ -173,6 +188,37 @@ function trafficKey(route: LaneRoute, copyIndex: number): string {
   ].join(':');
 }
 
+function constrainTrafficSpeed(
+  footprint: TrafficFootprint,
+  obstacle: TrafficFootprint,
+  desired: number,
+): number {
+  if (obstacle === footprint || obstacle.key === footprint.key) return desired;
+  const dx = obstacle.x - footprint.x;
+  const dz = obstacle.z - footprint.z;
+  const along = dx * footprint.fx + dz * footprint.fz;
+  const lateral = Math.abs(dx * -footprint.fz + dz * footprint.fx);
+  const headingDot = footprint.fx * obstacle.fx + footprint.fz * obstacle.fz;
+  if (
+    along > 0
+    && along < footprint.halfLength + obstacle.halfLength + 11
+    && lateral < footprint.halfWidth + obstacle.halfWidth + 0.8
+    && headingDot > 0.45
+  ) {
+    return Math.min(
+      desired,
+      obstacle.speed * Math.max(
+        0,
+        (along - footprint.halfLength - obstacle.halfLength - 1.3) / 7,
+      ),
+    );
+  }
+  if (yieldsTo(footprint, obstacle) && trafficSweptConflict(footprint, obstacle)) {
+    return 0;
+  }
+  return desired;
+}
+
 function triangleCount(geometry: THREE.BufferGeometry): number {
   return geometry.index
     ? geometry.index.count / 3
@@ -201,23 +247,182 @@ function placedBox(
   return geometry;
 }
 
+function placedCylinder(
+  radiusTop: number,
+  radiusBottom: number,
+  height: number,
+  segments: number,
+  x: number,
+  y: number,
+  z: number,
+  rotationZ = 0,
+): THREE.BufferGeometry {
+  const geometry = new THREE.CylinderGeometry(
+    radiusTop, radiusBottom, height, segments, 1, false,
+  );
+  geometry.rotateZ(rotationZ);
+  geometry.translate(x, y, z);
+  return geometry;
+}
+
+function placedSphere(
+  radius: number,
+  widthSegments: number,
+  heightSegments: number,
+  x: number,
+  y: number,
+  z: number,
+): THREE.BufferGeometry {
+  const geometry = new THREE.SphereGeometry(radius, widthSegments, heightSegments);
+  geometry.translate(x, y, z);
+  return geometry;
+}
+
+function setPart(geometry: THREE.BufferGeometry, id: number): THREE.BufferGeometry {
+  geometry.setAttribute(
+    'skinPart',
+    new THREE.BufferAttribute(
+      new Float32Array(geometry.getAttribute('position').count).fill(id),
+      1,
+    ),
+  );
+  return geometry;
+}
+
 function buildPedestrianGeometry(): THREE.BufferGeometry {
+  // +x is travel-forward, +z spans the shoulders. Rounded six/eight-sided
+  // limbs preserve a human silhouette without turning the pooled crowd into a
+  // draw-call or triangle problem.
   const parts = [
-    { geometry: placedBox(0.48, 0.72, 0.3, 0, 1.2, 0), id: 0 },
-    { geometry: placedBox(0.34, 0.34, 0.32, 0, 1.73, 0), id: 0 },
-    { geometry: placedBox(0.17, 0.75, 0.19, -0.13, 0.54, 0), id: 1 },
-    { geometry: placedBox(0.17, 0.75, 0.19, 0.13, 0.54, 0), id: 2 },
+    { geometry: placedCylinder(0.24, 0.31, 0.72, 8, 0, 1.18, 0), id: 0 },
+    { geometry: placedBox(0.28, 0.18, 0.46, 0, 0.84, 0), id: 0 },
+    { geometry: placedCylinder(0.075, 0.09, 0.64, 6, 0, 0.5, -0.13), id: 1 },
+    { geometry: placedCylinder(0.075, 0.09, 0.64, 6, 0, 0.5, 0.13), id: 2 },
+    { geometry: placedCylinder(0.06, 0.075, 0.58, 6, 0, 1.16, -0.3, -0.08), id: 3 },
+    { geometry: placedCylinder(0.06, 0.075, 0.58, 6, 0, 1.16, 0.3, 0.08), id: 4 },
+    { geometry: placedBox(0.28, 0.12, 0.17, 0.08, 0.13, -0.13), id: 1 },
+    { geometry: placedBox(0.28, 0.12, 0.17, 0.08, 0.13, 0.13), id: 2 },
   ];
   for (const part of parts) {
-    part.geometry.setAttribute(
-      'skinPart',
-      new THREE.BufferAttribute(
-        new Float32Array(part.geometry.getAttribute('position').count).fill(part.id),
-        1,
-      ),
-    );
+    setPart(part.geometry, part.id);
   }
   return mergePlaced(parts.map((part) => part.geometry));
+}
+
+function buildPedestrianSkinGeometry(): THREE.BufferGeometry {
+  return mergePlaced([
+    setPart(placedSphere(0.18, 8, 6, 0, 1.72, 0), 0),
+    setPart(placedSphere(0.072, 6, 4, 0, 0.86, -0.325), 3),
+    setPart(placedSphere(0.072, 6, 4, 0, 0.86, 0.325), 4),
+  ]);
+}
+
+function buildFarPedestrianGeometry(): THREE.BufferGeometry {
+  return mergePlaced([
+    placedCylinder(0.23, 0.29, 0.76, 6, 0, 1.14, 0),
+    placedSphere(0.18, 6, 4, 0, 1.68, 0),
+    placedBox(0.2, 0.68, 0.16, 0, 0.48, -0.12),
+    placedBox(0.2, 0.68, 0.16, 0, 0.48, 0.12),
+  ]);
+}
+
+function buildVehicleCabinGeometry(): THREE.BufferGeometry {
+  const positions = new Float32Array([
+    -1.2, 0.82, -0.78, -1.2, 0.82, 0.78,
+    0.95, 0.82, -0.78, 0.95, 0.82, 0.78,
+    -0.72, 1.48, -0.61, -0.72, 1.48, 0.61,
+    0.57, 1.48, -0.61, 0.57, 1.48, 0.61,
+  ]);
+  const indices = [
+    0, 2, 3, 0, 3, 1,
+    4, 5, 7, 4, 7, 6,
+    0, 4, 6, 0, 6, 2,
+    1, 3, 7, 1, 7, 5,
+    0, 1, 5, 0, 5, 4,
+    2, 6, 7, 2, 7, 3,
+  ];
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+  geometry.setIndex(indices);
+  geometry.computeVertexNormals();
+  return geometry;
+}
+
+function buildVehicleBodyGeometry(): THREE.BufferGeometry {
+  // One continuous, tapered shell replaces the old stack of intersecting
+  // boxes. Six octagonal cross-sections form real fenders, shoulders, hood,
+  // and trunk while remaining cheaper than the former body mesh.
+  const sections = [
+    { x: -2.28, width: 0.72, lower: 0.68, shoulder: 0.62, top: 0.65 },
+    { x: -1.78, width: 0.89, lower: 0.76, shoulder: 0.76, top: 0.86 },
+    { x: -1.12, width: 0.94, lower: 0.8, shoulder: 0.79, top: 0.91 },
+    { x: 0.78, width: 0.94, lower: 0.8, shoulder: 0.8, top: 0.91 },
+    { x: 1.58, width: 0.9, lower: 0.76, shoulder: 0.75, top: 0.82 },
+    { x: 2.28, width: 0.7, lower: 0.65, shoulder: 0.58, top: 0.61 },
+  ] as const;
+  const positions: number[] = [];
+  for (const section of sections) {
+    const belt = Math.max(0.53, section.top - 0.1);
+    positions.push(
+      section.x, 0.27, -section.lower,
+      section.x, 0.39, -section.width,
+      section.x, belt, -section.width * 0.98,
+      section.x, section.top, -section.shoulder,
+      section.x, section.top, section.shoulder,
+      section.x, belt, section.width * 0.98,
+      section.x, 0.39, section.width,
+      section.x, 0.27, section.lower,
+    );
+  }
+  const indices: number[] = [];
+  for (let section = 0; section < sections.length - 1; section++) {
+    const a = section * 8;
+    const b = a + 8;
+    for (let edge = 0; edge < 8; edge++) {
+      const next = (edge + 1) % 8;
+      indices.push(a + edge, b + edge, b + next, a + edge, b + next, a + next);
+    }
+  }
+  // End caps use six triangles each around the octagonal perimeter.
+  for (let edge = 1; edge < 7; edge++) indices.push(0, edge + 1, edge);
+  const end = (sections.length - 1) * 8;
+  for (let edge = 1; edge < 7; edge++) indices.push(end, end + edge, end + edge + 1);
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  geometry.setIndex(indices);
+  geometry.computeVertexNormals();
+  return geometry;
+}
+
+function colorGeometry(geometry: THREE.BufferGeometry, color: number): THREE.BufferGeometry {
+  const c = new THREE.Color(color);
+  const values = new Float32Array(geometry.getAttribute('position').count * 3);
+  for (let i = 0; i < values.length; i += 3) {
+    values[i] = c.r;
+    values[i + 1] = c.g;
+    values[i + 2] = c.b;
+  }
+  geometry.setAttribute('color', new THREE.BufferAttribute(values, 3));
+  return geometry;
+}
+
+function buildVehicleDetailGeometry(): THREE.BufferGeometry {
+  const parts: THREE.BufferGeometry[] = [
+    colorGeometry(placedBox(0.08, 0.23, 0.48, 2.28, 0.67, -0.58), 0xfff0c2),
+    colorGeometry(placedBox(0.08, 0.23, 0.48, 2.28, 0.67, 0.58), 0xfff0c2),
+    colorGeometry(placedBox(0.08, 0.2, 0.42, -2.28, 0.66, -0.6), 0xc92727),
+    colorGeometry(placedBox(0.08, 0.2, 0.42, -2.28, 0.66, 0.6), 0xc92727),
+    colorGeometry(placedBox(0.07, 0.24, 0.82, 2.3, 0.43, 0), 0x20252a),
+    colorGeometry(placedBox(0.08, 0.12, 1.5, -2.3, 0.39, 0), 0x2b3035),
+    colorGeometry(placedBox(0.06, 0.62, 1.27, -0.06, 1.16, 0), 0x1c252b),
+  ];
+  for (const [x, z] of WHEEL_OFFSETS) {
+    const hub = new THREE.CylinderGeometry(0.17, 0.17, 0.235, 10);
+    hub.rotateX(Math.PI / 2);
+    hub.translate(x, 0.36, z);
+    parts.push(colorGeometry(hub, 0xaab0b2));
+  }
+  return mergePlaced(parts);
 }
 
 function buildCyclistGeometry(): THREE.BufferGeometry {
@@ -256,7 +461,7 @@ function buildActivityGeometry(): THREE.BufferGeometry {
 
 /**
  * Pooled inhabited-street layer. Every visible actor and prop is an instance
- * of one of fourteen shared geometries; placement comes from streamed OSM road
+ * of one of sixteen shared geometries; placement comes from streamed OSM road
  * geography and the station/park/landmark/Citi Bike density field.
  */
 export class StreetLife {
@@ -268,6 +473,7 @@ export class StreetLife {
   private readonly body: THREE.InstancedMesh;
   private readonly cabin: THREE.InstancedMesh;
   private readonly wheels: THREE.InstancedMesh;
+  private readonly vehicleDetails: THREE.InstancedMesh;
   private readonly lampPoles: THREE.InstancedMesh;
   private readonly lampArms: THREE.InstancedMesh;
   private readonly lampHeads: THREE.InstancedMesh;
@@ -275,6 +481,7 @@ export class StreetLife {
   private readonly signalHeads: THREE.InstancedMesh;
   private readonly signalLights: THREE.InstancedMesh;
   private readonly pedestriansNear: THREE.InstancedMesh;
+  private readonly pedestrianSkin: THREE.InstancedMesh;
   private readonly pedestriansFar: THREE.InstancedMesh;
   private readonly contactShadows: THREE.InstancedMesh;
   private readonly cyclistMesh: THREE.InstancedMesh;
@@ -296,6 +503,12 @@ export class StreetLife {
   private lastNearUpdate = Number.NEGATIVE_INFINITY;
   private lastFarUpdate = Number.NEGATIVE_INFINITY;
   private lastTrafficStep = Number.NaN;
+  private lastRoadRevision = -1;
+  private observedRoadRevision = -1;
+  private observedDensityRevision = -1;
+  private densityRevision = 0;
+  private lastStreamChangeAt = Number.NEGATIVE_INFINITY;
+  private densityDirty = false;
   private populationScale = 1;
   private rebuildCount = 0;
   private matrixWrites = 0;
@@ -305,7 +518,6 @@ export class StreetLife {
   private readonly scale = new THREE.Vector3(1, 1, 1);
   private readonly yawQ = new THREE.Quaternion();
   private readonly wheelQ = new THREE.Quaternion();
-  private readonly cabinColor = new THREE.Color();
   private readonly glassTint = new THREE.Color(0x78909a);
   private readonly routeSample: RouteSample = { x: 0, z: 0, dx: 1, dz: 0 };
   private readonly pedestrianPosition: RouteSample = { x: 0, z: 0, dx: 1, dz: 0 };
@@ -313,17 +525,17 @@ export class StreetLife {
     new THREE.Vector3(1, 0, 0),
     Math.PI / 2,
   );
-  private pedestrianShader: THREE.WebGLProgramParametersWithUniforms | null = null;
+  private pedestrianShaders: THREE.WebGLProgramParametersWithUniforms[] = [];
+  private trafficObstacles: readonly TrafficFootprint[] = [];
 
   constructor(scene: THREE.Scene, level: QualityLevel) {
     this.level = level;
     this.budget = POPULATION_BUDGETS[level];
 
-    const bodyGeo = new THREE.BoxGeometry(4.25, 0.62, 1.78);
-    bodyGeo.translate(0, 0.5, 0);
-    const cabinGeo = new THREE.BoxGeometry(2.25, 0.58, 1.52);
-    cabinGeo.translate(-0.15, 1.06, 0);
-    const wheelGeo = new THREE.CylinderGeometry(0.34, 0.34, 0.22, 8);
+    const bodyGeo = buildVehicleBodyGeometry();
+    const cabinGeo = buildVehicleCabinGeometry();
+    const wheelGeo = new THREE.CylinderGeometry(0.34, 0.34, 0.22, 12);
+    const vehicleDetailGeo = buildVehicleDetailGeometry();
     const poleGeo = new THREE.CylinderGeometry(0.055, 0.095, 7.1, 7);
     poleGeo.translate(0, 3.55, 0);
     const armGeo = new THREE.BoxGeometry(2.15, 0.075, 0.075);
@@ -338,8 +550,8 @@ export class StreetLife {
     signalLightGeo.rotateX(Math.PI / 2);
     signalLightGeo.translate(0.24, 3.81, 0.19);
     const pedestrianGeo = buildPedestrianGeometry();
-    const pedestrianFarGeo = new THREE.PlaneGeometry(0.7, 1.8);
-    pedestrianFarGeo.translate(0, 0.9, 0);
+    const pedestrianSkinGeo = buildPedestrianSkinGeometry();
+    const pedestrianFarGeo = buildFarPedestrianGeometry();
     const contactGeo = new THREE.CircleGeometry(1, 12);
     contactGeo.rotateX(-Math.PI / 2);
     const cyclistGeo = buildCyclistGeometry();
@@ -349,6 +561,7 @@ export class StreetLife {
       [bodyGeo, POPULATION_TRIANGLES.vehicleBody, 'vehicle body'],
       [cabinGeo, POPULATION_TRIANGLES.vehicleCabin, 'vehicle cabin'],
       [wheelGeo, POPULATION_TRIANGLES.vehicleWheels / 4, 'vehicle wheel'],
+      [vehicleDetailGeo, POPULATION_TRIANGLES.vehicleDetails, 'vehicle details'],
       [
         poleGeo,
         POPULATION_TRIANGLES.lamp
@@ -364,6 +577,7 @@ export class StreetLife {
         'signal pole',
       ],
       [pedestrianGeo, POPULATION_TRIANGLES.pedestrianNear, 'near pedestrian'],
+      [pedestrianSkinGeo, POPULATION_TRIANGLES.pedestrianSkin, 'pedestrian skin'],
       [pedestrianFarGeo, POPULATION_TRIANGLES.pedestrianFar, 'far pedestrian'],
       [contactGeo, POPULATION_TRIANGLES.contactShadow, 'contact shadow'],
       [cyclistGeo, POPULATION_TRIANGLES.cyclist, 'cyclist'],
@@ -381,11 +595,17 @@ export class StreetLife {
       metalness: 0.08,
     });
     const cabinMat = new THREE.MeshStandardMaterial({
-      color: 0xffffff,
-      roughness: 0.2,
-      metalness: 0,
+      color: 0x7895a2,
+      roughness: 0.16,
+      metalness: 0.38,
     });
     const tyreMat = new THREE.MeshStandardMaterial({ color: 0x111214, roughness: 0.88 });
+    const vehicleDetailMat = new THREE.MeshStandardMaterial({
+      color: 0xffffff,
+      vertexColors: true,
+      roughness: 0.34,
+      metalness: 0.3,
+    });
     const poleMat = new THREE.MeshStandardMaterial({
       color: 0x3f382b,
       roughness: 0.72,
@@ -419,35 +639,44 @@ export class StreetLife {
       roughness: 0.82,
       metalness: 0,
     });
-    personMat.onBeforeCompile = (shader) => {
-      shader.uniforms.populationTime = { value: 0 };
-      shader.vertexShader = shader.vertexShader
-        .replace(
-          '#include <common>',
-          '#include <common>\nattribute float skinPart;\nattribute float instancePhase;\nuniform float populationTime;',
-        )
-        .replace(
-          '#include <begin_vertex>',
-          `#include <begin_vertex>
-          if (skinPart > 0.5) {
-            float direction = skinPart < 1.5 ? 1.0 : -1.0;
-            float angle = sin(populationTime * 7.4 + instancePhase) * 0.34 * direction;
-            vec2 leg = vec2(transformed.x, transformed.y - 0.91);
-            float c = cos(angle);
-            float s = sin(angle);
-            transformed.x = leg.x * c - leg.y * s;
-            transformed.y = leg.x * s + leg.y * c + 0.91;
-          }`,
-        );
-      this.pedestrianShader = shader;
+    const skinMat = new THREE.MeshStandardMaterial({
+      color: 0xffffff,
+      roughness: 0.78,
+      metalness: 0,
+    });
+    const animatePersonMaterial = (material: THREE.MeshStandardMaterial, cacheKey: string) => {
+      material.onBeforeCompile = (shader) => {
+        shader.uniforms.populationTime = { value: 0 };
+        shader.vertexShader = shader.vertexShader
+          .replace(
+            '#include <common>',
+            '#include <common>\nattribute float skinPart;\nattribute float instancePhase;\nuniform float populationTime;',
+          )
+          .replace(
+            '#include <begin_vertex>',
+            `#include <begin_vertex>
+            float stride = sin(populationTime * 7.4 + instancePhase);
+            transformed.y += stride * 0.012;
+            if (skinPart > 0.5) {
+              bool arm = skinPart > 2.5;
+              float pairSide = (skinPart < 1.5 || (skinPart > 3.5)) ? 1.0 : -1.0;
+              float angle = stride * (arm ? -0.31 : 0.38) * pairSide;
+              float pivotY = arm ? 1.43 : 0.82;
+              vec2 limb = vec2(transformed.x, transformed.y - pivotY);
+              float c = cos(angle);
+              float s = sin(angle);
+              transformed.x = limb.x * c - limb.y * s;
+              transformed.y = limb.x * s + limb.y * c + pivotY;
+            }`,
+          );
+        this.pedestrianShaders.push(shader);
+      };
+      material.customProgramCacheKey = () => cacheKey;
     };
-    personMat.customProgramCacheKey = () => 'street-life-pedestrian-v1';
-    const farPersonMat = new THREE.MeshBasicMaterial({
-      color: 0x4e5360,
-      side: THREE.DoubleSide,
-      transparent: true,
-      opacity: 0.82,
-      depthWrite: true,
+    animatePersonMaterial(personMat, 'street-life-pedestrian-clothing-v2');
+    animatePersonMaterial(skinMat, 'street-life-pedestrian-skin-v2');
+    const farPersonMat = new THREE.MeshLambertMaterial({
+      color: 0x667080,
     });
     const contactMat = new THREE.MeshBasicMaterial({
       color: 0x11131a,
@@ -473,6 +702,11 @@ export class StreetLife {
     this.body = new THREE.InstancedMesh(bodyGeo, bodyMat, vehicleCapacity);
     this.cabin = new THREE.InstancedMesh(cabinGeo, cabinMat, vehicleCapacity);
     this.wheels = new THREE.InstancedMesh(wheelGeo, tyreMat, vehicleCapacity * 4);
+    this.vehicleDetails = new THREE.InstancedMesh(
+      vehicleDetailGeo,
+      vehicleDetailMat,
+      vehicleCapacity,
+    );
     this.lampPoles = new THREE.InstancedMesh(poleGeo, poleMat, this.budget.lamps);
     this.lampArms = new THREE.InstancedMesh(armGeo, lampMat, this.budget.lamps);
     this.lampHeads = new THREE.InstancedMesh(headGeo, headMat, this.budget.lamps);
@@ -485,6 +719,15 @@ export class StreetLife {
       this.budget.pedestriansNear,
     );
     pedestrianGeo.setAttribute(
+      'instancePhase',
+      new THREE.InstancedBufferAttribute(new Float32Array(this.budget.pedestriansNear), 1),
+    );
+    this.pedestrianSkin = new THREE.InstancedMesh(
+      pedestrianSkinGeo,
+      skinMat,
+      this.budget.pedestriansNear,
+    );
+    pedestrianSkinGeo.setAttribute(
       'instancePhase',
       new THREE.InstancedBufferAttribute(new Float32Array(this.budget.pedestriansNear), 1),
     );
@@ -501,7 +744,9 @@ export class StreetLife {
       this.body,
       this.cabin,
       this.wheels,
+      this.vehicleDetails,
       this.pedestriansNear,
+      this.pedestrianSkin,
       this.pedestriansFar,
       this.contactShadows,
       this.cyclistMesh,
@@ -524,7 +769,9 @@ export class StreetLife {
     }
     this.body.receiveShadow = true;
     this.cabin.receiveShadow = true;
+    this.vehicleDetails.receiveShadow = true;
     this.pedestriansNear.receiveShadow = true;
+    this.pedestrianSkin.receiveShadow = true;
     this.activityMesh.receiveShadow = true;
     this.body.castShadow = level === 'high' || level === 'ultra';
     this.pedestriansNear.castShadow = level === 'ultra';
@@ -533,6 +780,7 @@ export class StreetLife {
       this.body,
       this.cabin,
       this.wheels,
+      this.vehicleDetails,
       this.lampPoles,
       this.lampArms,
       this.lampHeads,
@@ -540,6 +788,7 @@ export class StreetLife {
       this.signalHeads,
       this.signalLights,
       this.pedestriansNear,
+      this.pedestrianSkin,
       this.pedestriansFar,
       this.contactShadows,
       this.cyclistMesh,
@@ -551,6 +800,7 @@ export class StreetLife {
       this.body,
       this.cabin,
       this.wheels,
+      this.vehicleDetails,
       this.lampPoles,
       this.lampArms,
       this.lampHeads,
@@ -558,6 +808,7 @@ export class StreetLife {
       this.signalHeads,
       this.signalLights,
       this.pedestriansNear,
+      this.pedestrianSkin,
       this.pedestriansFar,
       this.contactShadows,
       this.cyclistMesh,
@@ -568,7 +819,8 @@ export class StreetLife {
     // The layer remains useful immediately with landmark anchors; compact
     // station/park/bike context fills in asynchronously and triggers a rebuild.
     void this.density.load().then(() => {
-      this.lastBuildAt = Number.NEGATIVE_INFINITY;
+      this.densityDirty = true;
+      this.densityRevision++;
     });
   }
 
@@ -577,8 +829,11 @@ export class StreetLife {
     camZ: number,
     paths: RoadPaths[] | (() => RoadPaths[]),
     nowSeconds: number,
+    roadRevision = 0,
+    trafficObstacles: readonly TrafficFootprint[] = [],
   ): void {
     this.matrixWrites = 0;
+    this.trafficObstacles = trafficObstacles;
     const movedSq = (camX - this.lastBuildX) ** 2 + (camZ - this.lastBuildZ) ** 2;
     const elapsed = Math.max(1 / 120, nowSeconds - this.lastBuildAt);
     const rebuildSpeed = Number.isFinite(movedSq) ? Math.sqrt(movedSq) / elapsed : 0;
@@ -589,19 +844,38 @@ export class StreetLife {
     // per-frame traffic/pedestrian simulation continuous between rebuilds.
     const rebuildDistance = populationRebuildDistance(rebuildSpeed);
     if (
-      !Number.isFinite(movedSq)
-      || movedSq > rebuildDistance * rebuildDistance
-      || nowSeconds - this.lastBuildAt > 3
+      roadRevision !== this.observedRoadRevision
+      || this.densityRevision !== this.observedDensityRevision
     ) {
+      this.observedRoadRevision = roadRevision;
+      this.observedDensityRevision = this.densityRevision;
+      this.lastStreamChangeAt = nowSeconds;
+    }
+    const pendingStreamChange = roadRevision !== this.lastRoadRevision || this.densityDirty;
+    const streamChanged = populationStreamSettled(
+      pendingStreamChange,
+      nowSeconds - this.lastStreamChangeAt,
+    );
+    // Base topology can integrate over several adjacent frames. Coalesce that
+    // burst, then preserve actor identities in rebuild(); a stationary camera
+    // never performs the former unconditional three-second population swap.
+    if (populationRebuildRequired(
+      movedSq,
+      rebuildDistance,
+      streamChanged,
+      nowSeconds - this.lastBuildAt,
+    )) {
       const resolvedPaths = typeof paths === 'function' ? paths() : paths;
       this.rebuild(camX, camZ, resolvedPaths, nowSeconds);
       this.lastBuildX = camX;
       this.lastBuildZ = camZ;
       this.lastBuildAt = nowSeconds;
+      this.lastRoadRevision = roadRevision;
+      this.densityDirty = false;
     }
 
-    if (this.pedestrianShader) {
-      this.pedestrianShader.uniforms.populationTime.value = nowSeconds;
+    for (const shader of this.pedestrianShaders) {
+      shader.uniforms.populationTime.value = nowSeconds;
     }
     const nearDue = nowSeconds - this.lastNearUpdate >= 1 / this.budget.nearUpdateHz;
     const farDue = nowSeconds - this.lastFarUpdate >= 1 / this.budget.farUpdateHz;
@@ -636,6 +910,10 @@ export class StreetLife {
     // streamed batches into that cadence instead of forcing a full road graph
     // scan for each tile integration while the camera is already moving.
     this.density.addMany(anchors);
+    if (anchors.length) {
+      this.densityDirty = true;
+      this.densityRevision++;
+    }
   }
 
   get stats(): StreetLifeStats {
@@ -703,9 +981,17 @@ export class StreetLife {
     paths: RoadPaths[],
     nowSeconds: number,
   ): void {
-    const previousTraffic = new Map<string, TrafficState>();
+    const previousVehicles = [...this.vehicles];
+    const previousPeople = [
+      ...this.peopleNear.map((person) => ({ person, wasNear: true })),
+      ...this.peopleFar.map((person) => ({ person, wasNear: false })),
+    ];
+    const previousTraffic = new Map<
+      string,
+      VehiclePlacement & { traffic: TrafficState }
+    >();
     for (const vehicle of this.trafficVehicles) {
-      previousTraffic.set(vehicle.traffic.key, vehicle.traffic);
+      previousTraffic.set(vehicle.traffic.key, vehicle);
     }
     this.vehicles.length = 0;
     this.trafficVehicles.length = 0;
@@ -729,6 +1015,53 @@ export class StreetLife {
     );
     const cyclistLimit = Math.max(1, Math.round(this.budget.cyclists * this.populationScale));
     const activityLimit = Math.max(2, Math.round(this.budget.activities * this.populationScale));
+    const retentionRadius = this.budget.nearRadius + 48;
+    const retentionRadiusSq = retentionRadius * retentionRadius;
+    const vehicleCells = new Map<string, Array<readonly [number, number]>>();
+    const vehicleCellSize = 5.2;
+    const personCells = new Map<string, Array<readonly [number, number]>>();
+    const personCellSize = 0.72;
+    const addOccupant = (
+      cells: Map<string, Array<readonly [number, number]>>,
+      cellSize: number,
+      x: number,
+      z: number,
+    ) => {
+      const key = `${Math.floor(x / cellSize)}:${Math.floor(z / cellSize)}`;
+      const occupants = cells.get(key);
+      if (occupants) occupants.push([x, z]);
+      else cells.set(key, [[x, z]]);
+    };
+    const overlapsOccupant = (
+      cells: Map<string, Array<readonly [number, number]>>,
+      cellSize: number,
+      x: number,
+      z: number,
+      minimumDistance: number,
+    ): boolean => {
+      const cellX = Math.floor(x / cellSize);
+      const cellZ = Math.floor(z / cellSize);
+      const minimumDistanceSq = minimumDistance * minimumDistance;
+      for (let dz = -1; dz <= 1; dz++) {
+        for (let dx = -1; dx <= 1; dx++) {
+          const occupants = cells.get(`${cellX + dx}:${cellZ + dz}`);
+          if (!occupants) continue;
+          for (const [otherX, otherZ] of occupants) {
+            if ((otherX - x) ** 2 + (otherZ - z) ** 2 < minimumDistanceSq) return true;
+          }
+        }
+      }
+      return false;
+    };
+    const retainedVehicleKeys = new Set<string>();
+    for (const vehicle of previousVehicles) {
+      if (vehicle.traffic || this.vehicles.length >= this.budget.parkedVehicles) continue;
+      if ((vehicle.x - camX) ** 2 + (vehicle.z - camZ) ** 2 > retentionRadiusSq) continue;
+      vehicle.shadowIndex = this.vehicles.length;
+      this.vehicles.push(vehicle);
+      addOccupant(vehicleCells, vehicleCellSize, vehicle.x, vehicle.z);
+      retainedVehicleKeys.add(vehicle.key);
+    }
     this.graph = buildRoadGraph(
       paths,
       camX,
@@ -880,7 +1213,10 @@ export class StreetLife {
     }
 
     parkedCandidates.sort((a, b) => b.score - a.score || a.seed - b.seed);
-    for (const candidate of parkedCandidates.slice(0, parkedLimit)) {
+    for (const candidate of parkedCandidates) {
+      if (this.vehicles.length >= parkedLimit) break;
+      const key = `parked:${candidate.seed >>> 0}`;
+      if (retainedVehicleKeys.has(key)) continue;
       const segment = candidate.segment;
       const offset = Math.max(2.1, segment.width * 0.5 - 1.05) * candidate.side;
       const x = segment.ax + segment.dx * candidate.distance - segment.dz * offset;
@@ -895,7 +1231,9 @@ export class StreetLife {
             ? 'taxi'
             : 'sedan';
       const colorIndex = Math.floor(hash01(candidate.seed + 83) * CAR_COLORS.length);
+      if (overlapsOccupant(vehicleCells, vehicleCellSize, x, z, 4.9)) continue;
       this.vehicles.push({
+        key,
         x,
         z,
         yaw: Math.atan2(-segment.dz, segment.dx) + (candidate.side < 0 ? Math.PI : 0),
@@ -903,18 +1241,56 @@ export class StreetLife {
         kind,
         shadowIndex: this.vehicles.length,
       });
+      addOccupant(vehicleCells, vehicleCellSize, x, z);
     }
 
     const usableRoutes = this.graph.trafficRoutes;
+    const routeSpecs: Array<{
+      route: LaneRoute;
+      seed: number;
+      targetSpeed: number;
+      key: string;
+      copyIndex: number;
+      routeCopies: number;
+    }> = [];
     for (let i = 0; i < movingLimit && usableRoutes.length; i++) {
       const route = usableRoutes[i % usableRoutes.length];
       const seed = placementSeed(route.points[0], route.points[1], i + 101);
-      const colorIndex = Math.floor(hash01(seed + 3) * CAR_COLORS.length);
       const routeCopies = Math.ceil(movingLimit / usableRoutes.length);
       const copyIndex = Math.floor(i / usableRoutes.length);
       const targetSpeed = 6.3 + hash01(seed + 5) * 5.8;
       const key = trafficKey(route, copyIndex);
-      const previous = previousTraffic.get(key);
+      routeSpecs.push({ route, seed, targetSpeed, key, copyIndex, routeCopies });
+    }
+    const specsByKey = new Map(routeSpecs.map((spec) => [spec.key, spec]));
+    const retainedTrafficKeys = new Set<string>();
+    for (const previous of previousTraffic.values()) {
+      if (this.trafficVehicles.length >= this.budget.movingVehicles) break;
+      if ((previous.x - camX) ** 2 + (previous.z - camZ) ** 2 > retentionRadiusSq) continue;
+      const spec = specsByKey.get(previous.key);
+      if (spec) {
+        previous.traffic.route = spec.route;
+        previous.traffic.targetSpeed = spec.targetSpeed;
+        previous.traffic.laneOffset = Math.min(
+          2.8,
+          Math.max(1.2, spec.route.width * 0.22),
+        );
+      }
+      previous.shadowIndex = this.vehicles.length;
+      this.vehicles.push(previous);
+      this.trafficVehicles.push(previous);
+      addOccupant(vehicleCells, vehicleCellSize, previous.x, previous.z);
+      retainedTrafficKeys.add(previous.key);
+    }
+    const movingTarget = Math.max(movingLimit, this.trafficVehicles.length);
+    for (const spec of routeSpecs) {
+      if (
+        this.trafficVehicles.length >= movingTarget
+        || this.trafficVehicles.length >= this.budget.movingVehicles
+        || retainedTrafficKeys.has(spec.key)
+      ) continue;
+      const { route, seed, targetSpeed, key, copyIndex, routeCopies } = spec;
+      const colorIndex = Math.floor(hash01(seed + 3) * CAR_COLORS.length);
       const rawDistance = (
         route.length * ((copyIndex + hash01(seed + 11) * 0.35) / routeCopies)
         + nowSeconds * targetSpeed
@@ -924,6 +1300,7 @@ export class StreetLife {
         ? route.length * 2 - rawDistance
         : rawDistance;
       const vehicle: VehiclePlacement & { traffic: TrafficState } = {
+        key,
         x: route.points[0],
         z: route.points[1],
         yaw: 0,
@@ -931,28 +1308,67 @@ export class StreetLife {
         kind: hash01(seed + 7) < 0.28 ? 'suv' : 'sedan',
         traffic: {
           route,
-          distance: previous?.distance ?? initialDistance,
-          speed: previous?.speed ?? targetSpeed,
+          distance: initialDistance,
+          speed: targetSpeed,
           targetSpeed,
           laneOffset: Math.min(2.8, Math.max(1.2, route.width * 0.22)),
-          laneSign: previous?.laneSign ?? initialDirection,
-          direction: previous?.direction ?? initialDirection,
-          finished: previous?.finished ?? false,
+          laneSign: initialDirection,
+          direction: initialDirection,
+          finished: false,
           key,
           lastVisualAt: nowSeconds,
         },
         shadowIndex: this.vehicles.length,
       };
+      const footprint = this.trafficFootprint(vehicle);
+      vehicle.x = footprint.x;
+      vehicle.z = footprint.z;
+      vehicle.yaw = Math.atan2(-footprint.fz, footprint.fx);
+      if (
+        overlapsOccupant(
+          vehicleCells,
+          vehicleCellSize,
+          footprint.x,
+          footprint.z,
+          5.2,
+        )
+        || this.trafficObstacles.some((obstacle) => (
+          trafficFootprintsOverlap(footprint, obstacle, 0.45)
+        ))
+      ) continue;
       this.vehicles.push(vehicle);
       this.trafficVehicles.push(vehicle);
+      addOccupant(vehicleCells, vehicleCellSize, vehicle.x, vehicle.z);
+    }
+
+    const retainedPeopleKeys = new Set<string>();
+    for (const { person, wasNear } of previousPeople) {
+      const sample = this.pedestrianSample(person, nowSeconds);
+      const distanceSq = (sample.x - camX) ** 2 + (sample.z - camZ) ** 2;
+      if (distanceSq > retentionRadiusSq) continue;
+      const nearThreshold = wasNear
+        ? this.budget.nearRadius + 16
+        : Math.max(12, this.budget.nearRadius - 12);
+      const near = distanceSq <= nearThreshold * nearThreshold;
+      const target = near ? this.peopleNear : this.peopleFar;
+      const capacity = near
+        ? this.budget.pedestriansNear
+        : this.budget.pedestriansFar;
+      if (target.length >= capacity) continue;
+      target.push(person);
+      addOccupant(personCells, personCellSize, sample.x, sample.z);
+      retainedPeopleKeys.add(person.key);
     }
 
     peopleCandidates.sort((a, b) => b.score - a.score || a.seed - b.seed);
     for (const candidate of peopleCandidates) {
+      const key = `pedestrian:${candidate.seed >>> 0}`;
+      if (retainedPeopleKeys.has(key)) continue;
       const segment = candidate.segment;
       const speed = 0.75 + hash01(candidate.seed + 89) * 0.9;
       const phase = hash01(candidate.seed + 97) * Math.PI * 2;
       const person: PedestrianPlacement = {
+        key,
         segment,
         distance: candidate.distance + hash01(candidate.seed + 91) * segment.length,
         speed,
@@ -961,16 +1377,35 @@ export class StreetLife {
         color: new THREE.Color(
           PERSON_COLORS[Math.floor(hash01(candidate.seed + 101) * PERSON_COLORS.length)],
         ),
+        skinColor: new THREE.Color(
+          SKIN_COLORS[Math.floor(hash01(candidate.seed + 103) * SKIN_COLORS.length)],
+        ),
+        scale: 0.92 + hash01(candidate.seed + 107) * 0.14,
         shadowIndex: -1,
       };
       const animated = this.pedestrianSample(person, nowSeconds);
-      const near = (animated.x - camX) ** 2 + (animated.z - camZ) ** 2 <= nearRadiusSq;
+      const animatedX = animated.x;
+      const animatedZ = animated.z;
+      if (
+        overlapsOccupant(
+          personCells,
+          personCellSize,
+          animatedX,
+          animatedZ,
+          0.72,
+        )
+      ) continue;
+      const near = (animatedX - camX) ** 2 + (animatedZ - camZ) ** 2 <= nearRadiusSq;
       const target = near ? this.peopleNear : this.peopleFar;
       const limit = near ? nearPeopleLimit : farPeopleLimit;
       if (target.length >= limit) continue;
       if (near) person.shadowIndex = this.vehicles.length + this.peopleNear.length;
       target.push(person);
+      addOccupant(personCells, personCellSize, animatedX, animatedZ);
       if (this.peopleNear.length >= nearPeopleLimit && this.peopleFar.length >= farPeopleLimit) break;
+    }
+    for (let i = 0; i < this.peopleNear.length; i++) {
+      this.peopleNear[i].shadowIndex = this.vehicles.length + i;
     }
 
     activityCandidates.sort((a, b) => b.score - a.score || a.seed - b.seed);
@@ -1064,16 +1499,17 @@ export class StreetLife {
   ): void {
     const y = heightAt(x, z) + 0.055;
     const [sx, sy, sz] = VEHICLE_SCALES[vehicle.kind];
+    vehicle.x = x;
+    vehicle.z = z;
+    vehicle.yaw = yaw;
     this.yawQ.setFromAxisAngle(THREE.Object3D.DEFAULT_UP, yaw);
     this.matrix.compose(this.position.set(x, y, z), this.yawQ, this.scale.set(sx, sy, sz));
     this.body.setMatrixAt(index, this.matrix);
     this.cabin.setMatrixAt(index, this.matrix);
+    this.vehicleDetails.setMatrixAt(index, this.matrix);
     this.body.setColorAt(index, vehicle.color);
-    this.cabin.setColorAt(
-      index,
-      this.cabinColor.copy(vehicle.color).multiplyScalar(0.72).lerp(this.glassTint, 0.46),
-    );
-    this.matrixWrites += 2;
+    this.cabin.setColorAt(index, this.glassTint);
+    this.matrixWrites += 3;
 
     this.wheelQ.copy(this.yawQ).multiply(this.wheelTurn);
     const c = Math.cos(yaw);
@@ -1108,6 +1544,7 @@ export class StreetLife {
       if (!vehicle.traffic) this.writeVehicle(i, vehicle, vehicle.x, vehicle.z, vehicle.yaw);
     }
     this.body.count = this.cabin.count = this.vehicles.length;
+    this.vehicleDetails.count = this.vehicles.length;
     this.wheels.count = this.vehicles.length * 4;
     this.contactShadows.count =
       this.vehicles.length + this.peopleNear.length + this.cyclists.length;
@@ -1117,10 +1554,32 @@ export class StreetLife {
   private markVehicleBuffers(): void {
     this.body.instanceMatrix.needsUpdate = true;
     this.cabin.instanceMatrix.needsUpdate = true;
+    this.vehicleDetails.instanceMatrix.needsUpdate = true;
     this.wheels.instanceMatrix.needsUpdate = true;
     this.contactShadows.instanceMatrix.needsUpdate = true;
     if (this.body.instanceColor) this.body.instanceColor.needsUpdate = true;
     if (this.cabin.instanceColor) this.cabin.instanceColor.needsUpdate = true;
+  }
+
+  private trafficFootprint(
+    vehicle: VehiclePlacement & { traffic: TrafficState },
+  ): TrafficFootprint {
+    const traffic = vehicle.traffic;
+    const sample = sampleLaneRoute(traffic.route, traffic.distance);
+    const fx = sample.dx * traffic.direction;
+    const fz = sample.dz * traffic.direction;
+    const laneBlend = traffic.laneSign;
+    const [sx, , sz] = VEHICLE_SCALES[vehicle.kind];
+    return {
+      key: `car:${traffic.key}`,
+      x: sample.x + sample.dz * traffic.laneOffset * laneBlend,
+      z: sample.z - sample.dx * traffic.laneOffset * laneBlend,
+      fx,
+      fz,
+      halfLength: 2.3 * sx,
+      halfWidth: 0.94 * sz,
+      speed: traffic.speed,
+    };
   }
 
   private updateTraffic(
@@ -1133,28 +1592,52 @@ export class StreetLife {
       ? Math.max(0, Math.min(0.2, nowSeconds - this.lastTrafficStep))
       : 0;
     this.lastTrafficStep = nowSeconds;
+    const before = new Map<
+      VehiclePlacement & { traffic: TrafficState },
+      { distance: number; direction: 1 | -1; finished: boolean; laneSign: number }
+    >();
+    const current = new Map<
+      VehiclePlacement & { traffic: TrafficState },
+      TrafficFootprint
+    >();
+    for (const vehicle of this.trafficVehicles) {
+      before.set(vehicle, {
+        distance: vehicle.traffic.distance,
+        direction: vehicle.traffic.direction,
+        finished: vehicle.traffic.finished,
+        laneSign: vehicle.traffic.laneSign,
+      });
+      current.set(vehicle, this.trafficFootprint(vehicle));
+    }
+
     for (const vehicle of this.trafficVehicles) {
       const traffic = vehicle.traffic;
+      const footprint = current.get(vehicle)!;
       let leaderGap = Number.POSITIVE_INFINITY;
       let leaderSpeed = traffic.targetSpeed;
       for (const other of this.trafficVehicles) {
-        if (
-          other === vehicle
-          || other.traffic.route !== traffic.route
-          || other.traffic.direction !== traffic.direction
-        ) continue;
-        const gap = traffic.direction > 0
-          ? other.traffic.distance - traffic.distance
-          : traffic.distance - other.traffic.distance;
-        if (gap > 0 && gap < leaderGap) {
-          leaderGap = gap;
-          leaderSpeed = other.traffic.speed;
+        if (other === vehicle) continue;
+        const obstacle = current.get(other)!;
+        const dx = obstacle.x - footprint.x;
+        const dz = obstacle.z - footprint.z;
+        const along = dx * footprint.fx + dz * footprint.fz;
+        const lateral = Math.abs(dx * -footprint.fz + dz * footprint.fx);
+        const headingDot = footprint.fx * obstacle.fx + footprint.fz * obstacle.fz;
+        if (headingDot > 0.72 && along > 0 && lateral < 2.8 && along < leaderGap) {
+          leaderGap = along;
+          leaderSpeed = obstacle.speed;
         }
       }
       if (traffic.finished) continue;
-      const desired = leaderGap < 11
+      let desired = leaderGap < 13
         ? Math.max(0, leaderSpeed * Math.max(0, (leaderGap - 4.8) / 6.2))
         : traffic.targetSpeed;
+      for (const obstacle of current.values()) {
+        desired = constrainTrafficSpeed(footprint, obstacle, desired);
+      }
+      for (const obstacle of this.trafficObstacles) {
+        desired = constrainTrafficSpeed(footprint, obstacle, desired);
+      }
       const response = desired < traffic.speed ? 4.5 : 1.2;
       traffic.speed += (desired - traffic.speed) * Math.min(1, dt * response);
       advanceLaneProgress(traffic, traffic.route, traffic.speed * dt);
@@ -1164,24 +1647,59 @@ export class StreetLife {
       ) * Math.min(1, dt * 2.8);
     }
 
+    // Prediction handles braking; this exact final-body pass is the invariant.
+    // If a large/slow frame would still penetrate another body, roll the stable
+    // yielding vehicle back to its prior route state instead of hiding either.
+    for (let pass = 0; pass < 2; pass++) {
+      const final = new Map(
+        this.trafficVehicles.map((vehicle) => [vehicle, this.trafficFootprint(vehicle)]),
+      );
+      for (const vehicle of this.trafficVehicles) {
+        const footprint = final.get(vehicle)!;
+        let blocker: TrafficFootprint | null = null;
+        for (const obstacle of this.trafficObstacles) {
+          if (trafficFootprintsOverlap(footprint, obstacle, 0.18)) {
+            blocker = obstacle;
+            break;
+          }
+        }
+        if (!blocker) {
+          for (const other of this.trafficVehicles) {
+            if (other === vehicle) continue;
+            const obstacle = final.get(other)!;
+            if (
+              yieldsTo(footprint, obstacle)
+              && trafficFootprintsOverlap(footprint, obstacle, 0.12)
+            ) {
+              blocker = obstacle;
+              break;
+            }
+          }
+        }
+        if (!blocker) continue;
+        const state = before.get(vehicle)!;
+        vehicle.traffic.distance = state.distance;
+        vehicle.traffic.direction = state.direction;
+        vehicle.traffic.finished = state.finished;
+        vehicle.traffic.laneSign = state.laneSign;
+        vehicle.traffic.speed = 0;
+      }
+    }
+
     for (let i = 0; i < this.vehicles.length; i++) {
       const vehicle = this.vehicles[i];
       if (!vehicle.traffic) continue;
-      const sample = sampleLaneRoute(
-        vehicle.traffic.route,
-        vehicle.traffic.distance,
-        this.routeSample,
+      const footprint = this.trafficFootprint(
+        vehicle as VehiclePlacement & { traffic: TrafficState },
       );
-      const travelDx = sample.dx * vehicle.traffic.direction;
-      const travelDz = sample.dz * vehicle.traffic.direction;
-      // NYC right-hand traffic: +dz/-dx is the right normal of travel.
-      // laneSign eases through zero at a streamed two-way endpoint so the
-      // turnaround crosses the road instead of popping laterally.
-      const x = sample.x + sample.dz * vehicle.traffic.laneOffset * vehicle.traffic.laneSign;
-      const z = sample.z - sample.dx * vehicle.traffic.laneOffset * vehicle.traffic.laneSign;
+      const x = footprint.x;
+      const z = footprint.z;
+      vehicle.x = x;
+      vehicle.z = z;
+      vehicle.yaw = Math.atan2(-footprint.fz, footprint.fx);
       const near = (x - camX) ** 2 + (z - camZ) ** 2 <= this.budget.nearRadius ** 2;
       if (!near && !farDue) continue;
-      this.writeVehicle(i, vehicle, x, z, Math.atan2(-travelDz, travelDx));
+      this.writeVehicle(i, vehicle, x, z, vehicle.yaw);
       vehicle.traffic.lastVisualAt = nowSeconds;
     }
     this.markVehicleBuffers();
@@ -1213,6 +1731,7 @@ export class StreetLife {
 
   private updateNearPedestrians(nowSeconds: number): void {
     const phases = this.pedestriansNear.geometry.getAttribute('instancePhase');
+    const skinPhases = this.pedestrianSkin.geometry.getAttribute('instancePhase');
     for (let i = 0; i < this.peopleNear.length; i++) {
       const pedestrian = this.peopleNear[i];
       const sample = this.pedestrianSample(pedestrian, nowSeconds);
@@ -1224,12 +1743,15 @@ export class StreetLife {
       this.matrix.compose(
         this.position.set(sample.x, y, sample.z),
         this.yawQ,
-        this.scale.set(1, 1, 1),
+        this.scale.set(pedestrian.scale, pedestrian.scale, pedestrian.scale),
       );
       this.pedestriansNear.setMatrixAt(i, this.matrix);
+      this.pedestrianSkin.setMatrixAt(i, this.matrix);
       this.pedestriansNear.setColorAt(i, pedestrian.color);
+      this.pedestrianSkin.setColorAt(i, pedestrian.skinColor);
       (phases as THREE.InstancedBufferAttribute).setX(i, pedestrian.phase);
-      this.matrixWrites++;
+      (skinPhases as THREE.InstancedBufferAttribute).setX(i, pedestrian.phase);
+      this.matrixWrites += 2;
 
       this.yawQ.identity();
       this.matrix.compose(
@@ -1241,9 +1763,13 @@ export class StreetLife {
       this.matrixWrites++;
     }
     this.pedestriansNear.count = this.peopleNear.length;
+    this.pedestrianSkin.count = this.peopleNear.length;
     this.pedestriansNear.instanceMatrix.needsUpdate = true;
+    this.pedestrianSkin.instanceMatrix.needsUpdate = true;
     if (this.pedestriansNear.instanceColor) this.pedestriansNear.instanceColor.needsUpdate = true;
+    if (this.pedestrianSkin.instanceColor) this.pedestrianSkin.instanceColor.needsUpdate = true;
     phases.needsUpdate = true;
+    skinPhases.needsUpdate = true;
     this.contactShadows.instanceMatrix.needsUpdate = true;
   }
 
@@ -1252,18 +1778,20 @@ export class StreetLife {
       const pedestrian = this.peopleFar[i];
       const sample = this.pedestrianSample(pedestrian, nowSeconds);
       const y = heightAt(sample.x, sample.z) + 0.04;
-      const yaw = Math.atan2(camX - sample.x, camZ - sample.z);
+      const yaw = Math.atan2(-sample.dz, sample.dx);
       this.yawQ.setFromAxisAngle(THREE.Object3D.DEFAULT_UP, yaw);
       this.matrix.compose(
         this.position.set(sample.x, y, sample.z),
         this.yawQ,
-        this.scale.set(1, 1, 1),
+        this.scale.set(pedestrian.scale, pedestrian.scale, pedestrian.scale),
       );
       this.pedestriansFar.setMatrixAt(i, this.matrix);
+      this.pedestriansFar.setColorAt(i, pedestrian.color);
       this.matrixWrites++;
     }
     this.pedestriansFar.count = this.peopleFar.length;
     this.pedestriansFar.instanceMatrix.needsUpdate = true;
+    if (this.pedestriansFar.instanceColor) this.pedestriansFar.instanceColor.needsUpdate = true;
   }
 
   private updateCyclists(nowSeconds: number): void {

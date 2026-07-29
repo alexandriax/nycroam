@@ -2018,6 +2018,8 @@ export class World {
         this.pos.z,
         () => this.tiles.roadPathsNear(this.pos.x, this.pos.z, 1),
         performance.now() / 1000,
+        this.tiles.roadNetworkRevision,
+        this.buses.trafficObstacles(),
       );
       this.recordBenchmarkPhase('streetLife', phaseAt);
 
@@ -2181,6 +2183,8 @@ export class World {
           this.pos.z,
           () => this.tiles.roadPathsNear(this.pos.x, this.pos.z, 1),
           performance.now() / 1000,
+          this.tiles.roadNetworkRevision,
+          this.buses.trafficObstacles(),
         );
         this.hoodTimer -= dt;
         if (this.hoodTimer <= 0) {
@@ -2709,6 +2713,7 @@ export class World {
       rendering: this.rendering.stats(),
       streaming: this.tiles.streamingReport(),
       landmarks: this.landmarks.lodStats(),
+      population: this.streetLife.stats,
       governor: this.qualityGovernor.snapshot,
       materials: materialLibrary.report(),
       updatePhases: this.benchmarkPhaseReport(),
