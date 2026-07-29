@@ -17,6 +17,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import earcut from 'earcut';
 import { encodeTileBinary } from './tile-binary.mjs';
+import { shouldSuppressBuildingOutline } from './building-part-coverage.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..');
@@ -751,15 +752,22 @@ async function main() {
   for (const b of buildingElements) {
     if (b.isPart) { keptBuildings.push(b); continue; }
     const [tx, tz] = tileOf(b.centroid);
-    let coveredArea = 0;
+    const nearbyParts = [];
     for (const key of neighborKeys(tx, tz)) {
       const candidates = partsByTile.get(key);
       if (!candidates) continue;
       for (const part of candidates) {
-        if (pointInPolygon(part.centroid, b.outer)) coveredArea += part.area;
+        if (pointInPolygon(part.centroid, b.outer)) nearbyParts.push(part);
       }
     }
-    if (b.area > 0 && coveredArea / b.area > 0.85) { suppressedCount++; continue; }
+    // Area-sum suppression remains appropriate for normal stepped towers, but
+    // it can double-count stacked upper tiers and erase the only solid lower
+    // massing. At 1585 Broadway that left four 7m-wide shafts supporting a
+    // 70m-wide tower, creating a 122m-high black void.
+    if (shouldSuppressBuildingOutline(b, nearbyParts)) {
+      suppressedCount++;
+      continue;
+    }
     keptBuildings.push(b);
   }
 

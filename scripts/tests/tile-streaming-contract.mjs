@@ -93,6 +93,69 @@ test('NCT3 codec round-trips legacy tiles and reduces source bytes', async () =>
   assert.ok(packed.byteLength < Buffer.byteLength(jsonText));
 });
 
+test('stacked upper building parts cannot suppress a mostly uncovered ground footprint', async () => {
+  const {
+    groundPartCoverage,
+    shouldSuppressBuildingOutline,
+  } = await import('../building-part-coverage.mjs');
+  const building = {
+    outer: [[0, 0], [100, 0], [100, 100], [0, 100]],
+    holes: [],
+    area: 10_000,
+  };
+  const elevatedFullTier = {
+    outer: building.outer,
+    holes: [],
+    minHeight: 100,
+    area: 10_000,
+  };
+  const cornerColumns = [
+    [[0, 0], [10, 0], [10, 10], [0, 10]],
+    [[90, 0], [100, 0], [100, 10], [90, 10]],
+    [[90, 90], [100, 90], [100, 100], [90, 100]],
+    [[0, 90], [10, 90], [10, 100], [0, 100]],
+  ].map((outer) => ({ outer, holes: [], minHeight: 0, area: 100 }));
+
+  const hollowCoverage = groundPartCoverage(
+    building,
+    [elevatedFullTier, elevatedFullTier, ...cornerColumns],
+  );
+  assert.ok(hollowCoverage < 0.1, `upper tiers must not inflate ground coverage: ${hollowCoverage}`);
+  assert.equal(
+    shouldSuppressBuildingOutline(building, [elevatedFullTier, ...cornerColumns]),
+    false,
+    'a broad hundred-metre-high tier on sparse supports must retain the solid outline',
+  );
+
+  const groundQuarters = [
+    [[0, 0], [50, 0], [50, 50], [0, 50]],
+    [[50, 0], [100, 0], [100, 50], [50, 50]],
+    [[50, 50], [100, 50], [100, 100], [50, 100]],
+    [[0, 50], [50, 50], [50, 100], [0, 100]],
+  ].map((outer) => ({ outer, holes: [], minHeight: 0, area: 2_500 }));
+  assert.equal(groundPartCoverage(building, groundQuarters), 1);
+  assert.equal(shouldSuppressBuildingOutline(building, groundQuarters), true);
+});
+
+test('shipping tiles retain the solid lower massing at 1585 Broadway', async () => {
+  const binary = await importTranspiled('src/engine/tileBinary.ts');
+  const index = JSON.parse(fs.readFileSync(path.join(ROOT, 'public/tiles/index.json'), 'utf8'));
+  const tileKey = '0_-1';
+  const region = Object.values(index.regions).find((entry) => entry.t[tileKey]);
+  assert.ok(region, `missing region for ${tileKey}`);
+  const [offset, length] = region.t[tileKey];
+  const bytes = fs.readFileSync(path.join(ROOT, 'public/tiles', region.f));
+  const source = bytes.buffer.slice(
+    bytes.byteOffset + offset,
+    bytes.byteOffset + offset + length,
+  );
+  const tile = binary.decodeTileBinary(source);
+  const tower = tile.buildings.find((building) => building.n === 'Morgan Stanley Building');
+  assert.ok(tower, '1585 Broadway parent massing must survive part suppression');
+  assert.ok(tower.h >= 140, `expected a solid 42-storey lower massing, received ${tower.h}m`);
+  assert.equal(tower.m ?? 0, 0);
+});
+
 test('vegetation LOD selects one bounded draw set at every distance', async () => {
   const vegetation = await importTranspiled('src/engine/vegetationLod.ts');
   assert.equal(vegetation.TREE_SILHOUETTE_FAMILIES, 4);
