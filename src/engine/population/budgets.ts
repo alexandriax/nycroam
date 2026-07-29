@@ -132,7 +132,7 @@ export const POPULATION_TRIANGLES = {
   pedestrianSkin: 152,
   pedestrianFar: 84,
   contactShadow: 12,
-  cyclist: 168,
+  cyclist: 474,
   activity: 100,
 } as const;
 

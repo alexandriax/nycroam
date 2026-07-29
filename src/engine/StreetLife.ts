@@ -39,6 +39,12 @@ import {
   type TrafficFootprint,
 } from './population/trafficSafety';
 import { buildVehicleBodyGeometry } from './population/vehicleGeometry';
+import { buildCyclistGeometry } from './population/cyclistGeometry';
+import {
+  cyclistBikeLaneOffset,
+  cyclistCadencePose,
+  cyclistLookaheadDistance,
+} from './population/cyclistMotion';
 
 type VehicleKind = 'sedan' | 'suv' | 'van' | 'taxi';
 
@@ -84,6 +90,7 @@ interface CyclistPlacement {
   distance: number;
   speed: number;
   laneOffset: number;
+  phase: number;
   color: THREE.Color;
   shadowIndex: number;
 }
@@ -143,6 +150,7 @@ const SKIN_COLORS = [
 ];
 const ACTIVITY_COLORS = [0xd94938, 0xf2c744, 0x2a7f62, 0x3567a5, 0xe7e0cc];
 const FUNCTIONAL_ANCHORS: readonly DensityAnchorKind[] = ['station', 'bus', 'bike'];
+const CYCLIST_ROLL_AXIS = new THREE.Vector3(1, 0, 0);
 const WHEEL_OFFSETS: ReadonlyArray<readonly [number, number]> = [
   [-1.35, -0.94],
   [-1.35, 0.94],
@@ -380,23 +388,6 @@ function buildVehicleDetailGeometry(): THREE.BufferGeometry {
   return mergePlaced(parts);
 }
 
-function buildCyclistGeometry(): THREE.BufferGeometry {
-  const rearWheel = new THREE.TorusGeometry(0.34, 0.035, 3, 8);
-  rearWheel.translate(-0.68, 0.38, 0);
-  const frontWheel = new THREE.TorusGeometry(0.34, 0.035, 3, 8);
-  frontWheel.translate(0.68, 0.38, 0);
-  return mergePlaced([
-    rearWheel,
-    frontWheel,
-    placedBox(0.92, 0.055, 0.055, -0.06, 0.58, 0, 0.42),
-    placedBox(0.82, 0.055, 0.055, 0.03, 0.58, 0, -0.48),
-    placedBox(0.72, 0.05, 0.05, 0.32, 0.69, 0, 1.1),
-    placedBox(0.48, 0.05, 0.34, 0.53, 0.79, 0),
-    placedBox(0.36, 0.67, 0.27, -0.04, 1.25, 0, -0.18),
-    placedBox(0.3, 0.3, 0.28, 0.06, 1.72, 0),
-  ]);
-}
-
 function buildActivityGeometry(): THREE.BufferGeometry {
   // Six boxes + a seven-sided closed cylinder = exactly 100 triangles. It
   // reads as either a corner vendor cart or compact park café stand depending
@@ -473,8 +464,10 @@ export class StreetLife {
   private readonly scale = new THREE.Vector3(1, 1, 1);
   private readonly yawQ = new THREE.Quaternion();
   private readonly wheelQ = new THREE.Quaternion();
+  private readonly cyclistLeanQ = new THREE.Quaternion();
   private readonly glassTint = new THREE.Color(0x78909a);
   private readonly routeSample: RouteSample = { x: 0, z: 0, dx: 1, dz: 0 };
+  private readonly cyclistAheadSample: RouteSample = { x: 0, z: 0, dx: 1, dz: 0 };
   private readonly pedestrianPosition: RouteSample = { x: 0, z: 0, dx: 1, dz: 0 };
   private readonly wheelTurn = new THREE.Quaternion().setFromAxisAngle(
     new THREE.Vector3(1, 0, 0),
@@ -652,6 +645,43 @@ export class StreetLife {
       roughness: 0.66,
       metalness: 0.05,
     });
+    cyclistMat.onBeforeCompile = (shader) => {
+      shader.vertexShader = shader.vertexShader
+        .replace(
+          '#include <common>',
+          `#include <common>
+          attribute vec3 cyclistBaseColor;
+          attribute float cyclistTintWeight;
+          varying vec3 vCyclistBaseColor;
+          varying float vCyclistTintWeight;
+          varying vec3 vCyclistTint;`,
+        )
+        .replace(
+          '#include <begin_vertex>',
+          `#include <begin_vertex>
+          vCyclistBaseColor = cyclistBaseColor;
+          vCyclistTintWeight = cyclistTintWeight;
+          #ifdef USE_INSTANCING_COLOR
+            vCyclistTint = instanceColor;
+          #else
+            vCyclistTint = vec3(1.0);
+          #endif`,
+        );
+      shader.fragmentShader = shader.fragmentShader
+        .replace(
+          '#include <common>',
+          `#include <common>
+          varying vec3 vCyclistBaseColor;
+          varying float vCyclistTintWeight;
+          varying vec3 vCyclistTint;`,
+        )
+        .replace(
+          '#include <color_fragment>',
+          `diffuseColor.rgb *= vCyclistBaseColor
+            * mix(vec3(1.0), vCyclistTint, vCyclistTintWeight);`,
+        );
+    };
+    cyclistMat.customProgramCacheKey = () => 'street-life-cyclist-parts-v1';
     const activityMat = new THREE.MeshStandardMaterial({
       color: 0xffffff,
       roughness: 0.68,
@@ -1418,7 +1448,11 @@ export class StreetLife {
         route,
         distance: hash01(seed + 107) * route.length,
         speed: 3.4 + hash01(seed + 109) * 2.8,
-        laneOffset: onBikeLane ? 0 : Math.max(1.2, route.width * 0.5 - 1.3),
+        laneOffset: onBikeLane
+          ? cyclistBikeLaneOffset(hash01(seed + 111))
+          : Math.max(1.2, route.width * 0.5 - 1.3)
+            + (hash01(seed + 111) - 0.5) * 0.16,
+        phase: hash01(seed + 112) * Math.PI * 2,
         color: new THREE.Color(PERSON_COLORS[Math.floor(hash01(seed + 113) * PERSON_COLORS.length)]),
         shadowIndex: this.vehicles.length + this.peopleNear.length + i,
       });
@@ -1782,11 +1816,34 @@ export class StreetLife {
       const signedOffset = cyclist.laneOffset * direction * Math.max(0, turnaroundBlend);
       const x = sample.x + sample.dz * signedOffset;
       const z = sample.z - sample.dx * signedOffset;
-      const y = heightAt(x, z) + 0.04;
-      this.yawQ.setFromAxisAngle(
-        THREE.Object3D.DEFAULT_UP,
-        Math.atan2(-travelDz, travelDx),
+      const yaw = Math.atan2(-travelDz, travelDx);
+      const aheadDistance = cyclistLookaheadDistance(
+        routeDistance,
+        direction,
+        cyclist.route.length,
       );
+      const ahead = sampleLaneRoute(
+        cyclist.route,
+        aheadDistance,
+        this.cyclistAheadSample,
+      );
+      const aheadDx = ahead.dx * direction;
+      const aheadDz = ahead.dz * direction;
+      const directionChange = travelDx * aheadDz - travelDz * aheadDx;
+      const pose = cyclistCadencePose(
+        nowSeconds,
+        cyclist.speed,
+        cyclist.phase,
+        directionChange,
+      );
+      const terrainY = heightAt(x, z);
+      const y = terrainY + 0.04 + pose.bob;
+      this.yawQ.setFromAxisAngle(THREE.Object3D.DEFAULT_UP, yaw);
+      this.cyclistLeanQ.setFromAxisAngle(
+        CYCLIST_ROLL_AXIS,
+        pose.lean,
+      );
+      this.yawQ.multiply(this.cyclistLeanQ);
       this.matrix.compose(
         this.position.set(x, y, z),
         this.yawQ,
@@ -1796,9 +1853,9 @@ export class StreetLife {
       this.cyclistMesh.setColorAt(i, cyclist.color);
       this.matrixWrites++;
 
-      this.yawQ.identity();
+      this.yawQ.setFromAxisAngle(THREE.Object3D.DEFAULT_UP, yaw);
       this.matrix.compose(
-        this.position.set(x, y + 0.005, z),
+        this.position.set(x, terrainY + 0.045, z),
         this.yawQ,
         this.scale.set(0.7, 1, 0.22),
       );

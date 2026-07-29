@@ -23,6 +23,16 @@ import {
   yieldsTo,
 } from '../../src/engine/population/trafficSafety.ts';
 import { buildVehicleBodyGeometry } from '../../src/engine/population/vehicleGeometry.ts';
+import {
+  buildCyclistGeometry,
+  CYCLIST_GEOMETRY_TRIANGLES,
+  CYCLIST_PART_COLORS,
+} from '../../src/engine/population/cyclistGeometry.ts';
+import {
+  cyclistBikeLaneOffset,
+  cyclistCadencePose,
+  cyclistLookaheadDistance,
+} from '../../src/engine/population/cyclistMotion.ts';
 
 function path(kind, width, points, flags = 0) {
   return {
@@ -43,10 +53,10 @@ test('population ceilings are explicit and remain below the street budget', () =
       ]),
     ),
     {
-      low: 30884,
-      medium: 65172,
-      high: 108688,
-      ultra: 152728,
+      low: 31802,
+      medium: 66702,
+      high: 111136,
+      ultra: 156400,
     },
   );
   for (const level of Object.keys(POPULATION_BUDGETS)) {
@@ -64,6 +74,86 @@ test('population ceilings are explicit and remain below the street budget', () =
     ),
     { low: 470, medium: 978, high: 1622, ultra: 2272 },
   );
+});
+
+test('cyclist pool keeps a rounded riding silhouette in one bounded geometry', () => {
+  const geometry = buildCyclistGeometry();
+  const position = geometry.getAttribute('position');
+  const colors = geometry.getAttribute('cyclistBaseColor');
+  const tintWeights = geometry.getAttribute('cyclistTintWeight');
+  const index = geometry.getIndex();
+
+  assert.ok(index);
+  assert.equal(index.count / 3, CYCLIST_GEOMETRY_TRIANGLES);
+  assert.ok(index.count / 3 <= 600);
+  assert.equal(colors.count, position.count);
+  assert.equal(tintWeights.count, position.count);
+
+  const uniqueBaseColors = new Set();
+  let tintableVertices = 0;
+  let fixedVertices = 0;
+  for (let i = 0; i < index.count; i += 3) {
+    const ia = index.getX(i);
+    const ib = index.getX(i + 1);
+    const ic = index.getX(i + 2);
+    const ax = position.getX(ia);
+    const ay = position.getY(ia);
+    const az = position.getZ(ia);
+    const abx = position.getX(ib) - ax;
+    const aby = position.getY(ib) - ay;
+    const abz = position.getZ(ib) - az;
+    const acx = position.getX(ic) - ax;
+    const acy = position.getY(ic) - ay;
+    const acz = position.getZ(ic) - az;
+    const crossX = aby * acz - abz * acy;
+    const crossY = abz * acx - abx * acz;
+    const crossZ = abx * acy - aby * acx;
+    const doubledArea = Math.hypot(crossX, crossY, crossZ);
+    assert.ok(Number.isFinite(doubledArea), `triangle ${i / 3} must be finite`);
+    assert.ok(doubledArea > 1e-8, `triangle ${i / 3} must have nonzero area`);
+  }
+  for (let i = 0; i < position.count; i++) {
+    uniqueBaseColors.add([
+      colors.getX(i).toFixed(3),
+      colors.getY(i).toFixed(3),
+      colors.getZ(i).toFixed(3),
+    ].join(':'));
+    if (tintWeights.getX(i) > 0.5) tintableVertices++;
+    else fixedVertices++;
+  }
+  assert.equal(uniqueBaseColors.size, Object.keys(CYCLIST_PART_COLORS).length);
+  assert.ok(tintableVertices > 0, 'jersey pieces retain per-rider color variation');
+  assert.ok(fixedVertices > tintableVertices, 'bike, skin, and trousers keep stable materials');
+
+  geometry.computeBoundingBox();
+  assert.ok(geometry.boundingBox);
+  assert.ok(geometry.boundingBox.min.x <= -1);
+  assert.ok(geometry.boundingBox.max.x >= 1);
+  assert.ok(geometry.boundingBox.max.y >= 1.7);
+  assert.ok(geometry.boundingBox.max.z <= 0.25);
+  assert.ok(geometry.boundingBox.min.z >= -0.25);
+});
+
+test('cyclist cadence and lane separation stay subtle and deterministic', () => {
+  assert.equal(cyclistBikeLaneOffset(-1), 0.28);
+  assert.ok(Math.abs(cyclistBikeLaneOffset(2) - 0.42) < 1e-9);
+  assert.ok(Math.abs(cyclistBikeLaneOffset(0.5) - 0.35) < 1e-9);
+
+  const first = cyclistCadencePose(12.5, 4.8, 1.2, 0.35);
+  assert.deepEqual(first, cyclistCadencePose(12.5, 4.8, 1.2, 0.35));
+  assert.ok(Math.abs(first.bob) <= 0.006);
+  assert.ok(Math.abs(first.lean) <= 0.11);
+  assert.ok(cyclistCadencePose(0, 4, 0, 1).lean > 0);
+  assert.ok(cyclistCadencePose(0, 4, 0, -1).lean < 0);
+});
+
+test('cyclist lookahead never wraps a route endpoint to its start', () => {
+  assert.equal(cyclistLookaheadDistance(0, -1, 100), 0);
+  assert.equal(cyclistLookaheadDistance(50, 1, 100), 51.8);
+  const endpoint = cyclistLookaheadDistance(99.5, 1, 100);
+  assert.ok(endpoint < 100);
+  assert.ok(endpoint > 99.99);
+  assert.equal(cyclistLookaheadDistance(0, 1, 0), 0);
 });
 
 test('vehicle body is a closed outward-facing shell from every exterior angle', () => {
