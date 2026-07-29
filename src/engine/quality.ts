@@ -14,6 +14,88 @@
 
 export type QualityLevel = 'low' | 'medium' | 'high' | 'ultra';
 
+export interface RenderingTierContract {
+  antialiasing: 'fxaa' | 'smaa' | 'temporal';
+  fallbackAntialiasing: 'fxaa' | 'smaa';
+  grade: 'none' | 'minimal' | 'full';
+  gtao: false | { scale: number; samples: number };
+  bloom: false | { scale: number; strength: number; threshold: number };
+  temporal: false | {
+    /** History contribution for a static, depth-consistent pixel. */
+    maxHistoryWeight: number;
+    jitterSamples: number;
+  };
+  reflections: 'sky-probe';
+  /**
+   * Deliberately bounded, texel-snapped single frustum. True CSM needs a
+   * distance-selecting light shader; stacking ordinary DirectionalLights
+   * double-lights and double-shadows the overlap and is not a valid cascade.
+   */
+  shadowStrategy: 'none' | 'snapped-bounded-frustum';
+  materialDetail: 'simplified' | 'near-pbr' | 'near-mid-pbr' | 'extended-pbr';
+}
+
+const RENDERING_TIERS: Record<QualityLevel, RenderingTierContract> = {
+  low: {
+    antialiasing: 'fxaa',
+    fallbackAntialiasing: 'fxaa',
+    grade: 'none',
+    gtao: false,
+    bloom: false,
+    temporal: false,
+    reflections: 'sky-probe',
+    shadowStrategy: 'none',
+    materialDetail: 'simplified',
+  },
+  medium: {
+    antialiasing: 'smaa',
+    fallbackAntialiasing: 'smaa',
+    grade: 'minimal',
+    gtao: false,
+    bloom: false,
+    temporal: false,
+    reflections: 'sky-probe',
+    shadowStrategy: 'snapped-bounded-frustum',
+    materialDetail: 'near-pbr',
+  },
+  high: {
+    antialiasing: 'smaa',
+    fallbackAntialiasing: 'smaa',
+    grade: 'full',
+    // High keeps contact AO, but at a genuinely cheaper rung than Ultra.
+    // The previous 0.4²×6 workload was effectively identical to 0.35²×8 and
+    // left no useful performance step between the two desktop tiers.
+    gtao: { scale: 0.35, samples: 5 },
+    bloom: { scale: 0.25, strength: 0.1, threshold: 0.92 },
+    temporal: false,
+    reflections: 'sky-probe',
+    shadowStrategy: 'snapped-bounded-frustum',
+    materialDetail: 'near-mid-pbr',
+  },
+  ultra: {
+    antialiasing: 'temporal',
+    fallbackAntialiasing: 'smaa',
+    grade: 'full',
+    gtao: { scale: 0.35, samples: 8 },
+    bloom: { scale: 0.2, strength: 0.16, threshold: 0.92 },
+    temporal: { maxHistoryWeight: 0.88, jitterSamples: 8 },
+    reflections: 'sky-probe',
+    shadowStrategy: 'snapped-bounded-frustum',
+    materialDetail: 'extended-pbr',
+  },
+};
+
+/** Immutable-by-convention authored rendering contract for deterministic QA. */
+export function renderingTierContract(level: QualityLevel): RenderingTierContract {
+  const contract = RENDERING_TIERS[level];
+  return {
+    ...contract,
+    gtao: contract.gtao ? { ...contract.gtao } : false,
+    bloom: contract.bloom ? { ...contract.bloom } : false,
+    temporal: contract.temporal ? { ...contract.temporal } : false,
+  };
+}
+
 export interface QualityTier {
   level: QualityLevel;
   shadows: boolean;
@@ -42,6 +124,17 @@ export interface QualityTier {
   tileWorkers: number;
 }
 
+export interface RuntimePerformanceProfile {
+  /** Sustained target; handhelds keep thermal margin instead of chasing 60. */
+  targetFps: 30 | 45 | 60;
+  /** Lowest multiplier applied to the tier's pixelRatioCap at runtime. */
+  minRenderScale: number;
+  /** Population and detail floors used by the adaptive quality governor. */
+  minPopulationScale: number;
+  minDetailDistanceScale: number;
+  minStreamingScale: number;
+}
+
 const TIERS: Record<QualityLevel, Omit<QualityTier, 'level'>> = {
   // Software rasterisers and 2015-era mobile GPUs. No shadow pass at all, half
   // the draw distance, and a hard 1x pixel ratio.
@@ -58,11 +151,14 @@ const TIERS: Record<QualityLevel, Omit<QualityTier, 'level'>> = {
   },
   high: {
     shadows: true, stationShadows: true, shadowMapSize: 2048, stationShadowMapSize: 2048,
-    pixelRatioCap: 2, anisotropy: 8, clouds: 8, loadRadius: 1150, farPlane: 6500, tileWorkers: 3,
+    pixelRatioCap: 1.25, anisotropy: 8, clouds: 8, loadRadius: 1000, farPlane: 6500, tileWorkers: 3,
   },
   ultra: {
     shadows: true, stationShadows: true, shadowMapSize: 4096, stationShadowMapSize: 2048,
-    pixelRatioCap: 2, anisotropy: 16, clouds: 10, loadRadius: 1350, farPlane: 7200, tileWorkers: 4,
+    // Temporal reconstruction resolves sub-pixel edges more efficiently than
+    // brute-force native DPR 2. A 1.25 input avoids stacking an 8.3MP
+    // color/depth history with the authored 4K shadow map and 12-sample GTAO.
+    pixelRatioCap: 1.25, anisotropy: 16, clouds: 10, loadRadius: 1200, farPlane: 7200, tileWorkers: 4,
   },
 };
 
@@ -185,6 +281,28 @@ export function setQualityOverride(level: QualityLevel | null) {
 
 export function qualityOverride(): QualityLevel | null {
   return stored();
+}
+
+/**
+ * Stable policy defaults for the percentile-based runtime governor.
+ *
+ * This is intentionally separate from QualityTier: a tier describes authored
+ * capability while this profile describes how much of it may be surrendered
+ * under sustained load. Callers can override the target for benchmark modes.
+ */
+export function runtimePerformanceProfile(): RuntimePerformanceProfile {
+  const q = quality();
+  const forcedHandheld = typeof location !== 'undefined'
+    && new URLSearchParams(location.search).has('touch');
+  const handheld = typeof navigator !== 'undefined'
+    && (forcedHandheld || /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent));
+  return {
+    targetFps: q.level === 'low' ? 30 : handheld ? 45 : 60,
+    minRenderScale: q.level === 'low' ? 0.8 : handheld ? 0.67 : 0.55,
+    minPopulationScale: handheld ? 0.35 : 0.5,
+    minDetailDistanceScale: handheld ? 0.6 : 0.7,
+    minStreamingScale: handheld ? 0.55 : 0.7,
+  };
 }
 
 export const QUALITY_LEVELS = LEVELS;

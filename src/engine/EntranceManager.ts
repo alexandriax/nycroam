@@ -5,42 +5,69 @@ import type { SubwayData, StationSpec, EntranceSpec } from './subway/types';
 import { buildEntranceKit } from './streetprops';
 import { heightAt } from './terrain';
 import { canvas2d } from './canvas2d';
+import { quality } from './quality';
 
 /**
  * Collapse a prop group into one mesh per material (a kit is otherwise ~40
  * meshes — railing posts, steps, rails — which wrecks the draw-call budget).
+ *
+ * Shadow state is part of the batch key. Collapsing a shadow-casting mesh into
+ * a new Mesh used to silently reset both flags to false; landmarks then looked
+ * detached even on tiers that had paid for the shadow pass.
  */
-export function mergeByMaterial(group: THREE.Group): THREE.Group {
+export function mergeByMaterial(
+  group: THREE.Group,
+  defaults: { castShadow?: boolean; receiveShadow?: boolean } = {},
+): THREE.Group {
   group.updateMatrixWorld(true);
-  const byMat = new Map<THREE.Material, THREE.BufferGeometry[]>();
+  interface Batch {
+    geos: THREE.BufferGeometry[];
+    castShadow: boolean;
+    receiveShadow: boolean;
+  }
+  const byMat = new Map<THREE.Material, Map<string, Batch>>();
   group.traverse((o) => {
     if (o instanceof THREE.Mesh && !Array.isArray(o.material)) {
       const g = (o.geometry as THREE.BufferGeometry).clone().applyMatrix4(o.matrixWorld);
-      // drop UVs mismatches: mergeGeometries needs consistent attributes
-      const list = byMat.get(o.material) ?? [];
-      list.push(g);
-      byMat.set(o.material, list);
+      const castShadow = o.castShadow || defaults.castShadow === true;
+      const receiveShadow = o.receiveShadow || defaults.receiveShadow === true;
+      const key = `${castShadow ? 1 : 0}:${receiveShadow ? 1 : 0}`;
+      let batches = byMat.get(o.material);
+      if (!batches) {
+        batches = new Map();
+        byMat.set(o.material, batches);
+      }
+      let batch = batches.get(key);
+      if (!batch) {
+        batch = { geos: [], castShadow, receiveShadow };
+        batches.set(key, batch);
+      }
+      batch.geos.push(g);
     }
   });
   const out = new THREE.Group();
   out.name = group.name;
-  for (const [mat, geos] of byMat) {
-    // normalize attribute sets (some builder geometries lack uv)
-    const attrNames = ['position', 'normal', 'uv'];
-    const allHaveUv = geos.every((g) => g.getAttribute('uv'));
-    for (const g of geos) {
-      for (const name of Object.keys(g.attributes)) {
-        if (!attrNames.includes(name)) g.deleteAttribute(name);
+  for (const [mat, batches] of byMat) {
+    for (const { geos, castShadow, receiveShadow } of batches.values()) {
+      // normalize attribute sets (some builder geometries lack uv)
+      const attrNames = ['position', 'normal', 'uv'];
+      const allHaveUv = geos.every((g) => g.getAttribute('uv'));
+      for (const g of geos) {
+        for (const name of Object.keys(g.attributes)) {
+          if (!attrNames.includes(name)) g.deleteAttribute(name);
+        }
+        if (!allHaveUv && g.getAttribute('uv')) g.deleteAttribute('uv');
+        if (g.index === null) g.setIndex([...Array(g.getAttribute('position').count).keys()]);
       }
-      if (!allHaveUv && g.getAttribute('uv')) g.deleteAttribute('uv');
-      if (g.index === null) g.setIndex([...Array(g.getAttribute('position').count).keys()]);
+      const merged = mergeGeometries(geos, false);
+      for (const g of geos) g.dispose();
+      if (!merged) continue;
+      const mesh = new THREE.Mesh(merged, mat);
+      mesh.castShadow = castShadow;
+      mesh.receiveShadow = receiveShadow;
+      mesh.matrixAutoUpdate = false;
+      out.add(mesh);
     }
-    const merged = mergeGeometries(geos, false);
-    for (const g of geos) g.dispose();
-    if (!merged) continue;
-    const mesh = new THREE.Mesh(merged, mat);
-    mesh.matrixAutoUpdate = false;
-    out.add(mesh);
   }
   // dispose source geometries from the original group
   group.traverse((o) => {
@@ -113,11 +140,14 @@ export class EntranceManager {
   // Manhattan has 835 entrance records but only a few dozen kind/route designs.
   // Share each design's merged geometry and sign material across scene clones.
   private templates = new Map<string, THREE.Group>();
-  private placeRadius = 420;
+  private pendingTemplates = new Set<string>();
+  private destroyed = false;
+  private placeRadius = 260;
   private timer = 0;
   private scanCursor = 0;
   private lastScanX = Infinity;
   private lastScanZ = Infinity;
+  private readonly detailRadius: number;
   private eject: ((x: number, z: number) => [number, number] | null) | null;
   private wallDir: ((x: number, z: number) => [number, number] | null) | null;
   private compile: ((g: THREE.Object3D) => Promise<void>) | null;
@@ -132,6 +162,8 @@ export class EntranceManager {
     this.scene = scene;
     this.eject = eject;
     this.compile = compile;
+    const level = quality().level;
+    this.detailRadius = level === 'ultra' ? 130 : level === 'high' ? 95 : level === 'medium' ? 78 : 64;
   }
 
   async init(): Promise<boolean> {
@@ -180,18 +212,52 @@ export class EntranceManager {
     return best;
   }
 
+  private templateKey(routes: string[], kind: string): string {
+    return `${kind}\u001f${routes.join('\u001f')}`;
+  }
+
+  private buildTemplate(key: string, routes: string[], kind: string, name: string): void {
+    if (this.templates.has(key) || this.destroyed) return;
+    const q = quality();
+    const template = mergeByMaterial(buildEntranceKit(routes, kind, name), {
+      // Entrances are repeated, material-rich street props. They receive the
+      // nearby building/hero map; submitting every railing/sign material as
+      // a caster scales with station density and adds no readable silhouette.
+      castShadow: false,
+      receiveShadow: q.shadows,
+    });
+    // Cloned Mesh objects retain these geometry/material references. Mark
+    // them so stream-out disposal leaves the owning template intact.
+    template.traverse((o) => {
+      if (o instanceof THREE.Mesh) o.userData.shared = true;
+    });
+    this.templates.set(key, template);
+  }
+
+  /**
+   * Prepare a new route/kind kit between frames. Dense transfers introduce
+   * several unique sign combinations at once; merging them synchronously in
+   * the stream update stacked 20–30ms long tasks onto otherwise fast frames.
+   */
+  private prepareTemplate(key: string, routes: string[], kind: string, name: string): void {
+    if (this.templates.has(key) || this.pendingTemplates.has(key)) return;
+    this.pendingTemplates.add(key);
+    const build = () => {
+      this.pendingTemplates.delete(key);
+      this.buildTemplate(key, routes, kind, name);
+      if (!this.destroyed) this.timer = Math.min(this.timer, 0.05);
+    };
+    if (typeof requestIdleCallback === 'function') requestIdleCallback(build, { timeout: 500 });
+    else window.setTimeout(build, 0);
+  }
+
   /** A lightweight scene clone backed by one merged geometry set per design. */
   private entranceGroup(routes: string[], kind: string, name: string): THREE.Group {
-    const key = `${kind}\u001f${routes.join('\u001f')}`;
+    const key = this.templateKey(routes, kind);
     let template = this.templates.get(key);
     if (!template) {
-      template = mergeByMaterial(buildEntranceKit(routes, kind, name));
-      // Cloned Mesh objects retain these geometry/material references. Mark
-      // them so stream-out disposal leaves the owning template intact.
-      template.traverse((o) => {
-        if (o instanceof THREE.Mesh) o.userData.shared = true;
-      });
-      this.templates.set(key, template);
+      this.buildTemplate(key, routes, kind, name);
+      template = this.templates.get(key)!;
     }
     const group = template.clone(true);
     group.name = name;
@@ -220,10 +286,19 @@ export class EntranceManager {
       if (!existing) continue;
       const e = entrances[i];
       const dx = e.pos[0] - x, dz = e.pos[1] - z;
-      if (dx * dx + dz * dz >= r2) {
+      const d2 = dx * dx + dz * dz;
+      if (d2 >= r2) {
         this.scene.remove(existing.group);
         disposeGroup(existing.group);
         this.placed.delete(i);
+      } else {
+        // From down the block the beacon is the readable entrance signal; ten
+        // railing/stair/sign material batches occupy only a handful of pixels.
+        // Preserve the complete interactive kit inside the tiered near radius.
+        const detailed = d2 <= this.detailRadius * this.detailRadius;
+        for (const child of existing.group.children) {
+          child.visible = detailed || child.userData.entranceBeacon === true;
+        }
       }
     }
 
@@ -249,6 +324,12 @@ export class EntranceManager {
 
       // Elevated stations get the kiosk marker (their stairs go up, not down).
       const kind = /elev|viaduct/i.test(station.structure) ? 'elevator' : e.kind;
+      const templateKey = this.templateKey(station.routes, kind);
+      if (!this.templates.has(templateKey)) {
+        this.prepareTemplate(templateKey, station.routes, kind, station.name);
+        deferred = true;
+        break;
+      }
       // resolveFootprint already performs a full joint road/building fixpoint,
       // spiral fallback, and final lane-clear validation. Calling it four times
       // multiplied its most expensive work without changing the result.
@@ -298,6 +379,7 @@ export class EntranceManager {
       }
       const beacon = makeBeacon();
       beacon.position.set(0, 3.1, 0);
+      beacon.userData.entranceBeacon = true;
       group.add(beacon);
       // Claim the slot synchronously, then reveal only after shader pre-warm.
       // If eviction wins the race, the record identity check prevents a stale
@@ -367,6 +449,7 @@ export class EntranceManager {
   }
 
   destroy() {
+    this.destroyed = true;
     for (const p of this.placed.values()) {
       this.scene.remove(p.group);
       disposeGroup(p.group);
@@ -391,6 +474,7 @@ export class EntranceManager {
       });
     }
     this.templates.clear();
+    this.pendingTemplates.clear();
   }
 }
 

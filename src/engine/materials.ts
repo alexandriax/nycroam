@@ -1,12 +1,14 @@
 import * as THREE from 'three';
-import {
-  makeAsphaltTexture, makeSidewalkTexture, makeBrickTexture, makeRoofTexture,
-  makeGrassDetailTexture, makeBarkTexture,
-} from './textures';
 import { quality } from './quality';
+import {
+  MATERIAL_ATLAS_GLSL,
+  MATERIAL_TIER_CONTRACTS,
+  SURFACE_REGION,
+  materialLibrary,
+} from './materialLibrary';
 
 /**
- * Facade material: Lambert + injected procedural window grid on vertical faces.
+ * Facade material: Lambert + procedural window grid on vertical faces.
  * Windows are carved in the fragment shader from world position; brick/roof
  * normals are world-projected so close surfaces carry real light relief without
  * extra geometry. Screen-space filtering keeps the grid stable in motion, and
@@ -16,33 +18,47 @@ import { quality } from './quality';
 export function makeFacadeMaterial(): THREE.MeshLambertMaterial {
   // DoubleSide + front-facing test: if imperfect OSM data leaves any opening,
   // the inside of the far wall renders as a dark interior instead of void.
+  const q = quality();
+  // Keep the city-scale facade batch on Lambert: the procedural window shader
+  // supplies the reflection cues, while applying the full Standard BRDF to
+  // every visible building is a poor mobile/desktop trade at this scale.
   const mat = new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.DoubleSide });
-  const brick = makeBrickTexture('red');
-  const roof = makeRoofTexture();
+  mat.dithering = true;
   // Normal-map relief is the premium desktop close-up path. Mobile keeps the
   // anti-aliased windows/reflections but avoids a second texture sample before
   // lighting; its lower resolution makes the micro-relief imperceptible anyway.
-  const premiumSurfaceNormals = quality().shadows;
+  const materialContract = MATERIAL_TIER_CONTRACTS[q.level];
+  const premiumSurfaceNormals = materialContract.facadeNormals;
+  const surfaceOrm = materialContract.ormAtlas;
+  mat.userData.nycMaterialSurface = 'semantic-facade-roof';
+  mat.userData.nycMaterialChannels = [
+    'color',
+    ...(premiumSurfaceNormals ? ['normal'] : []),
+    ...(surfaceOrm ? ['orm'] : []),
+  ];
+  mat.customProgramCacheKey = () => `nyc-semantic-facade-${premiumSurfaceNormals ? 'n' : 'x'}-${surfaceOrm ? 'o' : 'x'}-v1`;
   mat.onBeforeCompile = (shader) => {
-    shader.uniforms.uBrick = { value: brick.map };
-    shader.uniforms.uBrickNormal = { value: brick.normal };
-    shader.uniforms.uRoof = { value: roof.map };
-    shader.uniforms.uRoofNormal = { value: roof.normal };
+    shader.uniforms.uNycSurfaceColor = materialLibrary.colorUniform;
+    if (premiumSurfaceNormals) shader.uniforms.uNycSurfaceNormal = materialLibrary.normalUniform;
+    if (surfaceOrm) shader.uniforms.uNycSurfaceOrm = materialLibrary.ormUniform;
     shader.vertexShader = shader.vertexShader
       .replace(
         '#include <common>',
         `#include <common>
         attribute float aStyle;
+        attribute float aSemantic;
         varying vec3 vWPos;
         varying vec3 vWNormal;
-        varying float vStyle;`
+        varying float vStyle;
+        varying float vSemantic;`
       )
       .replace(
         '#include <worldpos_vertex>',
         `#include <worldpos_vertex>
         vWPos = (modelMatrix * vec4(transformed, 1.0)).xyz;
         vWNormal = normalize(mat3(modelMatrix) * objectNormal);
-        vStyle = aStyle;`
+        vStyle = aStyle;
+        vSemantic = aSemantic;`
       );
     shader.fragmentShader = shader.fragmentShader
       .replace(
@@ -51,10 +67,25 @@ export function makeFacadeMaterial(): THREE.MeshLambertMaterial {
         varying vec3 vWPos;
         varying vec3 vWNormal;
         varying float vStyle;
-        uniform sampler2D uBrick;
-        uniform sampler2D uBrickNormal;
-        uniform sampler2D uRoof;
-        uniform sampler2D uRoofNormal;
+        varying float vSemantic;
+        uniform sampler2D uNycSurfaceColor;
+        ${premiumSurfaceNormals ? 'uniform sampler2D uNycSurfaceNormal;' : ''}
+        ${surfaceOrm ? 'uniform sampler2D uNycSurfaceOrm;' : ''}
+        ${MATERIAL_ATLAS_GLSL}
+        float nycFacadeRegion(float styleId) {
+          if (abs(styleId - 5.0) < 0.5 || abs(styleId - 14.0) < 0.5) return ${SURFACE_REGION.brickBrown.toFixed(1)};
+          if (abs(styleId - 2.0) < 0.5 || abs(styleId - 10.0) < 0.5 || abs(styleId - 12.0) < 0.5) return ${SURFACE_REGION.limestone.toFixed(1)};
+          if (abs(styleId - 8.0) < 0.5) return ${SURFACE_REGION.paintedCastIron.toFixed(1)};
+          if (abs(styleId - 3.0) < 0.5 || abs(styleId - 9.0) < 0.5) return ${SURFACE_REGION.concreteAged.toFixed(1)};
+          return ${SURFACE_REGION.brickRed.toFixed(1)};
+        }
+        float nycRoofRegion(float semantic) {
+          float roofFamily = mod(floor(semantic / 131072.0), 8.0);
+          if (abs(roofFamily - 6.0) < 0.5) return ${SURFACE_REGION.grassLush.toFixed(1)};
+          return mod(floor(semantic / 16.0), 2.0) < 0.5
+            ? ${SURFACE_REGION.roofGravel.toFixed(1)}
+            : ${SURFACE_REGION.roofTar.toFixed(1)};
+        }
         float bhash(vec2 p) {
           return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453);
         }
@@ -84,7 +115,17 @@ export function makeFacadeMaterial(): THREE.MeshLambertMaterial {
           vec3 faceN = normalize(vWNormal) * (gl_FrontFacing ? 1.0 : -1.0);
           float verticalN = 1.0 - abs(faceN.y);
           float detailN = 1.0 - smoothstep(80.0, 260.0, distance(cameraPosition, vWPos));
-          if (verticalN > 0.55 && vWPos.y > 0.5 && vStyle < 0.5 && detailN > 0.001) {
+          float styleN = floor(vStyle + 0.5);
+          bool texturedMasonry = styleN < 0.5
+            || abs(styleN - 4.0) < 0.5
+            || abs(styleN - 5.0) < 0.5
+            || abs(styleN - 7.0) < 0.5
+            || abs(styleN - 8.0) < 0.5
+            || abs(styleN - 10.0) < 0.5
+            || abs(styleN - 11.0) < 0.5
+            || abs(styleN - 13.0) < 0.5
+            || abs(styleN - 14.0) < 0.5;
+          if (verticalN > 0.55 && vWPos.y > 0.5 && texturedMasonry && detailN > 0.001) {
             float uN = vWPos.x * faceN.z - vWPos.z * faceN.x;
             float floorHN = vWPos.y < 4.6 ? 4.6 : 3.1;
             float winWN = vWPos.y < 4.6 ? 4.2 : 2.5;
@@ -92,7 +133,12 @@ export function makeFacadeMaterial(): THREE.MeshLambertMaterial {
             vec2 loN = vWPos.y < 4.6 ? vec2(0.08, 0.05) : vec2(0.18, 0.25);
             vec2 hiN = vWPos.y < 4.6 ? vec2(0.92, 0.75) : vec2(0.85, 0.80);
             float windowN = aaRect(fN, loN, hiN);
-            vec3 mapN = texture2D(uBrickNormal, vec2(uN, vWPos.y) / 1.2).xyz * 2.0 - 1.0;
+            float regionN = nycFacadeRegion(styleN);
+            float scaleN = (regionN == ${SURFACE_REGION.limestone.toFixed(1)} || regionN == ${SURFACE_REGION.concreteAged.toFixed(1)}) ? 2.4 : 1.2;
+            vec3 mapN = texture2D(
+              uNycSurfaceNormal,
+              nycAtlasUv(vec2(uN, vWPos.y) / scaleN, regionN)
+            ).xyz * 2.0 - 1.0;
             mapN.xy *= 0.72;
             vec3 tangentN = normalize(vec3(faceN.z, 0.0, -faceN.x));
             vec3 reliefN = normalize(
@@ -101,7 +147,11 @@ export function makeFacadeMaterial(): THREE.MeshLambertMaterial {
             vec3 worldN = normalize(mix(faceN, reliefN, (1.0 - windowN) * detailN * 0.58));
             normal = normalize(mat3(viewMatrix) * worldN);
           } else if (faceN.y > 0.55 && detailN > 0.001) {
-            vec3 mapN = texture2D(uRoofNormal, vWPos.xz / 4.0).xyz * 2.0 - 1.0;
+            float roofRegionN = nycRoofRegion(vSemantic);
+            vec3 mapN = texture2D(
+              uNycSurfaceNormal,
+              nycAtlasUv(vWPos.xz / 4.0, roofRegionN)
+            ).xyz * 2.0 - 1.0;
             mapN.xy *= 0.64;
             vec3 worldN = normalize(vec3(mapN.x, max(mapN.z, 0.3), mapN.y));
             normal = normalize(mat3(viewMatrix) * normalize(mix(faceN, worldN, detailN * 0.62)));
@@ -124,10 +174,31 @@ export function makeFacadeMaterial(): THREE.MeshLambertMaterial {
             if (detail > 0.001) {
             float u = vWPos.x * wn.z - vWPos.z * wn.x;
             float v = vWPos.y;
-            bool glassTower = vStyle > 0.5;
-            float floorH = glassTower ? 3.4 : 3.1;
-            float winW = glassTower ? 1.7 : 2.5;
-            bool storefront = v < 4.6;
+            // Sixteen stable archetypes. Styles 0/1 intentionally retain the old
+            // masonry/glass behavior, so tiles produced before the semantic
+            // pipeline upgrade render identically.
+            float semantic = floor(vSemantic + 0.5);
+            float styleId = clamp(mod(semantic, 16.0), 0.0, 15.0);
+            float windowFamily = mod(floor(semantic / 16.0), 8.0);
+            float openingQ = mod(floor(semantic / 128.0), 16.0);
+            float opening = 0.22 + openingQ * (0.58 / 15.0);
+            float storefrontCategory = mod(floor(semantic / 2048.0), 8.0);
+            bool glassTower = abs(styleId - 1.0) < 0.5 || abs(styleId - 6.0) < 0.5;
+            bool industrial = abs(styleId - 4.0) < 0.5 || abs(styleId - 13.0) < 0.5;
+            bool brownstone = abs(styleId - 5.0) < 0.5;
+            bool concrete = abs(styleId - 3.0) < 0.5 || abs(styleId - 9.0) < 0.5;
+            bool stone = abs(styleId - 2.0) < 0.5 || abs(styleId - 12.0) < 0.5;
+            bool castIron = abs(styleId - 8.0) < 0.5;
+            bool artDeco = abs(styleId - 10.0) < 0.5;
+            bool hotel = abs(styleId - 15.0) < 0.5;
+            float floorH = glassTower ? 3.4 : industrial ? 4.15 : brownstone ? 3.25
+              : castIron ? 3.75 : hotel ? 3.45 : 3.1;
+            float winW = abs(styleId - 6.0) < 0.5 ? 1.45
+              : glassTower ? 1.7 : industrial ? 3.2 : concrete ? 3.35
+              : brownstone ? 2.8 : castIron ? 2.25 : stone ? 2.6
+              : abs(windowFamily - 4.0) < 0.5 ? 3.6
+              : abs(windowFamily - 6.0) < 0.5 ? 2.9 : 2.5;
+            bool storefront = storefrontCategory > 0.5 && v < 4.6;
             if (storefront) { floorH = 4.6; winW = 4.2; }
             // Cell coordinates BEFORE the fract(), so their screen-space
             // derivatives are continuous (fwidth of a fract() spikes at every
@@ -167,8 +238,14 @@ export function makeFacadeMaterial(): THREE.MeshLambertMaterial {
               diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * 0.55, spandrel * 0.8);
               diffuseColor.rgb += vec3(1.0, 0.94, 0.80) * glint * pane * 0.22;
             } else {
-              float inX = mix(0.670, band(f.x, 0.18, 0.85, wx), lod);
-              float inY = mix(0.550, band(f.y, 0.25, 0.8, wy), lod);
+              float sideInset = mix(0.31, 0.08, opening);
+              float bottomInset = mix(0.35, 0.12, opening);
+              float inX = mix(opening, band(f.x, sideInset, 1.0 - sideInset, wx), lod);
+              float inY = mix(opening, band(f.y, bottomInset, min(0.9, bottomInset + opening), wy), lod);
+              if (abs(windowFamily - 5.0) < 0.5) {
+                float arch = 1.0 - smoothstep(0.18, 0.25, length(vec2((f.x - 0.5) * 0.65, f.y - 0.64)));
+                inY *= mix(1.0, max(arch, band(f.y, bottomInset, 0.66, wy)), lod);
+              }
               if (storefront) {
                 inX = mix(0.840, band(f.x, 0.08, 0.92, wx), lod);
                 inY = mix(0.700, band(f.y, 0.05, 0.75, wy), lod);
@@ -176,9 +253,18 @@ export function makeFacadeMaterial(): THREE.MeshLambertMaterial {
               float win = inX * inY;
               // masonry surface detail between the windows (brightness only,
               // so each building keeps its palette color)
-              vec3 bt = texture2D(uBrick, vec2(u, v) / 1.2).rgb;
+              float facadeRegion = nycFacadeRegion(styleId);
+              float facadeScale = (facadeRegion == ${SURFACE_REGION.limestone.toFixed(1)} || facadeRegion == ${SURFACE_REGION.concreteAged.toFixed(1)}) ? 2.4 : 1.2;
+              vec2 facadeUv = nycAtlasUv(vec2(u, v) / facadeScale, facadeRegion);
+              vec3 bt = texture2D(uNycSurfaceColor, facadeUv).rgb;
+              ${surfaceOrm
+                ? 'float facadeAo = texture2D(uNycSurfaceOrm, facadeUv).r;'
+                : 'float facadeAo = 1.0;'}
               float bl = dot(bt, vec3(0.333)) * 1.75;
-              diffuseColor.rgb *= mix(1.0, bl, 0.34 * (1.0 - win));
+              float masonryRelief = industrial ? 0.3 : brownstone ? 0.24
+                : castIron ? 0.12 : (stone || concrete || artDeco) ? 0.08 : 0.34;
+              diffuseColor.rgb *= mix(1.0, bl, masonryRelief * (1.0 - win));
+              diffuseColor.rgb *= mix(1.0, facadeAo, 0.18 * (1.0 - win));
               vec3 glass = mix(vec3(0.13, 0.16, 0.2), vec3(0.38, 0.44, 0.52), rnd * rnd);
               if (storefront) glass = mix(vec3(0.1, 0.11, 0.13), vec3(0.3, 0.28, 0.24), rnd);
               glass = mix(glass, skyGlass, (storefront ? 0.18 : 0.27) + fresnel * 0.35);
@@ -195,6 +281,10 @@ export function makeFacadeMaterial(): THREE.MeshLambertMaterial {
                 ? lod * ((band(f.x, 0.335, 0.355, wx) + band(f.x, 0.645, 0.665, wx)) * inY
                   + band(f.y, 0.54, 0.565, wy) * inX)
                 : lod * band(f.y, 0.505, 0.525, wy) * inX;
+              if (abs(windowFamily - 2.0) < 0.5) {
+                frame += lod * ((band(f.x, 0.325, 0.345, wx) + band(f.x, 0.655, 0.675, wx)) * inY
+                  + (band(f.y, 0.42, 0.44, wy) + band(f.y, 0.64, 0.66, wy)) * inX);
+              }
               diffuseColor.rgb = mix(diffuseColor.rgb, facadeBase * 0.36, clamp(frame, 0.0, 1.0) * 0.92);
               // sill highlight under the window
               float sill = lod * band(f.y, 0.225, 0.275, max(wy, 0.025)) * inX;
@@ -205,11 +295,18 @@ export function makeFacadeMaterial(): THREE.MeshLambertMaterial {
             diffuseColor.rgb = mix(facadeBase, diffuseColor.rgb, detail);
             }
             // grounding gradient: subtle darkening near street
-            diffuseColor.rgb *= 0.86 + 0.14 * clamp(vWPos.y / 7.0, 0.0, 1.0);
+            diffuseColor.rgb *= (0.86 + 0.14 * clamp(vWPos.y / 7.0, 0.0, 1.0))
+              * nycMacroVariation(vWPos.xz);
           } else if (wn.y > 0.55) {
             // roofs: ballast gravel, worldspace projected
-            vec3 rt = texture2D(uRoof, vWPos.xz / 4.0).rgb;
-            diffuseColor.rgb *= mix(vec3(1.0), rt * 1.9, 0.55);
+            float roofRegion = nycRoofRegion(vSemantic);
+            vec2 roofUv = nycAtlasUv(vWPos.xz / 4.0, roofRegion);
+            vec3 rt = texture2D(uNycSurfaceColor, roofUv).rgb;
+            ${surfaceOrm
+              ? 'float roofAo = texture2D(uNycSurfaceOrm, roofUv).r;'
+              : 'float roofAo = 1.0;'}
+            diffuseColor.rgb *= mix(vec3(1.0), rt * 1.9, 0.55)
+              * mix(1.0, roofAo, 0.2) * nycMacroVariation(vWPos.xz);
           }
         }`
       );
@@ -217,12 +314,141 @@ export function makeFacadeMaterial(): THREE.MeshLambertMaterial {
   return mat;
 }
 
+interface ProjectedSurfaceOptions {
+  id: string;
+  region: number;
+  metersPerRepeat: number;
+  normalStrength: number;
+  aoStrength: number;
+}
+
+/**
+ * Bind one atlas region to a whole merged tile layer. Sampling is projected
+ * from absolute world coordinates, so adjacent tiles meet without UV seams and
+ * broad analytic variation breaks repetition without another texture sample.
+ */
+function applyProjectedSurface(
+  mat: THREE.MeshLambertMaterial | THREE.MeshStandardMaterial,
+  options: ProjectedSurfaceOptions,
+): void {
+  const contract = MATERIAL_TIER_CONTRACTS[quality().level];
+  const normalEnabled = contract.normalAtlas;
+  const ormEnabled = contract.ormAtlas && mat instanceof THREE.MeshStandardMaterial;
+  const normalFragment = normalEnabled
+    ? `
+      if (abs(vNycMaterialWorldNormal.y) > 0.58) {
+        vec3 nycMapN = texture2D(uNycMaterialNormal, nycSurfaceUv).xyz * 2.0 - 1.0;
+        vec3 nycWorldN = normalize(vec3(
+          nycMapN.x * ${options.normalStrength.toFixed(3)},
+          max(0.28, nycMapN.z),
+          nycMapN.y * ${options.normalStrength.toFixed(3)}
+        ));
+        normal = normalize(mix(normal, mat3(viewMatrix) * nycWorldN, 0.72));
+      }`
+    : '';
+  const ormAssignment = ormEnabled
+    ? 'nycMaterialOrmSample = texture2D(uNycMaterialOrm, nycSurfaceUv);'
+    : '';
+  const roughnessFragment = ormEnabled
+    ? `float roughnessFactor = roughness * nycMaterialOrmSample.g;`
+    : '#include <roughnessmap_fragment>';
+  const metalnessFragment = ormEnabled
+    ? 'float metalnessFactor = nycMaterialOrmSample.b;'
+    : '#include <metalnessmap_fragment>';
+  const aoFragment = ormEnabled
+    ? `
+      float nycAmbientOcclusion = mix(1.0, nycMaterialOrmSample.r, ${options.aoStrength.toFixed(3)});
+      reflectedLight.indirectDiffuse *= nycAmbientOcclusion;
+      #if defined( USE_ENVMAP ) && defined( STANDARD )
+        float nycDotNV = saturate(dot(geometryNormal, geometryViewDir));
+        reflectedLight.indirectSpecular *= computeSpecularOcclusion(
+          nycDotNV, nycAmbientOcclusion, material.roughness
+        );
+      #endif`
+    : '#include <aomap_fragment>';
+
+  mat.userData.nycMaterialSurface = options.id;
+  mat.userData.nycMaterialChannels = [
+    'color',
+    ...(normalEnabled ? ['normal'] : []),
+    ...(ormEnabled ? ['orm'] : []),
+  ];
+  mat.customProgramCacheKey = () => `nyc-material-${options.id}-${normalEnabled ? 'n' : 'x'}-${ormEnabled ? 'o' : 'x'}-v1`;
+  mat.onBeforeCompile = (shader) => {
+    shader.uniforms.uNycMaterialColor = materialLibrary.colorUniform;
+    if (normalEnabled) shader.uniforms.uNycMaterialNormal = materialLibrary.normalUniform;
+    if (ormEnabled) shader.uniforms.uNycMaterialOrm = materialLibrary.ormUniform;
+    shader.vertexShader = shader.vertexShader
+      .replace(
+        '#include <common>',
+        `#include <common>
+        varying vec3 vNycMaterialWorld;
+        varying vec3 vNycMaterialWorldNormal;`
+      )
+      .replace(
+        '#include <defaultnormal_vertex>',
+        `#include <defaultnormal_vertex>
+        vNycMaterialWorldNormal = normalize(inverseTransformDirection(transformedNormal, viewMatrix));`
+      )
+      .replace(
+        '#include <worldpos_vertex>',
+        `#include <worldpos_vertex>
+        vec4 nycMaterialWorldPosition = vec4(transformed, 1.0);
+        #ifdef USE_BATCHING
+          nycMaterialWorldPosition = batchingMatrix * nycMaterialWorldPosition;
+        #endif
+        #ifdef USE_INSTANCING
+          nycMaterialWorldPosition = instanceMatrix * nycMaterialWorldPosition;
+        #endif
+        vNycMaterialWorld = (modelMatrix * nycMaterialWorldPosition).xyz;`
+      );
+    shader.fragmentShader = shader.fragmentShader
+      .replace(
+        '#include <common>',
+        `#include <common>
+        varying vec3 vNycMaterialWorld;
+        varying vec3 vNycMaterialWorldNormal;
+        uniform sampler2D uNycMaterialColor;
+        ${normalEnabled ? 'uniform sampler2D uNycMaterialNormal;' : ''}
+        ${ormEnabled ? `uniform sampler2D uNycMaterialOrm;
+        vec4 nycMaterialOrmSample = vec4(1.0);` : ''}
+        ${MATERIAL_ATLAS_GLSL}`
+      )
+      .replace(
+        '#include <color_fragment>',
+        `#include <color_fragment>
+        vec2 nycSurfaceUv = nycAtlasUv(
+          vNycMaterialWorld.xz / ${options.metersPerRepeat.toFixed(4)},
+          ${options.region.toFixed(1)}
+        );
+        vec3 nycSurfaceColor = texture2D(uNycMaterialColor, nycSurfaceUv).rgb;
+        diffuseColor.rgb *= nycSurfaceColor * nycMacroVariation(vNycMaterialWorld.xz);
+        ${ormAssignment}`
+      )
+      .replace('#include <normal_fragment_maps>', normalFragment)
+      .replace('#include <roughnessmap_fragment>', roughnessFragment)
+      .replace('#include <metalnessmap_fragment>', metalnessFragment)
+      .replace('#include <aomap_fragment>', aoFragment);
+  };
+}
+
 /** Flat layer (areas/ground): vertex colors modulated by worldspace mottle. */
 export function makeFlatMaterial(): THREE.MeshLambertMaterial {
   const mat = new THREE.MeshLambertMaterial({ vertexColors: true });
-  const detail = makeGrassDetailTexture();
+  const contract = MATERIAL_TIER_CONTRACTS[quality().level];
+  const normalEnabled = contract.facadeNormals;
+  const ormEnabled = contract.ormAtlas;
+  mat.userData.nycMaterialSurface = 'grass-variants';
+  mat.userData.nycMaterialChannels = [
+    'color',
+    ...(normalEnabled ? ['normal'] : []),
+    ...(ormEnabled ? ['orm'] : []),
+  ];
+  mat.customProgramCacheKey = () => `nyc-material-grass-${normalEnabled ? 'n' : 'x'}-${ormEnabled ? 'o' : 'x'}-v1`;
   mat.onBeforeCompile = (shader) => {
-    shader.uniforms.uDetail = { value: detail };
+    shader.uniforms.uNycGrassColor = materialLibrary.colorUniform;
+    if (normalEnabled) shader.uniforms.uNycGrassNormal = materialLibrary.normalUniform;
+    if (ormEnabled) shader.uniforms.uNycGrassOrm = materialLibrary.ormUniform;
     shader.vertexShader = shader.vertexShader
       .replace('#include <common>', '#include <common>\nvarying vec2 vGXZ;')
       .replace(
@@ -231,43 +457,101 @@ export function makeFlatMaterial(): THREE.MeshLambertMaterial {
         vGXZ = (modelMatrix * vec4(transformed, 1.0)).xz;`
       );
     shader.fragmentShader = shader.fragmentShader
-      .replace('#include <common>', '#include <common>\nvarying vec2 vGXZ;\nuniform sampler2D uDetail;')
+      .replace(
+        '#include <common>',
+        `#include <common>
+        varying vec2 vGXZ;
+        uniform sampler2D uNycGrassColor;
+        ${normalEnabled ? 'uniform sampler2D uNycGrassNormal;' : ''}
+        ${ormEnabled ? 'uniform sampler2D uNycGrassOrm;' : ''}
+        ${MATERIAL_ATLAS_GLSL}`
+      )
       .replace(
         '#include <color_fragment>',
         `#include <color_fragment>
         {
-          vec3 d1 = texture2D(uDetail, vGXZ / 6.0).rgb;
-          vec3 d2 = texture2D(uDetail, vGXZ / 41.0).rgb; // second octave breaks tiling
-          diffuseColor.rgb *= mix(vec3(1.0), d1 * d2 * 1.85, 0.6);
+          float dry = smoothstep(-0.35, 0.35,
+            sin(vGXZ.x * 0.013 - vGXZ.y * 0.019)
+            + sin(vGXZ.x * -0.007 + vGXZ.y * 0.011 + 1.8) * 0.6
+          );
+          vec2 lushUv = nycAtlasUv(vGXZ / 5.0, ${SURFACE_REGION.grassLush.toFixed(1)});
+          vec2 dryUv = nycAtlasUv(vGXZ / 5.0, ${SURFACE_REGION.grassDry.toFixed(1)});
+          vec3 detail = mix(
+            texture2D(uNycGrassColor, lushUv).rgb,
+            texture2D(uNycGrassColor, dryUv).rgb,
+            dry * 0.42
+          );
+          diffuseColor.rgb *= detail * 2.05 * nycMacroVariation(vGXZ);
+          ${ormEnabled ? `
+          float grassAo = mix(
+            texture2D(uNycGrassOrm, lushUv).r,
+            texture2D(uNycGrassOrm, dryUv).r,
+            dry * 0.42
+          );
+          diffuseColor.rgb *= mix(1.0, grassAo, 0.18);` : ''}
         }`
+      )
+      .replace(
+        '#include <normal_fragment_maps>',
+        normalEnabled
+          ? `{
+          float dry = smoothstep(-0.35, 0.35,
+            sin(vGXZ.x * 0.013 - vGXZ.y * 0.019)
+            + sin(vGXZ.x * -0.007 + vGXZ.y * 0.011 + 1.8) * 0.6
+          );
+          vec3 lushN = texture2D(
+            uNycGrassNormal,
+            nycAtlasUv(vGXZ / 5.0, ${SURFACE_REGION.grassLush.toFixed(1)})
+          ).xyz * 2.0 - 1.0;
+          vec3 dryN = texture2D(
+            uNycGrassNormal,
+            nycAtlasUv(vGXZ / 5.0, ${SURFACE_REGION.grassDry.toFixed(1)})
+          ).xyz * 2.0 - 1.0;
+          vec3 mapN = normalize(mix(lushN, dryN, dry * 0.42));
+          vec3 worldN = normalize(vec3(mapN.x * 0.48, max(mapN.z, 0.35), mapN.y * 0.48));
+          normal = normalize(mix(normal, mat3(viewMatrix) * worldN, 0.58));
+        }`
+          : ''
       );
   };
   return mat;
 }
 
 /** Asphalt roadbed with aggregate normal detail (UVs from the worker). */
-export function makeRoadMaterial(): THREE.MeshLambertMaterial {
-  const t = makeAsphaltTexture();
-  const mat = new THREE.MeshLambertMaterial({
-    vertexColors: true,
-    color: 0x8a8d92, // texture carries most of the tone; vertex colors tint per class
-    map: t.map,
-    normalMap: t.normal,
+export function makeRoadMaterial(): THREE.MeshLambertMaterial | THREE.MeshStandardMaterial {
+  const q = quality();
+  const contract = MATERIAL_TIER_CONTRACTS[q.level];
+  // Full roughness response is reserved for desktop; the mobile Lambert path
+  // keeps the exact same albedo/normal read without paying for IBL per pixel.
+  const mat = contract.pbrStreet
+    ? new THREE.MeshStandardMaterial({ vertexColors: true, color: 0xffffff, roughness: 1, metalness: 0 })
+    : new THREE.MeshLambertMaterial({ vertexColors: true, color: 0xffffff });
+  mat.dithering = true;
+  applyProjectedSurface(mat, {
+    id: 'asphalt-worn',
+    region: SURFACE_REGION.asphaltWorn,
+    metersPerRepeat: 4,
+    normalStrength: 0.68,
+    aoStrength: 0.34,
   });
-  mat.normalScale = new THREE.Vector2(0.7, 0.7);
   return mat;
 }
 
 /** Poured-concrete walks with score joints. */
-export function makeWalkMaterial(): THREE.MeshLambertMaterial {
-  const t = makeSidewalkTexture();
-  const mat = new THREE.MeshLambertMaterial({
-    vertexColors: true,
-    color: 0xb8b6af,
-    map: t.map,
-    normalMap: t.normal,
+export function makeWalkMaterial(): THREE.MeshLambertMaterial | THREE.MeshStandardMaterial {
+  const q = quality();
+  const contract = MATERIAL_TIER_CONTRACTS[q.level];
+  const mat = contract.pbrStreet
+    ? new THREE.MeshStandardMaterial({ vertexColors: true, color: 0xffffff, roughness: 1, metalness: 0 })
+    : new THREE.MeshLambertMaterial({ vertexColors: true, color: 0xffffff });
+  mat.dithering = true;
+  applyProjectedSurface(mat, {
+    id: 'concrete-aged',
+    region: SURFACE_REGION.concreteAged,
+    metersPerRepeat: 3,
+    normalStrength: 0.76,
+    aoStrength: 0.3,
   });
-  mat.normalScale = new THREE.Vector2(0.8, 0.8);
   return mat;
 }
 
@@ -303,8 +587,6 @@ export function makeWorldDetailMaterial(
   };
   return mat;
 }
-
-export const barkTexture = makeBarkTexture;
 
 /** Painted lane lines / crosswalk bars: slightly emissive so they pop in shade. */
 export function makeMarkingsMaterial(): THREE.MeshLambertMaterial {
@@ -347,12 +629,156 @@ export function makeSkylineMaterial(skyColor: THREE.Color): THREE.MeshLambertMat
 }
 
 export const treeTrunkMaterial = () => {
-  const t = makeBarkTexture();
-  const mat = new THREE.MeshLambertMaterial({ color: 0xcbb59a, map: t.map, normalMap: t.normal });
-  mat.normalScale = new THREE.Vector2(0.9, 0.9);
+  const q = quality();
+  // Low avoids bark samples; at the tier's 1x cap the five-sided trunk is
+  // primarily a silhouette. Other tiers share the city atlas, so adding trees
+  // never creates another pair of resident textures.
+  if (q.level === 'low') {
+    return new THREE.MeshLambertMaterial({ color: 0x806a56 });
+  }
+  const pbr = q.level === 'high' || q.level === 'ultra';
+  const mat = pbr
+    ? new THREE.MeshStandardMaterial({
+      color: 0xffffff, roughness: 1, metalness: 0,
+    })
+    : new THREE.MeshLambertMaterial({ color: 0xffffff });
+  mat.dithering = true;
+  mat.userData.nycMaterialSurface = 'bark-brown';
+  mat.userData.nycMaterialChannels = ['color', ...(pbr ? ['orm'] : [])];
+  mat.customProgramCacheKey = () => `nyc-material-bark-${pbr ? 'pbr' : 'lambert'}-v1`;
+  mat.onBeforeCompile = (shader) => {
+    shader.uniforms.uNycBarkColor = materialLibrary.colorUniform;
+    if (pbr) shader.uniforms.uNycBarkOrm = materialLibrary.ormUniform;
+    shader.vertexShader = shader.vertexShader
+      .replace(
+        '#include <common>',
+        `#include <common>
+        varying vec2 vNycBarkUv;
+        varying vec2 vNycBarkWorld;`
+      )
+      .replace(
+        '#include <worldpos_vertex>',
+        `#include <worldpos_vertex>
+        vNycBarkUv = vec2(uv.x * 2.0, uv.y * 3.0);
+        vec4 nycBarkWorldPosition = vec4(transformed, 1.0);
+        #ifdef USE_INSTANCING
+          nycBarkWorldPosition = instanceMatrix * nycBarkWorldPosition;
+        #endif
+        vNycBarkWorld = (modelMatrix * nycBarkWorldPosition).xz;`
+      );
+    shader.fragmentShader = shader.fragmentShader
+      .replace(
+        '#include <common>',
+        `#include <common>
+        varying vec2 vNycBarkUv;
+        varying vec2 vNycBarkWorld;
+        uniform sampler2D uNycBarkColor;
+        ${pbr ? `uniform sampler2D uNycBarkOrm;
+        vec4 nycBarkOrmSample = vec4(1.0);` : ''}
+        ${MATERIAL_ATLAS_GLSL}`
+      )
+      .replace(
+        '#include <color_fragment>',
+        `#include <color_fragment>
+        vec2 nycBarkAtlasUv = nycAtlasUv(vNycBarkUv, ${SURFACE_REGION.barkBrown.toFixed(1)});
+        diffuseColor.rgb *= texture2D(uNycBarkColor, nycBarkAtlasUv).rgb
+          * 1.95 * nycMacroVariation(vNycBarkWorld);
+        ${pbr ? 'nycBarkOrmSample = texture2D(uNycBarkOrm, nycBarkAtlasUv);' : ''}`
+      );
+    if (pbr) {
+      shader.fragmentShader = shader.fragmentShader
+        .replace(
+          '#include <roughnessmap_fragment>',
+          'float roughnessFactor = roughness * nycBarkOrmSample.g;'
+        )
+        .replace(
+          '#include <metalnessmap_fragment>',
+          'float metalnessFactor = nycBarkOrmSample.b;'
+        )
+        .replace(
+          '#include <aomap_fragment>',
+          'reflectedLight.indirectDiffuse *= mix(1.0, nycBarkOrmSample.r, 0.24);'
+        );
+    }
+  };
   return mat;
 };
-export const treeCanopyMaterial = () => new THREE.MeshLambertMaterial({ color: 0x4d7a45 });
+
+export interface TreeCanopyMaterialKit {
+  mat: THREE.MeshLambertMaterial | THREE.MeshStandardMaterial;
+  /** Advance one shared wind phase for every instanced canopy in the city. */
+  update: (dt: number) => void;
+}
+
+/**
+ * Opaque instanced foliage with a cheap shared wind/translucency cue.
+ *
+ * The canopy remains a closed low-poly mesh: no alpha cards, sorting or
+ * overdraw. Wind runs in the shared vertex program and uses each instance's
+ * world translation as its phase, so an entire tile is still one draw.
+ */
+export function treeCanopyMaterial(): TreeCanopyMaterialKit {
+  const q = quality();
+  const premium = q.level === 'high' || q.level === 'ultra';
+  const animated = q.level !== 'low';
+  const mat = premium
+    ? new THREE.MeshStandardMaterial({
+      color: 0xffffff, roughness: 0.9, metalness: 0,
+    })
+    : new THREE.MeshLambertMaterial({ color: 0xffffff });
+  mat.dithering = true;
+  const uTime = { value: 0 };
+
+  if (animated) {
+    const windAmp = premium ? 0.075 : 0.04;
+    const transmit = premium ? 0.12 : 0.055;
+    mat.onBeforeCompile = (shader) => {
+      shader.uniforms.uTreeTime = uTime;
+      shader.vertexShader = shader.vertexShader
+        .replace(
+          '#include <common>',
+          `#include <common>
+          uniform float uTreeTime;`
+        )
+        .replace(
+          '#include <begin_vertex>',
+          `#include <begin_vertex>
+          #ifdef USE_INSTANCING
+            // Lower vertices stay tied to the trunk; upper crown vertices move
+            // a few centimetres. World-position phase prevents tiled lockstep.
+            float treeCrown = smoothstep(1.25, 4.8, position.y);
+            float treePhase = instanceMatrix[3].x * 0.031 + instanceMatrix[3].z * 0.023;
+            float treeGust = sin(uTreeTime * 0.82 + treePhase)
+              + 0.38 * sin(uTreeTime * 1.71 + treePhase * 1.83);
+            transformed.x += treeGust * treeCrown * ${windAmp.toFixed(3)};
+            transformed.z += sin(uTreeTime * 0.67 + treePhase * 1.27)
+              * treeCrown * ${(windAmp * 0.58).toFixed(3)};
+          #endif`
+        );
+      shader.fragmentShader = shader.fragmentShader.replace(
+        '#include <lights_fragment_end>',
+        `#include <lights_fragment_end>
+        {
+          // A restrained thin-leaf cue on the sun-opposed side of the closed
+          // crown. This is lighting only—there is no transparent overdraw.
+          vec3 treeSunView = normalize((viewMatrix * vec4(-0.5566, 0.6875, -0.4665, 0.0)).xyz);
+          float treeBack = max(dot(-normal, treeSunView), 0.0);
+          treeBack *= treeBack;
+          reflectedLight.indirectDiffuse += diffuseColor.rgb
+            * vec3(0.55, 0.82, 0.28) * treeBack * ${transmit.toFixed(3)};
+        }`
+      );
+    };
+    mat.customProgramCacheKey = () => `nycroam-tree-canopy-${q.level}`;
+  }
+
+  return {
+    mat,
+    update: animated
+      ? (dt: number) => { uTime.value += Math.min(0.1, Math.max(0, dt)); }
+      : () => {},
+  };
+}
 
 /**
  * Animated river water: worldspace wave normals, fresnel toward the sky at

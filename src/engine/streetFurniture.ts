@@ -39,8 +39,11 @@ export function abbreviateStreet(name: string): string {
 }
 
 const BLADE_GREEN = '#0e7443';
-const CELL_W = 512, CELL_H = 80, COLS = 2, ROWS = 12;
-const POLE_V = 1 - 4 / 1024; // bottom sliver of the atlas = pole color patch
+// A blade is at most 1.6m wide and is normally read from a few metres away.
+// 320 source pixels still resolve lettering cleanly with anisotropy, while the
+// 640x640 atlas is 61% smaller per resident sign tile than the old 1024 square.
+const CELL_W = 320, CELL_H = 50, COLS = 2, ROWS = 12;
+const POLE_STRIP_H = 40;
 
 interface BladeCell { u0: number; v0: number; u1: number; v1: number; widthM: number; }
 
@@ -48,20 +51,20 @@ function drawBlade(ctx: CanvasRenderingContext2D, cx: number, cy: number, text: 
   ctx.save();
   ctx.translate(cx, cy);
   // fit text: shrink font until it fits the cell minus padding
-  let font = 52;
+  let font = 32;
   ctx.font = `bold ${font}px ${SANS}`;
   let tw = ctx.measureText(text).width;
-  while (tw > CELL_W - 90 && font > 26) {
-    font -= 3;
+  while (tw > CELL_W - 56 && font > 17) {
+    font -= 2;
     ctx.font = `bold ${font}px ${SANS}`;
     tw = ctx.measureText(text).width;
   }
-  const bw = Math.min(CELL_W, tw + 64);
+  const bw = Math.min(CELL_W, tw + 40);
   ctx.fillStyle = BLADE_GREEN;
   ctx.fillRect(0, 4, bw, CELL_H - 8);
   ctx.strokeStyle = '#e9ede9';
   ctx.lineWidth = 4;
-  ctx.strokeRect(5, 9, bw - 10, CELL_H - 18);
+  ctx.strokeRect(4, 6, bw - 8, CELL_H - 12);
   ctx.fillStyle = '#f4f7f4';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
@@ -69,9 +72,9 @@ function drawBlade(ctx: CanvasRenderingContext2D, cx: number, cy: number, text: 
   ctx.restore();
   return {
     u0: cx / (CELL_W * COLS),
-    v0: cy / (CELL_H * ROWS + 64),
+    v0: cy / (CELL_H * ROWS + POLE_STRIP_H),
     u1: (cx + bw) / (CELL_W * COLS),
-    v1: (cy + CELL_H) / (CELL_H * ROWS + 64),
+    v1: (cy + CELL_H) / (CELL_H * ROWS + POLE_STRIP_H),
     widthM: Math.max(0.55, Math.min(1.6, (bw / CELL_W) * 1.75)),
   };
 }
@@ -81,11 +84,11 @@ function drawBlade(ctx: CanvasRenderingContext2D, cx: number, cy: number, text: 
  * Returns the mesh plus its atlas texture (caller disposes both).
  */
 export function buildSignsMesh(signs: WorldSign[]): { mesh: THREE.Mesh; texture: THREE.CanvasTexture } {
-  const W = CELL_W * COLS, H = CELL_H * ROWS + 64;
+  const W = CELL_W * COLS, H = CELL_H * ROWS + POLE_STRIP_H;
   const { cv, ctx } = canvas2d(W, H);
   // transparent background; pole patch strip at the bottom
   ctx.fillStyle = '#274d3d';
-  ctx.fillRect(0, H - 64, W, 64);
+  ctx.fillRect(0, H - POLE_STRIP_H, W, POLE_STRIP_H);
 
   const pos: number[] = [];
   const uv: number[] = [];
@@ -109,7 +112,12 @@ export function buildSignsMesh(signs: WorldSign[]): { mesh: THREE.Mesh; texture:
     idx.push(base, base + 1, base + 2, base, base + 2, base + 3);
   };
 
-  const poleCell = { u0: 0.02, v0: (H - 50) / H, u1: 0.05, v1: (H - 14) / H };
+  const poleCell = {
+    u0: 0.02,
+    v0: (H - POLE_STRIP_H + 9) / H,
+    u1: 0.05,
+    v1: (H - 9) / H,
+  };
 
   let cellIdx = 0;
   for (const sign of signs) {
@@ -174,7 +182,9 @@ export function buildSignsMesh(signs: WorldSign[]): { mesh: THREE.Mesh; texture:
     map: texture, transparent: true, alphaTest: 0.15, side: THREE.DoubleSide,
   });
   const mesh = new THREE.Mesh(geo, mat);
-  mesh.castShadow = true;
+  // Poles and blades receive the city shadow, but their one-pixel silhouettes
+  // do not justify a full per-tile sun-map submission.
+  mesh.castShadow = false;
   mesh.matrixAutoUpdate = false;
   return { mesh, texture };
 }
@@ -263,6 +273,8 @@ export function buildHydrants(transforms: Float32Array, mat: THREE.Material): TH
   }
   inst.instanceMatrix.needsUpdate = true;
   if (inst.instanceColor) inst.instanceColor.needsUpdate = true;
-  inst.castShadow = true;
+  // A hydrant's grounding is supplied by AO/contact shading. Instancing keeps
+  // its color/shape detail without multiplying the directional-shadow pass.
+  inst.castShadow = false;
   return inst;
 }

@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { Train } from './train';
 import { directionLabel } from './directions';
 import type { StationSpec, TrackInfo, NetworkData, Arrival } from './types';
+import { quality } from '../quality';
 
 /** Express partner shown blasting through local stations' center tracks. */
 const EXPRESS_PARTNER: Record<string, string> = {
@@ -211,10 +212,14 @@ export class TrainScheduler {
         travelSign === 1 ? northX : southX,
       );
     }
+    const dynamicShadows = quality().stationShadows;
     train.group.traverse((o) => {
       if (o instanceof THREE.Mesh || o instanceof THREE.InstancedMesh) {
-        o.castShadow = true;
-        o.receiveShadow = true;
+        // A train used to turn every shell panel, door, pole, bogie and decal
+        // into its own shadow submission. Roof meshes are the authored coarse
+        // proxies; mobile uses the train's one-draw blob contacts instead.
+        o.castShadow = dynamicShadows && o.userData.trainShadowCaster === true;
+        o.receiveShadow = !o.userData.mobileContactShadow;
       }
     });
     this.parent.add(train.group);

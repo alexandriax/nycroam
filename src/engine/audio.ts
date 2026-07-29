@@ -61,7 +61,11 @@ export class AudioManager {
   constructor(private base = '/audio/') {
     if (typeof window === 'undefined') return;
     try {
-      this.muted = localStorage.getItem(MUTE_KEY) === '1';
+      // `?mute=1` is a non-persistent QA/deep-link override: automated visual
+      // traversal can exercise real controls without ever opening the output
+      // gain, while ordinary visits retain the user's saved preference.
+      this.muted = new URLSearchParams(location.search).has('mute')
+        || localStorage.getItem(MUTE_KEY) === '1';
     } catch { /* private mode */ }
     const Ctor = window.AudioContext
       ?? (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;

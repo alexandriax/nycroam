@@ -238,6 +238,7 @@ export const buildBusStop: BusStopKitFactory = (routes: BusRouteBadge[], seed: n
   flag.position.set(0, poleH - 0.55, 0.05);
   flag.rotation.y = (hash01(seed * 41 + 5) - 0.5) * 0.05;
   flag.userData.shared = true;
+  flag.userData.busStopLodAnchor = true;
   out.add(flag);
   const guide = new THREE.Mesh(FRONT_PLANE_GEO, mats.guide);
   guide.scale.set(0.34, 0.485, 1);

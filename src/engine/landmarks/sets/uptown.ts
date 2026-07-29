@@ -6,6 +6,17 @@ import {
   WHITE_LM, WATER_LM, GREEN_PATINA,
   box, cyl, strut, colonnade, lathe, archWall, figure, canvasTexture, twoSidedPanel,
 } from '../kit';
+import {
+  HEARST_BIRD_MOUTH_CUT,
+  HEARST_DIAGRID_BEAM_COUNT,
+  HEARST_DIAGRID_MODULES,
+  HEARST_TOWER_DEPTH,
+  HEARST_TOWER_WIDTH,
+  hearstCurtainLevels,
+  hearstCurtainProfile,
+  hearstDiagridSegments,
+  hearstPerimeterRing,
+} from '../hearstGeometry';
 
 /**
  * Uptown set: Columbus Circle, the Upper West Side spine (Lincoln Center,
@@ -52,8 +63,8 @@ const STW_DARK = new THREE.MeshStandardMaterial({
 });
 const STW_COLLISION = new THREE.MeshBasicMaterial({ visible: false });
 const HEARST_STEEL = new THREE.MeshStandardMaterial({
-  color: '#d3dbdd', metalness: 0.72, roughness: 0.21,
-  emissive: '#5a666a', emissiveIntensity: 0.31,
+  color: '#bfc3c6', metalness: 0.82, roughness: 0.4,
+  emissive: '#31383b', emissiveIntensity: 0.08,
 });
 const HEARST_BRONZE = new THREE.MeshStandardMaterial({
   color: '#544536', metalness: 0.64, roughness: 0.28,
@@ -120,10 +131,10 @@ function towerFacade(
 }
 
 /**
- * One lightweight skin lofted through matching polygon rings. Hearst uses it
- * to pull its eight-sided curtain wall inward halfway through every four-floor
- * structural module: the real tower's "bird's-mouth" corners affect the
- * silhouette, rather than being painted onto a rectangular glass box.
+ * One lightweight skin lofted through matching polygon rings. UVs are a
+ * physical projection along each facade edge, so a changing-width trapezoid
+ * has the same affine texture mapping in both triangles. This prevents the
+ * diagonal interpolation seam that previously looked like a second diagrid.
  */
 function loftFacade(
   source: { y: number; points: PlanPoint[] }[],
@@ -148,10 +159,15 @@ function loftFacade(
       const next = (i + 1) % lower.points.length;
       const a0 = lower.points[i], b0 = lower.points[next];
       const a1 = upper.points[i], b1 = upper.points[next];
-      const u1 = (
-        Math.hypot(b0[0] - a0[0], b0[1] - a0[1])
-        + Math.hypot(b1[0] - a1[0], b1[1] - a1[1])
-      ) / (2 * bayW);
+      const lowerLengthSq = (b0[0] - a0[0]) ** 2 + (b0[1] - a0[1]) ** 2;
+      const upperLengthSq = (b1[0] - a1[0]) ** 2 + (b1[1] - a1[1]) ** 2;
+      const edgeX = (b0[0] - a0[0]) + (b1[0] - a1[0]);
+      const edgeZ = (b0[1] - a0[1]) + (b1[1] - a1[1]);
+      const edgeLength = Math.hypot(edgeX, edgeZ);
+      if (edgeLength < 1e-6) continue;
+      const tangentX = edgeX / edgeLength, tangentZ = edgeZ / edgeLength;
+      const projectU = ([x, z]: PlanPoint): number =>
+        (x * tangentX + z * tangentZ) / bayW;
       const n = pos.length / 3;
       pos.push(
         a0[0], lower.y, a0[1],
@@ -160,12 +176,15 @@ function loftFacade(
         b0[0], lower.y, b0[1],
       );
       uv.push(
-        0, lower.y / floorH,
-        0, upper.y / floorH,
-        u1, upper.y / floorH,
-        u1, lower.y / floorH,
+        projectU(a0), lower.y / floorH,
+        projectU(a1), upper.y / floorH,
+        projectU(b1), upper.y / floorH,
+        projectU(b0), lower.y / floorH,
       );
-      idx.push(n, n + 1, n + 2, n, n + 2, n + 3);
+      // A short corner wing collapses to one point at the mouth. Omit its
+      // zero-area half rather than asking the normal generator to normalize it.
+      if (upperLengthSq > 1e-8) idx.push(n, n + 1, n + 2);
+      if (lowerLengthSq > 1e-8) idx.push(n, n + 2, n + 3);
     }
   }
   const geo = new THREE.BufferGeometry();
@@ -433,7 +452,11 @@ export const builders: Record<string, (ctx: LandmarkCtx) => THREE.Group> = {
       emissive: '#574f42', emissiveIntensity: 0.2,
     });
 
-    const glassTex = canvasTexture((c, w, h) => {
+    // The retained 1928 lobby uses a subtle interior gradient for depth. The
+    // upper Foster tower deliberately does not sample it: real Hearst glazing
+    // reads as one continuous blue-grey plane, with variation coming from sun,
+    // sky and the environment probe rather than a rectangle repeated per pane.
+    const lobbyGlassTex = canvasTexture((c, w, h) => {
       const glass = c.createLinearGradient(0, 0, w, 0);
       glass.addColorStop(0, '#1e3039');
       glass.addColorStop(0.23, '#648391');
@@ -442,23 +465,24 @@ export const builders: Record<string, (ctx: LandmarkCtx) => THREE.Group> = {
       glass.addColorStop(1, '#1c2c34');
       c.fillStyle = glass;
       c.fillRect(0, 0, w, h);
-      c.fillStyle = 'rgba(217,232,236,.22)';
-      c.fillRect(18, 7, 12, h - 17);
+      c.fillStyle = 'rgba(217,232,236,.16)';
+      c.fillRect(11, 7, 4, h - 33);
       c.fillStyle = 'rgba(12,24,30,.72)';
-      c.fillRect(0, h - 10, w, 10);
+      c.fillRect(0, h - 26, w, 26);
       c.fillStyle = '#83939a';
       c.fillRect(0, 0, 4, h);
       c.fillStyle = 'rgba(236,242,241,.42)';
       c.fillRect(w - 3, 0, 3, h);
     }, 80, 96);
-    glassTex.wrapS = glassTex.wrapT = THREE.RepeatWrapping;
-    glassTex.anisotropy = 4;
+    lobbyGlassTex.wrapS = lobbyGlassTex.wrapT = THREE.RepeatWrapping;
+    lobbyGlassTex.anisotropy = 4;
     const glassMat = new THREE.MeshStandardMaterial({
-      map: glassTex, color: '#c4d5da', metalness: 0.32, roughness: 0.16,
-      emissive: '#314b57', emissiveIntensity: 0.48,
+      color: '#557889', metalness: 0.02, roughness: 0.16,
+      emissive: '#17272e', emissiveIntensity: 0.025, envMapIntensity: 1.45,
     });
+    glassMat.userData.hearstSolidReflectiveGlass = true;
     const lobbyMat = new THREE.MeshStandardMaterial({
-      map: glassTex, color: '#a9c0c8', metalness: 0.22, roughness: 0.12,
+      map: lobbyGlassTex, color: '#a9c0c8', metalness: 0.22, roughness: 0.12,
       emissive: '#344d56', emissiveIntensity: 0.58,
       transparent: true, opacity: 0.82, depthWrite: false,
     });
@@ -533,110 +557,113 @@ export const builders: Record<string, (ctx: LandmarkCtx) => THREE.Group> = {
 
     // The new tower is lifted clear of the old roof by a recessed transparent
     // skirt, making the stainless volume appear to float over the 1928 shell.
-    const y0 = 32.5;
+    const y0 = 33.53; // published 110-foot floor-10 structural datum
     const y1 = ctx.fit?.roofH ?? 182;
-    const HW = 24, HD = 18.5;
-    const nodeCut = 1.7, biteCut = 6.2;
-    const plan = (cut: number): PlanPoint[] => [
-      [-HW + cut, -HD], [HW - cut, -HD],
-      [HW, -HD + cut], [HW, HD - cut],
-      [HW - cut, HD], [-HW + cut, HD],
-      [-HW, HD - cut], [-HW, -HD + cut],
+    const HW = HEARST_TOWER_WIDTH / 2;
+    const HD = HEARST_TOWER_DEPTH / 2;
+    const towerPlan: PlanPoint[] = [
+      [-HW, -HD], [HW, -HD], [HW, HD], [-HW, HD],
     ];
-    g.add(towerFacade(plan(nodeCut), baseH, y0, lobbyMat, 2.8, 3.35));
-    g.add(towerSolid(plan(nodeCut), baseH, y1, HEARST_COLLISION));
+    g.add(towerFacade(towerPlan, baseH, y0, lobbyMat, 1.524, 4.135));
+    // One inward, mouth-cut upper collision avoids an invisible 4.31m wall in
+    // each recessed corner. The full retained base remains independently solid
+    // at street level, where exact pedestrian collision matters most.
+    g.add(towerSolid(
+      hearstCurtainProfile(1, HW, HD, HEARST_BIRD_MOUTH_CUT),
+      baseH,
+      y1,
+      HEARST_COLLISION,
+    ));
 
-    // Forty upper floors: ten four-storey structural modules. At every module
-    // midpoint the eight-sided ring pulls 4.5m farther in at the corners,
-    // producing the repeating concave facets visible in real skyline views.
-    const modules = 10;
+    // Nine four-storey intervals use the documented 40-foot perimeter module.
+    // Full and half-module node rows alternate around one continuous 14-node
+    // ring. Rows 1, 3, 5 and 7 are bracketed by full rows, so each creates one
+    // deep eight-storey bird's mouth. Row 9 keeps the structural phase at the
+    // roof but is terminal and therefore is not a fifth mouth.
+    const modules = HEARST_DIAGRID_MODULES;
     const moduleH = (y1 - y0) / modules;
-    const levels: { y: number; points: PlanPoint[] }[] = [];
-    for (let r = 0; r < modules; r++) {
-      const yb = y0 + r * moduleH;
-      if (r === 0) levels.push({ y: yb, points: plan(nodeCut) });
-      levels.push({ y: yb + moduleH / 2, points: plan(biteCut) });
-      levels.push({ y: yb + moduleH, points: plan(nodeCut) });
-    }
-    g.add(loftFacade(levels, glassMat, 2.8, moduleH / 4));
+    const glassInset = 0.22;
+    const curtainLevels = hearstCurtainLevels(
+      y0, y1, HW - glassInset, HD - glassInset,
+    );
+    g.add(loftFacade(curtainLevels, glassMat, 1.524, moduleH / 4));
 
-    // Bake the 528-piece lattice straight into one geometry before it enters
-    // the landmark tree. Sharing the unit cylinder keeps every close fly-by
-    // beam identical, while pre-merging eliminates hundreds of Mesh nodes,
-    // matrix updates and LandmarkManager traversal steps on every approach.
-    const beamGeo = new THREE.CylinderGeometry(1, 1, 1, 5);
+    // Bake broad, clad wide-flange silhouettes into one geometry. Rectangular
+    // members read like Hearst's brushed stainless frame instead of glowing
+    // pipes and use fewer triangles than round cylinders at the same clarity.
+    const beamGeo = new THREE.BoxGeometry(1, 1, 1);
     const beamGeos: THREE.BufferGeometry[] = [];
-    const beamUp = new THREE.Vector3(0, 1, 0);
     const beamMid = new THREE.Vector3();
     const beamDirection = new THREE.Vector3();
+    const beamOutward = new THREE.Vector3();
+    const beamWidthAxis = new THREE.Vector3();
     const beamRotation = new THREE.Quaternion();
     const beamScale = new THREE.Vector3();
+    const beamBasis = new THREE.Matrix4();
     const beamMatrix = new THREE.Matrix4();
-    const addBeam = (a: THREE.Vector3, b: THREE.Vector3, radius: number): void => {
+    const addBeam = (
+      a: THREE.Vector3,
+      b: THREE.Vector3,
+      width: number,
+      depth: number,
+    ): void => {
       const len = a.distanceTo(b);
       beamMid.copy(a).add(b).multiplyScalar(0.5);
       beamDirection.copy(b).sub(a).normalize();
-      beamRotation.setFromUnitVectors(beamUp, beamDirection);
-      beamScale.set(radius, len, radius);
+      const dx = b.x - a.x, dz = b.z - a.z;
+      if (Math.abs(dz) < 1e-6) {
+        beamOutward.set(0, 0, Math.sign(beamMid.z) || 1);
+      } else if (Math.abs(dx) < 1e-6) {
+        beamOutward.set(Math.sign(beamMid.x) || 1, 0, 0);
+      } else {
+        beamOutward.set(beamMid.x / HW, 0, beamMid.z / HD).normalize();
+      }
+      // Project the facade normal off the member axis before building a stable
+      // local frame: X is member width, Y is length, Z is facade depth.
+      beamOutward.addScaledVector(
+        beamDirection, -beamOutward.dot(beamDirection),
+      ).normalize();
+      beamWidthAxis.copy(beamDirection).cross(beamOutward).normalize();
+      beamBasis.makeBasis(beamWidthAxis, beamDirection, beamOutward);
+      beamRotation.setFromRotationMatrix(beamBasis);
+      beamScale.set(width, len, depth);
       beamMatrix.compose(beamMid, beamRotation, beamScale);
       beamGeos.push(beamGeo.clone().applyMatrix4(beamMatrix));
     };
-    const faces = [
-      { axis: 'z' as const, fixed: -HD - 0.12, half: HW - biteCut, bays: 4 },
-      { axis: 'z' as const, fixed: HD + 0.12, half: HW - biteCut, bays: 4 },
-      { axis: 'x' as const, fixed: -HW - 0.12, half: HD - biteCut, bays: 3 },
-      { axis: 'x' as const, fixed: HW + 0.12, half: HD - biteCut, bays: 3 },
-    ];
-    const facePoint = (
-      face: (typeof faces)[number], along: number, y: number,
-    ): THREE.Vector3 => face.axis === 'z'
-      ? new THREE.Vector3(along, y, face.fixed)
-      : new THREE.Vector3(face.fixed, y, along);
-    for (const face of faces) {
-      const segment = (face.half * 2) / face.bays;
-      for (let r = 0; r < modules; r++) {
-        const yb = y0 + r * moduleH, yt = yb + moduleH;
-        for (let i = 0; i < face.bays; i++) {
-          const a = -face.half + i * segment, b = a + segment;
-          addBeam(facePoint(face, a, yb), facePoint(face, b, yt), 0.52);
-          addBeam(facePoint(face, a, yt), facePoint(face, b, yb), 0.52);
-        }
-      }
+
+    for (const segment of hearstDiagridSegments()) {
+      const yb = y0 + segment.module * moduleH;
+      const tier = (segment.module + 0.5) / modules;
+      const fieldWidth = THREE.MathUtils.lerp(0.92, 0.72, tier);
+      const fieldDepth = THREE.MathUtils.lerp(0.38, 0.28, tier);
+      addBeam(
+        new THREE.Vector3(segment.lower[0], yb, segment.lower[1]),
+        new THREE.Vector3(segment.upper[0], yb + moduleH, segment.upper[1]),
+        fieldWidth,
+        fieldDepth,
+      );
     }
 
-    // The diagonal structure wraps continuously through each recessed corner.
-    const cornerPairs: [number, number][] = [[1, 2], [3, 4], [5, 6], [7, 0]];
-    for (let r = 0; r < modules; r++) {
-      const yb = y0 + r * moduleH, ym = yb + moduleH / 2, yt = yb + moduleH;
-      const node = plan(nodeCut), bite = plan(biteCut);
-      for (const [a, b] of cornerPairs) {
-        const nbA = new THREE.Vector3(node[a][0], yb, node[a][1]);
-        const nbB = new THREE.Vector3(node[b][0], yb, node[b][1]);
-        const nmA = new THREE.Vector3(bite[a][0], ym, bite[a][1]);
-        const nmB = new THREE.Vector3(bite[b][0], ym, bite[b][1]);
-        const ntA = new THREE.Vector3(node[a][0], yt, node[a][1]);
-        const ntB = new THREE.Vector3(node[b][0], yt, node[b][1]);
-        addBeam(nbA, nmB, 0.52);
-        addBeam(nbB, nmA, 0.52);
-        addBeam(nmA, ntB, 0.52);
-        addBeam(nmB, ntA, 0.52);
-      }
-    }
-
-    // Slim perimeter node plates terminate each four-storey diamond; there are
-    // deliberately no vertical corner mullions, preserving the peeled profile.
-    for (let r = 0; r <= modules; r++) {
-      const ring = plan(nodeCut), y = y0 + r * moduleH;
-      for (let i = 0; i < ring.length; i++) {
-        const a = ring[i], b = ring[(i + 1) % ring.length];
+    // Closed node rings complete the triangulated tube. The four diagonal
+    // edges in every odd ring are the real mouth transfer chords, so they are
+    // stronger than the subordinate face rails but remain below the megabrace.
+    for (let boundary = 0; boundary <= modules; boundary++) {
+      const ring = hearstPerimeterRing(boundary);
+      const y = y0 + boundary * moduleH;
+      for (let index = 0; index < ring.length; index++) {
+        const a = ring[index].point;
+        const b = ring[(index + 1) % ring.length].point;
+        const isChamferChord = Math.abs(a[0] - b[0]) > 1e-6
+          && Math.abs(a[1] - b[1]) > 1e-6;
         addBeam(
           new THREE.Vector3(a[0], y, a[1]),
           new THREE.Vector3(b[0], y, b[1]),
-          r === 0 || r === modules ? 0.38 : 0.25,
+          isChamferChord ? 0.36 : 0.25,
+          isChamferChord ? 0.22 : 0.17,
         );
       }
     }
-    const expectedBeamCount = 528;
+    const expectedBeamCount = HEARST_DIAGRID_BEAM_COUNT;
     if (beamGeos.length !== expectedBeamCount) {
       throw new Error(`Hearst diagrid count changed: ${beamGeos.length} !== ${expectedBeamCount}`);
     }
@@ -646,7 +673,13 @@ export const builders: Record<string, (ctx: LandmarkCtx) => THREE.Group> = {
     beamGeo.dispose();
     g.add(towerDetail(new THREE.Mesh(mergedBeamGeo, HEARST_STEEL)));
 
-    g.add(towerRoof(plan(nodeCut), y1 + 0.05, HEARST_STEEL));
+    // The terminal row keeps its half-module phase: a chamfered roofline is
+    // required for the last interval to retain the same 70-degree diagonals.
+    g.add(towerRoof(
+      hearstCurtainProfile(modules, HW, HD, HEARST_BIRD_MOUTH_CUT),
+      y1 + 0.05,
+      HEARST_STEEL,
+    ));
     return g;
   },
 

@@ -173,7 +173,10 @@ function addDockedBikes(group: THREE.Group, bikeX: number[]) {
     const inst = new THREE.InstancedMesh(part.geometry, part.material as THREE.Material, bikeX.length);
     for (let i = 0; i < bikeX.length; i++) inst.setMatrixAt(i, m.makeTranslation(bikeX[i], 0.14, 0.18));
     inst.instanceMatrix.needsUpdate = true;
-    inst.castShadow = true;
+    // Dense Midtown can hold many racks and each bike has several material
+    // batches. Their small contact silhouette is cheaper and steadier through
+    // the shared ambient/contact treatment than through the city sun map.
+    inst.castShadow = false;
     // the geometry and material belong to the session-wide template; eviction
     // must not free them out from under every other rack
     inst.userData.shared = true;
@@ -187,7 +190,8 @@ export class BikeManager {
   private placed = new Map<number, PlacedDock>();
   private bikeCounts = new Map<number, number>(); // session state, per dock index
   private timer = 0;
-  private placeRadius = 380;
+  private placeRadius = 300;
+  private detailRadius = 92;
   private eject: ((x: number, z: number) => [number, number] | null) | null;
   private wallDir: ((x: number, z: number) => [number, number] | null) | null;
 
@@ -264,6 +268,11 @@ export class BikeManager {
         this.scene.remove(existing.group);
         disposeGroup(existing.group);
         this.placed.delete(i);
+      } else if (existing) {
+        const detailed = dx * dx + dz * dz <= this.detailRadius * this.detailRadius;
+        for (const child of existing.group.children) {
+          child.visible = detailed || child.userData.bikeDockLodAnchor === true;
+        }
       }
     }
     this.timer = built >= 1 ? 0 : 0.7; // backlog: resume next frame; idle: throttle
@@ -273,6 +282,10 @@ export class BikeManager {
     const { rack, bikeX } = buildDockKit(slots, bikes, idx);
     const group = mergeByMaterial(rack);
     addDockedBikes(group, bikeX);
+    group.name = 'Bike dock';
+    // The platform/rail batch preserves the distant silhouette. Individual
+    // posts and docked-bike parts switch on where they occupy real pixels.
+    if (group.children[0]) group.children[0].userData.bikeDockLodAnchor = true;
     group.position.set(pos[0], heightAt(pos[0], pos[1]) - 0.03, pos[1]);
     group.rotation.y = rotY;
     this.scene.add(group);

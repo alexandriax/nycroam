@@ -4,18 +4,20 @@
 // Reads everything in data/cache/ (written by scripts/fetch-osm.mjs), dedupes
 // OSM elements, assembles multipolygons, and emits:
 //   public/tiles/index.json
-//   public/tiles/{tx}_{tz}.json   (one per non-empty 256m tile)
+//   public/tiles/region_{rx}_{rz}.bin (indexed NCT3 bundles of 4x4 256m tiles)
 //   public/tiles/skyline.json
-//   public/geo/ground.json
+//   public/geo/ground.bin
 //
 // Shared constants below MUST match src/engine/geo.ts exactly.
 //
-// Usage: node scripts/build-tiles.mjs
+// Usage: node scripts/build-tiles.mjs [--json-fallback]
 
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import earcut from 'earcut';
+import { encodeTileBinary } from './tile-binary.mjs';
+import { shouldSuppressBuildingOutline } from './building-part-coverage.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..');
@@ -23,6 +25,7 @@ const CACHE_DIR = path.join(ROOT, 'data', 'cache');
 const TILES_DIR = path.join(ROOT, 'public', 'tiles');
 const GEO_DIR = path.join(ROOT, 'public', 'geo');
 const TERRAIN_FILE = path.join(GEO_DIR, 'terrain.json');
+const KEEP_JSON_FALLBACK = process.argv.includes('--json-fallback');
 
 // ---- shared constants (must match src/engine/geo.ts) --------------------------------
 const ORIGIN = { lat: 40.758, lon: -73.9855 };
@@ -321,6 +324,11 @@ function stableHash8(id) {
   const frac = h - Math.floor(h);
   return Math.floor(frac * 8);
 }
+function stableUnit(id, salt = 0) {
+  const n = Number(id);
+  const h = Math.sin(n * 12.9898 + salt * 78.233) * 43758.5453;
+  return h - Math.floor(h);
+}
 function computeHeight(tags, id) {
   const h = parseLength(tags.height);
   if (h != null && Number.isFinite(h) && h > 0) return h;
@@ -338,6 +346,169 @@ function computeMinHeight(tags) {
     if (Number.isFinite(lvl) && lvl > 0) return lvl * 3.35;
   }
   return 0;
+}
+
+// ---- sparse building semantics --------------------------------------------------------
+// The output uses one-character optional keys (see TileBuilding) so keeping
+// source-authored identity does not turn the streamed JSON into a tag dump.
+// Raw values are retained when present; the compact archetype is always baked
+// so rendering remains one merged mesh with one numeric vertex attribute.
+function cleanSemantic(raw) {
+  if (raw === undefined || raw === null) return undefined;
+  const value = String(raw).trim();
+  return value || undefined;
+}
+function semanticTag(tags, canonical, alias) {
+  return cleanSemantic(tags[canonical] ?? (alias ? tags[alias] : undefined));
+}
+function compactLevels(raw) {
+  const value = cleanSemantic(raw);
+  if (value === undefined) return undefined;
+  if (/^-?\d+(?:\.\d+)?$/.test(value)) {
+    const n = Number(value);
+    if (Number.isFinite(n)) return n;
+  }
+  return value;
+}
+function sourceYear(raw) {
+  const match = cleanSemantic(raw)?.match(/(?:^|\D)((?:1[6-9]|20)\d{2})(?:\D|$)/);
+  return match ? Number(match[1]) : undefined;
+}
+function materialHas(material, pattern) {
+  return pattern.test((material ?? '').toLowerCase());
+}
+
+const ARCHETYPE_DEFAULTS = [
+  [0, 7, 0, 2], // punched, prewar brick
+  [1, 13, 3, 5], // curtain wall
+  [5, 5, 5, 2], // stone / civic
+  [4, 8, 0, 4], // postwar concrete
+  [2, 10, 4, 2], // industrial brick
+  [3, 6, 0, 2], // brownstone
+  [1, 11, 3, 5], // metal commercial
+  [7, 9, 1, 3], // mixed storefront
+  [2, 11, 1, 1], // cast-iron loft
+  [6, 10, 0, 6], // residential tower / balconies
+  [0, 8, 3, 3], // Art Deco / setback
+  [0, 7, 1, 6], // modern masonry
+  [5, 6, 5, 3], // institutional
+  [4, 6, 4, 4], // warehouse / utilitarian concrete
+  [3, 5, 0, 1], // wood / vernacular
+  [4, 9, 2, 4], // hotel / mid-century commercial
+];
+
+function constructionEra(startDate) {
+  const year = sourceYear(startDate);
+  if (year === undefined) return 0;
+  if (year < 1880) return 1;
+  if (year < 1920) return 2;
+  if (year < 1946) return 3;
+  if (year < 1975) return 4;
+  if (year < 2000) return 5;
+  return 6;
+}
+function roofFamily(raw) {
+  const tag = (raw ?? '').toLowerCase();
+  if (/green|terrace/.test(tag)) return 6;
+  if (/sawtooth/.test(tag)) return 7;
+  if (/mansard/.test(tag)) return 5;
+  if (/dome|round|cone|onion/.test(tag)) return 4;
+  if (/skillion|shed|lean_to/.test(tag)) return 3;
+  if (/gabled|saltbox|gambrel/.test(tag)) return 2;
+  if (/pyramidal|hipped/.test(tag)) return 1;
+  return 0;
+}
+function packBuildingSemantics({ archetype, window, windowRatio, storefront, era, roof, confidence }) {
+  const clamp = (v, max) => Math.max(0, Math.min(max, Math.round(v)));
+  return clamp(archetype, 15)
+    + clamp(window, 7) * 16
+    + clamp(windowRatio, 15) * 128
+    + clamp(storefront, 7) * 2048
+    + clamp(era, 7) * 16384
+    + clamp(roof, 7) * 131072
+    + clamp(confidence, 3) * 1048576;
+}
+
+/**
+ * Stable 0..15 façade/architecture contract. Explicit source signals win;
+ * geometry creates a strong candidate; a later spatial pass lets uncertain
+ * buildings inherit the prevailing family of nearby, similarly scaled fabric.
+ */
+function deriveBuildingSemantics({ id, height, area, kind, material, startDate, roofShape }) {
+  const k = (kind ?? '').toLowerCase();
+  const m = (material ?? '').toLowerCase();
+  const year = sourceYear(startDate);
+  const r = stableUnit(id, 17);
+  let archetype = 0;
+  let confidence = 1;
+
+  if (materialHas(m, /glass|mirror/)) { archetype = 1; confidence = 3; }
+  else if (materialHas(m, /limestone|sandstone|granite|marble|stone/)) { archetype = /school|hospital|civic|government|museum|relig/.test(k) ? 12 : 2; confidence = 3; }
+  else if (materialHas(m, /concrete|cement|plaster|stucco|block/)) { archetype = /warehouse|industrial|garage/.test(k) ? 13 : 3; confidence = 3; }
+  else if (materialHas(m, /metal|steel|aluminium|aluminum|copper|zinc/)) { archetype = 6; confidence = 3; }
+  else if (materialHas(m, /brick|masonry/)) {
+    archetype = /industrial|warehouse|manufactur|factory/.test(k) ? 4
+      : /house|terrace|detached|bungalow/.test(k) && height <= 22 ? 5
+        : year !== undefined && year >= 2000 ? 11 : 0;
+    confidence = 3;
+  } else if (materialHas(m, /wood|timber/)) {
+    archetype = 14;
+    confidence = 3;
+  } else if (/industrial|manufactur|factory/.test(k)) {
+    archetype = 4;
+    confidence = 3;
+  } else if (/warehouse|garage|hangar/.test(k)) {
+    archetype = 13;
+    confidence = 3;
+  } else if (/house|terrace|detached|bungalow|brownstone/.test(k)) {
+    archetype = 5;
+    confidence = 3;
+  } else if (/church|cathedral|chapel|synagogue|mosque|civic|government|museum|university|college|school|hospital/.test(k)) {
+    archetype = 12;
+    confidence = 3;
+  } else if (/hotel|motel/.test(k)) {
+    archetype = height >= 85 && (year === undefined || year >= 1990) ? 1 : 15;
+    confidence = 3;
+  } else if (/apartments|residential|dormitory/.test(k) && height >= 55) {
+    archetype = 9;
+    confidence = 3;
+  } else if (/retail|shop|supermarket|kiosk|mixed/.test(k)) {
+    archetype = height < 50 ? 7 : 6;
+    confidence = 3;
+  } else if (/office|commercial/.test(k)) {
+    archetype = height >= 60 && (year === undefined || year >= 1975)
+      ? (r < 0.76 ? 1 : 6)
+      : height < 38 ? 7 : 6;
+    confidence = 3;
+  } else if (year !== undefined) {
+    confidence = 2;
+    if (year < 1880 && height <= 28) archetype = area > 1000 ? 8 : 14;
+    else if (year <= 1919) archetype = height <= 22 && area < 1200 && r < 0.38 ? 5 : 0;
+    else if (year <= 1945) archetype = height >= 55 ? 10 : 0;
+    else if (year <= 1974) archetype = height >= 35 ? (r < 0.28 ? 15 : 3) : 13;
+    else if (year <= 1999 && height >= 45) archetype = r < 0.62 ? 1 : 9;
+    else if (year >= 2000) archetype = height >= 45 ? (r < 0.56 ? 1 : 9) : 11;
+  } else {
+    confidence = 1;
+    if (area >= 2600 && height <= 35) archetype = r < 0.55 ? 4 : 13;
+    else if (height >= 120) archetype = r < 0.5 ? 1 : r < 0.7 ? 9 : r < 0.86 ? 10 : 3;
+    else if (height >= 55) archetype = r < 0.26 ? 1 : r < 0.46 ? 9 : r < 0.65 ? 3 : r < 0.82 ? 10 : 0;
+    else if (height <= 18 && area < 1200 && r < 0.34) archetype = 5;
+    else if (height <= 38 && r > 0.92) archetype = 7;
+    else if (height <= 38 && r > 0.84) archetype = 11;
+  }
+
+  const defaults = ARCHETYPE_DEFAULTS[archetype];
+  const explicitEra = constructionEra(startDate);
+  return {
+    archetype,
+    window: defaults[0],
+    windowRatio: defaults[1],
+    storefront: defaults[2],
+    era: explicitEra || defaults[3],
+    roof: roofFamily(roofShape),
+    confidence,
+  };
 }
 
 // ---- cache loading + dedup -------------------------------------------------------------
@@ -447,15 +618,75 @@ async function main() {
     const kindTag = isPart ? partVal : buildingVal;
     const kind = kindTag && kindTag !== 'yes' ? kindTag : undefined;
     const name = tags.name || undefined;
+    const material = semanticTag(tags, 'building:material');
+    const colour = semanticTag(tags, 'building:colour', 'building:color');
+    const roofShape = semanticTag(tags, 'roof:shape');
+    const roofMaterial = semanticTag(tags, 'roof:material');
+    const roofColour = semanticTag(tags, 'roof:colour', 'roof:color');
+    const levels = compactLevels(tags['building:levels']);
+    const startDate = cleanSemantic(tags.start_date);
 
     for (const poly of polys) {
       const holeArea = poly.holes.reduce((s, h) => s + Math.abs(ringArea(h)), 0);
       const area = Math.abs(ringArea(poly.outer)) - holeArea;
+      const semantics = deriveBuildingSemantics({
+        id: el.id, height, area, kind, material, startDate, roofShape,
+      });
       buildingElements.push({
         isPart, outer: poly.outer, holes: poly.holes, height, minHeight, kind, name,
-        area, centroid: centroidOf(poly.outer),
+        area, centroid: centroidOf(poly.outer), sourceId: el.id, semantics,
+        material, colour, roofShape, roofMaterial, roofColour, levels, startDate,
       });
     }
+  }
+
+  // Contextual pass for untagged fabric. Nearby authored/geometry-confident
+  // buildings of a comparable scale vote on the family; this produces coherent
+  // blocks instead of independent dice rolls while remaining fully stable.
+  const CONTEXT_CELL = 96;
+  const contextGrid = new Map();
+  const contextKey = (x, z) => `${Math.floor(x / CONTEXT_CELL)},${Math.floor(z / CONTEXT_CELL)}`;
+  for (const b of buildingElements) {
+    const key = contextKey(b.centroid[0], b.centroid[1]);
+    let bucket = contextGrid.get(key);
+    if (!bucket) { bucket = []; contextGrid.set(key, bucket); }
+    bucket.push(b);
+  }
+  let contextualInferred = 0;
+  for (const b of buildingElements) {
+    if (b.semantics.confidence >= 2) continue;
+    const gx = Math.floor(b.centroid[0] / CONTEXT_CELL);
+    const gz = Math.floor(b.centroid[1] / CONTEXT_CELL);
+    const votes = new Float64Array(16);
+    for (let dx = -1; dx <= 1; dx++) for (let dz = -1; dz <= 1; dz++) {
+      for (const n of contextGrid.get(`${gx + dx},${gz + dz}`) ?? []) {
+        if (n === b || n.semantics.confidence < 2) continue;
+        const dist = Math.hypot(n.centroid[0] - b.centroid[0], n.centroid[1] - b.centroid[1]);
+        if (dist > 105) continue;
+        const heightSimilarity = Math.exp(-Math.abs(Math.log((n.height + 6) / (b.height + 6))) * 1.7);
+        const areaSimilarity = Math.exp(-Math.abs(Math.log((n.area + 80) / (b.area + 80))) * 0.45);
+        votes[n.semantics.archetype] += (1 - dist / 120) * heightSimilarity * areaSimilarity
+          * (n.semantics.confidence === 3 ? 1.35 : 1);
+      }
+    }
+    let winner = b.semantics.archetype;
+    let best = 1.15; // require real evidence; otherwise retain geometry fallback
+    for (let i = 0; i < votes.length; i++) {
+      const tieBreak = stableUnit(b.sourceId, 151 + i) * 1e-5;
+      if (votes[i] + tieBreak > best) { best = votes[i] + tieBreak; winner = i; }
+    }
+    if (winner === b.semantics.archetype) continue;
+    const defaults = ARCHETYPE_DEFAULTS[winner];
+    b.semantics = {
+      ...b.semantics,
+      archetype: winner,
+      window: defaults[0],
+      windowRatio: defaults[1],
+      storefront: defaults[2],
+      era: b.semantics.era || defaults[3],
+      confidence: 1,
+    };
+    contextualInferred++;
   }
 
   // building:part suppression (spatially binned by tile, +/- 1 neighbor)
@@ -521,15 +752,22 @@ async function main() {
   for (const b of buildingElements) {
     if (b.isPart) { keptBuildings.push(b); continue; }
     const [tx, tz] = tileOf(b.centroid);
-    let coveredArea = 0;
+    const nearbyParts = [];
     for (const key of neighborKeys(tx, tz)) {
       const candidates = partsByTile.get(key);
       if (!candidates) continue;
       for (const part of candidates) {
-        if (pointInPolygon(part.centroid, b.outer)) coveredArea += part.area;
+        if (pointInPolygon(part.centroid, b.outer)) nearbyParts.push(part);
       }
     }
-    if (b.area > 0 && coveredArea / b.area > 0.85) { suppressedCount++; continue; }
+    // Area-sum suppression remains appropriate for normal stepped towers, but
+    // it can double-count stacked upper tiers and erase the only solid lower
+    // massing. At 1585 Broadway that left four 7m-wide shafts supporting a
+    // 70m-wide tower, creating a 122m-high black void.
+    if (shouldSuppressBuildingOutline(b, nearbyParts)) {
+      suppressedCount++;
+      continue;
+    }
     keptBuildings.push(b);
   }
 
@@ -997,6 +1235,8 @@ async function main() {
   const tileBuildings = new Map(); // key -> array of output objs
   const tileBuildingFootprints = new Map(); // key -> array of {outer,holes} world-meter rings (for tree placement filters)
   const skylineCandidates = [];
+  const archetypeCounts = new Array(16).fill(0);
+  const semanticCounts = { material: 0, colour: 0, roofShape: 0, roofMaterial: 0, roofColour: 0, levels: 0, startDate: 0 };
   for (const b of keptBuildings) {
     let cleared = fitCleared.has(b);
     for (const lc of LANDMARK_CLEAR) {
@@ -1009,10 +1249,29 @@ async function main() {
     const [tx, tz] = tileOf(b.centroid);
     const key = tileKeyOf(tx, tz);
     const p = [toTileLocalDecimeters(b.outer, tx, tz), ...b.holes.map((h) => toTileLocalDecimeters(h, tx, tz))];
-    const obj = { p, h: round1(b.height), b: round1(terrainAt(b.centroid[0], b.centroid[1])) };
+    const archetype = b.semantics.archetype;
+    if (!Number.isInteger(archetype) || archetype < 0 || archetype > 15) {
+      throw new Error(`invalid building archetype ${archetype} at ${b.centroid.join(',')}`);
+    }
+    const obj = {
+      p,
+      h: round1(b.height),
+      b: round1(terrainAt(b.centroid[0], b.centroid[1])),
+      a: archetype,
+      s: packBuildingSemantics(b.semantics),
+      v: Math.floor(stableUnit(b.sourceId, 211) * 65536),
+    };
+    archetypeCounts[archetype]++;
     if (b.minHeight > 0) obj.m = round1(b.minHeight);
     if (b.name) obj.n = b.name;
     if (b.kind) obj.k = b.kind;
+    if (b.material) { obj.f = b.material; semanticCounts.material++; }
+    if (b.colour) { obj.c = b.colour; semanticCounts.colour++; }
+    if (b.roofShape) { obj.r = b.roofShape; semanticCounts.roofShape++; }
+    if (b.roofMaterial) { obj.q = b.roofMaterial; semanticCounts.roofMaterial++; }
+    if (b.roofColour) { obj.o = b.roofColour; semanticCounts.roofColour++; }
+    if (b.levels !== undefined) { obj.l = b.levels; semanticCounts.levels++; }
+    if (b.startDate) { obj.d = b.startDate; semanticCounts.startDate++; }
     if (!tileBuildings.has(key)) tileBuildings.set(key, []);
     tileBuildings.get(key).push(obj);
     if (!tileBuildingFootprints.has(key)) tileBuildingFootprints.set(key, []);
@@ -1022,6 +1281,17 @@ async function main() {
   }
 
   console.log(`  landmark clearing: ${landmarkCleared} buildings dropped at ${LANDMARK_CLEAR.length} premium-landmark sites`);
+  console.log(
+    `  archetypes [prewar, glass, stone, postwar, industrial, brownstone, metal, mixed, ` +
+      `cast-iron, residential-tower, art-deco, modern-masonry, institutional, warehouse, wood, hotel]: ` +
+      archetypeCounts.join(', '),
+  );
+  console.log(`  contextual building-family inferences: ${contextualInferred}`);
+  console.log(
+    `  source semantics retained: material ${semanticCounts.material}, colour ${semanticCounts.colour}, ` +
+      `roof shape ${semanticCounts.roofShape}, roof material ${semanticCounts.roofMaterial}, ` +
+      `roof colour ${semanticCounts.roofColour}, levels ${semanticCounts.levels}, start_date ${semanticCounts.startDate}`,
+  );
 
   // ---- ROADS ----------------------------------------------------------------------------
   console.log('Processing roads...');
@@ -1136,8 +1406,79 @@ function isElevatedRoad(tags) {
   return Number.isFinite(layer) && layer > 0;
 }
 
+  const ROAD_DEFAULT_WIDTH = {
+    motorway: 22, trunk: 20, primary: 17, secondary: 14, tertiary: 12,
+    unclassified: 10, residential: 10, living_street: 8, service: 5.5,
+    pedestrian: 8, footway: 2.6, crossing: 3, cycleway: 2.4, path: 2, steps: 2.6,
+    motorway_link: 9, trunk_link: 9, primary_link: 9, secondary_link: 9, tertiary_link: 9,
+  };
+  const RF_SIDEWALK_LEFT = 1 << 0;
+  const RF_SIDEWALK_RIGHT = 1 << 1;
+  const RF_DRIVEWAY = 1 << 2;
+  const RF_MEDIAN = 1 << 3;
+  const RF_ISLAND = 1 << 4;
+  const RF_INTERSECTION_START = 1 << 5;
+  const RF_INTERSECTION_END = 1 << 6;
+  const RF_CROSSING = 1 << 7;
+  const RF_ONEWAY = 1 << 8;
+  const RF_PARKING_LEFT = 1 << 9;
+  const RF_PARKING_RIGHT = 1 << 10;
+  const SURFACE_STREET = new Set([
+    'primary', 'secondary', 'tertiary', 'unclassified', 'residential', 'living_street',
+  ]);
+  const VEHICULAR_CLASS = new Set([
+    'motorway', 'trunk', 'primary', 'secondary', 'tertiary', 'unclassified',
+    'residential', 'living_street', 'service', 'motorway_link', 'trunk_link',
+    'primary_link', 'secondary_link', 'tertiary_link',
+  ]);
+  function sourceRoadWidth(tags, cls) {
+    const explicit = parseLength(tags.width);
+    if (explicit !== null && explicit >= 1.2 && explicit <= 45) return explicit;
+    const lanes = Number.parseFloat(String(tags.lanes ?? ''));
+    if (Number.isFinite(lanes) && lanes > 0 && lanes <= 12 && VEHICULAR_CLASS.has(cls)) {
+      const laneWidth = cls === 'motorway' || cls === 'trunk' ? 3.45 : 3.15;
+      const parking = /^(parallel|diagonal|perpendicular|marked)$/.test(tags['parking:lane:left'] ?? '') ? 2.1 : 0;
+      const parkingRight = /^(parallel|diagonal|perpendicular|marked)$/.test(tags['parking:lane:right'] ?? '') ? 2.1 : 0;
+      return Math.max(ROAD_DEFAULT_WIDTH[cls] ?? 5.5, lanes * laneWidth + parking + parkingRight);
+    }
+    return ROAD_DEFAULT_WIDTH[cls] ?? 10;
+  }
+  function roadFlags(tags, cls, startDegree, endDegree) {
+    let flags = 0;
+    const sidewalk = String(tags.sidewalk ?? '').toLowerCase();
+    const left = String(tags['sidewalk:left'] ?? '').toLowerCase();
+    const right = String(tags['sidewalk:right'] ?? '').toLowerCase();
+    const attachDefault = SURFACE_STREET.has(cls) && sidewalk !== 'no' && sidewalk !== 'separate';
+    if (sidewalk === 'both' || sidewalk === 'yes' || attachDefault || /yes|both/.test(left)) flags |= RF_SIDEWALK_LEFT;
+    if (sidewalk === 'both' || sidewalk === 'yes' || attachDefault || /yes|both/.test(right)) flags |= RF_SIDEWALK_RIGHT;
+    if (sidewalk === 'left') flags = (flags | RF_SIDEWALK_LEFT) & ~RF_SIDEWALK_RIGHT;
+    if (sidewalk === 'right') flags = (flags | RF_SIDEWALK_RIGHT) & ~RF_SIDEWALK_LEFT;
+    if (left === 'no') flags &= ~RF_SIDEWALK_LEFT;
+    if (right === 'no') flags &= ~RF_SIDEWALK_RIGHT;
+    if (cls === 'service' && /driveway|drive-through|parking_aisle/.test(tags.service ?? '')) flags |= RF_DRIVEWAY;
+    if (/yes|median/.test(tags.median ?? '') || /yes|solid|jersey_barrier/.test(tags.divider ?? '')) flags |= RF_MEDIAN;
+    if (/island/.test(tags.traffic_calming ?? '') || tags.crossing === 'island') flags |= RF_ISLAND;
+    if (startDegree >= 3) flags |= RF_INTERSECTION_START;
+    if (endDegree >= 3) flags |= RF_INTERSECTION_END;
+    if (cls === 'crossing' || tags.footway === 'crossing' || tags.cycleway === 'crossing') flags |= RF_CROSSING;
+    if (/^(yes|1|-1|reversible)$/.test(tags.oneway ?? '')) flags |= RF_ONEWAY;
+    if (!/^(no|none)$/.test(tags['parking:lane:left'] ?? 'no')) flags |= RF_PARKING_LEFT;
+    if (!/^(no|none)$/.test(tags['parking:lane:right'] ?? 'no')) flags |= RF_PARKING_RIGHT;
+    return flags;
+  }
+
+  // Node-way degree is computed globally before tile clipping. Only shared
+  // vehicular endpoints with degree >=3 create inferred intersection details;
+  // tile-boundary split points never masquerade as junctions.
+  const roadNodeDegree = new Map();
+  for (const el of roadsMap.values()) {
+    const cls = el.tags?.highway;
+    if (el.type !== 'way' || !VEHICULAR_CLASS.has(cls) || !Array.isArray(el.nodes)) continue;
+    for (const node of new Set(el.nodes)) roadNodeDegree.set(node, Math.min(255, (roadNodeDegree.get(node) ?? 0) + 1));
+  }
+
   const tileRoads = new Map();
-  const tileRoadPiecesWorld = new Map(); // key -> array of {pts (world meters), cls} for tree placement filters
+  const tileRoadPiecesWorld = new Map(); // key -> array of {pts (world meters), cls, width} for placement filters
   let roadWayCount = 0, roadPieceCount = 0;
   for (const el of roadsMap.values()) {
     if (el.type !== 'way') continue;
@@ -1150,6 +1491,9 @@ function isElevatedRoad(tags) {
     let c = tags.highway;
     if (tags.footway === 'crossing' || tags.cycleway === 'crossing') c = 'crossing';
     const bridge = isElevatedRoad(tags) ? 1 : undefined;
+    const width = sourceRoadWidth(tags, c);
+    const startDegree = roadNodeDegree.get(el.nodes?.[0]) ?? 0;
+    const endDegree = roadNodeDegree.get(el.nodes?.[el.nodes.length - 1]) ?? 0;
 
     const pts = el.geometry.filter((p) => typeof p.lat === 'number' && typeof p.lon === 'number').map((p) => lonLatToXZ(p.lon, p.lat));
     if (pts.length < 2) continue;
@@ -1162,12 +1506,22 @@ function isElevatedRoad(tags) {
       const [tx, tz] = tileOf(mid);
       const key = tileKeyOf(tx, tz);
       const flat = toTileLocalDecimeters(piece, tx, tz);
-      const obj = { p: flat, c, e: bridge ? bridgeElevations(piece) : plainElevations(piece) };
+      const pieceStartDegree = pointsEqual(piece[0], pts[0]) ? startDegree : 0;
+      const pieceEndDegree = pointsEqual(piece[piece.length - 1], pts[pts.length - 1]) ? endDegree : 0;
+      const flags = roadFlags(tags, c, pieceStartDegree, pieceEndDegree);
+      const obj = {
+        p: flat,
+        c,
+        e: bridge ? bridgeElevations(piece) : plainElevations(piece),
+        w: Math.round(width * 10),
+      };
       if (bridge) obj.b = 1;
+      if (flags) obj.f = flags;
+      if (pieceStartDegree || pieceEndDegree) obj.i = [pieceStartDegree, pieceEndDegree];
       if (!tileRoads.has(key)) tileRoads.set(key, []);
       tileRoads.get(key).push(obj);
       if (!tileRoadPiecesWorld.has(key)) tileRoadPiecesWorld.set(key, []);
-      tileRoadPiecesWorld.get(key).push({ pts: piece, cls: c });
+      tileRoadPiecesWorld.get(key).push({ pts: piece, cls: c, width });
       roadPieceCount++;
     }
   }
@@ -1202,7 +1556,7 @@ function isElevatedRoad(tags) {
   let roadSegCount = 0;
   for (const pieces of tileRoadPiecesWorld.values()) {
     for (const piece of pieces) {
-      const half = VEHICULAR_HALF[piece.cls];
+      const half = VEHICULAR_HALF[piece.cls] === undefined ? undefined : piece.width / 2;
       if (half === undefined) continue; // footway/path/crossing/cycleway: not a vehicular roadbed
       const p = piece.pts;
       for (let i = 0; i < p.length - 1; i++) { addRoadSeg(p[i][0], p[i][1], p[i + 1][0], p[i + 1][1], half); roadSegCount++; }
@@ -1434,7 +1788,7 @@ function isElevatedRoad(tags) {
           const x = ax + (bx - ax) * t, z = az + (bz - az) * t;
           const nx = -(bz - az) / seg, nz = (bx - ax) / seg;
           const side = Math.abs(Math.sin(x * 12.9898 + z * 78.233)) < 0.5 ? 1 : -1;
-          const off = (HYD_W[piece.cls] || 10) / 2 + 1.3;
+          const off = (piece.width || HYD_W[piece.cls] || 10) / 2 + 1.3;
           let hx = x + nx * off * side, hz = z + nz * off * side;
           // Eject out of ANY vehicular roadbed — cross streets at corners, plus avenues
           // whose centerline sits in a neighbouring tile the old per-tile scan missed —
@@ -1750,7 +2104,7 @@ function isElevatedRoad(tags) {
         for (let i = 1; i < pts.length; i++) cum.push(cum[i - 1] + Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]));
         const total = cum[pts.length - 1];
         if (total <= 0) continue;
-        const offset = CLASS_WIDTH[piece.cls] / 2 + 2.5;
+        const offset = (piece.width || CLASS_WIDTH[piece.cls]) / 2 + 2.5;
         const spacing = STREET_TREE_SPACING * spacingMul;
         let segIdx = 0;
         for (let s = 0; s <= total; s += spacing) {
@@ -1851,9 +2205,9 @@ function isElevatedRoad(tags) {
   console.log('Writing tiles...');
   // Clear any stale tile files from a previous (e.g. partial-cache) run so the output
   // directory never mixes tiles from different builds.
-  const tileFileRe = /^-?\d+_-?\d+\.json$/;
+  const tileFileRe = /^-?\d+_-?\d+\.(?:json|bin)$/;
   for (const f of fs.readdirSync(TILES_DIR)) {
-    if (tileFileRe.test(f)) fs.unlinkSync(path.join(TILES_DIR, f));
+    if (tileFileRe.test(f) || /^region_-?\d+_-?\d+\.bin$/.test(f)) fs.unlinkSync(path.join(TILES_DIR, f));
   }
   const allKeys = new Set([...tileBuildings.keys(), ...tileRoads.keys(), ...tileAreas.keys(), ...tileTrees.keys(), ...tileSigns.keys(), ...tileHyd.keys()]);
   const sortedKeys = [...allKeys].sort((a, b) => {
@@ -1863,10 +2217,12 @@ function isElevatedRoad(tags) {
   });
 
   let totalBuildingsWritten = 0, totalRoadsWritten = 0;
+  let tileJsonBytes = 0, tileBinaryBytes = 0;
+  const regionTiles = new Map();
   const writtenTiles = [];
   for (const key of sortedKeys) {
     const [tx, tz] = key.split('_').map(Number);
-    const tile = { v: 2, x: tx, z: tz };
+    const tile = { v: 3, x: tx, z: tz };
     const b = tileBuildings.get(key);
     if (b && b.length) { tile.buildings = b; totalBuildingsWritten += b.length; }
     const r = tileRoads.get(key);
@@ -1887,18 +2243,55 @@ function isElevatedRoad(tags) {
     if (!tile.buildings && !tile.roads && !tile.areas && !tile.trees && !tile.signs && !tile.hyd) continue; // skip empty
 
     const file = path.join(TILES_DIR, `${key}.json`);
-    fs.writeFileSync(file, JSON.stringify(tile));
+    const json = JSON.stringify(tile);
+    const binary = encodeTileBinary(tile);
+    fs.writeFileSync(file, json);
+    tileJsonBytes += Buffer.byteLength(json);
+    tileBinaryBytes += binary.byteLength;
+    const regionKey = `${Math.floor(tx / 4)}_${Math.floor(tz / 4)}`;
+    let region = regionTiles.get(regionKey);
+    if (!region) { region = []; regionTiles.set(regionKey, region); }
+    region.push({ key, binary });
     writtenTiles.push(key);
   }
 
+  const regions = {};
+  for (const regionKey of [...regionTiles.keys()].sort((a, b) => {
+    const [ax, az] = a.split('_').map(Number), [bx, bz] = b.split('_').map(Number);
+    return ax - bx || az - bz;
+  })) {
+    const entries = regionTiles.get(regionKey).sort((a, b) => a.key.localeCompare(b.key));
+    const filename = `region_${regionKey}.bin`;
+    const tiles = {};
+    const chunks = [];
+    let offset = 0;
+    for (const entry of entries) {
+      tiles[entry.key] = [offset, entry.binary.byteLength];
+      chunks.push(Buffer.from(entry.binary.buffer, entry.binary.byteOffset, entry.binary.byteLength));
+      offset += entry.binary.byteLength;
+    }
+    fs.writeFileSync(path.join(TILES_DIR, filename), Buffer.concat(chunks, offset));
+    regions[regionKey] = { f: filename, t: tiles };
+  }
+
   const indexObj = {
-    v: 2,
+    v: 3,
     tileSize: TILE_SIZE,
+    format: 'nct3-regions',
+    ...(KEEP_JSON_FALLBACK ? { fallback: 'json' } : {}),
+    regions,
     tiles: writtenTiles,
     counts: { buildings: totalBuildingsWritten, roads: totalRoadsWritten, tiles: writtenTiles.length },
   };
   fs.writeFileSync(path.join(TILES_DIR, 'index.json'), JSON.stringify(indexObj));
-  console.log(`  wrote ${writtenTiles.length} tile files + index.json`);
+  console.log(
+    `  wrote ${writtenTiles.length} temporary JSON validation files + ` +
+      `${Object.keys(regions).length} indexed NCT3 region bundles + index.json`,
+  );
+  console.log(
+    `  NCT3 binary: ${(tileBinaryBytes / 1048576).toFixed(1)}MB vs ${(tileJsonBytes / 1048576).toFixed(1)}MB JSON ` +
+      `(${tileJsonBytes ? ((1 - tileBinaryBytes / tileJsonBytes) * 100).toFixed(1) : '0'}% smaller)`,
+  );
 
   // ---- SKYLINE ------------------------------------------------------------------------------
   console.log('Building skyline...');
@@ -2652,7 +3045,7 @@ function isElevatedRoad(tags) {
     if (groundTris[i] > groundYMax) groundYMax = groundTris[i];
   }
   const groundRange = groundYMax - groundYMin;
-  results.push(`ground.json y range: ${groundYMin.toFixed(1)}-${groundYMax.toFixed(1)}m (span ${groundRange.toFixed(1)}m, expect >40m) -> ${groundRange > 40 ? 'PASS' : 'FAIL'}`);
+  results.push(`ground mesh y range: ${groundYMin.toFixed(1)}-${groundYMax.toFixed(1)}m (span ${groundRange.toFixed(1)}m, expect >40m) -> ${groundRange > 40 ? 'PASS' : 'FAIL'}`);
 
   let totalTilesDirBytes = 0;
   for (const f of fs.readdirSync(TILES_DIR)) {
@@ -2685,6 +3078,22 @@ function isElevatedRoad(tags) {
   console.log(`ground source: ${groundSource}, ${groundTris.length / 9} triangles (subdivided to <${groundSubdivThreshold}m edges)`);
   console.log(`public/tiles size: ${sizeMb.toFixed(1)}MB`);
   console.log(`missing cache chunk files: ${missingChunks.length}`);
+  if (!KEEP_JSON_FALLBACK) {
+    let removedBytes = 0;
+    for (const key of writtenTiles) {
+      const file = path.join(TILES_DIR, `${key}.json`);
+      try {
+        removedBytes += fs.statSync(file).size;
+        fs.unlinkSync(file);
+      } catch { /* already absent */ }
+    }
+    let shippingBytes = 0;
+    for (const file of fs.readdirSync(TILES_DIR)) shippingBytes += fs.statSync(path.join(TILES_DIR, file)).size;
+    console.log(
+      `shipping payload: NCT3 regions only, removed ${(removedBytes / 1048576).toFixed(1)}MB JSON build intermediates; ` +
+        `${(shippingBytes / 1048576).toFixed(1)}MB remains`,
+    );
+  }
   console.log('DONE');
 }
 

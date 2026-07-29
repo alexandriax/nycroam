@@ -64,6 +64,7 @@ function pointAt(mesh: THREE.Object3D, a: THREE.Vector3, b: THREE.Vector3): void
 /** `count` classic stainless turnstiles sharing pedestals, ~0.85m pitch each. */
 export function buildTurnstileRow(count: number): THREE.Group {
   const group = new THREE.Group();
+  group.userData.stationProp = 'turnstile';
   const pitch = 0.85;
   const offsetX = (count * pitch) / 2;
   const pedestalCount = count + 1;
@@ -119,6 +120,7 @@ const BOOTH_FRAME_H = BOOTH_H - BOOTH_BASE_H - 0.25;
 /** Token/agent booth: hunter-green frame, large glazed windows, stainless base. */
 export function buildBooth(): THREE.Group {
   const group = new THREE.Group();
+  group.userData.stationProp = 'booth';
 
   const baseGeo = new THREE.BoxGeometry(BOOTH_W, BOOTH_BASE_H, BOOTH_D);
   const postGeo = new THREE.BoxGeometry(BOOTH_WALL_T, BOOTH_FRAME_H, BOOTH_WALL_T);
@@ -188,6 +190,7 @@ const BENCH_SLAT_WIDTH = (BENCH_DEPTH - BENCH_SLAT_GAP * (BENCH_SLAT_COUNT - 1))
 /** Classic wood-slat bench, 2.4m long, with armrest dividers at the thirds. */
 export function buildBench(): THREE.Group {
   const group = new THREE.Group();
+  group.userData.stationProp = 'bench';
 
   // legs stop BELOW the slats: a full-height leg pokes black steel through
   // the slat gaps and reads as holes in the wood from above
@@ -236,6 +239,7 @@ export function buildBench(): THREE.Group {
 /** Black steel mesh trash can with a rim. */
 export function buildTrashCan(): THREE.Group {
   const group = new THREE.Group();
+  group.userData.stationProp = 'trash';
   const r = 0.28;
   const h = 0.85;
   const unitCyl = new THREE.CylinderGeometry(1, 1, 1, 10, 1);
@@ -258,6 +262,7 @@ export function buildTrashCan(): THREE.Group {
 /** Full-height maroon exit rotogate: 3/4 bar cage + 4-vane rotor + top plate. */
 export function buildRotogate(): THREE.Group {
   const group = new THREE.Group();
+  group.userData.stationProp = 'rotogate';
   const radius = 0.55;
   const height = 2.2;
   const unitCyl = new THREE.CylinderGeometry(1, 1, 1, 8, 1);
@@ -302,6 +307,7 @@ export function buildRotogate(): THREE.Group {
 /** Hunter-green steel railing with posts every 1.2m, along +x, centered. */
 export function buildRailing(length: number): THREE.Group {
   const group = new THREE.Group();
+  group.userData.stationProp = 'railing';
   const postSpacing = 1.2;
   const postCount = Math.max(2, Math.round(length / postSpacing) + 1);
   const unitCyl = new THREE.CylinderGeometry(1, 1, 1, 8, 1);
@@ -336,6 +342,7 @@ export function buildRailing(length: number): THREE.Group {
  */
 export function buildFareBarrier(length: number): THREE.Group {
   const group = new THREE.Group();
+  group.userData.stationProp = 'fare-barrier';
   const h = 1.0;
 
   const panel = new THREE.Mesh(new THREE.BoxGeometry(length, h - 0.14, 0.07), HUNTER_GREEN);
@@ -370,6 +377,7 @@ export function buildFareBarrier(length: number): THREE.Group {
  */
 export function buildStairs(width: number, totalRise: number, totalRun: number): THREE.Group {
   const group = new THREE.Group();
+  group.userData.stationProp = 'stairs';
   const stepCount = Math.max(1, Math.round(totalRise / 0.18));
   const stepRise = totalRise / stepCount;
   const stepRun = totalRun / stepCount;
@@ -421,6 +429,7 @@ function pillarMaterial(color: string): THREE.MeshLambertMaterial {
 /** Riveted steel I-beam column: box shaft with wider cap/base plates. */
 export function buildPillar(height: number, color: string): THREE.Group {
   const group = new THREE.Group();
+  group.userData.stationProp = 'pillar';
   const mat = pillarMaterial(color);
   const shaftSize = 0.28;
   const plateSize = 0.4;
@@ -470,6 +479,7 @@ const MC_D = 0.45;
 /** MetroCard vending machine: dark blue body, silver panel, emissive screen. */
 export function buildMetroCardMachine(): THREE.Group {
   const group = new THREE.Group();
+  group.userData.stationProp = 'metrocard';
 
   const bodyGeo = new THREE.BoxGeometry(MC_W, MC_H, MC_D);
   const panelGeo = new THREE.BoxGeometry(MC_W * 0.85, MC_H * 0.6, 0.02);

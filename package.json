@@ -6,7 +6,13 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
+    "test:engine": "node --test scripts/tests/*.mjs",
     "start": "next start",
+    "benchmark": "npm run build && npm run benchmark:run",
+    "benchmark:run": "node scripts/benchmarks/run.mjs",
+    "benchmark:soak": "npm run build && node scripts/benchmarks/run.mjs --soak-minutes 5",
+    "benchmark:install-browser": "playwright install chromium",
+    "materials:build": "node scripts/materials/build-material-library.mjs",
     "data:osm": "node scripts/fetch-osm.mjs",
     "data:terrain": "node scripts/fetch-terrain.mjs",
     "data:tiles": "node scripts/build-tiles.mjs",
@@ -33,6 +39,7 @@
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
     "@types/three": "^0.180.0",
+    "playwright": "^1.62.0",
     "typescript": "^5.6.0"
   }
 }

@@ -8,10 +8,11 @@ import {
   pointInBuildings, buildingRingsAt, pointInBuildingsExcept, roofBelow,
 } from './collision';
 import { PATH_KIND_ROAD, type RoadPaths } from './tileTypes';
-import { setupSky, setupLights, followSun, SKY } from './sky';
-import { mobileQualityRequested, quality } from './quality';
+import { setupSky, setupLights, followSun, makeOutdoorEnvironment, SKY } from './sky';
+import { mobileQualityRequested, quality, runtimePerformanceProfile } from './quality';
 import { installAtmosphere } from './atmosphere';
 import { makeSkylineMaterial, makeFlatMaterial, makeWaterMaterial } from './materials';
+import { materialLibrary } from './materialLibrary';
 import { EntranceManager, disposeGroup } from './EntranceManager';
 import { PlaqueManager, type PlaqueInfo } from './PlaqueManager';
 import { BikeManager, buildMountedBike } from './bikes';
@@ -38,6 +39,25 @@ import { routeColor } from './subway/types';
 import { boardLabel } from './subway/directions';
 import { lonLatToXZ, xzToLonLat, googleMapsUrl, ORIGIN, M_PER_DEG_LAT, M_PER_DEG_LON } from './geo';
 import { loadTerrain, heightAt } from './terrain';
+import { StreetLife } from './StreetLife';
+import type { DensityAnchor } from './population/density';
+import {
+  QualityGovernor,
+  type QualityDecision,
+  type RuntimeQualitySettings,
+} from './performance/QualityGovernor';
+import { WebGLGpuTimer } from './performance/WebGLGpuTimer';
+import { RenderingPipeline } from './rendering/RenderingPipeline';
+import {
+  PerformanceRecorder,
+  estimateSceneResources,
+  estimateShadowDrawCalls,
+} from './performance/PerformanceRecorder';
+import {
+  GOLDEN_ROUTES,
+  goldenRouteIds,
+  type GoldenRouteId,
+} from './performance/goldenRoutes';
 
 const SAVE_KEY = 'nycroam';
 const LEGACY_SAVE_KEY = 'nycworld'; // read-only: keeps positions saved before the rename
@@ -120,9 +140,13 @@ export const LANDMARKS: { name: string; lat: number; lon: number }[] = [
 
 export class World {
   private renderer: THREE.WebGLRenderer;
+  private rendering: RenderingPipeline;
   private camera: THREE.PerspectiveCamera;
   private streetScene = new THREE.Scene();
   private tiles: TileManager;
+  private streetLife: StreetLife;
+  private retailAnchorTimer = 0;
+  private readonly retailAnchorScratch: number[] = [];
   private entrances: EntranceManager;
   private plaques: PlaqueManager;
   private nearPlaque: PlaqueInfo | null = null; // building whose plaque is in reach (street mode)
@@ -172,7 +196,20 @@ export class World {
   // reduced UNDER LOAD, and recovers by itself.
   private maxPixelRatio = 2;
   private dynPixelRatio = 2;
-  private goodTicks = 0; // consecutive fast HUD ticks before stepping back up
+  private authoredShadowMapSize = 1024;
+  private authoredLoadRadius = 1150;
+  private tileWorkerCount = 2;
+  private qualityGovernor: QualityGovernor;
+  private gpuTimer: WebGLGpuTimer;
+  private performanceRecorder = new PerformanceRecorder();
+  private lastGpuMs: number | null = null;
+  private activeRenderScene: THREE.Scene = this.streetScene;
+  private shadowDrawEstimate = 0;
+  private benchmarkActive = false;
+  private benchmarkPhases = new Map<string, number[]>();
+  private authoredEffectsLevel: 0 | 1 | 2 = 2;
+  private authoredShadowLevel: 0 | 2 = 2;
+  private governorSawTransition = false;
   /** What the adaptive loop has given up so far, newest last (settings UI + debug). */
   perfNotes: string[] = [];
   private transitioning = false;
@@ -184,6 +221,9 @@ export class World {
   private skyDome: THREE.Object3D | null = null;
   private lastRaf = 0;
   private tickInterval = 0;
+  /** Outdoor sky/ground probe used by street glass, metal and vehicles. */
+  private streetEnvTex: THREE.Texture | null = null;
+  /** Indoor softbox probe used by stations and subway rides. */
   private envTex: THREE.Texture | null = null;
   private baseLoadRadius = 1150;
   private currentStationSpec: StationSpec | null = null;
@@ -210,12 +250,38 @@ export class World {
     installAtmosphere();
     this.isMobile = mobileQualityRequested();
     const q = quality();
-    this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
+    const runtimeProfile = runtimePerformanceProfile();
+    // Full-screen AA is tiered in RenderingPipeline. Requesting default-framebuffer
+    // MSAA as well would pay for samples that the composer never reads.
+    this.renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: 'high-performance' });
+    this.renderer.info.autoReset = false;
     this.maxPixelRatio = Math.min(window.devicePixelRatio, q.pixelRatioCap);
     this.dynPixelRatio = this.maxPixelRatio;
     this.renderer.setPixelRatio(this.dynPixelRatio);
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 1.08;
+    this.renderer.outputColorSpace = THREE.SRGBColorSpace;
+    // The shared uniform objects start on 1px neutral textures and swap to the
+    // device-native KTX2 transcodes in place, so already-compiled city shaders
+    // do not stall for a second compilation when the atlases become ready.
+    void materialLibrary.initialize(this.renderer, q.level);
+    this.authoredShadowMapSize = q.shadowMapSize;
+    this.authoredLoadRadius = q.loadRadius;
+    this.tileWorkerCount = q.tileWorkers;
+    const authoredEffects: 0 | 1 | 2 = q.level === 'low' ? 0 : q.level === 'medium' ? 1 : 2;
+    this.authoredEffectsLevel = authoredEffects;
+    this.authoredShadowLevel = q.shadows ? 2 : 0;
+    this.qualityGovernor = new QualityGovernor({
+      targetFrameMs: 1000 / runtimeProfile.targetFps,
+      minRenderScale: runtimeProfile.minRenderScale,
+      minPopulationScale: runtimeProfile.minPopulationScale,
+      minDetailDistanceScale: runtimeProfile.minDetailDistanceScale,
+      minStreamingScale: runtimeProfile.minStreamingScale,
+    }, {
+      effectsLevel: authoredEffects,
+      shadowLevel: q.shadows ? 2 : 0,
+    });
+    this.gpuTimer = new WebGLGpuTimer(this.renderer.getContext());
     if (q.shadows) {
       this.renderer.shadowMap.enabled = true;
       // PCF on the low-memory tiers: soft PCF costs a 4x wider kernel for a
@@ -223,10 +289,16 @@ export class World {
       this.renderer.shadowMap.type = q.shadowMapSize >= 2048 ? THREE.PCFSoftShadowMap : THREE.PCFShadowMap;
     }
 
-    // env map so metallic materials (trains, rails, turnstiles) read as steel
+    // Keep indoor and outdoor probes separate. A studio RoomEnvironment makes
+    // subway steel legible, but produces implausible rectangular highlights on
+    // street glass. The outdoor PMREM mirrors the visible sun/sky/ground and is
+    // generated only once, not rendered every frame.
     const pmrem = new THREE.PMREMGenerator(this.renderer);
-    this.envTex = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+    this.envTex = pmrem.fromScene(new RoomEnvironment(), 0.02).texture;
     pmrem.dispose();
+    this.streetEnvTex = makeOutdoorEnvironment(this.renderer);
+    this.streetScene.environment = this.streetEnvTex;
+    this.streetScene.environmentIntensity = q.level === 'low' ? 0.4 : 0.56;
 
     // Draw distance, streaming radius and worker count all come from the tier
     // now, not from a UA regex: a recent tablet earns more of them than a
@@ -235,12 +307,20 @@ export class World {
     const loadRadius = q.loadRadius;
     this.baseLoadRadius = loadRadius;
     this.camera = new THREE.PerspectiveCamera(70, 1, 0.1, far);
+    this.rendering = new RenderingPipeline(
+      this.renderer,
+      this.streetScene,
+      this.camera,
+      q.level,
+      authoredEffects,
+    );
     this.skyDome = setupSky(this.streetScene, loadRadius, far);
     this.sun = setupLights(this.streetScene).sun;
 
     this.tiles = new TileManager(this.streetScene, q.tileWorkers, (g) => this.compileGroup(g));
     this.tiles.loadRadius = loadRadius;
     this.tiles.unloadRadius = this.tiles.loadRadius + 300;
+    this.streetLife = new StreetLife(this.streetScene, q.level);
     this.entrances = new EntranceManager(
       this.streetScene,
       // OSM entrance points often sit in the roadway (Columbus Circle's island
@@ -290,7 +370,7 @@ export class World {
     // injected so the system stays compile-independent of the mesh modules
     this.buses = new BusSystem(
       this.streetScene,
-      (o) => new BusModel(o, this.envTex),
+      (o) => new BusModel(o, this.streetEnvTex),
       buildBusStop,
     );
     // pull each stop kit off the roadway onto the sidewalk once its tiles load
@@ -343,7 +423,7 @@ export class World {
    */
   private async compileGroup(group: THREE.Object3D): Promise<void> {
     try {
-      await this.renderer.compileAsync(group, this.camera, this.streetScene);
+      await this.rendering.compileAsync(group, this.camera, this.streetScene);
     } catch {
       /* ignore — caller still adds the group; worst case one first-frame hitch */
     }
@@ -806,6 +886,7 @@ export class World {
     const w = window.innerWidth, h = window.innerHeight;
     this.renderer.setPixelRatio(this.dynPixelRatio); // keep the adaptive scale across resizes
     this.renderer.setSize(w, h, false);
+    this.rendering.setSize(w, h, this.dynPixelRatio);
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
   };
@@ -1756,10 +1837,14 @@ export class World {
   }
 
   private step = () => {
+    const cpuStartedAt = performance.now();
     // self-heal: if we were constructed while the window reported zero size
     // (embedded panes, background tabs), pick up the real size on first frame
     if (this.renderer.domElement.width === 0 && window.innerWidth > 0) this.resize();
-    const dt = Math.min(0.05, this.clock.getDelta());
+    const rawDt = this.clock.getDelta();
+    const dt = Math.min(0.05, rawDt);
+    if (this.governorSawTransition && !this.transitioning) this.qualityGovernor.clearHistory();
+    this.governorSawTransition = this.transitioning;
     const preX = this.pos.x, preZ = this.pos.z; // for the walk-bob's ground speed
     const input = this.controls.consumeInput();
     const { fwd, right } = this.controls.basis();
@@ -1871,7 +1956,13 @@ export class World {
         }
       }
       const spd = Math.hypot(this.velSX, this.velSZ);
-      const lead = spd > 7 ? Math.min(420, spd * 6) : 0; // ~6s of travel, capped
+      // Ground travel cannot outrun ~22m/s, so letting an automation teleport
+      // or a collision correction produce the helicopter's 420m lead needlessly
+      // shifts an entire 1.1km resident ring. Cap by the actual movement mode:
+      // walking gets a modest look-ahead, bikes keep ~6s, aircraft keep 420m.
+      const leadCap = this.controls.fly ? 420 : this.riding ? 160 : 72;
+      const leadSeconds = this.controls.fly || this.riding ? 6 : 3;
+      const lead = spd > 7 ? Math.min(leadCap, spd * leadSeconds) : 0;
       const leadX = lead > 0 ? this.pos.x + (this.velSX / spd) * lead : this.pos.x;
       const leadZ = lead > 0 ? this.pos.z + (this.velSZ / spd) * lead : this.pos.z;
 
@@ -1896,14 +1987,46 @@ export class World {
       // the lead); kit managers (entrances/bikes) keep the true position — their
       // evict radii are small enough that leading would despawn kits still in
       // view just behind
+      let phaseAt = this.benchmarkActive ? performance.now() : 0;
       this.tiles.update(leadX, leadZ, this.pos.y);
+      this.recordBenchmarkPhase('tiles', phaseAt);
+      phaseAt = this.benchmarkActive ? performance.now() : 0;
+      this.updateRetailPopulationContext(dt);
+      this.recordBenchmarkPhase('retailContext', phaseAt);
+      phaseAt = this.benchmarkActive ? performance.now() : 0;
       this.entrances.update(this.pos.x, this.pos.z, dt);
+      this.recordBenchmarkPhase('entrances', phaseAt);
+      phaseAt = this.benchmarkActive ? performance.now() : 0;
       this.plaques.unloadRadius = 440 + lead; // same trailing-edge guard as tiles
       this.plaques.update(leadX, leadZ, dt);
+      this.recordBenchmarkPhase('plaques', phaseAt);
+      phaseAt = this.benchmarkActive ? performance.now() : 0;
       this.bikes.update(this.pos.x, this.pos.z, dt);
-      this.buses.update(this.pos.x, this.pos.z, dt);
+      this.recordBenchmarkPhase('bikes', phaseAt);
+      phaseAt = this.benchmarkActive ? performance.now() : 0;
+      this.buses.update(
+        this.pos.x,
+        this.pos.z,
+        dt,
+        this.streetLife.actorObstacles,
+      );
+      this.recordBenchmarkPhase('buses', phaseAt);
+      phaseAt = this.benchmarkActive ? performance.now() : 0;
       this.tram.update(this.pos.x, this.pos.z, dt);
+      this.recordBenchmarkPhase('tram', phaseAt);
+      phaseAt = this.benchmarkActive ? performance.now() : 0;
       this.landmarks.update(this.pos.x, this.pos.z, dt);
+      this.recordBenchmarkPhase('landmarks', phaseAt);
+      phaseAt = this.benchmarkActive ? performance.now() : 0;
+      this.streetLife.update(
+        this.pos.x,
+        this.pos.z,
+        () => this.tiles.roadPathsNear(this.pos.x, this.pos.z, 1),
+        performance.now() / 1000,
+        this.tiles.roadNetworkRevision,
+        this.buses.trafficMotions(),
+      );
+      this.recordBenchmarkPhase('streetLife', phaseAt);
 
       if (this.riding && this.bikeView) {
         // ground speed, not input: ride into a wall and the pedals stop too
@@ -1945,7 +2068,12 @@ export class World {
         this.hud.promptBus = [{ id: boardBus.route, color: boardBus.color, sbs: boardBus.sbs }];
         this.hud.promptHint = this.riding ? 'board, bike rides up front' : 'board the bus';
         const dDoor = Math.hypot(boardBus.door[0] - this.pos.x, boardBus.door[1] - this.pos.z);
-        if (dDoor < 1.7 && performance.now() - this.lastEnterGuard > 2500 && !this.transitioning) {
+        if (
+          !this.benchmarkActive
+          && dDoor < 1.7
+          && performance.now() - this.lastEnterGuard > 2500
+          && !this.transitioning
+        ) {
           this.boardBus(boardBus.key);
         }
       } else if (boardTram) {
@@ -1953,13 +2081,23 @@ export class World {
         this.hud.promptBus = [{ id: 'TRAM', color: '#c8102e', sbs: false }];
         this.hud.promptHint = 'board the tram';
         const dDoor = Math.hypot(boardTram.door[0] - this.pos.x, boardTram.door[1] - this.pos.z);
-        if (dDoor < 1.7 && performance.now() - this.lastEnterGuard > 2500 && !this.transitioning) {
+        if (
+          !this.benchmarkActive
+          && dDoor < 1.7
+          && performance.now() - this.lastEnterGuard > 2500
+          && !this.transitioning
+        ) {
           this.boardTram(boardTram.key);
         }
       } else if (near && !this.controls.fly && dE <= (nearDock?.d ?? Infinity)) {
         this.hud.prompt = `${near.station.name}`;
         this.hud.promptRoutes = near.station.routes;
-        if (dE < 1.9 && performance.now() - this.lastEnterGuard > 2500 && !this.transitioning) {
+        if (
+          !this.benchmarkActive
+          && dE < 1.9
+          && performance.now() - this.lastEnterGuard > 2500
+          && !this.transitioning
+        ) {
           this.enterStation(near.station, near.pos);
         }
       } else if (nearDock && !this.controls.fly && (this.riding ? nearDock.canDock : nearDock.canGrab)) {
@@ -2018,7 +2156,12 @@ export class World {
     } else if (this.mode === 'bus' && this.busRide) {
       const h = this.busRide;
       // the world streams around the MOVING bus — that's the whole ride view
-      this.buses.update(h.pos.x, h.pos.z, dt);
+      this.buses.update(
+        h.pos.x,
+        h.pos.z,
+        dt,
+        this.streetLife.actorObstacles,
+      );
       if (!h.active) {
         // the run ended out from under us (terminal auto-exit should catch it
         // first) — step off right where the bus vanished, no fade
@@ -2040,10 +2183,19 @@ export class World {
         if (this.sun) followSun(this.sun, this.pos.x, this.pos.z, this.pos.y, fwd.x, fwd.z);
         this.waterUpdate?.(dt);
         this.tiles.update(this.pos.x, this.pos.z, this.pos.y);
+        this.updateRetailPopulationContext(dt);
         this.entrances.update(this.pos.x, this.pos.z, dt);
         this.bikes.update(this.pos.x, this.pos.z, dt);
         this.tram.update(this.pos.x, this.pos.z, dt);
         this.landmarks.update(this.pos.x, this.pos.z, dt);
+        this.streetLife.update(
+          this.pos.x,
+          this.pos.z,
+          () => this.tiles.roadPathsNear(this.pos.x, this.pos.z, 1),
+          performance.now() / 1000,
+          this.tiles.roadNetworkRevision,
+          this.buses.trafficMotions(),
+        );
         this.hoodTimer -= dt;
         if (this.hoodTimer <= 0) {
           this.hoodTimer = 1.0;
@@ -2204,7 +2356,51 @@ export class World {
     const scene = this.mode === 'ride' && this.ride ? this.ride.scene
       : this.mode === 'station' && this.station ? this.station.scene
       : this.streetScene;
-    this.renderer.render(scene, this.camera);
+    if (scene !== this.activeRenderScene) {
+      this.activeRenderScene = scene;
+      this.shadowDrawEstimate = estimateShadowDrawCalls(scene);
+    }
+    const renderStartedAt = performance.now();
+    this.renderer.info.reset();
+    this.gpuTimer.beginFrame();
+    this.rendering.render(scene, this.mode, dt);
+    this.gpuTimer.endFrame();
+    this.lastGpuMs = this.gpuTimer.poll() ?? this.lastGpuMs;
+    const cpuMs = performance.now() - cpuStartedAt;
+    const renderCpuMs = performance.now() - renderStartedAt;
+    const updateCpuMs = Math.max(0, cpuMs - renderCpuMs);
+    // Sample the live queue, not the 2Hz HUD cache. A short completed burst
+    // previously remained reported as full pressure for another half-second,
+    // corrupting p95 and teaching the governor from stale state.
+    const streamingPressure = Math.min(
+      1,
+      this.tiles.pendingCount() / Math.max(4, this.tileWorkerCount * 3),
+    );
+    this.performanceRecorder.sample(
+      this.renderer,
+      rawDt * 1000,
+      cpuMs,
+      updateCpuMs,
+      renderCpuMs,
+      this.lastGpuMs,
+      streamingPressure,
+      this.shadowDrawEstimate,
+    );
+    const decision = this.qualityGovernor.sample({
+      nowMs: performance.now(),
+      frameMs: rawDt * 1000,
+      cpuMs,
+      gpuMs: this.lastGpuMs,
+      streamingPressure,
+      ignore: this.hud.loading
+        || this.transitioning
+        || document.hidden
+        // Golden routes are per-tier contracts. Letting the adaptive governor
+        // silently turn Ultra into a lower rung mid-capture can make a contract
+        // pass while never measuring the authored TAA/GTAO/shadow combination.
+        || this.benchmarkActive,
+    });
+    if (decision) this.applyRuntimeQuality(decision);
 
     // hud throttled
     this.fpsAcc += dt; this.fpsFrames++;
@@ -2216,80 +2412,99 @@ export class World {
       this.hud.tilesPending = stats.pending;
       this.hud.fps = Math.round(this.fpsFrames / Math.max(0.001, this.fpsAcc));
       this.hud.fly = this.controls.fly;
-      this.adaptResolution();
+      this.shadowDrawEstimate = estimateShadowDrawCalls(scene);
       this.fpsAcc = 0; this.fpsFrames = 0;
       this.pushHud();
       this.save();
     }
   };
 
-  /**
-   * Called once per HUD tick (0.5s) with the tick's frame stats still in
-   * fpsAcc/fpsFrames. Sustained > ~22ms frames drop the render scale a notch
-   * (floor 1.0); sustained fast frames for 3s step it back toward full. The
-   * thresholds straddle 60fps with wide hysteresis so it never oscillates,
-   * and the loading fade is skipped so boot-time jank can't trigger a drop.
-   */
-  private adaptResolution() {
-    if (this.hud.loading || this.transitioning || this.fpsFrames < 8) return;
-    const avgMs = (this.fpsAcc / this.fpsFrames) * 1000;
-    if (avgMs > 22 && this.dynPixelRatio > 1.0) {
-      this.dynPixelRatio = Math.max(1.0, this.dynPixelRatio - 0.25);
-      this.goodTicks = 0;
-      this.applyResolution();
-    } else if (avgMs > 30 && this.dynPixelRatio <= 1.0) {
-      // Render scale is already at the floor, so keep walking down the cost
-      // ladder. Each rung is a persistent device-class signal, so none of them
-      // step back up within the session -- only the pixel ratio does, because
-      // that is the only rung a transient load spike can trip.
-      this.degrade();
-      this.goodTicks = 0;
-    } else if (avgMs < 12.5 && this.dynPixelRatio < this.maxPixelRatio) {
-      if (++this.goodTicks >= 6) {
-        this.dynPixelRatio = Math.min(this.maxPixelRatio, this.dynPixelRatio + 0.25);
-        this.goodTicks = 0;
-        this.applyResolution();
-      }
-    } else {
-      this.goodTicks = 0;
-    }
-  }
-
   private applyResolution() {
     this.renderer.setPixelRatio(this.dynPixelRatio);
     this.renderer.setSize(window.innerWidth, window.innerHeight, false);
+    this.rendering.setSize(window.innerWidth, window.innerHeight, this.dynPixelRatio);
   }
 
   /**
-   * One rung down the cost ladder, for a device that cannot hold 60fps even at
-   * 1x render scale. Ordered cheapest-looking-loss first: shadow resolution,
-   * then draw distance, then shadows entirely. Stops at the bottom rung rather
-   * than degrading forever.
+   * Apply one decision from the percentile governor. The settings are a full
+   * snapshot, so recovery walks the exact reverse path and every subsystem
+   * stays in sync.
    */
-  private degrade() {
+  private applyRuntimeSettings(settings: RuntimeQualitySettings) {
+    const nextPixelRatio = Math.max(0.75, this.maxPixelRatio * settings.renderScale);
+    if (Math.abs(nextPixelRatio - this.dynPixelRatio) >= 0.02) {
+      this.dynPixelRatio = nextPixelRatio;
+      this.applyResolution();
+    }
+
     const sun = this.sun;
-    if (sun?.castShadow && sun.shadow.mapSize.x > 1024) {
-      sun.shadow.mapSize.set(sun.shadow.mapSize.x / 2, sun.shadow.mapSize.y / 2);
-      sun.shadow.map?.dispose();
-      sun.shadow.map = null;
-      // followSun keys its bias off the map size, so let it reconfigure
-      sun.userData.shMap = -1;
-      this.perfNotes.push(`shadow map -> ${sun.shadow.mapSize.x}`);
-      return;
+    if (sun) {
+      const nextShadowSize = settings.shadowLevel === 2
+        ? this.authoredShadowMapSize
+        : settings.shadowLevel === 1
+          ? Math.max(1024, Math.floor(this.authoredShadowMapSize / 2))
+          : 0;
+      if (nextShadowSize === 0) {
+        sun.castShadow = false;
+        this.renderer.shadowMap.enabled = false;
+      } else {
+        this.renderer.shadowMap.enabled = true;
+        sun.castShadow = true;
+        if (sun.shadow.mapSize.x !== nextShadowSize) {
+          sun.shadow.mapSize.set(nextShadowSize, nextShadowSize);
+          sun.shadow.map?.dispose();
+          sun.shadow.map = null;
+          // followSun derives bias/frustum state from the current map size.
+          sun.userData.shMap = -1;
+        }
+      }
     }
-    if (this.baseLoadRadius > 560) {
-      this.baseLoadRadius = Math.max(560, Math.round(this.baseLoadRadius * 0.8));
-      this.perfNotes.push(`load radius -> ${this.baseLoadRadius}`);
-      return;
+
+    this.baseLoadRadius = Math.max(
+      560,
+      Math.round(this.authoredLoadRadius * settings.detailDistanceScale),
+    );
+    this.tiles.prefetchScale = settings.streamingScale;
+    this.streetLife.setPopulationScale(settings.populationScale);
+    this.rendering.setEffectsLevel(settings.effectsLevel);
+  }
+
+  private applyRuntimeQuality(decision: QualityDecision) {
+    this.applyRuntimeSettings(decision.settings);
+    this.perfNotes.push(
+      `${decision.direction} ${decision.knob}: ${decision.previous} -> ${decision.value}`,
+    );
+    if (this.perfNotes.length > 10) this.perfNotes.splice(0, this.perfNotes.length - 10);
+  }
+
+  /**
+   * Fold streamed ground-floor semantics into the population density field.
+   * Tile upgrades and unload/reloads revisit the same storefronts, while the
+   * density field's quantized identity set makes the append-only feed
+   * idempotent. Running once per second keeps this out of the frame hot path.
+   */
+  private updateRetailPopulationContext(dt: number) {
+    this.retailAnchorTimer -= dt;
+    if (this.retailAnchorTimer > 0) return;
+    this.retailAnchorTimer = 1;
+    const flat = this.tiles.retailAnchorsNear(
+      this.pos.x,
+      this.pos.z,
+      360,
+      this.retailAnchorScratch,
+    );
+    if (flat.length === 0) return;
+    const anchors: DensityAnchor[] = [];
+    for (let i = 0; i + 3 < flat.length; i += 4) {
+      const category = Math.max(1, Math.min(7, Math.round(flat[i + 3])));
+      anchors.push({
+        x: flat[i],
+        z: flat[i + 2],
+        kind: 'retail',
+        weight: Math.min(0.72, 0.43 + category * 0.045),
+      });
     }
-    if (sun?.castShadow) {
-      // Last rung. The scene is lit by hemi + sun + fill, so losing cast shadows
-      // flattens it but leaves it correctly exposed; bring the ambient back up
-      // the way the no-shadow tier is authored in sky.ts.
-      sun.castShadow = false;
-      this.renderer.shadowMap.enabled = false;
-      this.perfNotes.push('shadows off');
-    }
+    this.streetLife.addContextAnchors(anchors);
   }
 
   /**
@@ -2458,6 +2673,146 @@ export class World {
     return [];
   }
   getRide() { return this.ride?.hudInfo ?? null; }
+  private recordBenchmarkPhase(name: string, startedAt: number) {
+    if (!this.benchmarkActive || startedAt === 0) return;
+    const values = this.benchmarkPhases.get(name) ?? [];
+    values.push(performance.now() - startedAt);
+    if (values.length > 1200) values.shift();
+    this.benchmarkPhases.set(name, values);
+  }
+
+  private benchmarkPhaseReport() {
+    const percentile = (values: number[], quantile: number) => {
+      if (!values.length) return 0;
+      const sorted = [...values].sort((a, b) => a - b);
+      return sorted[Math.min(sorted.length - 1, Math.floor((sorted.length - 1) * quantile))];
+    };
+    return Object.fromEntries([...this.benchmarkPhases].map(([name, values]) => [
+      name,
+      {
+        samples: values.length,
+        p50: percentile(values, 0.5),
+        p95: percentile(values, 0.95),
+        p99: percentile(values, 0.99),
+        max: values.length ? Math.max(...values) : 0,
+      },
+    ]));
+  }
+
+  /** Start a bounded performance capture for browser/device golden-route QA. */
+  resetPerformanceCapture(label = 'manual') {
+    this.benchmarkPhases.clear();
+    this.performanceRecorder.reset(label);
+    if (this.benchmarkActive) {
+      this.qualityGovernor.clearHistory();
+    }
+  }
+  /**
+   * Debug/automation report with true frame percentiles, GPU query samples,
+   * submitted draw/triangle counts, memory estimates and active post effects.
+   */
+  performanceReport() {
+    return {
+      ...this.performanceRecorder.report(),
+      mode: this.mode,
+      quality: quality().level,
+      pixelRatio: this.dynPixelRatio,
+      rendererMemory: { ...this.renderer.info.memory },
+      shaderPrograms: this.renderer.info.programs?.length ?? 0,
+      sceneResources: estimateSceneResources(this.activeRenderScene),
+      rendering: this.rendering.stats(),
+      streaming: this.tiles.streamingReport(),
+      landmarks: this.landmarks.lodStats(),
+      population: this.streetLife.stats,
+      governor: this.qualityGovernor.snapshot,
+      materials: materialLibrary.report(),
+      updatePhases: this.benchmarkPhaseReport(),
+    };
+  }
+  /**
+   * Automation should not start a route while the asynchronously loaded world
+   * catalogs are still empty. Returning no routes makes the browser harness's
+   * existing readiness wait cover tiles, subway stations, and transit data.
+   */
+  benchmarkRoutes() { return this.hud.loading ? [] : goldenRouteIds(); }
+  /**
+   * Run one deterministic capture from `window.__nyc`. The route temporarily
+   * mutes audio, preloads its first location, then records only the steady
+   * traversal. This is suitable for desktop automation and physical-device
+   * remote debugging without adding a production-only testing dependency.
+   */
+  async runBenchmarkRoute(id: GoldenRouteId) {
+    if (this.benchmarkActive) throw new Error('A benchmark route is already running');
+    const route = GOLDEN_ROUTES[id];
+    if (!route) throw new Error(`Unknown benchmark route: ${id}`);
+    const readyDeadline = performance.now() + 15_000;
+    while (this.hud.loading && performance.now() < readyDeadline) await wait(50);
+    if (this.hud.loading) throw new Error('Benchmark world initialization timed out');
+    this.benchmarkActive = true;
+    this.applyRuntimeSettings(this.qualityGovernor.restore({
+      effectsLevel: this.authoredEffectsLevel,
+      shadowLevel: this.authoredShadowLevel,
+    }));
+    const wasMuted = this.audio.isMuted;
+    this.audio.setMuted(true);
+    try {
+      this.leaveTransit();
+      await wait(0);
+      if (route.kind === 'station') {
+        const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '');
+        const spec = this.entrances.findStation((s) => norm(s.name).includes(norm(route.stationSearch)));
+        if (!spec) throw new Error(`Benchmark station not found: ${route.stationSearch}`);
+        await this.enterStation(spec, spec.pos);
+        await wait(900);
+        this.resetPerformanceCapture(route.label);
+        const initialYaw = this.controls.yaw;
+        await animateFor(route.seconds * 1000, (t) => {
+          // Two measured turns exercise view-dependent station cells and shadow
+          // culling while staying on the known-safe spawn point.
+          this.controls.yaw = initialYaw + t * Math.PI * 4;
+          this.controls.pitch = 0.02 + Math.sin(t * Math.PI * 2) * 0.08;
+        });
+      } else {
+        const first = route.points[0];
+        this.teleport(first.lat, first.lon);
+        await wait(1600);
+        // Additive tiles decode base -> mid -> near and integrate one layer per
+        // frame. Record the traversal only after that starting neighborhood has
+        // been genuinely idle for four consecutive probes; otherwise startup
+        // work is mislabeled as steady-state streaming pressure.
+        const streamDeadline = performance.now() + 6000;
+        let idleProbes = 0;
+        while (performance.now() < streamDeadline && idleProbes < 4) {
+          idleProbes = this.tiles.stats().pending === 0 ? idleProbes + 1 : 0;
+          await wait(100);
+        }
+        const [firstX, firstZ] = lonLatToXZ(first.lon, first.lat);
+        this.pos.set(firstX, heightAt(firstX, firstZ), firstZ);
+        this.spawnResolve = false;
+        this.resetPerformanceCapture(route.label);
+        for (let i = 1; i < route.points.length; i++) {
+          const previous = route.points[i - 1];
+          const next = route.points[i];
+          const [x0, z0] = lonLatToXZ(previous.lon, previous.lat);
+          const [x1, z1] = lonLatToXZ(next.lon, next.lat);
+          const yaw = Math.atan2(-(x1 - x0), -(z1 - z0));
+          await animateFor(next.seconds * 1000, (t) => {
+            const eased = t * t * (3 - 2 * t);
+            const x = THREE.MathUtils.lerp(x0, x1, eased);
+            const z = THREE.MathUtils.lerp(z0, z1, eased);
+            this.pos.set(x, heightAt(x, z), z);
+            this.controls.yaw = yaw;
+            this.controls.pitch = 0.035;
+          });
+        }
+      }
+      await wait(250);
+      return this.performanceReport();
+    } finally {
+      this.benchmarkActive = false;
+      this.audio.setMuted(wasMuted);
+    }
+  }
   /** Debug: advance the station/ride sim by `s` seconds in fixed steps. */
   ffStation(s: number) {
     for (let t = 0; t < s; t += 0.05) {
@@ -2473,6 +2828,7 @@ export class World {
     window.removeEventListener('resize', this.resize);
     this.controls.dispose();
     this.tiles.destroy();
+    this.streetLife.destroy();
     this.entrances.destroy();
     this.plaques.destroy();
     this.bikes.destroy();
@@ -2484,11 +2840,29 @@ export class World {
     this.scheduler?.dispose();
     this.station?.dispose();
     this.ride?.dispose();
+    this.streetEnvTex?.dispose();
+    this.envTex?.dispose();
+    this.gpuTimer.dispose();
+    this.rendering.dispose();
+    materialLibrary.dispose();
     this.renderer.dispose();
   }
 }
 
 function wait(ms: number) { return new Promise((r) => setTimeout(r, ms)); }
+
+function animateFor(ms: number, update: (progress: number) => void): Promise<void> {
+  return new Promise((resolve) => {
+    const startedAt = performance.now();
+    const tick = (now: number) => {
+      const progress = Math.max(0, Math.min(1, (now - startedAt) / Math.max(1, ms)));
+      update(progress);
+      if (progress >= 1) resolve();
+      else requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
+  });
+}
 
 /** Wrap to (-PI, PI] so a bus heading crossing the seam doesn't spin the view. */
 function shortAngle(a: number) { return Math.atan2(Math.sin(a), Math.cos(a)); }
