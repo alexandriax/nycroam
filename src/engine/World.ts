@@ -45,6 +45,17 @@ import {
   type RuntimeQualitySettings,
 } from './performance/QualityGovernor';
 import { WebGLGpuTimer } from './performance/WebGLGpuTimer';
+import { RenderingPipeline } from './rendering/RenderingPipeline';
+import {
+  PerformanceRecorder,
+  estimateSceneResources,
+  estimateShadowDrawCalls,
+} from './performance/PerformanceRecorder';
+import {
+  GOLDEN_ROUTES,
+  goldenRouteIds,
+  type GoldenRouteId,
+} from './performance/goldenRoutes';
 
 const SAVE_KEY = 'nycroam';
 const LEGACY_SAVE_KEY = 'nycworld'; // read-only: keeps positions saved before the rename
@@ -127,6 +138,7 @@ export const LANDMARKS: { name: string; lat: number; lon: number }[] = [
 
 export class World {
   private renderer: THREE.WebGLRenderer;
+  private rendering: RenderingPipeline;
   private camera: THREE.PerspectiveCamera;
   private streetScene = new THREE.Scene();
   private tiles: TileManager;
@@ -185,7 +197,11 @@ export class World {
   private tileWorkerCount = 2;
   private qualityGovernor: QualityGovernor;
   private gpuTimer: WebGLGpuTimer;
+  private performanceRecorder = new PerformanceRecorder();
   private lastGpuMs: number | null = null;
+  private activeRenderScene: THREE.Scene = this.streetScene;
+  private shadowDrawEstimate = 0;
+  private benchmarkActive = false;
   private governorSawTransition = false;
   /** What the adaptive loop has given up so far, newest last (settings UI + debug). */
   perfNotes: string[] = [];
@@ -228,7 +244,10 @@ export class World {
     this.isMobile = mobileQualityRequested();
     const q = quality();
     const runtimeProfile = runtimePerformanceProfile();
-    this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
+    // Full-screen AA is tiered in RenderingPipeline. Requesting default-framebuffer
+    // MSAA as well would pay for samples that the composer never reads.
+    this.renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: 'high-performance' });
+    this.renderer.info.autoReset = false;
     this.maxPixelRatio = Math.min(window.devicePixelRatio, q.pixelRatioCap);
     this.dynPixelRatio = this.maxPixelRatio;
     this.renderer.setPixelRatio(this.dynPixelRatio);
@@ -238,6 +257,7 @@ export class World {
     this.authoredShadowMapSize = q.shadowMapSize;
     this.authoredLoadRadius = q.loadRadius;
     this.tileWorkerCount = q.tileWorkers;
+    const authoredEffects: 0 | 1 | 2 = q.level === 'low' ? 0 : q.level === 'medium' ? 1 : 2;
     this.qualityGovernor = new QualityGovernor({
       targetFrameMs: 1000 / runtimeProfile.targetFps,
       minRenderScale: runtimeProfile.minRenderScale,
@@ -245,9 +265,7 @@ export class World {
       minDetailDistanceScale: runtimeProfile.minDetailDistanceScale,
       minStreamingScale: runtimeProfile.minStreamingScale,
     }, {
-      // There is deliberately no full-screen effects pass yet. Starting this
-      // rung at zero keeps the governor from "reducing" a no-op under load.
-      effectsLevel: 0,
+      effectsLevel: authoredEffects,
       shadowLevel: q.shadows ? 2 : 0,
     });
     this.gpuTimer = new WebGLGpuTimer(this.renderer.getContext());
@@ -276,6 +294,13 @@ export class World {
     const loadRadius = q.loadRadius;
     this.baseLoadRadius = loadRadius;
     this.camera = new THREE.PerspectiveCamera(70, 1, 0.1, far);
+    this.rendering = new RenderingPipeline(
+      this.renderer,
+      this.streetScene,
+      this.camera,
+      q.level,
+      authoredEffects,
+    );
     this.skyDome = setupSky(this.streetScene, loadRadius, far);
     this.sun = setupLights(this.streetScene).sun;
 
@@ -385,7 +410,7 @@ export class World {
    */
   private async compileGroup(group: THREE.Object3D): Promise<void> {
     try {
-      await this.renderer.compileAsync(group, this.camera, this.streetScene);
+      await this.rendering.compileAsync(group, this.camera, this.streetScene);
     } catch {
       /* ignore — caller still adds the group; worst case one first-frame hitch */
     }
@@ -848,6 +873,7 @@ export class World {
     const w = window.innerWidth, h = window.innerHeight;
     this.renderer.setPixelRatio(this.dynPixelRatio); // keep the adaptive scale across resizes
     this.renderer.setSize(w, h, false);
+    this.rendering.setSize(w, h, this.dynPixelRatio);
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
   };
@@ -2262,16 +2288,34 @@ export class World {
     const scene = this.mode === 'ride' && this.ride ? this.ride.scene
       : this.mode === 'station' && this.station ? this.station.scene
       : this.streetScene;
+    if (scene !== this.activeRenderScene) {
+      this.activeRenderScene = scene;
+      this.shadowDrawEstimate = estimateShadowDrawCalls(scene);
+    }
+    this.renderer.info.reset();
     this.gpuTimer.beginFrame();
-    this.renderer.render(scene, this.camera);
+    this.rendering.render(scene, this.mode, dt);
     this.gpuTimer.endFrame();
     this.lastGpuMs = this.gpuTimer.poll() ?? this.lastGpuMs;
+    const cpuMs = performance.now() - cpuStartedAt;
+    const streamingPressure = Math.min(
+      1,
+      this.hud.tilesPending / Math.max(4, this.tileWorkerCount * 3),
+    );
+    this.performanceRecorder.sample(
+      this.renderer,
+      rawDt * 1000,
+      cpuMs,
+      this.lastGpuMs,
+      streamingPressure,
+      this.shadowDrawEstimate,
+    );
     const decision = this.qualityGovernor.sample({
       nowMs: performance.now(),
       frameMs: rawDt * 1000,
-      cpuMs: performance.now() - cpuStartedAt,
+      cpuMs,
       gpuMs: this.lastGpuMs,
-      streamingPressure: Math.min(1, this.hud.tilesPending / Math.max(4, this.tileWorkerCount * 3)),
+      streamingPressure,
       ignore: this.hud.loading || this.transitioning || document.hidden,
     });
     if (decision) this.applyRuntimeQuality(decision);
@@ -2286,6 +2330,7 @@ export class World {
       this.hud.tilesPending = stats.pending;
       this.hud.fps = Math.round(this.fpsFrames / Math.max(0.001, this.fpsAcc));
       this.hud.fly = this.controls.fly;
+      this.shadowDrawEstimate = estimateShadowDrawCalls(scene);
       this.fpsAcc = 0; this.fpsFrames = 0;
       this.pushHud();
       this.save();
@@ -2295,6 +2340,7 @@ export class World {
   private applyResolution() {
     this.renderer.setPixelRatio(this.dynPixelRatio);
     this.renderer.setSize(window.innerWidth, window.innerHeight, false);
+    this.rendering.setSize(window.innerWidth, window.innerHeight, this.dynPixelRatio);
   }
 
   /**
@@ -2339,6 +2385,7 @@ export class World {
     );
     this.tiles.prefetchScale = settings.streamingScale;
     this.streetLife.setPopulationScale(settings.populationScale);
+    this.rendering.setEffectsLevel(settings.effectsLevel);
 
     this.perfNotes.push(
       `${decision.direction} ${decision.knob}: ${decision.previous} -> ${decision.value}`,
@@ -2512,6 +2559,88 @@ export class World {
     return [];
   }
   getRide() { return this.ride?.hudInfo ?? null; }
+  /** Start a bounded performance capture for browser/device golden-route QA. */
+  resetPerformanceCapture(label = 'manual') { this.performanceRecorder.reset(label); }
+  /**
+   * Debug/automation report with true frame percentiles, GPU query samples,
+   * submitted draw/triangle counts, memory estimates and active post effects.
+   */
+  performanceReport() {
+    return {
+      ...this.performanceRecorder.report(),
+      mode: this.mode,
+      quality: quality().level,
+      pixelRatio: this.dynPixelRatio,
+      rendererMemory: { ...this.renderer.info.memory },
+      shaderPrograms: this.renderer.info.programs?.length ?? 0,
+      sceneResources: estimateSceneResources(this.activeRenderScene),
+      rendering: this.rendering.stats(),
+      streaming: this.tiles.stats(),
+      governor: this.qualityGovernor.snapshot,
+    };
+  }
+  benchmarkRoutes() { return goldenRouteIds(); }
+  /**
+   * Run one deterministic capture from `window.__nyc`. The route temporarily
+   * mutes audio, preloads its first location, then records only the steady
+   * traversal. This is suitable for desktop automation and physical-device
+   * remote debugging without adding a production-only testing dependency.
+   */
+  async runBenchmarkRoute(id: GoldenRouteId) {
+    if (this.benchmarkActive) throw new Error('A benchmark route is already running');
+    const route = GOLDEN_ROUTES[id];
+    if (!route) throw new Error(`Unknown benchmark route: ${id}`);
+    this.benchmarkActive = true;
+    const wasMuted = this.audio.isMuted;
+    this.audio.setMuted(true);
+    try {
+      this.leaveTransit();
+      await wait(0);
+      if (route.kind === 'station') {
+        const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '');
+        const spec = this.entrances.findStation((s) => norm(s.name).includes(norm(route.stationSearch)));
+        if (!spec) throw new Error(`Benchmark station not found: ${route.stationSearch}`);
+        await this.enterStation(spec, spec.pos);
+        await wait(900);
+        this.performanceRecorder.reset(route.label);
+        const initialYaw = this.controls.yaw;
+        await animateFor(route.seconds * 1000, (t) => {
+          // Two measured turns exercise view-dependent station cells and shadow
+          // culling while staying on the known-safe spawn point.
+          this.controls.yaw = initialYaw + t * Math.PI * 4;
+          this.controls.pitch = 0.02 + Math.sin(t * Math.PI * 2) * 0.08;
+        });
+      } else {
+        const first = route.points[0];
+        this.teleport(first.lat, first.lon);
+        await wait(1600);
+        const [firstX, firstZ] = lonLatToXZ(first.lon, first.lat);
+        this.pos.set(firstX, heightAt(firstX, firstZ), firstZ);
+        this.spawnResolve = false;
+        this.performanceRecorder.reset(route.label);
+        for (let i = 1; i < route.points.length; i++) {
+          const previous = route.points[i - 1];
+          const next = route.points[i];
+          const [x0, z0] = lonLatToXZ(previous.lon, previous.lat);
+          const [x1, z1] = lonLatToXZ(next.lon, next.lat);
+          const yaw = Math.atan2(-(x1 - x0), -(z1 - z0));
+          await animateFor(next.seconds * 1000, (t) => {
+            const eased = t * t * (3 - 2 * t);
+            const x = THREE.MathUtils.lerp(x0, x1, eased);
+            const z = THREE.MathUtils.lerp(z0, z1, eased);
+            this.pos.set(x, heightAt(x, z), z);
+            this.controls.yaw = yaw;
+            this.controls.pitch = 0.035;
+          });
+        }
+      }
+      await wait(250);
+      return this.performanceReport();
+    } finally {
+      this.benchmarkActive = false;
+      this.audio.setMuted(wasMuted);
+    }
+  }
   /** Debug: advance the station/ride sim by `s` seconds in fixed steps. */
   ffStation(s: number) {
     for (let t = 0; t < s; t += 0.05) {
@@ -2542,11 +2671,25 @@ export class World {
     this.streetEnvTex?.dispose();
     this.envTex?.dispose();
     this.gpuTimer.dispose();
+    this.rendering.dispose();
     this.renderer.dispose();
   }
 }
 
 function wait(ms: number) { return new Promise((r) => setTimeout(r, ms)); }
+
+function animateFor(ms: number, update: (progress: number) => void): Promise<void> {
+  return new Promise((resolve) => {
+    const startedAt = performance.now();
+    const tick = (now: number) => {
+      const progress = Math.max(0, Math.min(1, (now - startedAt) / Math.max(1, ms)));
+      update(progress);
+      if (progress >= 1) resolve();
+      else requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
+  });
+}
 
 /** Wrap to (-PI, PI] so a bus heading crossing the seam doesn't spin the view. */
 function shortAngle(a: number) { return Math.atan2(Math.sin(a), Math.cos(a)); }
