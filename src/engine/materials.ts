@@ -38,16 +38,19 @@ export function makeFacadeMaterial(): THREE.MeshLambertMaterial {
         '#include <common>',
         `#include <common>
         attribute float aStyle;
+        attribute float aSemantic;
         varying vec3 vWPos;
         varying vec3 vWNormal;
-        varying float vStyle;`
+        varying float vStyle;
+        varying float vSemantic;`
       )
       .replace(
         '#include <worldpos_vertex>',
         `#include <worldpos_vertex>
         vWPos = (modelMatrix * vec4(transformed, 1.0)).xyz;
         vWNormal = normalize(mat3(modelMatrix) * objectNormal);
-        vStyle = aStyle;`
+        vStyle = aStyle;
+        vSemantic = aSemantic;`
       );
     shader.fragmentShader = shader.fragmentShader
       .replace(
@@ -56,6 +59,7 @@ export function makeFacadeMaterial(): THREE.MeshLambertMaterial {
         varying vec3 vWPos;
         varying vec3 vWNormal;
         varying float vStyle;
+        varying float vSemantic;
         uniform sampler2D uBrick;
         uniform sampler2D uBrickNormal;
         uniform sampler2D uRoof;
@@ -93,7 +97,12 @@ export function makeFacadeMaterial(): THREE.MeshLambertMaterial {
           bool texturedMasonry = styleN < 0.5
             || abs(styleN - 4.0) < 0.5
             || abs(styleN - 5.0) < 0.5
-            || abs(styleN - 7.0) < 0.5;
+            || abs(styleN - 7.0) < 0.5
+            || abs(styleN - 8.0) < 0.5
+            || abs(styleN - 10.0) < 0.5
+            || abs(styleN - 11.0) < 0.5
+            || abs(styleN - 13.0) < 0.5
+            || abs(styleN - 14.0) < 0.5;
           if (verticalN > 0.55 && vWPos.y > 0.5 && texturedMasonry && detailN > 0.001) {
             float uN = vWPos.x * faceN.z - vWPos.z * faceN.x;
             float floorHN = vWPos.y < 4.6 ? 4.6 : 3.1;
@@ -134,20 +143,31 @@ export function makeFacadeMaterial(): THREE.MeshLambertMaterial {
             if (detail > 0.001) {
             float u = vWPos.x * wn.z - vWPos.z * wn.x;
             float v = vWPos.y;
-            // Eight stable archetypes. Styles 0/1 intentionally retain the old
+            // Sixteen stable archetypes. Styles 0/1 intentionally retain the old
             // masonry/glass behavior, so tiles produced before the semantic
             // pipeline upgrade render identically.
-            float styleId = clamp(floor(vStyle + 0.5), 0.0, 7.0);
+            float semantic = floor(vSemantic + 0.5);
+            float styleId = clamp(mod(semantic, 16.0), 0.0, 15.0);
+            float windowFamily = mod(floor(semantic / 16.0), 8.0);
+            float openingQ = mod(floor(semantic / 128.0), 16.0);
+            float opening = 0.22 + openingQ * (0.58 / 15.0);
+            float storefrontCategory = mod(floor(semantic / 2048.0), 8.0);
             bool glassTower = abs(styleId - 1.0) < 0.5 || abs(styleId - 6.0) < 0.5;
-            bool industrial = abs(styleId - 4.0) < 0.5;
+            bool industrial = abs(styleId - 4.0) < 0.5 || abs(styleId - 13.0) < 0.5;
             bool brownstone = abs(styleId - 5.0) < 0.5;
-            bool concrete = abs(styleId - 3.0) < 0.5;
-            bool stone = abs(styleId - 2.0) < 0.5;
-            float floorH = glassTower ? 3.4 : industrial ? 4.15 : brownstone ? 3.25 : 3.1;
+            bool concrete = abs(styleId - 3.0) < 0.5 || abs(styleId - 9.0) < 0.5;
+            bool stone = abs(styleId - 2.0) < 0.5 || abs(styleId - 12.0) < 0.5;
+            bool castIron = abs(styleId - 8.0) < 0.5;
+            bool artDeco = abs(styleId - 10.0) < 0.5;
+            bool hotel = abs(styleId - 15.0) < 0.5;
+            float floorH = glassTower ? 3.4 : industrial ? 4.15 : brownstone ? 3.25
+              : castIron ? 3.75 : hotel ? 3.45 : 3.1;
             float winW = abs(styleId - 6.0) < 0.5 ? 1.45
               : glassTower ? 1.7 : industrial ? 3.2 : concrete ? 3.35
-              : brownstone ? 2.8 : stone ? 2.6 : 2.5;
-            bool storefront = v < 4.6;
+              : brownstone ? 2.8 : castIron ? 2.25 : stone ? 2.6
+              : abs(windowFamily - 4.0) < 0.5 ? 3.6
+              : abs(windowFamily - 6.0) < 0.5 ? 2.9 : 2.5;
+            bool storefront = storefrontCategory > 0.5 && v < 4.6;
             if (storefront) { floorH = 4.6; winW = 4.2; }
             // Cell coordinates BEFORE the fract(), so their screen-space
             // derivatives are continuous (fwidth of a fract() spikes at every
@@ -187,8 +207,14 @@ export function makeFacadeMaterial(): THREE.MeshLambertMaterial {
               diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * 0.55, spandrel * 0.8);
               diffuseColor.rgb += vec3(1.0, 0.94, 0.80) * glint * pane * 0.22;
             } else {
-              float inX = mix(0.670, band(f.x, 0.18, 0.85, wx), lod);
-              float inY = mix(0.550, band(f.y, 0.25, 0.8, wy), lod);
+              float sideInset = mix(0.31, 0.08, opening);
+              float bottomInset = mix(0.35, 0.12, opening);
+              float inX = mix(opening, band(f.x, sideInset, 1.0 - sideInset, wx), lod);
+              float inY = mix(opening, band(f.y, bottomInset, min(0.9, bottomInset + opening), wy), lod);
+              if (abs(windowFamily - 5.0) < 0.5) {
+                float arch = 1.0 - smoothstep(0.18, 0.25, length(vec2((f.x - 0.5) * 0.65, f.y - 0.64)));
+                inY *= mix(1.0, max(arch, band(f.y, bottomInset, 0.66, wy)), lod);
+              }
               if (storefront) {
                 inX = mix(0.840, band(f.x, 0.08, 0.92, wx), lod);
                 inY = mix(0.700, band(f.y, 0.05, 0.75, wy), lod);
@@ -199,7 +225,7 @@ export function makeFacadeMaterial(): THREE.MeshLambertMaterial {
               vec3 bt = texture2D(uBrick, vec2(u, v) / 1.2).rgb;
               float bl = dot(bt, vec3(0.333)) * 1.75;
               float masonryRelief = industrial ? 0.3 : brownstone ? 0.24
-                : (stone || concrete) ? 0.08 : 0.34;
+                : castIron ? 0.12 : (stone || concrete || artDeco) ? 0.08 : 0.34;
               diffuseColor.rgb *= mix(1.0, bl, masonryRelief * (1.0 - win));
               vec3 glass = mix(vec3(0.13, 0.16, 0.2), vec3(0.38, 0.44, 0.52), rnd * rnd);
               if (storefront) glass = mix(vec3(0.1, 0.11, 0.13), vec3(0.3, 0.28, 0.24), rnd);
@@ -217,6 +243,10 @@ export function makeFacadeMaterial(): THREE.MeshLambertMaterial {
                 ? lod * ((band(f.x, 0.335, 0.355, wx) + band(f.x, 0.645, 0.665, wx)) * inY
                   + band(f.y, 0.54, 0.565, wy) * inX)
                 : lod * band(f.y, 0.505, 0.525, wy) * inX;
+              if (abs(windowFamily - 2.0) < 0.5) {
+                frame += lod * ((band(f.x, 0.325, 0.345, wx) + band(f.x, 0.655, 0.675, wx)) * inY
+                  + (band(f.y, 0.42, 0.44, wy) + band(f.y, 0.64, 0.66, wy)) * inX);
+              }
               diffuseColor.rgb = mix(diffuseColor.rgb, facadeBase * 0.36, clamp(frame, 0.0, 1.0) * 0.92);
               // sill highlight under the window
               float sill = lod * band(f.y, 0.225, 0.275, max(wy, 0.025)) * inX;

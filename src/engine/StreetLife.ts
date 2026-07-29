@@ -621,8 +621,9 @@ export class StreetLife {
    * rebuild; it never creates scene objects or materials.
    */
   addContextAnchors(anchors: DensityAnchor[]): void {
-    this.density.addMany(anchors);
-    this.lastBuildAt = Number.NEGATIVE_INFINITY;
+    if (this.density.addMany(anchors) > 0) {
+      this.lastBuildAt = Number.NEGATIVE_INFINITY;
+    }
   }
 
   get stats(): StreetLifeStats {

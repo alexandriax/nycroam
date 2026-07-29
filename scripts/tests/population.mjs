@@ -11,6 +11,7 @@ import {
 } from '../../src/engine/population/roadGraph.ts';
 import {
   composePopulationDensity,
+  populationAnchorKey,
   smoothDensityFalloff,
 } from '../../src/engine/population/densityKernel.ts';
 
@@ -122,4 +123,19 @@ test('context raises the right activity channels with smooth bounded falloff', (
   assert.ok(station.commerce > baseline.commerce);
   assert.ok(park.park > baseline.park);
   assert.ok(bike.cycling > baseline.cycling);
+});
+
+test('streamed context anchors are idempotent across tile upgrades and reloads', () => {
+  assert.equal(
+    populationAnchorKey('retail', 12.24, -4.20),
+    populationAnchorKey('retail', 12.23, -4.21),
+  );
+  assert.notEqual(
+    populationAnchorKey('retail', 12.24, -4.26),
+    populationAnchorKey('retail', 13.1, -4.2),
+  );
+  assert.notEqual(
+    populationAnchorKey('retail', 12.24, -4.26),
+    populationAnchorKey('station', 12.24, -4.26),
+  );
 });

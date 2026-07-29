@@ -3,6 +3,7 @@ import { lonLatToXZ } from '../geo';
 import { LANDMARKS_REG } from '../landmarks/registry';
 import {
   composePopulationDensity,
+  populationAnchorKey,
   smoothDensityFalloff,
   type PopulationDensitySample,
 } from './densityKernel';
@@ -52,6 +53,7 @@ function cellKey(x: number, z: number): string {
 export class PopulationDensityField {
   private readonly cells = new Map<string, DensityAnchor[]>();
   private readonly anchors: DensityAnchor[] = [];
+  private readonly anchorKeys = new Set<string>();
   private loaded = false;
 
   constructor(seedLandmarks = true) {
@@ -72,17 +74,26 @@ export class PopulationDensityField {
     return this.anchors.length;
   }
 
-  add(anchor: DensityAnchor): void {
-    if (!Number.isFinite(anchor.x) || !Number.isFinite(anchor.z)) return;
+  add(anchor: DensityAnchor): boolean {
+    if (!Number.isFinite(anchor.x) || !Number.isFinite(anchor.z)) return false;
+    // Streamed storefront anchors are revisited whenever a nearby tile is
+    // upgraded or reloaded. Quantizing to half a metre keeps that append-only
+    // feed idempotent without merging distinct doors along the same frontage.
+    const key = populationAnchorKey(anchor.kind, anchor.x, anchor.z);
+    if (this.anchorKeys.has(key)) return false;
+    this.anchorKeys.add(key);
     this.anchors.push(anchor);
-    const key = cellKey(anchor.x, anchor.z);
-    const cell = this.cells.get(key);
+    const cellId = cellKey(anchor.x, anchor.z);
+    const cell = this.cells.get(cellId);
     if (cell) cell.push(anchor);
-    else this.cells.set(key, [anchor]);
+    else this.cells.set(cellId, [anchor]);
+    return true;
   }
 
-  addMany(anchors: DensityAnchor[]): void {
-    for (const anchor of anchors) this.add(anchor);
+  addMany(anchors: DensityAnchor[]): number {
+    let added = 0;
+    for (const anchor of anchors) if (this.add(anchor)) added++;
+    return added;
   }
 
   async load(): Promise<boolean> {

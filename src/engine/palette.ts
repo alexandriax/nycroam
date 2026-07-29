@@ -68,6 +68,62 @@ const MIXED_STOREFRONT: Rgb[] = [
   [0.67, 0.57, 0.46],
 ];
 
+const CAST_IRON_LOFT: Rgb[] = [
+  [0.64, 0.63, 0.59],
+  [0.49, 0.53, 0.54],
+  [0.72, 0.69, 0.61],
+  [0.42, 0.47, 0.48],
+];
+
+const RESIDENTIAL_TOWER: Rgb[] = [
+  [0.66, 0.67, 0.66],
+  [0.72, 0.7, 0.65],
+  [0.57, 0.61, 0.64],
+  [0.77, 0.75, 0.7],
+];
+
+const ART_DECO: Rgb[] = [
+  [0.73, 0.68, 0.57],
+  [0.68, 0.65, 0.58],
+  [0.78, 0.73, 0.63],
+  [0.62, 0.59, 0.53],
+];
+
+const MODERN_MASONRY: Rgb[] = [
+  [0.61, 0.52, 0.45],
+  [0.7, 0.62, 0.53],
+  [0.55, 0.54, 0.52],
+  [0.67, 0.59, 0.51],
+];
+
+const INSTITUTIONAL: Rgb[] = [
+  [0.72, 0.69, 0.62],
+  [0.65, 0.61, 0.54],
+  [0.76, 0.72, 0.64],
+  [0.59, 0.58, 0.55],
+];
+
+const WAREHOUSE_CONCRETE: Rgb[] = [
+  [0.52, 0.52, 0.49],
+  [0.58, 0.55, 0.49],
+  [0.46, 0.49, 0.5],
+  [0.62, 0.59, 0.54],
+];
+
+const WOOD_VERNACULAR: Rgb[] = [
+  [0.66, 0.59, 0.49],
+  [0.72, 0.69, 0.61],
+  [0.53, 0.47, 0.4],
+  [0.63, 0.65, 0.62],
+];
+
+const HOTEL_MIDCENTURY: Rgb[] = [
+  [0.63, 0.62, 0.59],
+  [0.69, 0.65, 0.57],
+  [0.55, 0.58, 0.6],
+  [0.71, 0.7, 0.66],
+];
+
 const ARCHETYPE_PALETTES: readonly Rgb[][] = [
   BRICK_PREWAR,
   GLASS_CURTAIN,
@@ -77,6 +133,14 @@ const ARCHETYPE_PALETTES: readonly Rgb[][] = [
   BROWNSTONE,
   METAL_COMMERCIAL,
   MIXED_STOREFRONT,
+  CAST_IRON_LOFT,
+  RESIDENTIAL_TOWER,
+  ART_DECO,
+  MODERN_MASONRY,
+  INSTITUTIONAL,
+  WAREHOUSE_CONCRETE,
+  WOOD_VERNACULAR,
+  HOTEL_MIDCENTURY,
 ];
 
 const NAMED_COLORS: Record<string, Rgb> = {
@@ -121,16 +185,21 @@ export function parseOsmColor(raw?: string): Rgb | null {
 /** Compatibility inference for already-deployed tiles that have no `a` field. */
 export function legacyBuildingArchetype(seed: number, height: number, kind?: string): BuildingArchetype {
   const k = (kind ?? '').toLowerCase();
-  if (/industrial|warehouse|manufactur|factory|garage/.test(k)) return 4;
+  if (/warehouse|garage|hangar/.test(k)) return 13;
+  if (/industrial|manufactur|factory/.test(k)) return 4;
+  if (/cabin|shed|farm|wood/.test(k)) return 14;
   if (/house|terrace|detached|bungalow/.test(k)) return 5;
-  if (/church|cathedral|civic|government|museum|university|college/.test(k)) return 2;
+  if (/church|cathedral|civic|government|museum|university|college|school|hospital/.test(k)) return 12;
+  if (/hotel|motel/.test(k)) return height > 75 ? 1 : 15;
+  if (/apartments|residential|dormitory/.test(k) && height >= 55) return 9;
   if (/retail|shop|commercial|supermarket/.test(k) && height < 45) return 7;
   if (/office|commercial/.test(k) && height >= 45) return hash01(seed + 23) < 0.7 ? 1 : 6;
   const r = hash01(seed);
-  if (height >= 90) return r < 0.72 ? 1 : r < 0.9 ? 3 : 2;
-  if (height >= 45) return r < 0.42 ? 1 : r < 0.76 ? 3 : r < 0.9 ? 2 : 0;
+  if (height >= 120) return r < 0.52 ? 1 : r < 0.72 ? 9 : r < 0.88 ? 10 : 3;
+  if (height >= 55) return r < 0.28 ? 1 : r < 0.48 ? 9 : r < 0.66 ? 3 : r < 0.82 ? 10 : 0;
   if (height <= 18 && r < 0.24) return 5;
   if (height <= 35 && r > 0.92) return 7;
+  if (height <= 35 && r > 0.84) return 11;
   return 0;
 }
 
@@ -141,7 +210,7 @@ export function buildingColor(
   taggedColor?: string,
 ): { col: Rgb; glass: boolean; archetype: BuildingArchetype } {
   const safeArchetype = (
-    Number.isInteger(archetype) && archetype >= 0 && archetype <= 7
+    Number.isInteger(archetype) && archetype >= 0 && archetype <= 15
       ? archetype
       : legacyBuildingArchetype(seed, height)
   ) as BuildingArchetype;

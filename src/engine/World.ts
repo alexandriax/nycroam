@@ -39,6 +39,7 @@ import { boardLabel } from './subway/directions';
 import { lonLatToXZ, xzToLonLat, googleMapsUrl, ORIGIN, M_PER_DEG_LAT, M_PER_DEG_LON } from './geo';
 import { loadTerrain, heightAt } from './terrain';
 import { StreetLife } from './StreetLife';
+import type { DensityAnchor } from './population/density';
 import {
   QualityGovernor,
   type QualityDecision,
@@ -143,6 +144,8 @@ export class World {
   private streetScene = new THREE.Scene();
   private tiles: TileManager;
   private streetLife: StreetLife;
+  private retailAnchorTimer = 0;
+  private readonly retailAnchorScratch: number[] = [];
   private entrances: EntranceManager;
   private plaques: PlaqueManager;
   private nearPlaque: PlaqueInfo | null = null; // building whose plaque is in reach (street mode)
@@ -1969,6 +1972,7 @@ export class World {
       // evict radii are small enough that leading would despawn kits still in
       // view just behind
       this.tiles.update(leadX, leadZ, this.pos.y);
+      this.updateRetailPopulationContext(dt);
       this.entrances.update(this.pos.x, this.pos.z, dt);
       this.plaques.unloadRadius = 440 + lead; // same trailing-edge guard as tiles
       this.plaques.update(leadX, leadZ, dt);
@@ -2118,6 +2122,7 @@ export class World {
         if (this.sun) followSun(this.sun, this.pos.x, this.pos.z, this.pos.y, fwd.x, fwd.z);
         this.waterUpdate?.(dt);
         this.tiles.update(this.pos.x, this.pos.z, this.pos.y);
+        this.updateRetailPopulationContext(dt);
         this.entrances.update(this.pos.x, this.pos.z, dt);
         this.bikes.update(this.pos.x, this.pos.z, dt);
         this.tram.update(this.pos.x, this.pos.z, dt);
@@ -2394,6 +2399,36 @@ export class World {
   }
 
   /**
+   * Fold streamed ground-floor semantics into the population density field.
+   * Tile upgrades and unload/reloads revisit the same storefronts, while the
+   * density field's quantized identity set makes the append-only feed
+   * idempotent. Running once per second keeps this out of the frame hot path.
+   */
+  private updateRetailPopulationContext(dt: number) {
+    this.retailAnchorTimer -= dt;
+    if (this.retailAnchorTimer > 0) return;
+    this.retailAnchorTimer = 1;
+    const flat = this.tiles.retailAnchorsNear(
+      this.pos.x,
+      this.pos.z,
+      360,
+      this.retailAnchorScratch,
+    );
+    if (flat.length === 0) return;
+    const anchors: DensityAnchor[] = [];
+    for (let i = 0; i + 3 < flat.length; i += 4) {
+      const category = Math.max(1, Math.min(7, Math.round(flat[i + 3])));
+      anchors.push({
+        x: flat[i],
+        z: flat[i + 2],
+        kind: 'retail',
+        weight: Math.min(0.72, 0.43 + category * 0.045),
+      });
+    }
+    this.streetLife.addContextAnchors(anchors);
+  }
+
+  /**
    * Drives every diegetic sound and the on-foot head-bob from the current mode.
    * Called each frame right before the camera is placed, so walkBob's offsets
    * are fresh. Loop targets are set unconditionally (silent = target 0), so a
@@ -2575,7 +2610,7 @@ export class World {
       shaderPrograms: this.renderer.info.programs?.length ?? 0,
       sceneResources: estimateSceneResources(this.activeRenderScene),
       rendering: this.rendering.stats(),
-      streaming: this.tiles.stats(),
+      streaming: this.tiles.streamingReport(),
       governor: this.qualityGovernor.snapshot,
     };
   }

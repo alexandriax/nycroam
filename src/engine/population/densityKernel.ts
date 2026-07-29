@@ -6,6 +6,11 @@ export interface PopulationDensitySample {
   transit: number;
 }
 
+/** Stable half-metre identity used to deduplicate streamed context anchors. */
+export function populationAnchorKey(kind: string, x: number, z: number): string {
+  return `${kind}:${Math.round(x * 2)}:${Math.round(z * 2)}`;
+}
+
 function clamp01(value: number): number {
   return Math.max(0, Math.min(1, value));
 }

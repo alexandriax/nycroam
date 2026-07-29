@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { dataUrl } from './dataver';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
-import type { BuildResponse, MeshPayload, CollisionData, RoadPaths } from './tileTypes';
+import type { BuildResponse, MeshPayload, CollisionData, RoadPaths, TileBuildDetail } from './tileTypes';
 import { TILE_SIZE, tileKey } from './geo';
 import { hash01 } from './palette';
 import {
@@ -11,7 +11,13 @@ import {
 import { SKY } from './sky';
 import { buildSignsMesh, buildHydrants, hydrantMaterial } from './streetFurniture';
 import { disposeOwnedResources } from './performance/resourceLifetime';
+import {
+  TileStreamingTelemetry,
+  type TileStreamingReport,
+} from './performance/TileStreamingTelemetry';
 import { quality } from './quality';
+import { appendRetailAnchorsWithin } from './tileAnchors';
+import { treeLodForDistanceSq, type TreeLod } from './vegetationLod';
 
 /** Conservative footprint of the widest deterministic canopy profile. */
 const TREE_CANOPY_RADIUS = 3.4;
@@ -32,14 +38,27 @@ interface TileRecord {
   collision: CollisionData | null;
   roadPaths: RoadPaths | null;
   trees: Float32Array | null; // [x,y,z,scale,hue] for canopy-safe teleport arrivals
+  retailAnchors: Float32Array | null; // [x,y,z,category] semantic storefront anchors
   signs: BuildResponse['signs']; // kept for the "current street" HUD lookup
   geometries: THREE.BufferGeometry[];
   textures: THREE.Texture[];
   /** Per-tile materials only. Shared manager materials never enter this list. */
   materials: THREE.Material[];
   lod: number; // current detail bucket (0 = full .. 3 = buildings only)
+  treeLod: TreeLod;
   facade: THREE.Mesh | null;
   facadeDetailed: boolean;
+  targetDetail: TileBuildDetail;
+  builtDetail: TileBuildDetail | -1;
+  requestId: number;
+  workerIndex: number;
+}
+
+interface BundleSlice {
+  region: string;
+  url: string;
+  offset: number;
+  length: number;
 }
 
 export interface TileStats {
@@ -51,6 +70,10 @@ export interface TileStats {
 export class TileManager {
   private scene: THREE.Scene;
   private known = new Set<string>(); // tiles that exist on disk
+  private tileExtension: 'json' | 'bin' = 'json';
+  private bundleForTile = new Map<string, BundleSlice>();
+  private bundleCache = new Map<string, Promise<ArrayBuffer>>();
+  private bundleJsonFallback = true;
   private records = new Map<string, TileRecord>();
   private workers: Worker[] = [];
   private inFlight = new Map<string, number>(); // key -> worker idx
@@ -72,7 +95,9 @@ export class TileManager {
   private canopyKit = treeCanopyMaterial();
   private canopyMat = this.canopyKit.mat;
   private trunkGeo = new THREE.CylinderGeometry(0.11, 0.16, 2.4, 5);
-  private canopyGeo: THREE.BufferGeometry;
+  private canopyGeos: THREE.BufferGeometry[] = [];
+  private midCanopyGeo: THREE.BufferGeometry;
+  private farCanopyGeo: THREE.BufferGeometry;
   private pendingAdd: BuildResponse[] = [];
   private prefetched = new Set<string>(); // JSON warmed (or warming) into the HTTP cache
   private prefetchQueue: string[] = [];
@@ -91,6 +116,8 @@ export class TileManager {
   private lastSpatialRadius = 0;
   private lastSpatialAt = 0;
   private destroyed = false;
+  private requestSequence = 0;
+  private readonly streamTelemetry = new TileStreamingTelemetry();
   private compile: ((g: THREE.Object3D) => Promise<void>) | null;
   loadRadius = 1100;
   unloadRadius = 1400;
@@ -101,25 +128,41 @@ export class TileManager {
   constructor(scene: THREE.Scene, workerCount = 2, compile: ((g: THREE.Object3D) => Promise<void>) | null = null) {
     this.scene = scene;
     this.compile = compile;
-    // organic canopy: main crown + offset lobe, vertices displaced by hash noise
-    const crown = new THREE.IcosahedronGeometry(1.5, 1);
-    crown.scale(1, 1.2, 1);
-    const lobe = new THREE.IcosahedronGeometry(0.95, 1);
-    lobe.translate(0.85, -0.45, 0.35);
-    const merged = mergeGeometries([crown, lobe], false)!;
-    crown.dispose();
-    lobe.dispose();
-    const pos = merged.getAttribute('position') as THREE.BufferAttribute;
-    const v = new THREE.Vector3();
-    for (let i = 0; i < pos.count; i++) {
-      v.fromBufferAttribute(pos, i);
-      const n = hash01(Math.round(v.x * 37.1) + Math.round(v.y * 17.7) * 131 + Math.round(v.z * 23.3) * 977);
-      const s = 1 + (n - 0.5) * 0.42;
-      pos.setXYZ(i, v.x * s, v.y * s, v.z * s);
-    }
-    merged.computeVertexNormals();
-    merged.translate(0, 3.15, 0);
-    this.canopyGeo = merged;
+    // Four genuinely different near silhouettes, all shared across tiles.
+    const makeOrganic = (parts: { x: number; y: number; z: number; sx: number; sy: number; sz: number }[], seed: number) => {
+      const pieces = parts.map((part) => {
+        const geo = new THREE.IcosahedronGeometry(1, 1);
+        geo.scale(part.sx, part.sy, part.sz);
+        geo.translate(part.x, part.y, part.z);
+        return geo;
+      });
+      const merged = mergeGeometries(pieces, false)!;
+      for (const piece of pieces) piece.dispose();
+      const pos = merged.getAttribute('position') as THREE.BufferAttribute;
+      const v = new THREE.Vector3();
+      for (let i = 0; i < pos.count; i++) {
+        v.fromBufferAttribute(pos, i);
+        const noise = hash01(seed + Math.round(v.x * 37.1) + Math.round(v.y * 17.7) * 131 + Math.round(v.z * 23.3) * 977);
+        const scale = 1 + (noise - 0.5) * 0.34;
+        pos.setXYZ(i, v.x * scale, v.y * scale, v.z * scale);
+      }
+      merged.computeVertexNormals();
+      merged.translate(0, 3.15, 0);
+      return merged;
+    };
+    this.canopyGeos = [
+      makeOrganic([{ x: 0, y: 0, z: 0, sx: 1.5, sy: 1.8, sz: 1.5 }, { x: 0.82, y: -0.42, z: 0.35, sx: 0.9, sy: 0.9, sz: 0.85 }], 11),
+      makeOrganic([{ x: 0, y: 0.2, z: 0, sx: 1.0, sy: 2.05, sz: 0.95 }, { x: -0.2, y: -0.9, z: 0.1, sx: 0.72, sy: 1.1, sz: 0.7 }], 29),
+      makeOrganic([{ x: 0, y: -0.15, z: 0, sx: 1.75, sy: 1.3, sz: 1.55 }, { x: 1.05, y: -0.42, z: 0.2, sx: 1.05, sy: 0.8, sz: 0.9 }, { x: -0.9, y: -0.35, z: -0.25, sx: 0.95, sy: 0.75, sz: 0.85 }], 47),
+      makeOrganic([{ x: 0, y: 0, z: 0, sx: 1.3, sy: 1.85, sz: 1.5 }, { x: 0.35, y: 0.75, z: -0.25, sx: 0.8, sy: 0.95, sz: 0.9 }], 71),
+    ];
+    this.midCanopyGeo = new THREE.IcosahedronGeometry(1.45, 0);
+    this.midCanopyGeo.scale(1, 1.18, 1);
+    this.midCanopyGeo.translate(0, 3.15, 0);
+    // Solid octahedral impostor equivalent: six triangles, no alpha overdraw.
+    this.farCanopyGeo = new THREE.OctahedronGeometry(1.35, 0);
+    this.farCanopyGeo.scale(1, 1.35, 1);
+    this.farCanopyGeo.translate(0, 3.15, 0);
     this.trunkGeo.translate(0, 1.2, 0);
     for (let i = 0; i < workerCount; i++) {
       const w = new Worker(new URL('./tileWorker.ts', import.meta.url));
@@ -132,14 +175,40 @@ export class TileManager {
     const res = await fetch(dataUrl('/tiles/index.json'));
     if (!res.ok) throw new Error(`tiles/index.json missing (${res.status}): run npm run data:all`);
     const idx = await res.json();
+    this.tileExtension = idx.format === 'nct3' ? 'bin' : 'json';
+    if (idx.format === 'nct3-regions' && idx.regions && typeof idx.regions === 'object') {
+      this.bundleJsonFallback = idx.fallback === 'json';
+      for (const [region, raw] of Object.entries(idx.regions as Record<string, unknown>)) {
+        const value = raw as { f?: unknown; t?: unknown };
+        if (typeof value.f !== 'string' || !value.t || typeof value.t !== 'object') continue;
+        const url = dataUrl(`/tiles/${value.f}`);
+        for (const [key, span] of Object.entries(value.t as Record<string, unknown>)) {
+          if (!Array.isArray(span) || span.length !== 2) continue;
+          const offset = Number(span[0]), length = Number(span[1]);
+          if (!Number.isSafeInteger(offset) || offset < 0 || !Number.isSafeInteger(length) || length <= 0) continue;
+          this.bundleForTile.set(key, { region, url, offset, length });
+        }
+      }
+    }
     for (const k of idx.tiles as string[]) this.known.add(k);
     this.ready = true;
   }
 
   stats(): TileStats {
     let loaded = 0;
-    for (const r of this.records.values()) if (r.state === 'ready' || r.state === 'empty') loaded++;
+    for (const r of this.records.values()) if (r.group || r.state === 'empty') loaded++;
     return { loaded, pending: this.queue.length + this.inFlight.size, total: this.known.size };
+  }
+
+  /** Fixed-window worker/decode/integration and queue-pressure diagnostics. */
+  streamingReport(): TileStreamingReport {
+    const detailCounts: [number, number, number] = [0, 0, 0];
+    for (const rec of this.records.values()) {
+      if (rec.builtDetail >= 0) detailCounts[rec.builtDetail as TileBuildDetail]++;
+    }
+    this.streamTelemetry.setDetailCounts(detailCounts);
+    this.recordPressure();
+    return this.streamTelemetry.report();
   }
 
   /**
@@ -154,7 +223,7 @@ export class TileManager {
         const key = tileKey(tx + dx, tz + dz);
         if (!this.known.has(key)) continue;
         const r = this.records.get(key);
-        if (!r || (r.state !== 'ready' && r.state !== 'empty')) return false;
+        if (!r || (!r.group && r.state !== 'ready' && r.state !== 'empty')) return false;
       }
     }
     return true;
@@ -223,6 +292,26 @@ export class TileManager {
     return out;
   }
 
+  /**
+   * Stable semantic storefront anchors around a point. Pass a reused `out`
+   * array from per-frame consumers to keep this allocation-free. Stride is
+   * [worldX, groundY, worldZ, storefrontCategory].
+   */
+  retailAnchorsNear(x: number, z: number, radius = 320, out: number[] = []): number[] {
+    out.length = 0;
+    const tx = Math.floor(x / TILE_SIZE), tz = Math.floor(z / TILE_SIZE);
+    const tileRadius = Math.ceil(radius / TILE_SIZE);
+    const radiusSq = radius * radius;
+    for (let dx = -tileRadius; dx <= tileRadius; dx++) {
+      for (let dz = -tileRadius; dz <= tileRadius; dz++) {
+        const anchors = this.records.get(tileKey(tx + dx, tz + dz))?.retailAnchors;
+        if (!anchors) continue;
+        if (appendRetailAnchorsWithin(anchors, x, z, radiusSq, out)) return out;
+      }
+    }
+    return out;
+  }
+
   update(camX: number, camZ: number, camY = 0) {
     // Advance the shared water material's animation. update() is called every frame (in
     // every mode), so this keeps tile water rippling in lockstep with the ocean without
@@ -262,9 +351,12 @@ export class TileManager {
       const rec = this.records.get(key);
       if (!rec || rec.state !== 'queued') continue;
       rec.state = 'building';
-      const wi = this.pickWorker();
+      const wi = rec.workerIndex >= 0 ? rec.workerIndex : this.pickWorker();
+      rec.workerIndex = wi;
+      rec.requestId = ++this.requestSequence;
       this.inFlight.set(key, wi);
-      this.workers[wi].postMessage({ type: 'build', key, tx: rec.tx, tz: rec.tz, url: dataUrl(`/tiles/${key}.json`) });
+      this.streamTelemetry.requested(rec.group !== null);
+      this.dispatchBuild(rec, wi);
     }
 
     // Main-thread integration wraps transferred arrays in GPU geometries,
@@ -291,6 +383,7 @@ export class TileManager {
       }
       this.pumpPrefetch();
     }
+    this.recordPressure();
   }
 
   /** Refresh work whose result changes only after meaningful camera movement. */
@@ -307,10 +400,12 @@ export class TileManager {
         if (!this.known.has(key) || this.records.has(key)) continue;
         const cx = (tx + 0.5) * TILE_SIZE, cz = (tz + 0.5) * TILE_SIZE;
         if ((cx - camX) ** 2 + (cz - camZ) ** 2 > loadRadiusSq) continue;
+        const targetDetail = this.detailForTile(tx, tz, camX, camZ);
         this.records.set(key, {
           key, tx, tz, state: 'queued', group: null, collision: null, roadPaths: null,
-          trees: null, signs: null, geometries: [], textures: [], lod: 0, facade: null,
-          materials: [], facadeDetailed: true,
+          trees: null, retailAnchors: null, signs: null, geometries: [], textures: [], lod: 0,
+          treeLod: treeLodForDistanceSq((cx - camX) ** 2 + (cz - camZ) ** 2), facade: null,
+          materials: [], facadeDetailed: true, targetDetail, builtDetail: -1, requestId: 0, workerIndex: -1,
         });
         this.queue.push(key);
       }
@@ -353,6 +448,12 @@ export class TileManager {
     const shrink1 = (t1 - H) ** 2, shrink2 = (t2 - H) ** 2, shrink3 = (t3 - H) ** 2;
     for (const rec of this.records.values()) {
       this.updateFacadeMaterial(rec, camX, camY, camZ);
+      const desiredDetail = this.detailForTile(rec.tx, rec.tz, camX, camZ);
+      if (desiredDetail > rec.targetDetail) rec.targetDetail = desiredDetail;
+      if (desiredDetail > rec.builtDetail && rec.state === 'ready') {
+        rec.state = 'queued';
+        this.queue.push(rec.key);
+      }
       if (!rec.group) continue;
       const cx = (rec.tx + 0.5) * TILE_SIZE, cz = (rec.tz + 0.5) * TILE_SIZE;
       const dSq = (cx - camX) ** 2 + (cz - camZ) ** 2;
@@ -361,11 +462,14 @@ export class TileManager {
       let lod = rec.lod;
       if (grow > lod) lod = grow;
       else if (shrink < lod) lod = shrink;
-      if (lod === rec.lod) continue;
+      const treeLod = treeLodForDistanceSq(dSq);
+      if (lod === rec.lod && treeLod === rec.treeLod) continue;
       rec.lod = lod;
+      rec.treeLod = treeLod;
       for (const child of rec.group.children) {
         const tier = child.userData.lodTier as number | undefined;
-        if (tier) child.visible = tier > lod;
+        const vegetationLod = child.userData.vegetationLod as TreeLod | undefined;
+        child.visible = (!tier || tier > lod) && (vegetationLod === undefined || vegetationLod === treeLod);
       }
     }
   }
@@ -409,6 +513,132 @@ export class TileManager {
     if (rec.facade) rec.facade.material = detailed ? this.facadeMat : this.facadeSimpleMat;
   }
 
+  /**
+   * Requested worker payload tier, measured to the tile AABB rather than its
+   * center so the camera's own 256m tile always receives near detail.
+   */
+  private detailForTile(tx: number, tz: number, camX: number, camZ: number): TileBuildDetail {
+    const minX = tx * TILE_SIZE, maxX = minX + TILE_SIZE;
+    const minZ = tz * TILE_SIZE, maxZ = minZ + TILE_SIZE;
+    const dx = camX < minX ? minX - camX : camX > maxX ? camX - maxX : 0;
+    const dz = camZ < minZ ? minZ - camZ : camZ > maxZ ? camZ - maxZ : 0;
+    const dSq = dx * dx + dz * dz;
+    if (dSq <= 150 * 150) return 2;
+    const mid = Math.max(420, this.loadRadius * 0.5);
+    if (dSq <= mid * mid) return 1;
+    return 0;
+  }
+
+  private recordPressure() {
+    this.streamTelemetry.pressure(
+      this.queue.length,
+      this.inFlight.size,
+      this.pendingAdd.length,
+      this.prefetchQueue.length + this.prefetchInFlight,
+    );
+  }
+
+  private dispatchBuild(rec: TileRecord, workerIndex: number) {
+    const requestId = rec.requestId;
+    const detail = rec.targetDetail;
+    const fallback = () => {
+      const current = this.records.get(rec.key);
+      if (current !== rec || current.requestId !== requestId || this.destroyed) return;
+      this.workers[workerIndex].postMessage({
+        type: 'build',
+        key: rec.key,
+        tx: rec.tx,
+        tz: rec.tz,
+        url: dataUrl(`/tiles/${rec.key}.json`),
+        detail,
+        requestId,
+      });
+    };
+    const slice = this.bundleForTile.get(rec.key);
+    if (!slice) {
+      this.workers[workerIndex].postMessage({
+        type: 'build',
+        key: rec.key,
+        tx: rec.tx,
+        tz: rec.tz,
+        url: this.tileUrl(rec.key),
+        detail,
+        requestId,
+      });
+      return;
+    }
+    const started = performance.now();
+    void this.loadBundle(slice)
+      .then((bundle) => {
+        const current = this.records.get(rec.key);
+        if (current !== rec || current.requestId !== requestId || this.destroyed) {
+          this.inFlight.delete(rec.key);
+          return;
+        }
+        if (slice.offset + slice.length > bundle.byteLength) throw new Error('invalid tile bundle span');
+        const source = bundle.slice(slice.offset, slice.offset + slice.length);
+        this.workers[workerIndex].postMessage({
+          type: 'build',
+          key: rec.key,
+          tx: rec.tx,
+          tz: rec.tz,
+          url: `${slice.url}#${rec.key}`,
+          source,
+          sourceFetchMs: performance.now() - started,
+          detail,
+          requestId,
+        }, [source]);
+      })
+      .catch((error) => {
+        if (this.bundleJsonFallback) {
+          fallback();
+          return;
+        }
+        this.onBuilt({
+          type: 'built',
+          key: rec.key,
+          detail,
+          requestId,
+          buildings: null,
+          roads: null,
+          walks: null,
+          areas: null,
+          water: null,
+          markings: null,
+          trees: null,
+          retailAnchors: null,
+          hydrants: null,
+          signs: null,
+          collision: null,
+          roadPaths: null,
+          error: String(error),
+        }, workerIndex);
+      });
+  }
+
+  private loadBundle(slice: BundleSlice): Promise<ArrayBuffer> {
+    const hit = this.bundleCache.get(slice.region);
+    if (hit) {
+      this.bundleCache.delete(slice.region);
+      this.bundleCache.set(slice.region, hit);
+      return hit;
+    }
+    const pending = fetch(slice.url).then((res) => {
+      if (!res.ok) throw new Error(`tile bundle ${res.status}`);
+      return res.arrayBuffer();
+    });
+    this.bundleCache.set(slice.region, pending);
+    while (this.bundleCache.size > 8) {
+      const oldest = this.bundleCache.keys().next().value as string | undefined;
+      if (!oldest) break;
+      this.bundleCache.delete(oldest);
+    }
+    void pending.catch(() => {
+      if (this.bundleCache.get(slice.region) === pending) this.bundleCache.delete(slice.region);
+    });
+    return pending;
+  }
+
   /** Build a nearest-first list for the one ring just beyond resident tiles. */
   private planPrefetch(camX: number, camZ: number) {
     const ctx = Math.floor(camX / TILE_SIZE), ctz = Math.floor(camZ / TILE_SIZE);
@@ -447,11 +677,14 @@ export class TileManager {
       if (this.records.has(key) || this.prefetched.has(key)) continue;
       this.prefetched.add(key);
       this.prefetchInFlight++;
-      void fetch(dataUrl(`/tiles/${key}.json`))
-        .then(async (r) => {
-          if (!r.ok) throw new Error(`prefetch ${r.status}`);
-          await r.arrayBuffer(); // consume the body so it is eligible for HTTP caching
-        })
+      const slice = this.bundleForTile.get(key);
+      const pending = slice
+        ? this.loadBundle(slice)
+        : fetch(this.tileUrl(key)).then(async (r) => {
+            if (!r.ok) throw new Error(`prefetch ${r.status}`);
+            return r.arrayBuffer(); // consume the body so it is eligible for HTTP caching
+          });
+      void pending
         .catch(() => {
           this.prefetched.delete(key); // transient failures may retry on a later plan
         })
@@ -468,6 +701,10 @@ export class TileManager {
     const dx = (rec.tx + 0.5) * TILE_SIZE - camX;
     const dz = (rec.tz + 0.5) * TILE_SIZE - camZ;
     return dx * dx + dz * dz;
+  }
+
+  private tileUrl(key: string): string {
+    return dataUrl(`/tiles/${key}.${this.tileExtension}`);
   }
 
   private takeNearestBuilt(camX: number, camZ: number): BuildResponse | null {
@@ -503,18 +740,39 @@ export class TileManager {
 
   private onBuilt(res: BuildResponse, _wi: number) {
     this.inFlight.delete(res.key);
+    this.streamTelemetry.workerCompleted(res.timing);
     const rec = this.records.get(res.key);
-    if (!rec) return; // unloaded while building
+    if (!rec || (res.requestId ?? 0) !== rec.requestId) {
+      this.streamTelemetry.staleResponses++;
+      return; // unloaded/replaced while building
+    }
     if (res.error) {
-      rec.state = 'empty';
+      this.streamTelemetry.errors++;
+      rec.state = rec.group ? 'ready' : 'empty';
       return;
     }
     this.pendingAdd.push(res);
+    this.recordPressure();
   }
 
   private integrate(res: BuildResponse) {
     const rec = this.records.get(res.key);
-    if (!rec || rec.state === 'ready') return;
+    if (!rec || (res.requestId ?? 0) !== rec.requestId) {
+      this.streamTelemetry.staleResponses++;
+      return;
+    }
+    if (rec.group && res.detail <= rec.builtDetail) {
+      rec.state = 'ready';
+      return;
+    }
+    const integrateStarted = performance.now();
+    const oldGroup = rec.group;
+    const oldGeometries = rec.geometries;
+    const oldTextures = rec.textures;
+    const oldMaterials = rec.materials;
+    rec.geometries = [];
+    rec.textures = [];
+    rec.materials = [];
     const group = new THREE.Group();
 
     // Distance tiers (userData.lodTier): update() hides a tier once the whole
@@ -533,10 +791,11 @@ export class TileManager {
       if (!payload) return null;
       const geo = new THREE.BufferGeometry();
       geo.setAttribute('position', new THREE.BufferAttribute(payload.position, 3));
-      geo.setAttribute('normal', new THREE.BufferAttribute(payload.normal, 3));
-      geo.setAttribute('color', new THREE.BufferAttribute(payload.color, 3));
+      geo.setAttribute('normal', new THREE.BufferAttribute(payload.normal, 3, true));
+      geo.setAttribute('color', new THREE.BufferAttribute(payload.color, 3, true));
       if (payload.uv) geo.setAttribute('uv', new THREE.BufferAttribute(payload.uv, 2));
       if (payload.style) geo.setAttribute('aStyle', new THREE.BufferAttribute(payload.style, 1));
+      if (payload.semantic) geo.setAttribute('aSemantic', new THREE.BufferAttribute(payload.semantic, 1));
       geo.setIndex(new THREE.BufferAttribute(payload.index, 1));
       geo.computeBoundingSphere();
       if (opts?.bounds) geo.computeBoundingBox();
@@ -584,9 +843,27 @@ export class TileManager {
     if (res.trees && res.trees.length >= 5) {
       const count = res.trees.length / 5;
       const trunks = new THREE.InstancedMesh(this.trunkGeo, this.trunkMat, count);
-      const canopies = new THREE.InstancedMesh(this.canopyGeo, this.canopyMat, count);
+      const speciesCounts = [0, 0, 0, 0];
+      const speciesForTree = new Uint8Array(count);
+      for (let i = 0; i < count; i++) {
+        const x = res.trees[i * 5], z = res.trees[i * 5 + 2], hue = res.trees[i * 5 + 4];
+        const species = Math.min(
+          TREE_PROFILES.length - 1,
+          Math.floor(hash01(x * 0.137 + z * 0.173 + hue * 997.3) * TREE_PROFILES.length),
+        );
+        speciesForTree[i] = species;
+        speciesCounts[species]++;
+      }
+      const nearCanopies = speciesCounts.map((speciesCount, species) => speciesCount > 0
+        ? new THREE.InstancedMesh(this.canopyGeos[species], this.canopyMat, speciesCount)
+        : null);
+      const nearWrite = [0, 0, 0, 0];
+      const midCanopies = new THREE.InstancedMesh(this.midCanopyGeo, this.canopyMat, count);
+      const farCanopies = new THREE.InstancedMesh(this.farCanopyGeo, this.canopyMat, count);
       const trunkMatrix = new THREE.Matrix4();
       const canopyMatrix = new THREE.Matrix4();
+      const midMatrix = new THREE.Matrix4();
+      const farMatrix = new THREE.Matrix4();
       const position = new THREE.Vector3();
       const scale = new THREE.Vector3();
       const rotation = new THREE.Quaternion();
@@ -598,7 +875,7 @@ export class TileManager {
         // The source's stable position/hue becomes a deterministic species,
         // orientation and lean—no new tile payload and no runtime randomness.
         const seed = x * 0.137 + z * 0.173 + hue * 997.3;
-        const species = Math.min(TREE_PROFILES.length - 1, Math.floor(hash01(seed) * TREE_PROFILES.length));
+        const species = speciesForTree[i];
         const profile = TREE_PROFILES[species];
         const spread = 0.92 + hash01(seed + 11.7) * 0.16;
         const height = 0.94 + hash01(seed + 23.9) * 0.13;
@@ -620,14 +897,32 @@ export class TileManager {
           s * profile.z * (1.04 - (spread - 0.92) * 0.5),
         );
         canopyMatrix.compose(position, rotation, scale);
-        canopies.setMatrixAt(i, canopyMatrix);
+        const nearCanopy = nearCanopies[species]!;
+        const nearIndex = nearWrite[species]++;
+        nearCanopy.setMatrixAt(nearIndex, canopyMatrix);
+
+        // Mid and far tiers preserve each source tree's height/spread and
+        // stable orientation, but use 20- and 6-triangle solid crowns. These
+        // stay one draw each per tile and avoid billboard alpha overdraw.
+        scale.set(
+          s * profile.x * spread * 1.08,
+          s * profile.y * height,
+          s * profile.z,
+        );
+        midMatrix.compose(position, rotation, scale);
+        midCanopies.setMatrixAt(i, midMatrix);
+        scale.multiplyScalar(1.07);
+        farMatrix.compose(position, rotation, scale);
+        farCanopies.setMatrixAt(i, farMatrix);
 
         c.setHSL(
           profile.hue + (hue - 0.5) * 0.035,
           profile.sat * (0.9 + hash01(seed + 91.7) * 0.2),
           profile.light + (hash01(seed + 103.1) - 0.5) * 0.07,
         );
-        canopies.setColorAt(i, c);
+        nearCanopy.setColorAt(nearIndex, c);
+        midCanopies.setColorAt(i, c);
+        farCanopies.setColorAt(i, c);
         c.setHSL(
           0.065 + hash01(seed + 113.9) * 0.025,
           0.08 + hash01(seed + 127.3) * 0.08,
@@ -636,27 +931,53 @@ export class TileManager {
         trunks.setColorAt(i, c);
       }
       trunks.instanceMatrix.needsUpdate = true;
-      canopies.instanceMatrix.needsUpdate = true;
+      midCanopies.instanceMatrix.needsUpdate = true;
+      farCanopies.instanceMatrix.needsUpdate = true;
       if (trunks.instanceColor) trunks.instanceColor.needsUpdate = true;
-      if (canopies.instanceColor) canopies.instanceColor.needsUpdate = true;
+      if (midCanopies.instanceColor) midCanopies.instanceColor.needsUpdate = true;
+      if (farCanopies.instanceColor) farCanopies.instanceColor.needsUpdate = true;
       const q = quality();
-      // Medium keeps one canopy caster per tile; its slender trunks are not
-      // worth doubling that foliage shadow cost. Low skips the pass entirely.
-      canopies.castShadow = q.shadows && q.level !== 'low';
       trunks.castShadow = q.level === 'high' || q.level === 'ultra';
-      canopies.receiveShadow = q.shadows;
       trunks.receiveShadow = q.shadows;
-      trunks.userData.lodTier = 2;
-      canopies.userData.lodTier = 2;
-      group.add(trunks, canopies);
+      trunks.userData.vegetationLod = 0;
+      for (const canopy of nearCanopies) {
+        if (!canopy) continue;
+        canopy.instanceMatrix.needsUpdate = true;
+        if (canopy.instanceColor) canopy.instanceColor.needsUpdate = true;
+        canopy.castShadow = q.shadows && q.level !== 'low';
+        canopy.receiveShadow = q.shadows;
+        canopy.userData.vegetationLod = 0;
+        group.add(canopy);
+      }
+      midCanopies.receiveShadow = q.shadows;
+      midCanopies.userData.vegetationLod = 1;
+      farCanopies.receiveShadow = q.shadows;
+      farCanopies.userData.vegetationLod = 2;
+      group.add(trunks, midCanopies, farCanopies);
     }
 
     rec.group = group;
     rec.collision = res.collision;
     rec.roadPaths = res.roadPaths;
     rec.trees = res.trees;
+    rec.retailAnchors = res.retailAnchors;
     rec.signs = res.signs;
+    rec.builtDetail = res.detail;
     rec.state = 'ready';
+    for (const child of group.children) {
+      const tier = child.userData.lodTier as number | undefined;
+      const vegetationLod = child.userData.vegetationLod as TreeLod | undefined;
+      child.visible = (!tier || tier > rec.lod)
+        && (vegetationLod === undefined || vegetationLod === rec.treeLod);
+    }
+    if (oldGroup) {
+      this.scene.remove(oldGroup);
+      disposeOwnedResources(oldGeometries, oldTextures, oldMaterials);
+      oldGroup.traverse((o) => {
+        if (o instanceof THREE.InstancedMesh) o.dispose();
+      });
+    }
+    this.streamTelemetry.integrated(performance.now() - integrateStarted);
     // Collision / readiness are set above so gameplay never waits on the GPU;
     // only the VISIBLE add is deferred. The first frame a fresh material combo
     // is drawn otherwise compiles its shader programs synchronously inside
@@ -672,6 +993,11 @@ export class TileManager {
     } else {
       this.scene.add(group);
     }
+    if (rec.targetDetail > rec.builtDetail) {
+      rec.state = 'queued';
+      this.queue.push(rec.key);
+    }
+    this.recordPressure();
   }
 
   private dispose(rec: TileRecord) {
@@ -689,11 +1015,15 @@ export class TileManager {
     this.queue.length = 0;
     this.prefetchQueue.length = 0;
     this.pendingAdd.length = 0;
+    this.bundleCache.clear();
+    this.bundleForTile.clear();
     for (const w of this.workers) w.terminate();
     for (const rec of this.records.values()) this.dispose(rec);
     this.records.clear();
     this.trunkGeo.dispose();
-    this.canopyGeo.dispose();
+    for (const canopyGeo of this.canopyGeos) canopyGeo.dispose();
+    this.midCanopyGeo.dispose();
+    this.farCanopyGeo.dispose();
     this.facadeMat.dispose();
     this.facadeSimpleMat.dispose();
     this.flatMat.dispose();

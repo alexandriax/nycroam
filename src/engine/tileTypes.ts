@@ -13,7 +13,15 @@ export type BuildingArchetype =
   | 4 // industrial / loft
   | 5 // brownstone / rowhouse
   | 6 // metal / commercial
-  | 7; // mixed-use / storefront
+  | 7 // mixed-use / storefront
+  | 8 // cast-iron loft
+  | 9 // residential tower / balconies
+  | 10 // Art Deco / setback
+  | 11 // modern masonry
+  | 12 // institutional
+  | 13 // warehouse / utilitarian concrete
+  | 14 // small wood / vernacular
+  | 15; // hotel / mid-century commercial
 
 export interface TileBuilding {
   p: number[][]; // rings: [outer, hole, hole...] flat [dx0,dz0,...] integer decimeters rel. to tile origin
@@ -22,7 +30,14 @@ export interface TileBuilding {
   n?: string; // name
   k?: string; // building kind
   b?: number; // v2: ground elevation m
-  a?: BuildingArchetype; // semantic façade archetype; absent in legacy v1/v2 tiles
+  a?: BuildingArchetype; // legacy semantic façade archetype; absent in early v1/v2 tiles
+  /**
+   * v3 packed building semantics (exact in a JS number / float32):
+   * archetype 4b, window family 3b, window ratio 4b, storefront 3b,
+   * construction era 3b, roof family 3b, contextual-confidence 2b.
+   */
+  s?: number;
+  v?: number; // stable 16-bit variation seed derived from source identity
   // Sparse source semantics. One-character keys keep JSON overhead low; raw
   // OSM strings are retained so improved inference can be shipped without
   // rebuilding the source cache. New clients may ignore any/all of these.
@@ -40,7 +55,26 @@ export interface TileRoad {
   c: string; // highway class
   b?: number; // bridge
   e?: number[]; // v2: per-point elevation m
+  w?: number; // v3: source/inferred carriageway width, decimeters
+  /**
+   * v3 topology/semantics bitset. See ROAD_FLAG_* below. Missing means a
+   * legacy tile and is interpreted conservatively by the worker.
+   */
+  f?: number;
+  i?: [number, number]; // endpoint junction degrees, capped to uint8
 }
+
+export const ROAD_FLAG_SIDEWALK_LEFT = 1 << 0;
+export const ROAD_FLAG_SIDEWALK_RIGHT = 1 << 1;
+export const ROAD_FLAG_DRIVEWAY = 1 << 2;
+export const ROAD_FLAG_MEDIAN = 1 << 3;
+export const ROAD_FLAG_ISLAND = 1 << 4;
+export const ROAD_FLAG_INTERSECTION_START = 1 << 5;
+export const ROAD_FLAG_INTERSECTION_END = 1 << 6;
+export const ROAD_FLAG_CROSSING = 1 << 7;
+export const ROAD_FLAG_ONEWAY = 1 << 8;
+export const ROAD_FLAG_PARKING_LEFT = 1 << 9;
+export const ROAD_FLAG_PARKING_RIGHT = 1 << 10;
 
 export interface TileSign {
   p: [number, number]; // decimeters rel. tile origin (already corner-offset)
@@ -69,20 +103,42 @@ export interface BuildRequest {
   tx: number;
   tz: number;
   url: string;
+  /** Optional NCT3 slice supplied from a main-thread regional bundle cache. */
+  source?: ArrayBuffer;
+  sourceFetchMs?: number;
+  detail: TileBuildDetail;
+  requestId: number;
 }
+
+/** 0 = base massing, 1 = mid street/roof, 2 = full near-field detail. */
+export type TileBuildDetail = 0 | 1 | 2;
 
 export interface MeshPayload {
   position: Float32Array;
-  normal: Float32Array;
-  color: Float32Array;
-  index: Uint32Array;
+  /** Signed normalized byte normals: 4x smaller than the former float32 path. */
+  normal: Int8Array;
+  /** Unsigned normalized byte vertex colors: 4x smaller than float32. */
+  color: Uint8Array;
+  index: Uint16Array | Uint32Array;
   uv?: Float32Array;
-  style?: Float32Array; // buildings: BuildingArchetype 0..7 (per vertex)
+  style?: Uint8Array; // buildings: BuildingArchetype 0..15 (per vertex)
+  semantic?: Float32Array; // buildings: packed exact semantic word (per vertex)
+}
+
+export interface TileWorkerTiming {
+  fetchMs: number;
+  decodeMs: number;
+  buildMs: number;
+  totalMs: number;
+  sourceBytes: number;
+  transferBytes: number;
 }
 
 export interface BuildResponse {
   type: 'built';
   key: string;
+  detail: TileBuildDetail;
+  requestId: number;
   buildings: MeshPayload | null;
   roads: MeshPayload | null; // asphalt family, uv'd for texturing
   walks: MeshPayload | null; // concrete family (sidewalks/paths), uv'd
@@ -90,10 +146,12 @@ export interface BuildResponse {
   water: MeshPayload | null; // water bodies — own mesh, animated water material
   markings: MeshPayload | null; // lane lines + crosswalk bars
   trees: Float32Array | null; // [x,y,z, scale, hueJitter] * n  (world coords)
+  retailAnchors: Float32Array | null; // [x,y,z,storefrontCategory] * n
   hydrants: Float32Array | null; // [x,y,z,rotY] * n (world coords)
   signs: { x: number; y: number; z: number; names: string[]; angles: number[] }[] | null;
   collision: CollisionData | null;
   roadPaths: RoadPaths | null; // minimap street lines
+  timing?: TileWorkerTiming;
   error?: string;
 }
 
@@ -109,6 +167,7 @@ export interface RoadPaths {
   pts: Float32Array; // [x0,z0,x1,z1,...] world meters
   width: Float32Array; // per path, meters (drives minimap line weight)
   kind: Uint8Array; // per path: 0 = vehicular road, 1 = bike lane, 2 = service lane
+  flags?: Uint16Array; // optional v3 ROAD_FLAG_* semantics per path
 }
 
 export const PATH_KIND_ROAD = 0;

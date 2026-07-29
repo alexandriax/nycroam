@@ -1,8 +1,17 @@
 // Web worker: fetch tile JSON -> build merged geometry buffers (transferable).
 import earcut from 'earcut';
-import type { BuildRequest, BuildResponse, MeshPayload, TileJson, CollisionData, BuildingArchetype } from './tileTypes';
-import { ROAD_STYLE, AREA_STYLE, CONCRETE_CLASSES, PATH_KIND_ROAD, PATH_KIND_BIKE, PATH_KIND_SERVICE } from './tileTypes';
+import type {
+  BuildRequest, BuildResponse, MeshPayload, TileJson, CollisionData, BuildingArchetype, TileBuildDetail,
+} from './tileTypes';
+import {
+  ROAD_STYLE, AREA_STYLE, CONCRETE_CLASSES, PATH_KIND_ROAD, PATH_KIND_BIKE, PATH_KIND_SERVICE,
+  ROAD_FLAG_SIDEWALK_LEFT, ROAD_FLAG_SIDEWALK_RIGHT, ROAD_FLAG_DRIVEWAY, ROAD_FLAG_MEDIAN,
+  ROAD_FLAG_ISLAND, ROAD_FLAG_INTERSECTION_START, ROAD_FLAG_INTERSECTION_END,
+  ROAD_FLAG_CROSSING,
+} from './tileTypes';
 import { buildingColor, hash01, legacyBuildingArchetype, roofColor } from './palette';
+import { packBuildingSemantics, semanticsForBuilding } from './tileSemantics';
+import { decodeTileBinary, isTileBinary } from './tileBinary';
 import { TILE_SIZE } from './geo';
 import { LANDMARKS_PLACED } from './landmarks/registry';
 
@@ -51,10 +60,13 @@ const CURATED_LANES: Record<string, { side: 'w' | 'e' | 'n' | 's'; zMin: number;
 
 // road classes that can carry a curated painted lane
 const LANE_CLASSES = new Set(['primary', 'secondary', 'tertiary', 'unclassified', 'residential']);
-// A small, merged curb cap on major surface streets gives the road/sidewalk
-// boundary a readable height break without multiplying per-tile draw calls.
-// Side streets keep the shader/vertex gutter only to bound geometry growth.
-const CURBED_STREETS = new Set(['primary', 'secondary', 'tertiary']);
+const BASE_ROADS = new Set([
+  'motorway', 'trunk', 'primary', 'secondary',
+  'motorway_link', 'trunk_link', 'primary_link', 'secondary_link',
+]);
+const SURFACE_STREETS = new Set([
+  'primary', 'secondary', 'tertiary', 'unclassified', 'residential', 'living_street',
+]);
 
 // Vehicular road classes (a sign inside one of these ribbons is standing in the
 // street). Footways/paths/crossings are excluded — signs belong on sidewalks.
@@ -208,10 +220,12 @@ class MeshAcc {
   idx: number[] = [];
   uvs: number[] | null = null;
   styles: number[] | null = null;
+  semantics: number[] | null = null;
 
-  constructor(withUv = false, withStyle = false) {
+  constructor(withUv = false, withStyle = false, withSemantic = false) {
     if (withUv) this.uvs = [];
     if (withStyle) this.styles = [];
+    if (withSemantic) this.semantics = [];
   }
 
   get vcount() { return this.pos.length / 3; }
@@ -222,21 +236,28 @@ class MeshAcc {
     this.col.push(r, g, b);
     if (this.uvs) this.uvs.push(u, v);
     if (this.styles) this.styles.push(this.styleCursor);
+    if (this.semantics) this.semantics.push(this.semanticCursor);
   }
 
   styleCursor = 0;
+  semanticCursor = 0;
 
   tri(a: number, b: number, c: number) { this.idx.push(a, b, c); }
 
   payload(): MeshPayload | null {
     if (this.idx.length === 0) return null;
+    const normal = new Int8Array(this.nrm.length);
+    const color = new Uint8Array(this.col.length);
+    for (let i = 0; i < this.nrm.length; i++) normal[i] = Math.round(Math.max(-1, Math.min(1, this.nrm[i])) * 127);
+    for (let i = 0; i < this.col.length; i++) color[i] = Math.round(Math.max(0, Math.min(1, this.col[i])) * 255);
     return {
       position: new Float32Array(this.pos),
-      normal: new Float32Array(this.nrm),
-      color: new Float32Array(this.col),
-      index: new Uint32Array(this.idx),
+      normal,
+      color,
+      index: this.vcount <= 65535 ? new Uint16Array(this.idx) : new Uint32Array(this.idx),
       ...(this.uvs ? { uv: new Float32Array(this.uvs) } : {}),
-      ...(this.styles ? { style: new Float32Array(this.styles) } : {}),
+      ...(this.styles ? { style: new Uint8Array(this.styles) } : {}),
+      ...(this.semantics ? { semantic: new Float32Array(this.semantics) } : {}),
     };
   }
 }
@@ -411,6 +432,74 @@ function addApexRoof(
   }
 }
 
+function addRoofFace(
+  acc: MeshAcc,
+  points: [number, number, number][],
+  color: [number, number, number],
+) {
+  if (points.length < 3) return;
+  const [a, b, c] = points;
+  const ux = b[0] - a[0], uy = b[1] - a[1], uz = b[2] - a[2];
+  const vx = c[0] - a[0], vy = c[1] - a[1], vz = c[2] - a[2];
+  let nx = uy * vz - uz * vy;
+  let ny = uz * vx - ux * vz;
+  let nz = ux * vy - uy * vx;
+  if (ny < 0) { nx = -nx; ny = -ny; nz = -nz; points.reverse(); }
+  const len = Math.hypot(nx, ny, nz) || 1;
+  const base = acc.vcount;
+  for (const p of points) acc.vertex(p[0], p[1], p[2], nx / len, ny / len, nz / len, ...color);
+  for (let i = 1; i < points.length - 1; i++) acc.tri(base, base + i, base + i + 1);
+}
+
+/** Exact four-sided gable with a ridge spanning the two short-edge midpoints. */
+function addGabledRoof(
+  acc: MeshAcc,
+  ring: number[],
+  eaveY: number,
+  ridgeY: number,
+  color: [number, number, number],
+) {
+  if (ring.length !== 8) return;
+  const p: [number, number][] = [];
+  for (let i = 0; i < 8; i += 2) p.push([ring[i], ring[i + 1]]);
+  const edgeLength = (i: number) => Math.hypot(p[(i + 1) % 4][0] - p[i][0], p[(i + 1) % 4][1] - p[i][1]);
+  const e0 = edgeLength(0) + edgeLength(2) >= edgeLength(1) + edgeLength(3) ? 0 : 1;
+  const v0 = p[e0], v1 = p[(e0 + 1) % 4], v2 = p[(e0 + 2) % 4], v3 = p[(e0 + 3) % 4];
+  const r1: [number, number, number] = [(v1[0] + v2[0]) / 2, ridgeY, (v1[1] + v2[1]) / 2];
+  const r0: [number, number, number] = [(v3[0] + v0[0]) / 2, ridgeY, (v3[1] + v0[1]) / 2];
+  const q = (v: [number, number]): [number, number, number] => [v[0], eaveY, v[1]];
+  addRoofFace(acc, [q(v0), q(v1), r1, r0], color);
+  addRoofFace(acc, [q(v2), q(v3), r0, r1], color);
+  addRoofFace(acc, [q(v1), q(v2), r1], color);
+  addRoofFace(acc, [q(v3), q(v0), r0], color);
+}
+
+/** Convex shed/skillion plane; height varies across the footprint's narrow axis. */
+function addSkillionRoof(
+  acc: MeshAcc,
+  ring: number[],
+  eaveY: number,
+  highY: number,
+  color: [number, number, number],
+) {
+  const bounds = ringCentroidAndBounds(ring);
+  const alongX = bounds.maxX - bounds.minX <= bounds.maxZ - bounds.minZ;
+  const lo = alongX ? bounds.minX : bounds.minZ;
+  const span = Math.max(0.01, (alongX ? bounds.maxX : bounds.maxZ) - lo);
+  const base = acc.vcount;
+  for (let i = 0; i < ring.length; i += 2) {
+    const t = ((alongX ? ring[i] : ring[i + 1]) - lo) / span;
+    const rise = (highY - eaveY) * t;
+    const slope = (highY - eaveY) / span;
+    const nx = alongX ? -slope : 0;
+    const nz = alongX ? 0 : -slope;
+    const nl = Math.hypot(nx, 1, nz);
+    acc.vertex(ring[i], eaveY + rise, ring[i + 1], nx / nl, 1 / nl, nz / nl, ...color);
+  }
+  const tris = earcut(ring, undefined, 2);
+  for (let i = 0; i < tris.length; i += 3) pushUpTri(acc, base + tris[i], base + tris[i + 1], base + tris[i + 2]);
+}
+
 /** Cylinder+cone (water tower) into acc. */
 function waterTower(acc: MeshAcc, cx: number, cz: number, yBase: number, seed: number) {
   const r = 1.7 + hash01(seed) * 0.5;
@@ -446,6 +535,152 @@ function waterTower(acc: MeshAcc, cx: number, cz: number, yBase: number, seed: n
   // simple pedestal box
   const pr = r * 0.55;
   extrude(acc, [[cx - pr, cz - pr, cx + pr, cz - pr, cx + pr, cz + pr, cx - pr, cz + pr]], yBase, yLeg + 0.05, [0.25, 0.22, 0.2]);
+}
+
+function ringCentroidAndBounds(ring: number[]) {
+  let cx = 0, cz = 0, minX = Infinity, minZ = Infinity, maxX = -Infinity, maxZ = -Infinity;
+  const count = ring.length / 2;
+  for (let i = 0; i < ring.length; i += 2) {
+    const x = ring[i], z = ring[i + 1];
+    cx += x; cz += z;
+    minX = Math.min(minX, x); maxX = Math.max(maxX, x);
+    minZ = Math.min(minZ, z); maxZ = Math.max(maxZ, z);
+  }
+  return { cx: cx / count, cz: cz / count, minX, minZ, maxX, maxZ };
+}
+
+/** Append a box aligned to one façade edge; still part of the one tile mesh. */
+function facadeBox(
+  acc: MeshAcc,
+  ring: number[],
+  edge: number,
+  along: number,
+  depth: number,
+  y0: number,
+  y1: number,
+  color: [number, number, number],
+) {
+  const count = ring.length / 2;
+  const j = (edge + 1) % count;
+  const x0 = ring[edge * 2], z0 = ring[edge * 2 + 1];
+  const x1 = ring[j * 2], z1 = ring[j * 2 + 1];
+  const dx = x1 - x0, dz = z1 - z0;
+  const len = Math.hypot(dx, dz);
+  if (len < along + 0.2) return;
+  const tx = dx / len, tz = dz / len;
+  const orientation = ringArea(ring) <= 0 ? 1 : -1;
+  const nx = (-dz / len) * orientation, nz = (dx / len) * orientation;
+  const cx = (x0 + x1) * 0.5 + nx * depth * 0.45;
+  const cz = (z0 + z1) * 0.5 + nz * depth * 0.45;
+  const ha = along * 0.5, hd = depth * 0.5;
+  extrude(acc, [[
+    cx - tx * ha - nx * hd, cz - tz * ha - nz * hd,
+    cx + tx * ha - nx * hd, cz + tz * ha - nz * hd,
+    cx + tx * ha + nx * hd, cz + tz * ha + nz * hd,
+    cx - tx * ha + nx * hd, cz - tz * ha + nz * hd,
+  ]], y0, y1, color);
+}
+
+/**
+ * Bounded roof kit: edge parapets plus a few deterministic plant/skylight/
+ * terrace elements. Everything lands in the merged façade payload.
+ */
+function addRoofDetails(
+  acc: MeshAcc,
+  ring: number[],
+  roofY: number,
+  seed: number,
+  roofFamily: number,
+  detail: TileBuildDetail,
+) {
+  if (detail < 1 || ring.length < 8) return;
+  const area = Math.abs(ringArea(ring));
+  if (area < 90) return;
+  const bounds = ringCentroidAndBounds(ring);
+  const width = bounds.maxX - bounds.minX;
+  const depth = bounds.maxZ - bounds.minZ;
+  if (width < 4 || depth < 4) return;
+  const parapet = roofFamily === 0 || roofFamily === 6 || roofFamily === 7;
+  if (parapet && ring.length <= 28 && hash01(seed + 201) < 0.78) {
+    const count = ring.length / 2;
+    const stone: [number, number, number] = [0.43, 0.43, 0.4];
+    for (let edge = 0; edge < count; edge++) {
+      const j = (edge + 1) % count;
+      const len = Math.hypot(ring[j * 2] - ring[edge * 2], ring[j * 2 + 1] - ring[edge * 2 + 1]);
+      if (len >= 2.2) facadeBox(acc, ring, edge, Math.max(1.5, len - 0.18), 0.24, roofY, roofY + 0.62, stone);
+    }
+  }
+
+  // Source-tagged terrace/green roof: one inset planted slab, no new material.
+  if (roofFamily === 6 && width > 8 && depth > 8) {
+    const gx = Math.min(width * 0.58, width - 3);
+    const gz = Math.min(depth * 0.58, depth - 3);
+    extrude(acc, [[
+      bounds.cx - gx / 2, bounds.cz - gz / 2, bounds.cx + gx / 2, bounds.cz - gz / 2,
+      bounds.cx + gx / 2, bounds.cz + gz / 2, bounds.cx - gx / 2, bounds.cz + gz / 2,
+    ]], roofY + 0.05, roofY + 0.2, [0.25, 0.39, 0.23]);
+  }
+
+  if (roofFamily === 7 || (area > 500 && hash01(seed + 207) < 0.18)) {
+    // Industrial skylight monitor: a compact raised strip reads clearly from
+    // above without attempting expensive sawtooth tessellation.
+    const sw = Math.max(2.2, Math.min(width, depth) * 0.18);
+    const sl = Math.max(4, Math.max(width, depth) * 0.48);
+    const alongX = width >= depth;
+    const hw = alongX ? sl / 2 : sw / 2;
+    const hz = alongX ? sw / 2 : sl / 2;
+    extrude(acc, [[
+      bounds.cx - hw, bounds.cz - hz, bounds.cx + hw, bounds.cz - hz,
+      bounds.cx + hw, bounds.cz + hz, bounds.cx - hw, bounds.cz + hz,
+    ]], roofY + 0.08, roofY + 0.72, [0.42, 0.48, 0.5]);
+  }
+
+  if (detail < 2 || (roofFamily !== 0 && roofFamily !== 6 && roofFamily !== 7)) return;
+  const units = Math.min(3, Math.max(1, Math.floor(area / 900)));
+  for (let i = 0; i < units; i++) {
+    if (hash01(seed + 219 + i * 13) > 0.7) continue;
+    const ux = bounds.cx + (hash01(seed + 223 + i * 17) - 0.5) * Math.max(0, width - 5) * 0.52;
+    const uz = bounds.cz + (hash01(seed + 229 + i * 19) - 0.5) * Math.max(0, depth - 5) * 0.52;
+    const uw = 1.5 + hash01(seed + 233 + i) * 1.8;
+    const ud = 1.3 + hash01(seed + 239 + i) * 1.7;
+    const uh = 0.8 + hash01(seed + 241 + i) * 1.1;
+    extrude(acc, [[ux - uw / 2, uz - ud / 2, ux + uw / 2, uz - ud / 2, ux + uw / 2, uz + ud / 2, ux - uw / 2, uz + ud / 2]],
+      roofY + 0.06, roofY + uh, [0.37, 0.39, 0.39]);
+  }
+}
+
+/** A sparse near-only façade kit: awnings, AC sleeves, or balcony slabs. */
+function addNearFacadeDetails(
+  acc: MeshAcc,
+  ring: number[],
+  baseY: number,
+  topY: number,
+  seed: number,
+  archetype: BuildingArchetype,
+  storefront: number,
+) {
+  if (ring.length < 8 || ring.length > 28 || topY - baseY < 6) return;
+  const count = ring.length / 2;
+  let edge = 0, longest = 0;
+  for (let i = 0; i < count; i++) {
+    const j = (i + 1) % count;
+    const len = Math.hypot(ring[j * 2] - ring[i * 2], ring[j * 2 + 1] - ring[i * 2 + 1]);
+    if (len > longest) { longest = len; edge = i; }
+  }
+  if (storefront > 0 && longest > 6 && hash01(seed + 301) < 0.62) {
+    facadeBox(acc, ring, edge, Math.min(longest * 0.62, 9), 1.15, baseY + 3.05, baseY + 3.22,
+      storefront === 2 ? [0.42, 0.16, 0.11] : [0.17, 0.25, 0.31]);
+  }
+  if (archetype === 9 && longest > 7) {
+    const floors = Math.min(4, Math.floor((topY - baseY - 5) / 6));
+    for (let i = 0; i < floors; i++) {
+      facadeBox(acc, ring, edge, Math.min(longest * 0.44, 7), 1.0, baseY + 5.5 + i * 6, baseY + 5.68 + i * 6,
+        [0.5, 0.5, 0.48]);
+    }
+  } else if ((archetype === 0 || archetype === 4 || archetype === 13) && longest > 5 && hash01(seed + 307) < 0.28) {
+    const y = Math.min(topY - 1.2, baseY + 6 + hash01(seed + 311) * Math.max(1, topY - baseY - 8));
+    facadeBox(acc, ring, edge, 0.85, 0.48, y, y + 0.62, [0.49, 0.5, 0.48]);
+  }
 }
 
 /**
@@ -568,12 +803,163 @@ function buildRibbon(
   emitCut();
 }
 
+function buildRaisedCurb(
+  acc: MeshAcc,
+  pts: number[],
+  ys: number[],
+  lateralOffset: number,
+  height = 0.14,
+  drivewayCuts: readonly [number, number][] = [],
+) {
+  if (drivewayCuts.length) {
+    // Subdivide only curb runs that may contain a source-tagged driveway.
+    // Omit a 3.6m opening around the driveway center, producing an actual
+    // geometry break instead of a shader flag.
+    for (let i = 1; i < pts.length / 2; i++) {
+      const x0 = pts[(i - 1) * 2], z0 = pts[(i - 1) * 2 + 1];
+      const x1 = pts[i * 2], z1 = pts[i * 2 + 1];
+      const length = Math.hypot(x1 - x0, z1 - z0);
+      const steps = Math.max(1, Math.ceil(length / 1.6));
+      for (let step = 0; step < steps; step++) {
+        const t0 = step / steps, t1 = (step + 1) / steps, tm = (t0 + t1) * 0.5;
+        const dx = x1 - x0, dz = z1 - z0;
+        const segLength = Math.hypot(dx, dz) || 1;
+        const nx = -dz / segLength, nz = dx / segLength;
+        const mx = x0 + dx * tm + nx * lateralOffset;
+        const mz = z0 + dz * tm + nz * lateralOffset;
+        let cut = false;
+        for (const point of drivewayCuts) {
+          if ((point[0] - mx) ** 2 + (point[1] - mz) ** 2 < 1.8 ** 2) { cut = true; break; }
+        }
+        if (cut) continue;
+        buildRaisedCurb(
+          acc,
+          [x0 + dx * t0, z0 + dz * t0, x0 + dx * t1, z0 + dz * t1],
+          [ys[i - 1] + (ys[i] - ys[i - 1]) * t0, ys[i - 1] + (ys[i] - ys[i - 1]) * t1],
+          lateralOffset,
+          height,
+        );
+      }
+    }
+    return;
+  }
+  const top = ys.map((y) => y + height);
+  const color: [number, number, number] = [0.73, 0.74, 0.72];
+  buildRibbon(acc, pts, 0.32, top, color, lateralOffset, 0.25);
+  const sideColor: [number, number, number] = [0.54, 0.55, 0.53];
+  for (let i = 1; i < pts.length / 2; i++) {
+    const x0 = pts[(i - 1) * 2], z0 = pts[(i - 1) * 2 + 1];
+    const x1 = pts[i * 2], z1 = pts[i * 2 + 1];
+    const dx = x1 - x0, dz = z1 - z0;
+    const len = Math.hypot(dx, dz);
+    if (len < 0.05) continue;
+    const nx = -dz / len, nz = dx / len;
+    for (const edge of [-0.16, 0.16]) {
+      const off = lateralOffset + edge;
+      const ax = x0 + nx * off, az = z0 + nz * off;
+      const bx = x1 + nx * off, bz = z1 + nz * off;
+      const normalSign = edge > 0 ? 1 : -1;
+      const base = acc.vcount;
+      acc.vertex(ax, ys[i - 1], az, nx * normalSign, 0, nz * normalSign, sideColor[0], sideColor[1], sideColor[2]);
+      acc.vertex(bx, ys[i], bz, nx * normalSign, 0, nz * normalSign, sideColor[0], sideColor[1], sideColor[2]);
+      acc.vertex(bx, top[i], bz, nx * normalSign, 0, nz * normalSign, sideColor[0], sideColor[1], sideColor[2]);
+      acc.vertex(ax, top[i - 1], az, nx * normalSign, 0, nz * normalSign, sideColor[0], sideColor[1], sideColor[2]);
+      acc.tri(base, base + 1, base + 2);
+      acc.tri(base, base + 2, base + 3);
+    }
+  }
+}
+
+function addIntersectionFan(
+  acc: MeshAcc,
+  x: number,
+  z: number,
+  y: number,
+  radius: number,
+  color: [number, number, number],
+) {
+  const segments = 12;
+  const base = acc.vcount;
+  acc.vertex(x, y, z, 0, 1, 0, ...color);
+  for (let i = 0; i <= segments; i++) {
+    const a = (i / segments) * Math.PI * 2;
+    acc.vertex(x + Math.cos(a) * radius, y, z + Math.sin(a) * radius, 0, 1, 0, ...color);
+  }
+  for (let i = 0; i < segments; i++) pushUpTri(acc, base, base + i + 1, base + i + 2);
+}
+
+function addRoadRect(
+  acc: MeshAcc,
+  cx: number,
+  cz: number,
+  tx: number,
+  tz: number,
+  along: number,
+  across: number,
+  y: number,
+  color: [number, number, number],
+) {
+  const bx = -tz, bz = tx;
+  const ha = along * 0.5, hb = across * 0.5;
+  const base = acc.vcount;
+  acc.vertex(cx - tx * ha - bx * hb, y, cz - tz * ha - bz * hb, 0, 1, 0, ...color);
+  acc.vertex(cx + tx * ha - bx * hb, y, cz + tz * ha - bz * hb, 0, 1, 0, ...color);
+  acc.vertex(cx + tx * ha + bx * hb, y, cz + tz * ha + bz * hb, 0, 1, 0, ...color);
+  acc.vertex(cx - tx * ha + bx * hb, y, cz - tz * ha + bz * hb, 0, 1, 0, ...color);
+  pushUpTri(acc, base, base + 1, base + 2);
+  pushUpTri(acc, base, base + 2, base + 3);
+}
+
+function addManhole(acc: MeshAcc, cx: number, cz: number, y: number, seed: number) {
+  const seg = 10;
+  const radius = 0.42 + hash01(seed) * 0.1;
+  const color: [number, number, number] = [0.19, 0.2, 0.2];
+  const center = acc.vcount;
+  acc.vertex(cx, y, cz, 0, 1, 0, ...color);
+  for (let i = 0; i <= seg; i++) {
+    const a = (i / seg) * Math.PI * 2;
+    const tooth = i % 2 ? 0.98 : 1.02;
+    acc.vertex(cx + Math.cos(a) * radius * tooth, y, cz + Math.sin(a) * radius * tooth, 0, 1, 0, ...color);
+  }
+  for (let i = 0; i < seg; i++) pushUpTri(acc, center, center + i + 1, center + i + 2);
+}
+
+function addTopologyCrosswalk(
+  acc: MeshAcc,
+  pts: number[],
+  ys: number[],
+  roadWidth: number,
+  atStart: boolean,
+) {
+  const total = polyLength(pts);
+  if (total < 8) return;
+  const inset = Math.min(5.5, total * 0.24);
+  const centerDistance = atStart ? inset : total - inset;
+  for (let bar = -2; bar <= 2; bar++) {
+    const [cx, cz, tx, tz, y] = pointAt(pts, ys, centerDistance + bar * 0.78);
+    addRoadRect(acc, cx, cz, tx, tz, 0.42, Math.max(3.2, roadWidth - 0.9), y + 0.024,
+      [0.76, 0.77, 0.76]);
+  }
+}
+
 function polyLength(pts: number[]): number {
   let d = 0;
   for (let i = 1; i < pts.length / 2; i++) {
     d += Math.hypot(pts[i * 2] - pts[(i - 1) * 2], pts[i * 2 + 1] - pts[(i - 1) * 2 + 1]);
   }
   return d;
+}
+
+function pointPolylineDistance(x: number, z: number, pts: number[]): number {
+  let best = Infinity;
+  for (let i = 2; i < pts.length; i += 2) {
+    const x0 = pts[i - 2], z0 = pts[i - 1], x1 = pts[i], z1 = pts[i + 1];
+    const dx = x1 - x0, dz = z1 - z0;
+    const l2 = dx * dx + dz * dz;
+    const t = l2 > 1e-8 ? Math.max(0, Math.min(1, ((x - x0) * dx + (z - z0) * dz) / l2)) : 0;
+    best = Math.min(best, Math.hypot(x - (x0 + dx * t), z - (z0 + dz * t)));
+  }
+  return best;
 }
 
 /** Point + unit tangent + interpolated y at arc distance d along a polyline. */
@@ -603,24 +989,25 @@ function pushUpTri(acc: MeshAcc, a: number, b: number, c: number) {
   if (crossY < 0) acc.tri(a, c, b); else acc.tri(a, b, c);
 }
 
-function buildTile(tile: TileJson): BuildResponse {
+function buildTile(tile: TileJson, detail: TileBuildDetail, requestId: number): BuildResponse {
   const ox = tile.x * TILE_SIZE;
   const oz = tile.z * TILE_SIZE;
   const toWorld = (d: number, origin: number) => origin + d / 10;
   const v2 = (tile.v ?? 1) >= 2; // elevations baked; areas/trees are [x,z,e] triples
 
   // ---- buildings ----
-  const bAcc = new MeshAcc(false, true);
+  const bAcc = new MeshAcc(false, true, true);
   const colRings: number[][] = [];
   const colAabb: number[] = [];
   const colTop: number[] = [];
   const colBase: number[] = [];
+  const retailAnchorValues: number[] = [];
   let seedBase = (tile.x * 73856093) ^ (tile.z * 19349663);
 
   if (tile.buildings) {
     for (let bi = 0; bi < tile.buildings.length; bi++) {
       const b = tile.buildings[bi];
-      const seed = seedBase + bi * 17;
+      const seed = b.v ?? (seedBase + bi * 17);
       const rings = b.p.map((ring) => {
         const out: number[] = new Array(ring.length);
         for (let i = 0; i < ring.length; i += 2) {
@@ -650,25 +1037,34 @@ function buildTile(tile: TileJson): BuildResponse {
       const minH = b.m ?? 0;
       const base = b.b ?? 0;
       const archetype = (
-        Number.isInteger(b.a) && (b.a as number) >= 0 && (b.a as number) <= 7
+        Number.isInteger(b.a) && (b.a as number) >= 0 && (b.a as number) <= 15
           ? b.a
           : legacyBuildingArchetype(seed, h, b.k)
       ) as BuildingArchetype;
-      const bc = buildingColor(seed, h, archetype, b.c);
+      const semantics = semanticsForBuilding(b, archetype);
+      const bc = buildingColor(seed, h, semantics.archetype, b.c);
       const rc = roofColor(seed, b.q, b.o, bc.col);
       bAcc.styleCursor = bc.archetype;
-      const roofShape = (b.r ?? '').toLowerCase();
+      bAcc.semanticCursor = b.s ?? packBuildingSemantics(semantics);
       const solidHeight = h - minH;
       const apexRoof = rings.length === 1
-        && /^(pyramidal|hipped|dome|round|cone|onion|mansard)$/.test(roofShape)
+        && (semantics.roof === 1 || semantics.roof === 4 || semantics.roof === 5)
         && rings[0].length >= 6
         && rings[0].length <= 24
         && isConvexRing(rings[0])
         && solidHeight >= 5;
-      const roofRise = apexRoof
-        ? Math.min(7, solidHeight * 0.35, Math.max(1.2, h * (roofShape === 'dome' || roofShape === 'onion' ? 0.18 : 0.12)))
+      const gabledRoof = rings.length === 1 && semantics.roof === 2 && rings[0].length === 8 && solidHeight >= 5;
+      const skillionRoof = rings.length === 1 && semantics.roof === 3
+        && rings[0].length >= 6 && rings[0].length <= 24 && isConvexRing(rings[0]) && solidHeight >= 4;
+      const shapedRoof = apexRoof || gabledRoof || skillionRoof;
+      const roofRise = shapedRoof
+        ? Math.min(7, solidHeight * 0.35, Math.max(1.2, h * (semantics.roof === 4 ? 0.18 : 0.12)))
         : 0;
       const wallTop = base + h - roofRise;
+      if (detail >= 2 && semantics.storefront > 0 && minH === 0) {
+        const footprint = ringCentroidAndBounds(rings[0]);
+        retailAnchorValues.push(footprint.cx, base, footprint.cz, semantics.storefront);
+      }
       // sink foundations 2.5m so sloped ground never shows a gap under walls;
       // elevated parts get a sealed underside
       extrude(
@@ -681,6 +1077,12 @@ function buildTile(tile: TileJson): BuildResponse {
         rc,
       );
       if (apexRoof) addApexRoof(bAcc, rings[0], wallTop, base + h, rc);
+      else if (gabledRoof) addGabledRoof(bAcc, rings[0], wallTop, base + h, rc);
+      else if (skillionRoof) addSkillionRoof(bAcc, rings[0], wallTop, base + h, rc);
+      addRoofDetails(bAcc, rings[0], base + h, seed, semantics.roof, detail);
+      if (detail >= 2 && minH === 0 && hash01(seed + 297) < 0.42) {
+        addNearFacadeDetails(bAcc, rings[0], base, wallTop, seed, semantics.archetype, semantics.storefront);
+      }
 
       // collision for every solid part: ground-level buildings push the player
       // out; elevated parts (setback towers, skybridges) carry base+top so the
@@ -698,7 +1100,7 @@ function buildTile(tile: TileJson): BuildResponse {
       }
 
       // water towers on mid-rise flat roofs
-      if (minH === 0 && h > 22 && h < 95 && hash01(seed + 3) < 0.22) {
+      if (detail >= 1 && minH === 0 && h > 22 && h < 95 && hash01(seed + 3) < 0.22) {
         const ring = rings[0];
         // centroid
         let cx = 0, cz = 0; const n = ring.length / 2;
@@ -756,6 +1158,7 @@ function buildTile(tile: TileJson): BuildResponse {
   const mmPts: number[] = [];
   const mmWidth: number[] = [];
   const mmKind: number[] = [];
+  const mmFlags: number[] = [];
   // vehicular centerlines (world coords) for pushing signs off the roadbed;
   // bike lanes count too — a street sign planted mid-lane is an obstruction
   const vroads: { pts: number[]; half: number }[] = [];
@@ -773,13 +1176,30 @@ function buildTile(tile: TileJson): BuildResponse {
       });
     }
   }
+  const drivewayCuts: [number, number][] = [];
+  for (const road of tile.roads ?? []) {
+    if (!(road.f && (road.f & ROAD_FLAG_DRIVEWAY)) || road.p.length < 4) continue;
+    drivewayCuts.push(
+      [toWorld(road.p[0], ox), toWorld(road.p[1], oz)],
+      [toWorld(road.p[road.p.length - 2], ox), toWorld(road.p[road.p.length - 1], oz)],
+    );
+  }
 
   let roadIndex = 0;
+  const intersectionFans = new Map<string, {
+    x: number; z: number; y: number; radius: number; color: [number, number, number];
+  }>();
   if (tile.roads) {
     for (const r of tile.roads) {
       const roadSeed = seedBase + roadIndex++ * 53;
       const style = ROAD_STYLE[r.c] ?? ROAD_STYLE.residential;
+      if (detail === 0 && !BASE_ROADS.has(r.c)) continue;
       const bike = r.c === 'cycleway';
+      const roadWidth = Math.max(1.2, Math.min(45, r.w !== undefined ? r.w / 10 : style.w));
+      const legacySidewalks = !r.b && SURFACE_STREETS.has(r.c)
+        ? ROAD_FLAG_SIDEWALK_LEFT | ROAD_FLAG_SIDEWALK_RIGHT
+        : 0;
+      const roadFlags = r.f ?? legacySidewalks;
       const n = r.p.length / 2;
       const pts: number[] = new Array(r.p.length);
       const ys: number[] = new Array(n);
@@ -790,14 +1210,15 @@ function buildTile(tile: TileJson): BuildResponse {
       }
       // OSM lane alignments occasionally graze a building footprint — walk
       // those points back out so the painted lane never runs through a wall
-      if (bike) nudgePolylineOutOfBuildings(pts, ys, colRings, colAabb, colBase, style.w / 2 + 0.3);
-      if (n >= 2 && (VEHICULAR_ROADS.has(r.c) || bike)) vroads.push({ pts, half: style.w / 2 });
-      if (bike && n >= 2) bikePaths.push({ pts, half: style.w / 2 });
+      if (bike) nudgePolylineOutOfBuildings(pts, ys, colRings, colAabb, colBase, roadWidth / 2 + 0.3);
+      if (n >= 2 && (VEHICULAR_ROADS.has(r.c) || bike)) vroads.push({ pts, half: roadWidth / 2 });
+      if (bike && n >= 2) bikePaths.push({ pts, half: roadWidth / 2 });
       if (!MINIMAP_SKIP.has(r.c) && n >= 2) {
         for (const v of pts) mmPts.push(v);
         mmStart.push(mmPts.length / 2);
-        mmWidth.push(style.w);
+        mmWidth.push(roadWidth);
         mmKind.push(bike ? PATH_KIND_BIKE : r.c === 'service' ? PATH_KIND_SERVICE : PATH_KIND_ROAD);
+        mmFlags.push(roadFlags);
       }
       const concrete = CONCRETE_CLASSES.has(r.c);
       const acc = concrete ? wAcc : rAcc;
@@ -808,40 +1229,67 @@ function buildTile(tile: TileJson): BuildResponse {
         : concrete
           ? [style.col[0] * 1.55, style.col[1] * 1.55, style.col[2] * 1.55]
           : [style.col[0] * 4.2, style.col[1] * 4.2, style.col[2] * 4.2];
-      buildRibbon(acc, pts, style.w, ys, [
+      const roadColor: [number, number, number] = [
         Math.min(1.15, tint[0] * surfaceVariation),
         Math.min(1.15, tint[1] * surfaceVariation),
         Math.min(1.15, tint[2] * surfaceVariation),
-      ], 0, 0.25, null, concrete ? 1 : 0.73);
+      ];
+      buildRibbon(acc, pts, roadWidth, ys, roadColor, 0, 0.25, null, concrete ? 1 : 0.73);
+      if (detail >= 1 && !r.b && !concrete && SURFACE_STREETS.has(r.c)) {
+        const rememberFan = (pointIndex: number) => {
+          const x = pts[pointIndex * 2], z = pts[pointIndex * 2 + 1], y = ys[pointIndex] + 0.002;
+          const key = `${Math.round(x * 5)},${Math.round(z * 5)}`;
+          const radius = Math.min(9, Math.max(3.2, roadWidth * 0.58));
+          const previous = intersectionFans.get(key);
+          if (!previous || radius > previous.radius) intersectionFans.set(key, { x, z, y, radius, color: roadColor });
+        };
+        if (roadFlags & ROAD_FLAG_INTERSECTION_START) rememberFan(0);
+        if (roadFlags & ROAD_FLAG_INTERSECTION_END) rememberFan(n - 1);
+      }
 
-      // Major-street curb caps join the existing merged sidewalk payload
-      // (distance tier 2) and disappear before far-field geometry matters.
-      // The asphalt's edge-shaded center strip supplies gutters everywhere
-      // else without extra draw calls or separate streamed payloads.
-      if (!r.b && CURBED_STREETS.has(r.c)) {
-        const cys = ys.map((y) => y + 0.1);
-        const curbCol: [number, number, number] = [0.78, 0.79, 0.78];
-        const curbOffset = style.w / 2 + 0.17;
-        buildRibbon(wAcc, pts, 0.34, cys, curbCol, curbOffset, 0.25);
-        buildRibbon(wAcc, pts, 0.34, cys, curbCol, -curbOffset, 0.25);
+      // v3 street section: dark gutter, real 14cm curb reveal, and a merged
+      // sidewalk strip where source/inference says the sidewalk is attached.
+      // Legacy public tiles retain conservative two-sided sidewalks.
+      if (detail >= 1 && !r.b && SURFACE_STREETS.has(r.c) && !(roadFlags & ROAD_FLAG_DRIVEWAY)) {
+        const curbCuts = drivewayCuts.filter(
+          ([x, z]) => pointPolylineDistance(x, z, pts) <= roadWidth / 2 + 4.5,
+        );
+        const gutterY = ys.map((y) => y + 0.006);
+        const gutterCol: [number, number, number] = [0.36, 0.37, 0.38];
+        buildRibbon(rAcc, pts, 0.42, gutterY, gutterCol, roadWidth / 2 - 0.24, 0.25);
+        buildRibbon(rAcc, pts, 0.42, gutterY, gutterCol, -(roadWidth / 2 - 0.24), 0.25);
+        const sidewalkY = ys.map((y) => y + 0.14);
+        if (roadFlags & ROAD_FLAG_SIDEWALK_LEFT) {
+          buildRaisedCurb(wAcc, pts, ys, roadWidth / 2 + 0.16, 0.14, curbCuts);
+          buildRibbon(wAcc, pts, 2.0, sidewalkY, [0.82, 0.82, 0.79], roadWidth / 2 + 1.33, 0.25);
+        }
+        if (roadFlags & ROAD_FLAG_SIDEWALK_RIGHT) {
+          buildRaisedCurb(wAcc, pts, ys, -(roadWidth / 2 + 0.16), 0.14, curbCuts);
+          buildRibbon(wAcc, pts, 2.0, sidewalkY, [0.82, 0.82, 0.79], -(roadWidth / 2 + 1.33), 0.25);
+        }
+        if (roadFlags & (ROAD_FLAG_MEDIAN | ROAD_FLAG_ISLAND)) {
+          buildRaisedCurb(wAcc, pts, ys, 0, roadFlags & ROAD_FLAG_ISLAND ? 0.18 : 0.12);
+          buildRibbon(wAcc, pts, roadFlags & ROAD_FLAG_ISLAND ? 1.8 : 1.1,
+            sidewalkY, [0.56, 0.58, 0.53], 0, 0.25);
+        }
       }
 
       // ---- markings ----
       const mys = ys.map((y) => y + 0.02);
-      if (bike) {
+      if (detail >= 2 && bike) {
         // NYC-style painted lane: solid green fill with white edge stripes,
         // kept just below crosswalk bars so crossings still paint over the lane
         const bys = ys.map((y) => y + 0.016);
-        buildRibbon(mAcc, pts, style.w - 0.55, bys, BIKE_GREEN, 0, 0);
-        buildRibbon(mAcc, pts, 0.1, bys, WHITE, style.w / 2 - 0.14);
-        buildRibbon(mAcc, pts, 0.1, bys, WHITE, -(style.w / 2 - 0.14));
-      } else if (r.c === 'crossing') {
+        buildRibbon(mAcc, pts, roadWidth - 0.55, bys, BIKE_GREEN, 0, 0);
+        buildRibbon(mAcc, pts, 0.1, bys, WHITE, roadWidth / 2 - 0.14);
+        buildRibbon(mAcc, pts, 0.1, bys, WHITE, -(roadWidth / 2 - 0.14));
+      } else if (detail >= 2 && (r.c === 'crossing' || (roadFlags & ROAD_FLAG_CROSSING))) {
         // continental crosswalk: thick bars perpendicular to the walking line
         const total = polyLength(pts);
         for (let d = 0.5; d < total - 0.3; d += 0.95) {
           const [cx, cz, tx, tz, cy] = pointAt(pts, mys, d);
           const bx = -tz, bz = tx; // bar axis = perpendicular to crossing line
-          const bw = style.w * 0.42; // bar length across the crossing ribbon
+          const bw = roadWidth * 0.42; // bar length across the crossing ribbon
           const hw = 0.24; // half of bar thickness along the walk
           const base = mAcc.vcount;
           mAcc.vertex(cx - tx * hw + bx * bw, cy, cz - tz * hw + bz * bw, 0, 1, 0, WHITE[0], WHITE[1], WHITE[2]);
@@ -851,18 +1299,18 @@ function buildTile(tile: TileJson): BuildResponse {
           pushUpTri(mAcc, base, base + 1, base + 2);
           pushUpTri(mAcc, base, base + 2, base + 3);
         }
-      } else if (['motorway', 'trunk', 'primary', 'secondary'].includes(r.c)) {
+      } else if (detail >= 2 && ['motorway', 'trunk', 'primary', 'secondary'].includes(r.c)) {
         buildRibbon(mAcc, pts, 0.12, mys, YELLOW, 0.17);
         buildRibbon(mAcc, pts, 0.12, mys, YELLOW, -0.17);
-        buildRibbon(mAcc, pts, 0.12, mys, WHITE, style.w / 2 - 0.45);
-        buildRibbon(mAcc, pts, 0.12, mys, WHITE, -(style.w / 2 - 0.45));
-      } else if (['tertiary', 'unclassified'].includes(r.c)) {
+        buildRibbon(mAcc, pts, 0.12, mys, WHITE, roadWidth / 2 - 0.45);
+        buildRibbon(mAcc, pts, 0.12, mys, WHITE, -(roadWidth / 2 - 0.45));
+      } else if (detail >= 2 && ['tertiary', 'unclassified'].includes(r.c)) {
         buildRibbon(mAcc, pts, 0.12, mys, WHITE, 0, 0, [2.6, 4.2]);
       }
 
       // curated protected lane riding this street? paint it curbside
-      if (!r.b && signBlades.length && LANE_CLASSES.has(r.c) && polyLength(pts) > 25) {
-        const laneName = matchCuratedLane(pts, signBlades, style.w / 2);
+      if (detail >= 2 && !r.b && signBlades.length && LANE_CLASSES.has(r.c) && polyLength(pts) > 25) {
+        const laneName = matchCuratedLane(pts, signBlades, roadWidth / 2);
         const lane = laneName ? CURATED_LANES[laneName] : null;
         if (lane) {
           // way must actually be inside this lane's real extent
@@ -877,7 +1325,7 @@ function buildTile(tile: TileJson): BuildResponse {
               : lane.side === 'e' ? (latX > 0 ? 1 : -1)
               : lane.side === 'n' ? (latZ < 0 ? 1 : -1)
               : (latZ > 0 ? 1 : -1);
-            const off = sign * (style.w / 2 - 1.45);
+            const off = sign * (roadWidth / 2 - 1.45);
             const lys = ys.map((y) => y + 0.016);
             buildRibbon(mAcc, pts, 1.8, lys, BIKE_GREEN, off);
             buildRibbon(mAcc, pts, 0.1, lys, WHITE, off + 1.0);
@@ -885,7 +1333,41 @@ function buildTile(tile: TileJson): BuildResponse {
           }
         }
       }
+
+      // Crosswalks are inferred only at real shared OSM endpoints, never at
+      // arbitrary tile clips. Explicit crossing ways above still take priority.
+      if (detail >= 2 && !r.b && SURFACE_STREETS.has(r.c) && r.c !== 'living_street') {
+        if (roadFlags & ROAD_FLAG_INTERSECTION_START) addTopologyCrosswalk(mAcc, pts, mys, roadWidth, true);
+        if (roadFlags & ROAD_FLAG_INTERSECTION_END) addTopologyCrosswalk(mAcc, pts, mys, roadWidth, false);
+      }
+
+      // Bounded merged road furniture/decal layer: deterministic manholes,
+      // curb drains, utility cuts, and patch plates. No per-object meshes.
+      if (detail >= 2 && !r.b && SURFACE_STREETS.has(r.c)) {
+        const length = polyLength(pts);
+        if (length > 18 && hash01(roadSeed + 401) < 0.62) {
+          const d = Math.min(length - 4, 7 + hash01(roadSeed + 409) * Math.max(1, length - 14));
+          const [cx, cz, tx, tz, y] = pointAt(pts, mys, d);
+          addManhole(mAcc, cx - tz * roadWidth * 0.12, cz + tx * roadWidth * 0.12, y + 0.008, roadSeed + 419);
+        }
+        if (length > 24 && hash01(roadSeed + 421) < 0.48) {
+          const d = Math.min(length - 4, 9 + hash01(roadSeed + 431) * Math.max(1, length - 18));
+          const [cx, cz, tx, tz, y] = pointAt(pts, mys, d);
+          const side = hash01(roadSeed + 433) < 0.5 ? -1 : 1;
+          addRoadRect(mAcc, cx - tz * side * (roadWidth / 2 - 0.35), cz + tx * side * (roadWidth / 2 - 0.35),
+            tx, tz, 0.7, 0.22, y + 0.009, [0.16, 0.17, 0.17]);
+        }
+        if (length > 30 && hash01(roadSeed + 439) < 0.34) {
+          const d = Math.min(length - 5, 10 + hash01(roadSeed + 443) * Math.max(1, length - 20));
+          const [cx, cz, tx, tz, y] = pointAt(pts, mys, d);
+          addRoadRect(mAcc, cx, cz, tx, tz, 2.2 + hash01(roadSeed + 449) * 2.8,
+            Math.min(roadWidth * 0.42, 3.8), y + 0.006, [0.31, 0.32, 0.33]);
+        }
+      }
     }
+  }
+  for (const fan of intersectionFans.values()) {
+    addIntersectionFan(rAcc, fan.x, fan.z, fan.y, fan.radius, fan.color);
   }
 
   // deepest bike-lane penetration at (x,z): [penetration, awayX, awayZ]
@@ -940,7 +1422,7 @@ function buildTile(tile: TileJson): BuildResponse {
     return false;
   };
   let trees: Float32Array | null = null;
-  if (tile.trees && tile.trees.length >= 2) {
+  if (detail >= 2 && tile.trees && tile.trees.length >= 2) {
     const stride = v2 ? 3 : 2;
     const total = Math.floor(tile.trees.length / stride);
     const count = Math.min(1400, total);
@@ -978,7 +1460,7 @@ function buildTile(tile: TileJson): BuildResponse {
 
   // ---- hydrants: world transforms for instancing ----
   let hydrants: Float32Array | null = null;
-  if (tile.hyd && tile.hyd.length >= 3) {
+  if (detail >= 2 && tile.hyd && tile.hyd.length >= 3) {
     const n = Math.floor(tile.hyd.length / 3);
     hydrants = new Float32Array(n * 4);
     for (let i = 0; i < n; i++) {
@@ -998,7 +1480,7 @@ function buildTile(tile: TileJson): BuildResponse {
 
   // ---- signs: to world coords (geometry built on the main thread, atlas needs DOM) ----
   // then nudge any that baked into a roadbed out onto the sidewalk.
-  const signs = (tile.signs ?? []).map((s) => {
+  const signs = (detail >= 2 ? tile.signs ?? [] : []).map((s) => {
     const [sx, sz] = nudgeSignOutOfRoads(toWorld(s.p[0], ox), toWorld(s.p[1], oz), vroads);
     return { x: sx, y: s.e / 10, z: sz, names: s.n, angles: s.a };
   });
@@ -1006,6 +1488,8 @@ function buildTile(tile: TileJson): BuildResponse {
   return {
     type: 'built',
     key: `${tile.x}_${tile.z}`,
+    detail,
+    requestId,
     buildings: bAcc.payload(),
     roads: rAcc.payload(),
     walks: wAcc.payload(),
@@ -1013,6 +1497,7 @@ function buildTile(tile: TileJson): BuildResponse {
     water: wtrAcc.payload(),
     markings: mAcc.payload(),
     trees,
+    retailAnchors: retailAnchorValues.length ? new Float32Array(retailAnchorValues) : null,
     hydrants,
     signs: signs.length ? signs : null,
     collision,
@@ -1022,28 +1507,81 @@ function buildTile(tile: TileJson): BuildResponse {
           pts: new Float32Array(mmPts),
           width: new Float32Array(mmWidth),
           kind: new Uint8Array(mmKind),
+          flags: new Uint16Array(mmFlags),
         }
       : null,
   };
 }
 
+const decodedTileCache = new Map<string, { tile: TileJson; bytes: number }>();
+let decodedTileCacheBytes = 0;
+const MAX_DECODED_TILES = 24;
+const MAX_DECODED_BYTES = 8 * 1024 * 1024;
+
+function cacheDecodedTile(url: string, tile: TileJson, bytes: number) {
+  const previous = decodedTileCache.get(url);
+  if (previous) decodedTileCacheBytes -= previous.bytes;
+  decodedTileCache.delete(url);
+  decodedTileCache.set(url, { tile, bytes });
+  decodedTileCacheBytes += bytes;
+  while (decodedTileCache.size > MAX_DECODED_TILES || decodedTileCacheBytes > MAX_DECODED_BYTES) {
+    const oldest = decodedTileCache.entries().next().value as [string, { tile: TileJson; bytes: number }] | undefined;
+    if (!oldest) break;
+    decodedTileCache.delete(oldest[0]);
+    decodedTileCacheBytes -= oldest[1].bytes;
+  }
+}
+
 self.onmessage = async (ev: MessageEvent<BuildRequest>) => {
   const req = ev.data;
   if (req.type !== 'build') return;
+  const totalStarted = performance.now();
   try {
-    const res = await fetch(req.url);
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const tile = (await res.json()) as TileJson;
-    const out = buildTile(tile);
+    let fetchMs = 0;
+    let decodeMs = 0;
+    let sourceBytes = 0;
+    let tile: TileJson;
+    const cached = decodedTileCache.get(req.url);
+    if (cached) {
+      // Refresh insertion order: approach upgrades normally hit the same
+      // affinity worker and avoid a second request + parse.
+      decodedTileCache.delete(req.url);
+      decodedTileCache.set(req.url, cached);
+      tile = cached.tile;
+    } else {
+      let source: ArrayBuffer;
+      if (req.source) {
+        source = req.source;
+        fetchMs = req.sourceFetchMs ?? 0;
+      } else {
+        const fetchStarted = performance.now();
+        const res = await fetch(req.url);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        source = await res.arrayBuffer();
+        fetchMs = performance.now() - fetchStarted;
+      }
+      const decodeStarted = performance.now();
+      tile = isTileBinary(source)
+        ? decodeTileBinary(source)
+        : JSON.parse(new TextDecoder().decode(source)) as TileJson;
+      decodeMs = performance.now() - decodeStarted;
+      sourceBytes = source.byteLength;
+      cacheDecodedTile(req.url, tile, sourceBytes);
+    }
+    const decodeEnded = performance.now();
+    const out = buildTile(tile, req.detail ?? 2, req.requestId ?? 0);
+    const buildEnded = performance.now();
     const transfer: Transferable[] = [];
     for (const m of [out.buildings, out.roads, out.walks, out.areas, out.water, out.markings]) {
       if (m) {
         transfer.push(m.position.buffer, m.normal.buffer, m.color.buffer, m.index.buffer);
         if (m.uv) transfer.push(m.uv.buffer);
         if (m.style) transfer.push(m.style.buffer);
+        if (m.semantic) transfer.push(m.semantic.buffer);
       }
     }
     if (out.trees) transfer.push(out.trees.buffer);
+    if (out.retailAnchors) transfer.push(out.retailAnchors.buffer);
     if (out.hydrants) transfer.push(out.hydrants.buffer);
     if (out.collision) {
       transfer.push(
@@ -1056,12 +1594,24 @@ self.onmessage = async (ev: MessageEvent<BuildRequest>) => {
         out.roadPaths.start.buffer, out.roadPaths.pts.buffer,
         out.roadPaths.width.buffer, out.roadPaths.kind.buffer,
       );
+      if (out.roadPaths.flags) transfer.push(out.roadPaths.flags.buffer);
     }
+    const transferBytes = transfer.reduce<number>((sum, buffer) => sum + (buffer as ArrayBuffer).byteLength, 0);
+    out.timing = {
+      fetchMs,
+      decodeMs,
+      buildMs: buildEnded - decodeEnded,
+      totalMs: buildEnded - totalStarted,
+      sourceBytes,
+      transferBytes,
+    };
     (self as unknown as Worker).postMessage(out, transfer);
   } catch (e) {
     (self as unknown as Worker).postMessage({
-      type: 'built', key: req.key, buildings: null, roads: null, walks: null,
-      areas: null, water: null, markings: null, trees: null, hydrants: null, signs: null, collision: null,
+      type: 'built', key: req.key, detail: req.detail ?? 2, requestId: req.requestId ?? 0,
+      buildings: null, roads: null, walks: null,
+      areas: null, water: null, markings: null, trees: null, retailAnchors: null,
+      hydrants: null, signs: null, collision: null,
       roadPaths: null,
       error: String(e),
     } satisfies BuildResponse);
