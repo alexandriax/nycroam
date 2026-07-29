@@ -65,6 +65,10 @@ test('resource and shadow estimates deduplicate shared GPU resources', () => {
   assert.equal(estimate.textures, 1);
   assert.ok(estimate.geometryBytes > 0);
   assert.equal(estimate.textureBytes, 64);
+  assert.equal(estimateShadowDrawCalls(scene), 0, 'dormant caster flags are not submissions');
+  const sun = new THREE.DirectionalLight();
+  sun.castShadow = true;
+  scene.add(sun);
   assert.equal(estimateShadowDrawCalls(scene), 2);
 
   scene.visible = false;

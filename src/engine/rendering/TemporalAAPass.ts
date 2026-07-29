@@ -97,24 +97,33 @@ const temporalResolveShader = {
         return;
       }
 
-      // Clip history to the current 3x3 neighborhood in YCoCg space. This is
+      // Clip history to the current five-tap cross neighborhood in YCoCg
+      // space. The center plus cardinal taps span the same one-pixel extent as
+      // a 3x3 box while avoiding four diagonal color/depth reads at every
+      // pixel. This is
       // the critical moving-actor rejection: old car/person pixels cannot
       // remain outside colors that exist around the current surface.
-      vec3 neighborhoodMin = vec3(1e6);
-      vec3 neighborhoodMax = vec3(-1e6);
-      float depthMin = 1.0;
-      float depthMax = 0.0;
-      for (int y = -1; y <= 1; y++) {
-        for (int x = -1; x <= 1; x++) {
-          vec2 uv = vUv + vec2(float(x), float(y)) * texelSize;
-          vec3 sampleColor = rgbToYCoCg(texture2D(tCurrent, uv).rgb);
-          neighborhoodMin = min(neighborhoodMin, sampleColor);
-          neighborhoodMax = max(neighborhoodMax, sampleColor);
-          float sampleDepth = texture2D(tDepth, uv).x;
-          depthMin = min(depthMin, sampleDepth);
-          depthMax = max(depthMax, sampleDepth);
-        }
-      }
+      vec3 centerYCoCg = rgbToYCoCg(current.rgb);
+      vec3 neighborhoodMin = centerYCoCg;
+      vec3 neighborhoodMax = centerYCoCg;
+      float depthMin = depth;
+      float depthMax = depth;
+      vec2 uvL = vUv + vec2(-texelSize.x, 0.0);
+      vec2 uvR = vUv + vec2(texelSize.x, 0.0);
+      vec2 uvD = vUv + vec2(0.0, -texelSize.y);
+      vec2 uvU = vUv + vec2(0.0, texelSize.y);
+      vec3 colorL = rgbToYCoCg(texture2D(tCurrent, uvL).rgb);
+      vec3 colorR = rgbToYCoCg(texture2D(tCurrent, uvR).rgb);
+      vec3 colorD = rgbToYCoCg(texture2D(tCurrent, uvD).rgb);
+      vec3 colorU = rgbToYCoCg(texture2D(tCurrent, uvU).rgb);
+      neighborhoodMin = min(neighborhoodMin, min(min(colorL, colorR), min(colorD, colorU)));
+      neighborhoodMax = max(neighborhoodMax, max(max(colorL, colorR), max(colorD, colorU)));
+      float depthL = texture2D(tDepth, uvL).x;
+      float depthR = texture2D(tDepth, uvR).x;
+      float depthD = texture2D(tDepth, uvD).x;
+      float depthU = texture2D(tDepth, uvU).x;
+      depthMin = min(depthMin, min(min(depthL, depthR), min(depthD, depthU)));
+      depthMax = max(depthMax, max(max(depthL, depthR), max(depthD, depthU)));
       vec3 rawHistory = texture2D(tHistory, previousUv).rgb;
       vec3 historyYCoCg = clamp(
         rgbToYCoCg(rawHistory),
@@ -149,7 +158,7 @@ export interface TemporalAAStats {
  *
  * Unlike Three's stock TAARenderPass, this pass does not blindly accumulate
  * screen pixels. It reprojects static surfaces through depth, resets on camera
- * cuts, clips history to the current 3x3 color neighborhood, and lowers history
+ * cuts, clips history to the current one-pixel cross neighborhood, and lowers history
  * weight at depth edges and on large color changes. That combination keeps
  * moving pedestrians and vehicles from leaving visible trails.
  */
@@ -177,6 +186,7 @@ export class TemporalAAPass extends Pass {
   private jitterApplied = false;
   private readonly bytesPerPixel: number;
   private readonly maxHistoryWeight: number;
+  private sourceDepth: THREE.Texture | null = null;
 
   constructor(
     camera: THREE.Camera,
@@ -260,11 +270,17 @@ export class TemporalAAPass extends Pass {
     this.jitterIndex = 0;
   }
 
+  /** Primary scene depth captured before this color-only composer pass swaps. */
+  get sourceDepthTexture(): THREE.Texture | null {
+    return this.sourceDepth;
+  }
+
   override render(
     renderer: THREE.WebGLRenderer,
     writeBuffer: THREE.WebGLRenderTarget,
     readBuffer: THREE.WebGLRenderTarget,
   ): void {
+    this.sourceDepth = readBuffer.depthTexture;
     this.camera.getWorldPosition(this.currentPosition);
     this.camera.getWorldQuaternion(this.currentQuaternion);
     if (this.hasPreviousPose) {

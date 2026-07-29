@@ -1,7 +1,6 @@
 import * as THREE from 'three';
 import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
 import { FXAAPass } from 'three/examples/jsm/postprocessing/FXAAPass.js';
-import { GTAOPass } from 'three/examples/jsm/postprocessing/GTAOPass.js';
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
@@ -13,6 +12,7 @@ import {
   type RenderingTierContract,
 } from '../quality';
 import { TemporalAAPass, type TemporalAAStats } from './TemporalAAPass';
+import { DepthContactAOPass } from './DepthContactAOPass';
 
 export type RenderMode = 'street' | 'station' | 'ride' | 'bus';
 
@@ -21,6 +21,7 @@ export interface RenderingPipelineStats {
   antialiasing: 'fxaa' | 'smaa' | 'temporal';
   fallbackAntialiasing: 'fxaa' | 'smaa';
   ao: boolean;
+  aoTechnique: 'none' | 'depth-contact';
   aoScale: number;
   aoSamples: number;
   bloom: boolean;
@@ -90,7 +91,7 @@ export class RenderingPipeline {
   private readonly renderer: THREE.WebGLRenderer;
   private readonly composer: EffectComposer;
   private readonly renderPass: RenderPass;
-  private readonly aoPass: GTAOPass | null;
+  private readonly aoPass: DepthContactAOPass | null;
   private readonly bloomPass: UnrealBloomPass | null;
   private readonly gradePass: ShaderPass | null;
   private readonly fxaaPass: FXAAPass | null;
@@ -149,25 +150,12 @@ export class RenderingPipeline {
     }
 
     if (this.contract.gtao) {
-      this.aoPass = new GTAOPass(scene, camera, 1, 1);
+      this.aoPass = new DepthContactAOPass(
+        camera,
+        this.contract.gtao.samples,
+        this.temporalPass ? () => this.temporalPass?.sourceDepthTexture ?? null : null,
+      );
       this.aoPass.blendIntensity = level === 'ultra' ? 0.72 : 0.58;
-      this.aoPass.updateGtaoMaterial({
-        radius: level === 'ultra' ? 2.4 : 2,
-        distanceExponent: 1.7,
-        thickness: 1.1,
-        distanceFallOff: 1,
-        scale: 0.72,
-        samples: this.contract.gtao.samples,
-        screenSpaceRadius: false,
-      });
-      this.aoPass.updatePdMaterial({
-        lumaPhi: 8,
-        depthPhi: 2.5,
-        normalPhi: 3.5,
-        radius: level === 'ultra' ? 7 : 5,
-        rings: 2,
-        samples: this.contract.gtao.samples,
-      });
       this.composer.addPass(this.aoPass);
     } else {
       this.aoPass = null;
@@ -258,7 +246,6 @@ export class RenderingPipeline {
       this.renderPass.scene = scene;
       this.temporalPass?.reset();
     }
-    if (this.aoPass && scene !== this.aoPass.scene) this.aoPass.scene = scene;
     if (mode !== this.mode) {
       this.mode = mode;
       this.temporalPass?.reset();
@@ -277,7 +264,7 @@ export class RenderingPipeline {
     const depth = this.physicalWidth * this.physicalHeight * 4 * 2;
     const aoScale = this.contract.gtao ? this.contract.gtao.scale : 0;
     const ao = this.aoPass
-      ? Math.round(this.physicalWidth * this.physicalHeight * aoScale * aoScale) * (8 + 4 + 8)
+      ? Math.round(this.physicalWidth * this.physicalHeight * aoScale * aoScale) * 4
       : 0;
     const bloomScale = this.contract.bloom ? this.contract.bloom.scale : 0;
     const bloom = this.bloomPass
@@ -288,7 +275,7 @@ export class RenderingPipeline {
     const enabledPasses = [
       'scene',
       this.temporalPass?.enabled ? 'temporal-resolve' : null,
-      this.aoPass?.enabled ? 'gtao' : null,
+      this.aoPass?.enabled ? 'depth-contact-ao' : null,
       this.bloomPass?.enabled ? 'bloom' : null,
       this.gradePass?.enabled ? 'grade' : null,
       this.fxaaPass?.enabled ? 'fxaa' : null,
@@ -304,6 +291,7 @@ export class RenderingPipeline {
           : 'smaa',
       fallbackAntialiasing: this.contract.fallbackAntialiasing,
       ao: !!this.aoPass?.enabled,
+      aoTechnique: this.aoPass?.enabled ? 'depth-contact' : 'none',
       aoScale,
       aoSamples: this.contract.gtao ? this.contract.gtao.samples : 0,
       bloom: !!this.bloomPass?.enabled,

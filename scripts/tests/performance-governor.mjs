@@ -118,6 +118,24 @@ test('recovery is slow and restores the most recent rung', () => {
   assert.equal(governor.settings.effectsLevel, 2);
 });
 
+test('restore returns the authored rung and clears adaptive history', () => {
+  const governor = new QualityGovernor({
+    targetFrameMs: 16.7,
+    evaluationIntervalMs: 0,
+    historyMs: 500,
+    minSamples: 2,
+    overloadWindows: 1,
+    actionCooldownMs: 0,
+  });
+  governor.sample({ nowMs: 0, frameMs: 40, cpuMs: 2, gpuMs: 30 });
+  governor.sample({ nowMs: 16, frameMs: 40, cpuMs: 2, gpuMs: 30 });
+  assert.ok(governor.settings.effectsLevel < 2);
+  const restored = governor.restore({ effectsLevel: 2, shadowLevel: 2 });
+  assert.equal(restored.effectsLevel, 2);
+  assert.equal(governor.settings.shadowLevel, 2);
+  assert.equal(governor.snapshot, null);
+});
+
 test('station batching preserves shadow roles and collapses submissions', () => {
   const root = new THREE.Group();
   const material = new THREE.MeshLambertMaterial();

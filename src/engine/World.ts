@@ -207,6 +207,8 @@ export class World {
   private shadowDrawEstimate = 0;
   private benchmarkActive = false;
   private benchmarkPhases = new Map<string, number[]>();
+  private authoredEffectsLevel: 0 | 1 | 2 = 2;
+  private authoredShadowLevel: 0 | 2 = 2;
   private governorSawTransition = false;
   /** What the adaptive loop has given up so far, newest last (settings UI + debug). */
   perfNotes: string[] = [];
@@ -267,6 +269,8 @@ export class World {
     this.authoredLoadRadius = q.loadRadius;
     this.tileWorkerCount = q.tileWorkers;
     const authoredEffects: 0 | 1 | 2 = q.level === 'low' ? 0 : q.level === 'medium' ? 1 : 2;
+    this.authoredEffectsLevel = authoredEffects;
+    this.authoredShadowLevel = q.shadows ? 2 : 0;
     this.qualityGovernor = new QualityGovernor({
       targetFrameMs: 1000 / runtimeProfile.targetFps,
       minRenderScale: runtimeProfile.minRenderScale,
@@ -2374,7 +2378,13 @@ export class World {
       cpuMs,
       gpuMs: this.lastGpuMs,
       streamingPressure,
-      ignore: this.hud.loading || this.transitioning || document.hidden,
+      ignore: this.hud.loading
+        || this.transitioning
+        || document.hidden
+        // Golden routes are per-tier contracts. Letting the adaptive governor
+        // silently turn Ultra into a lower rung mid-capture can make a contract
+        // pass while never measuring the authored TAA/GTAO/shadow combination.
+        || this.benchmarkActive,
     });
     if (decision) this.applyRuntimeQuality(decision);
 
@@ -2406,8 +2416,7 @@ export class World {
    * snapshot, so recovery walks the exact reverse path and every subsystem
    * stays in sync.
    */
-  private applyRuntimeQuality(decision: QualityDecision) {
-    const settings: RuntimeQualitySettings = decision.settings;
+  private applyRuntimeSettings(settings: RuntimeQualitySettings) {
     const nextPixelRatio = Math.max(0.75, this.maxPixelRatio * settings.renderScale);
     if (Math.abs(nextPixelRatio - this.dynPixelRatio) >= 0.02) {
       this.dynPixelRatio = nextPixelRatio;
@@ -2444,7 +2453,10 @@ export class World {
     this.tiles.prefetchScale = settings.streamingScale;
     this.streetLife.setPopulationScale(settings.populationScale);
     this.rendering.setEffectsLevel(settings.effectsLevel);
+  }
 
+  private applyRuntimeQuality(decision: QualityDecision) {
+    this.applyRuntimeSettings(decision.settings);
     this.perfNotes.push(
       `${decision.direction} ${decision.knob}: ${decision.previous} -> ${decision.value}`,
     );
@@ -2677,6 +2689,9 @@ export class World {
   resetPerformanceCapture(label = 'manual') {
     this.benchmarkPhases.clear();
     this.performanceRecorder.reset(label);
+    if (this.benchmarkActive) {
+      this.qualityGovernor.clearHistory();
+    }
   }
   /**
    * Debug/automation report with true frame percentiles, GPU query samples,
@@ -2719,6 +2734,10 @@ export class World {
     while (this.hud.loading && performance.now() < readyDeadline) await wait(50);
     if (this.hud.loading) throw new Error('Benchmark world initialization timed out');
     this.benchmarkActive = true;
+    this.applyRuntimeSettings(this.qualityGovernor.restore({
+      effectsLevel: this.authoredEffectsLevel,
+      shadowLevel: this.authoredShadowLevel,
+    }));
     const wasMuted = this.audio.isMuted;
     this.audio.setMuted(true);
     try {

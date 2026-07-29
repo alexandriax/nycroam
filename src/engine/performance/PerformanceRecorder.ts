@@ -262,6 +262,18 @@ export function estimateSceneResources(scene: THREE.Scene): SceneResourceEstimat
  * casting mesh/material groups at the same low frequency as the HUD.
  */
 export function estimateShadowDrawCalls(scene: THREE.Scene): number {
+  // A low/mobile scene retains castShadow flags so moving to another tier does
+  // not require rebuilding geometry, but Three submits no shadow pass unless a
+  // visible shadow-casting light exists. Report actual potential submissions,
+  // not dormant mesh metadata.
+  let hasActiveShadowLight = false;
+  scene.traverseVisible((object) => {
+    if ((object as THREE.Light).isLight && (object as THREE.Light).castShadow) {
+      hasActiveShadowLight = true;
+    }
+  });
+  if (!hasActiveShadowLight) return 0;
+
   let calls = 0;
   const visit = (object: THREE.Object3D, ancestorsVisible: boolean) => {
     const visible = ancestorsVisible && object.visible;

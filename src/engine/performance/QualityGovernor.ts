@@ -180,6 +180,24 @@ export class QualityGovernor {
   }
 
   /**
+   * Restore an authored profile and discard all adaptive history. Used by the
+   * deterministic benchmark runner so each route starts from the requested
+   * tier instead of inheriting a downgrade caused by startup compilation or a
+   * previously captured route.
+   */
+  restore(settings: Partial<RuntimeQualitySettings> = {}): RuntimeQualitySettings {
+    this.current = { ...DEFAULT_SETTINGS, ...settings };
+    this.history = [];
+    this.degradationStack = [];
+    this.lastEvaluationMs = Number.NEGATIVE_INFINITY;
+    this.lastActionMs = Number.NEGATIVE_INFINITY;
+    this.overloadCount = 0;
+    this.headroomCount = 0;
+    this.latestSnapshot = null;
+    return settingsCopy(this.current);
+  }
+
+  /**
    * Add one frame. At most one decision is returned per evaluation interval.
    * Ignored/invalid frames are not retained, so tab restores and scene
    * transitions cannot poison the rolling percentile window.

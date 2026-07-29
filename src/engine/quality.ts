@@ -62,8 +62,8 @@ const RENDERING_TIERS: Record<QualityLevel, RenderingTierContract> = {
     antialiasing: 'smaa',
     fallbackAntialiasing: 'smaa',
     grade: 'full',
-    gtao: { scale: 0.5, samples: 8 },
-    bloom: { scale: 0.5, strength: 0.1, threshold: 0.92 },
+    gtao: { scale: 0.4, samples: 6 },
+    bloom: { scale: 0.25, strength: 0.1, threshold: 0.92 },
     temporal: false,
     reflections: 'sky-probe',
     shadowStrategy: 'snapped-bounded-frustum',
@@ -73,8 +73,8 @@ const RENDERING_TIERS: Record<QualityLevel, RenderingTierContract> = {
     antialiasing: 'temporal',
     fallbackAntialiasing: 'smaa',
     grade: 'full',
-    gtao: { scale: 0.58, samples: 12 },
-    bloom: { scale: 0.5, strength: 0.16, threshold: 0.92 },
+    gtao: { scale: 0.35, samples: 8 },
+    bloom: { scale: 0.2, strength: 0.16, threshold: 0.92 },
     temporal: { maxHistoryWeight: 0.88, jitterSamples: 8 },
     reflections: 'sky-probe',
     shadowStrategy: 'snapped-bounded-frustum',
@@ -148,11 +148,14 @@ const TIERS: Record<QualityLevel, Omit<QualityTier, 'level'>> = {
   },
   high: {
     shadows: true, stationShadows: true, shadowMapSize: 2048, stationShadowMapSize: 2048,
-    pixelRatioCap: 2, anisotropy: 8, clouds: 8, loadRadius: 1000, farPlane: 6500, tileWorkers: 3,
+    pixelRatioCap: 1.25, anisotropy: 8, clouds: 8, loadRadius: 1000, farPlane: 6500, tileWorkers: 3,
   },
   ultra: {
     shadows: true, stationShadows: true, shadowMapSize: 4096, stationShadowMapSize: 2048,
-    pixelRatioCap: 2, anisotropy: 16, clouds: 10, loadRadius: 1200, farPlane: 7200, tileWorkers: 4,
+    // Temporal reconstruction resolves sub-pixel edges more efficiently than
+    // brute-force native DPR 2. A 1.25 input avoids stacking an 8.3MP
+    // color/depth history with the authored 4K shadow map and 12-sample GTAO.
+    pixelRatioCap: 1.25, anisotropy: 16, clouds: 10, loadRadius: 1200, farPlane: 7200, tileWorkers: 4,
   },
 };
 

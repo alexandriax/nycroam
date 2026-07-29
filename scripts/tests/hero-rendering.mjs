@@ -34,12 +34,12 @@ test('rendering contracts expose the deliberate per-tier cost ladder', () => {
   assert.equal(medium.materialDetail, 'near-pbr');
 
   assert.equal(high.antialiasing, 'smaa');
-  assert.deepEqual(high.gtao, { scale: 0.5, samples: 8 });
-  assert.equal(high.bloom.scale, 0.5);
+  assert.deepEqual(high.gtao, { scale: 0.4, samples: 6 });
+  assert.equal(high.bloom.scale, 0.25);
   assert.equal(high.temporal, false);
 
   assert.equal(ultra.antialiasing, 'temporal');
-  assert.deepEqual(ultra.gtao, { scale: 0.58, samples: 12 });
+  assert.deepEqual(ultra.gtao, { scale: 0.35, samples: 8 });
   assert.equal(ultra.temporal.jitterSamples, 8);
   assert.equal(ultra.fallbackAntialiasing, 'smaa');
   assert.equal(ultra.reflections, 'sky-probe');
