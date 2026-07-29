@@ -2032,7 +2032,12 @@ export class World {
         this.hud.promptBus = [{ id: boardBus.route, color: boardBus.color, sbs: boardBus.sbs }];
         this.hud.promptHint = this.riding ? 'board, bike rides up front' : 'board the bus';
         const dDoor = Math.hypot(boardBus.door[0] - this.pos.x, boardBus.door[1] - this.pos.z);
-        if (dDoor < 1.7 && performance.now() - this.lastEnterGuard > 2500 && !this.transitioning) {
+        if (
+          !this.benchmarkActive
+          && dDoor < 1.7
+          && performance.now() - this.lastEnterGuard > 2500
+          && !this.transitioning
+        ) {
           this.boardBus(boardBus.key);
         }
       } else if (boardTram) {
@@ -2040,13 +2045,23 @@ export class World {
         this.hud.promptBus = [{ id: 'TRAM', color: '#c8102e', sbs: false }];
         this.hud.promptHint = 'board the tram';
         const dDoor = Math.hypot(boardTram.door[0] - this.pos.x, boardTram.door[1] - this.pos.z);
-        if (dDoor < 1.7 && performance.now() - this.lastEnterGuard > 2500 && !this.transitioning) {
+        if (
+          !this.benchmarkActive
+          && dDoor < 1.7
+          && performance.now() - this.lastEnterGuard > 2500
+          && !this.transitioning
+        ) {
           this.boardTram(boardTram.key);
         }
       } else if (near && !this.controls.fly && dE <= (nearDock?.d ?? Infinity)) {
         this.hud.prompt = `${near.station.name}`;
         this.hud.promptRoutes = near.station.routes;
-        if (dE < 1.9 && performance.now() - this.lastEnterGuard > 2500 && !this.transitioning) {
+        if (
+          !this.benchmarkActive
+          && dE < 1.9
+          && performance.now() - this.lastEnterGuard > 2500
+          && !this.transitioning
+        ) {
           this.enterStation(near.station, near.pos);
         }
       } else if (nearDock && !this.controls.fly && (this.riding ? nearDock.canDock : nearDock.canGrab)) {
