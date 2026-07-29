@@ -15,7 +15,14 @@ import { setupStationLights } from '../sky';
 import { directionLabel, bothDirectionsLabel } from './directions';
 import { BLACK, SANS } from '../fonts';
 import { quality } from '../quality';
-import { batchStaticStationMeshes, type StationBatchStats } from '../performance/stationBatch';
+import type { StationBatchStats } from '../performance/stationBatch';
+import {
+  optimizeStationArchitecture,
+  type StationArchitectureResult,
+  type StationArchitectureStats,
+  type StationCellDefinition,
+  type StationPortalDefinition,
+} from './stationArchitecture';
 
 export interface CrossSection {
   width: number;
@@ -412,6 +419,11 @@ export class StationWorld {
   private countdown!: PlatformCountdown;
   /** Static color/shadow submission reduction, exposed for profiling/HUD QA. */
   readonly batchStats: StationBatchStats;
+  /** Cell/portal, instancing, baked-AO and submission metrics for benchmark QA. */
+  readonly architectureStats: StationArchitectureStats;
+  private readonly architecture: StationArchitectureResult;
+  private stationCells: StationCellDefinition[] = [];
+  private stationPortals: StationPortalDefinition[] = [];
 
   constructor(spec: StationSpec, env: THREE.Texture | null = null) {
     this.name = spec.name;
@@ -441,12 +453,19 @@ export class StationWorld {
       }
     }
     // Everything built so far is immutable. Trains are attached later by the
-    // scheduler, and countdown boards animate by updating a shared texture, so
-    // consolidating geometry here preserves all dynamic behaviour.
-    this.batchStats = batchStaticStationMeshes(
+    // scheduler, and countdown boards animate by updating a shared texture.
+    // Optimize within visibility cells so batching never destroys portal
+    // culling; exact repeated props become instances before the remainder is
+    // merged per material and cell.
+    this.architecture = optimizeStationArchitecture(
       this.scene,
-      (geometry) => this.track(geometry),
+      this.scene,
+      this.stationCells,
+      this.stationPortals,
+      (resource) => this.track(resource),
     );
+    this.batchStats = this.architecture.batchStats;
+    this.architectureStats = this.architecture.stats;
     this.shadowCasters.length = 0;
   }
 
@@ -1141,6 +1160,40 @@ export class StationWorld {
         Math.abs(tz - p.zMin) < TRACK_W * 0.9 || Math.abs(tz - p.zMax) < TRACK_W * 0.9);
       if (pl) this.dirSpawns.set(trackDirs[i], new THREE.Vector3(4, 0, (pl.zMin + pl.zMax) / 2));
     });
+
+    // Platform and mezzanine are separate visibility cells. Their real stair
+    // footprints are the only portals; the tall shafts/stairs themselves stay
+    // in the shared cell so the hand-off cannot expose a black gap.
+    this.stationCells = [
+      {
+        id: 'platform',
+        kind: 'platform',
+        bounds: {
+          minX: -half - 90,
+          maxX: half + 90,
+          minZ: -W / 2 - 2,
+          maxZ: W / 2 + 2,
+        },
+        floorY: 0,
+        minY: -2.2,
+        maxY: CEIL + 0.8,
+      },
+      {
+        id: 'mezzanine',
+        kind: 'mezzanine',
+        bounds: mezzRect,
+        floorY: MEZZ_Y,
+        minY: MEZZ_Y - 0.7,
+        maxY: MEZZ_CEIL + 0.8,
+      },
+    ];
+    this.stationPortals = stairHoles.map((bounds) => ({
+      a: 'platform',
+      b: 'mezzanine',
+      bounds,
+      minY: -0.5,
+      maxY: MEZZ_Y + 1,
+    }));
   }
 
   /** Platform spawn beside the stopping track that serves `dirSign` (so stepping
@@ -1157,6 +1210,7 @@ export class StationWorld {
   }
 
   dispose() {
+    this.architecture.dispose();
     // prop groups create their own geometries; free everything in the scene
     this.scene.traverse((o) => {
       if (o instanceof THREE.Mesh || o instanceof THREE.InstancedMesh) o.geometry.dispose();

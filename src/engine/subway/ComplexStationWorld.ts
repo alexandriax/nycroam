@@ -36,7 +36,15 @@ import type {
 } from './complextypes';
 import { groupToWorld, worldToGroup, groupRectToWorld } from './complextypes';
 import { quality } from '../quality';
-import { batchStaticStationMeshes, type StationBatchStats } from '../performance/stationBatch';
+import type { StationBatchStats } from '../performance/stationBatch';
+import {
+  createStationPortals,
+  optimizeStationArchitecture,
+  type StationArchitectureResult,
+  type StationArchitectureStats,
+  type StationCellDefinition,
+  type StationVerticalPortal,
+} from './stationArchitecture';
 
 const CEIL = 3.6; // platform-level ceiling above platform floor
 const MEZZ_HEADROOM = 3.0; // mezz/corridor ceiling above its floor
@@ -105,6 +113,8 @@ export class ComplexStationWorld {
   readonly groups: BuiltGroup[] = [];
   /** Static color/shadow submission reduction, exposed for profiling/HUD QA. */
   readonly batchStats: StationBatchStats;
+  /** Cell/portal, instancing, baked-AO and submission metrics for benchmark QA. */
+  readonly architectureStats: StationArchitectureStats;
 
   private cx: ComplexSpec;
   private stairs: BuiltStair[] = [];
@@ -113,6 +123,7 @@ export class ComplexStationWorld {
   private edges = new Map<number, { to: number; via: 'flat' | 'stair'; stair?: BuiltStair; from: number }[]>();
   private disposables: (THREE.BufferGeometry | THREE.Material | THREE.Texture)[] = [];
   private shadowCasters: THREE.Object3D[] = [];
+  private readonly architecture: StationArchitectureResult;
   private root: THREE.Group;
   private spawnByStation = new Map<string, THREE.Vector3>();
   private platformSpawnByStation = new Map<string, THREE.Vector3>();
@@ -163,14 +174,26 @@ export class ComplexStationWorld {
         });
       }
     }
-    // Group nodes and their transforms remain in place for TrainScheduler;
-    // only the immutable descendants built above are flattened into root-space
-    // batches. Countdown boards remain live because their CanvasTextures are
-    // updated in place and the replacement mesh keeps the same material.
-    this.batchStats = batchStaticStationMeshes(
+    // Group nodes and their transforms remain in place for TrainScheduler.
+    // Immutable descendants are partitioned into the real platform/mezzanine
+    // cells before instancing and batching, so a global merge cannot defeat
+    // portal visibility. Countdown textures remain live on their materials.
+    const stationCells = this.buildArchitectureCells();
+    const verticalPortals: StationVerticalPortal[] = this.stairs.map((stair) => ({
+      bounds: stair.rect,
+      topY: stair.topY,
+      bottomY: stair.bottomY,
+    }));
+    const stationPortals = createStationPortals(stationCells, verticalPortals);
+    this.architecture = optimizeStationArchitecture(
+      this.scene,
       this.root,
-      (geometry) => this.track(geometry),
+      stationCells,
+      stationPortals,
+      (resource) => this.track(resource),
     );
+    this.batchStats = this.architecture.batchStats;
+    this.architectureStats = this.architecture.stats;
     this.shadowCasters.length = 0;
   }
 
@@ -196,6 +219,38 @@ export class ComplexStationWorld {
 
   private freeze(o: THREE.Object3D) {
     o.traverse((c) => { c.matrixAutoUpdate = false; c.updateMatrix(); });
+  }
+
+  private buildArchitectureCells(): StationCellDefinition[] {
+    const cells: StationCellDefinition[] = this.groups.map((group, index) => ({
+      id: `platform:${index}`,
+      kind: 'platform',
+      bounds: groupRectToWorld(group.spec, {
+        // Side walls and portal caps extend 45 m beyond the passenger platform.
+        minX: -group.half - 45,
+        maxX: group.half + 45,
+        minZ: -group.csWidth / 2 - 2,
+        maxZ: group.csWidth / 2 + 2,
+      }),
+      floorY: group.spec.y,
+      minY: group.spec.y - 2.2,
+      maxY: group.spec.y + CEIL + 0.8,
+    }));
+    this.cx.mezzes.forEach((mezz, index) => {
+      const [minX, minZ, maxX, maxZ] = mezz.rect;
+      const width = maxX - minX;
+      const depth = maxZ - minZ;
+      const corridor = Math.max(width, depth) / Math.max(1, Math.min(width, depth)) >= 3;
+      cells.push({
+        id: `mezzanine:${index}`,
+        kind: corridor ? 'corridor' : 'mezzanine',
+        bounds: { minX, maxX, minZ, maxZ },
+        floorY: mezz.y,
+        minY: mezz.y - 0.7,
+        maxY: mezz.y + MEZZ_HEADROOM + 0.8,
+      });
+    });
+    return cells;
   }
 
   /**
@@ -1640,6 +1695,7 @@ export class ComplexStationWorld {
   }
 
   dispose() {
+    this.architecture.dispose();
     for (const g of this.groups) g.scheduler?.dispose();
     this.scene.traverse((o) => {
       if (o instanceof THREE.Mesh || o instanceof THREE.InstancedMesh) o.geometry.dispose();
