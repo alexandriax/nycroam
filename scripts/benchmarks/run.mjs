@@ -122,7 +122,7 @@ async function availablePort() {
 async function waitForServer(url, child, logs) {
   const deadline = Date.now() + 45_000;
   while (Date.now() < deadline) {
-    if (child?.exitCode !== null) {
+    if (child && child.exitCode !== null) {
       throw new Error(`Production server exited with code ${child.exitCode}\n${logs()}`);
     }
     try {
