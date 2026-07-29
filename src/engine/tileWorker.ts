@@ -15,6 +15,11 @@ import { packBuildingSemantics, semanticsForBuilding } from './tileSemantics';
 import { decodeTileBinary, isTileBinary } from './tileBinary';
 import { TILE_SIZE } from './geo';
 import { LANDMARKS_PLACED } from './landmarks/registry';
+import {
+  buildSidewalkTopology,
+  sidewalkSpansForRoad,
+  type SidewalkTopologyRoad,
+} from './sidewalkTopology';
 
 // Monument sites where OSM maps the monument itself as building rings that the
 // tile pipeline shipped as generic massing — suppressed here so the bespoke
@@ -888,6 +893,36 @@ function addIntersectionFan(
   for (let i = 0; i < segments; i++) pushUpTri(acc, base, base + i + 1, base + i + 2);
 }
 
+function addSidewalkCorner(
+  acc: MeshAcc,
+  points: number[],
+  y: number,
+) {
+  const ring: number[] = [];
+  for (let i = 0; i < points.length; i += 2) {
+    const x = points[i], z = points[i + 1];
+    const previous = ring.length >= 2
+      ? Math.hypot(x - ring[ring.length - 2], z - ring[ring.length - 1])
+      : Infinity;
+    if (previous > 0.025) ring.push(x, z);
+  }
+  if (ring.length >= 6
+    && Math.hypot(ring[0] - ring[ring.length - 2], ring[1] - ring[ring.length - 1]) < 0.025) {
+    ring.length -= 2;
+  }
+  if (ring.length < 6) return;
+  const triangles = earcut(ring, undefined, 2);
+  if (triangles.length < 3) return;
+  const base = acc.vcount;
+  const color: [number, number, number] = [0.82, 0.82, 0.79];
+  for (let i = 0; i < ring.length; i += 2) {
+    acc.vertex(ring[i], y + 0.14, ring[i + 1], 0, 1, 0, ...color, ring[i] * 0.25, ring[i + 1] * 0.25);
+  }
+  for (let i = 0; i < triangles.length; i += 3) {
+    pushUpTri(acc, base + triangles[i], base + triangles[i + 1], base + triangles[i + 2]);
+  }
+}
+
 function addRoadRect(
   acc: MeshAcc,
   cx: number,
@@ -1281,6 +1316,44 @@ function buildTile(tile: TileJson, detail: TileBuildDetail, requestId: number): 
       [toWorld(road.p[road.p.length - 2], ox), toWorld(road.p[road.p.length - 1], oz)],
     );
   }
+  // Street-section geometry belongs exclusively to detail 1. Avoid rebuilding
+  // its topology graph for base and near delta requests that cannot consume it.
+  const sidewalkRoads: SidewalkTopologyRoad[] = detail === 1 ? (tile.roads ?? []).map((road) => {
+    const style = ROAD_STYLE[road.c] ?? ROAD_STYLE.residential;
+    const width = Math.max(1.2, Math.min(45, road.w !== undefined ? road.w / 10 : style.w));
+    const legacyFlags = !road.b && SURFACE_STREETS.has(road.c)
+      ? ROAD_FLAG_SIDEWALK_LEFT | ROAD_FLAG_SIDEWALK_RIGHT
+      : 0;
+    const flags = road.f ?? legacyFlags;
+    const count = road.p.length / 2;
+    const pts = road.p.map((value, index) =>
+      toWorld(value, index % 2 === 0 ? ox : oz));
+    const ys = new Array<number>(count);
+    for (let i = 0; i < count; i++) ys[i] = (road.e ? road.e[i] : road.b ? 7 : 0) + style.y;
+    return {
+      pts,
+      ys,
+      halfWidth: width * 0.5,
+      // Attached sidewalks form corners only with other ground-level surface
+      // streets. Service driveways already receive explicit curb cuts and must
+      // not split a main sidewalk into two unowned terminal gaps.
+      participates: !road.b
+        && SURFACE_STREETS.has(road.c)
+        && !(flags & ROAD_FLAG_DRIVEWAY),
+      sidewalkLeft: SURFACE_STREETS.has(road.c) && Boolean(flags & ROAD_FLAG_SIDEWALK_LEFT),
+      sidewalkRight: SURFACE_STREETS.has(road.c) && Boolean(flags & ROAD_FLAG_SIDEWALK_RIGHT),
+      junctionStart: Boolean(flags & ROAD_FLAG_INTERSECTION_START),
+      junctionEnd: Boolean(flags & ROAD_FLAG_INTERSECTION_END),
+      expectedDegreeStart: road.i?.[0] ?? 0,
+      expectedDegreeEnd: road.i?.[1] ?? 0,
+    };
+  }) : [];
+  const sidewalkTopology = detail === 1 ? buildSidewalkTopology(sidewalkRoads, {
+    minX: ox,
+    minZ: oz,
+    maxX: ox + TILE_SIZE,
+    maxZ: oz + TILE_SIZE,
+  }) : null;
 
   let roadIndex = 0;
   const intersectionFans = new Map<string, {
@@ -1288,7 +1361,8 @@ function buildTile(tile: TileJson, detail: TileBuildDetail, requestId: number): 
   }>();
   if (tile.roads) {
     for (const r of tile.roads) {
-      const roadSeed = seedBase + roadIndex++ * 53;
+      const currentRoadIndex = roadIndex++;
+      const roadSeed = seedBase + currentRoadIndex * 53;
       const style = ROAD_STYLE[r.c] ?? ROAD_STYLE.residential;
       const bike = r.c === 'cycleway';
       const roadWidth = Math.max(1.2, Math.min(45, r.w !== undefined ? r.w / 10 : style.w));
@@ -1359,37 +1433,52 @@ function buildTile(tile: TileJson, detail: TileBuildDetail, requestId: number): 
         const gutterCol: [number, number, number] = [0.36, 0.37, 0.38];
         buildRibbon(rAcc, pts, 0.42, gutterY, gutterCol, roadWidth / 2 - 0.24, 0.25);
         buildRibbon(rAcc, pts, 0.42, gutterY, gutterCol, -(roadWidth / 2 - 0.24), 0.25);
-        const junctionInset = Math.min(polyLength(pts) * 0.34, roadWidth * 0.52 + 1.2);
-        const sidewalkLine = trimPolyline(
-          pts,
-          ys,
-          roadFlags & ROAD_FLAG_INTERSECTION_START ? junctionInset : 0,
-          roadFlags & ROAD_FLAG_INTERSECTION_END ? junctionInset : 0,
-        );
-        if (sidewalkLine) {
-          const sidewalkY = sidewalkLine.ys.map((y) => y + 0.14);
-          const sidewalkCuts = drivewayCuts.filter(
-            ([x, z]) => pointPolylineDistance(x, z, sidewalkLine.pts) <= roadWidth / 2 + 4.5,
-          );
-          if (roadFlags & ROAD_FLAG_SIDEWALK_LEFT) {
-            buildRaisedCurb(
-              wAcc, sidewalkLine.pts, sidewalkLine.ys,
-              roadWidth / 2 + 0.16, 0.14, sidewalkCuts,
+        for (const span of sidewalkSpansForRoad(sidewalkTopology!, currentRoadIndex)) {
+          if (span.renderLeft && (roadFlags & ROAD_FLAG_SIDEWALK_LEFT)) {
+            const sidewalkLine = trimPolyline(
+              span.pts,
+              span.ys,
+              span.trimStartLeft,
+              span.trimEndLeft,
             );
-            buildRibbon(
-              wAcc, sidewalkLine.pts, 2.0, sidewalkY,
-              [0.82, 0.82, 0.79], roadWidth / 2 + 1.33, 0.25,
-            );
+            if (sidewalkLine) {
+              const sidewalkY = sidewalkLine.ys.map((y) => y + 0.14);
+              const sidewalkCuts = drivewayCuts.filter(
+                ([x, z]) =>
+                  pointPolylineDistance(x, z, sidewalkLine.pts) <= roadWidth / 2 + 4.5,
+              );
+              buildRaisedCurb(
+                wAcc, sidewalkLine.pts, sidewalkLine.ys,
+                roadWidth / 2 + 0.16, 0.14, sidewalkCuts,
+              );
+              buildRibbon(
+                wAcc, sidewalkLine.pts, 2.0, sidewalkY,
+                [0.82, 0.82, 0.79], roadWidth / 2 + 1.33, 0.25,
+              );
+            }
           }
-          if (roadFlags & ROAD_FLAG_SIDEWALK_RIGHT) {
-            buildRaisedCurb(
-              wAcc, sidewalkLine.pts, sidewalkLine.ys,
-              -(roadWidth / 2 + 0.16), 0.14, sidewalkCuts,
+          if (span.renderRight && (roadFlags & ROAD_FLAG_SIDEWALK_RIGHT)) {
+            const sidewalkLine = trimPolyline(
+              span.pts,
+              span.ys,
+              span.trimStartRight,
+              span.trimEndRight,
             );
-            buildRibbon(
-              wAcc, sidewalkLine.pts, 2.0, sidewalkY,
-              [0.82, 0.82, 0.79], -(roadWidth / 2 + 1.33), 0.25,
-            );
+            if (sidewalkLine) {
+              const sidewalkY = sidewalkLine.ys.map((y) => y + 0.14);
+              const sidewalkCuts = drivewayCuts.filter(
+                ([x, z]) =>
+                  pointPolylineDistance(x, z, sidewalkLine.pts) <= roadWidth / 2 + 4.5,
+              );
+              buildRaisedCurb(
+                wAcc, sidewalkLine.pts, sidewalkLine.ys,
+                -(roadWidth / 2 + 0.16), 0.14, sidewalkCuts,
+              );
+              buildRibbon(
+                wAcc, sidewalkLine.pts, 2.0, sidewalkY,
+                [0.82, 0.82, 0.79], -(roadWidth / 2 + 1.33), 0.25,
+              );
+            }
           }
         }
         if (roadFlags & (ROAD_FLAG_MEDIAN | ROAD_FLAG_ISLAND)) {
@@ -1556,6 +1645,16 @@ function buildTile(tile: TileJson, detail: TileBuildDetail, requestId: number): 
   }
   for (const fan of intersectionFans.values()) {
     addIntersectionFan(rAcc, fan.x, fan.z, fan.y, fan.radius, fan.color);
+  }
+  if (detail === 1) {
+    // Corner paving and curb returns are junction-owned: each wedge is emitted
+    // once into the already-merged walks payload, never once per road approach.
+    for (const junction of sidewalkTopology!.junctions.values()) {
+      for (const corner of junction.corners) {
+        addSidewalkCorner(wAcc, corner.paving, corner.y);
+        buildRaisedCurb(wAcc, corner.curb, [corner.y, corner.y], 0, 0.14);
+      }
+    }
   }
 
   // deepest bike-lane penetration at (x,z): [penetration, awayX, awayZ]

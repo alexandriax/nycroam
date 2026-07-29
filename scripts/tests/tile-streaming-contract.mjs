@@ -358,6 +358,16 @@ test('base surfaces have one owning tier and every installed tier is disposed on
     /const emitSurface = r\.c !== 'crossing' && detail === tileRoadSurfaceDetail\(r\.c\)/,
   );
   assert.match(workerSource, /const sidewalkLine = trimPolyline\(/);
+  assert.match(workerSource, /span\.renderLeft && \(roadFlags & ROAD_FLAG_SIDEWALK_LEFT\)/);
+  assert.match(workerSource, /span\.trimStartLeft,\s+span\.trimEndLeft/);
+  assert.match(workerSource, /span\.renderRight && \(roadFlags & ROAD_FLAG_SIDEWALK_RIGHT\)/);
+  assert.match(workerSource, /span\.trimStartRight,\s+span\.trimEndRight/);
+  assert.match(workerSource, /detail === 1 \? buildSidewalkTopology\(sidewalkRoads, \{/);
+  assert.match(workerSource, /expectedDegreeStart: road\.i\?\.\[0\] \?\? 0/);
+  assert.match(workerSource, /maxX: ox \+ TILE_SIZE/);
+  assert.match(workerSource, /sidewalkSpansForRoad\(sidewalkTopology!, currentRoadIndex\)/);
+  assert.match(workerSource, /addSidewalkCorner\(wAcc, corner\.paving, corner\.y\)/);
+  assert.match(workerSource, /buildRaisedCurb\(wAcc, corner\.curb, \[corner\.y, corner\.y\], 0, 0\.14\)/);
   assert.match(workerSource, /const paintInset = Math\.min\(1\.15, total \* 0\.18\)/);
   assert.match(workerSource, /const halfWidth = crosswalkRoadHalfWidth\(cx, cz, tx, tz\)/);
   assert.match(workerSource, /const clusters: Array<\{ start: number; end: number; halfWidth: number \}>/);
