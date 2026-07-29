@@ -2621,7 +2621,12 @@ export class World {
       materials: materialLibrary.report(),
     };
   }
-  benchmarkRoutes() { return goldenRouteIds(); }
+  /**
+   * Automation should not start a route while the asynchronously loaded world
+   * catalogs are still empty. Returning no routes makes the browser harness's
+   * existing readiness wait cover tiles, subway stations, and transit data.
+   */
+  benchmarkRoutes() { return this.hud.loading ? [] : goldenRouteIds(); }
   /**
    * Run one deterministic capture from `window.__nyc`. The route temporarily
    * mutes audio, preloads its first location, then records only the steady
@@ -2632,6 +2637,9 @@ export class World {
     if (this.benchmarkActive) throw new Error('A benchmark route is already running');
     const route = GOLDEN_ROUTES[id];
     if (!route) throw new Error(`Unknown benchmark route: ${id}`);
+    const readyDeadline = performance.now() + 15_000;
+    while (this.hud.loading && performance.now() < readyDeadline) await wait(50);
+    if (this.hud.loading) throw new Error('Benchmark world initialization timed out');
     this.benchmarkActive = true;
     const wasMuted = this.audio.isMuted;
     this.audio.setMuted(true);
