@@ -15,6 +15,12 @@ import {
   TEMPORAL_JITTER_8,
   temporalHistoryWeight,
 } from '../../src/engine/rendering/TemporalAAPass.ts';
+import {
+  HEARST_BIRD_MOUTH_BOUNDARIES,
+  HEARST_DIAGRID_BEAM_COUNT,
+  HEARST_DIAGRID_MODULES,
+  hearstBirdMouthLevels,
+} from '../../src/engine/landmarks/hearstGeometry.ts';
 
 test('rendering contracts expose the deliberate per-tier cost ladder', () => {
   const low = renderingTierContract('low');
@@ -63,6 +69,44 @@ test('temporal resolve uses centered jitter and rejects moving/depth-edge histor
   assert.ok(moving < stable * 0.2);
   assert.ok(edge < stable * 0.4);
   assert.ok(movingEdge < moving && movingEdge < edge);
+});
+
+test('Hearst curtain wall preserves four localized bird-mouth corner bands', () => {
+  assert.equal(HEARST_DIAGRID_MODULES, 9);
+  assert.deepEqual(HEARST_BIRD_MOUTH_BOUNDARIES, [1, 3, 5, 7]);
+  assert.equal(HEARST_DIAGRID_BEAM_COUNT, 476);
+
+  const levels = hearstBirdMouthLevels(32.5, 182);
+  assert.equal(levels.length, HEARST_DIAGRID_MODULES + 1);
+  const step = (182 - 32.5) / HEARST_DIAGRID_MODULES;
+  levels.forEach((level, boundary) => {
+    assert.ok(Math.abs(level.y - (32.5 + boundary * step)) < 1e-9);
+    assert.equal(level.points.length, 16);
+  });
+
+  // At a mouth the moving corner-wing point meets its fixed facade anchor.
+  // Every other boundary retains a 4.5m wing, so the recesses cannot spread
+  // into a ten-band sawtooth over the whole glass shaft.
+  const recessed = levels
+    .map((level, boundary) => (
+      Math.abs(level.points[0][0] - level.points[1][0]) < 1e-9
+        ? boundary
+        : -1
+    ))
+    .filter((boundary) => boundary >= 0);
+  assert.deepEqual(recessed, [1, 3, 5, 7]);
+  for (const boundary of [0, 2, 4, 6, 8, 9]) {
+    assert.ok(Math.abs(levels[boundary].points[0][0] - levels[boundary].points[1][0]) > 4);
+  }
+
+  // Four broad facade-center edges never move in plan; only their short
+  // corner wings and chamfers participate in the loft.
+  for (const index of [1, 2, 5, 6, 9, 10, 13, 14]) {
+    const [x, z] = levels[0].points[index];
+    for (const level of levels.slice(1)) {
+      assert.deepEqual(level.points[index], [x, z]);
+    }
+  }
 });
 
 test('the recognizable hero set is complete, bounded and backed by registry entries', () => {

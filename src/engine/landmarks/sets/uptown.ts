@@ -6,6 +6,12 @@ import {
   WHITE_LM, WATER_LM, GREEN_PATINA,
   box, cyl, strut, colonnade, lathe, archWall, figure, canvasTexture, twoSidedPanel,
 } from '../kit';
+import {
+  HEARST_DIAGRID_BEAM_COUNT,
+  HEARST_DIAGRID_MODULES,
+  hearstBirdMouthLevels,
+  hearstBoundaryCut,
+} from '../hearstGeometry';
 
 /**
  * Uptown set: Columbus Circle, the Upper West Side spine (Lincoln Center,
@@ -120,10 +126,10 @@ function towerFacade(
 }
 
 /**
- * One lightweight skin lofted through matching polygon rings. Hearst uses it
- * to pull its eight-sided curtain wall inward halfway through every four-floor
- * structural module: the real tower's "bird's-mouth" corners affect the
- * silhouette, rather than being painted onto a rectangular glass box.
+ * One lightweight skin lofted through matching polygon rings. UVs are a
+ * physical projection along each facade edge, so a changing-width trapezoid
+ * has the same affine texture mapping in both triangles. This prevents the
+ * diagonal interpolation seam that previously looked like a second diagrid.
  */
 function loftFacade(
   source: { y: number; points: PlanPoint[] }[],
@@ -148,10 +154,15 @@ function loftFacade(
       const next = (i + 1) % lower.points.length;
       const a0 = lower.points[i], b0 = lower.points[next];
       const a1 = upper.points[i], b1 = upper.points[next];
-      const u1 = (
-        Math.hypot(b0[0] - a0[0], b0[1] - a0[1])
-        + Math.hypot(b1[0] - a1[0], b1[1] - a1[1])
-      ) / (2 * bayW);
+      const lowerLengthSq = (b0[0] - a0[0]) ** 2 + (b0[1] - a0[1]) ** 2;
+      const upperLengthSq = (b1[0] - a1[0]) ** 2 + (b1[1] - a1[1]) ** 2;
+      const edgeX = (b0[0] - a0[0]) + (b1[0] - a1[0]);
+      const edgeZ = (b0[1] - a0[1]) + (b1[1] - a1[1]);
+      const edgeLength = Math.hypot(edgeX, edgeZ);
+      if (edgeLength < 1e-6) continue;
+      const tangentX = edgeX / edgeLength, tangentZ = edgeZ / edgeLength;
+      const projectU = ([x, z]: PlanPoint): number =>
+        (x * tangentX + z * tangentZ) / bayW;
       const n = pos.length / 3;
       pos.push(
         a0[0], lower.y, a0[1],
@@ -160,12 +171,15 @@ function loftFacade(
         b0[0], lower.y, b0[1],
       );
       uv.push(
-        0, lower.y / floorH,
-        0, upper.y / floorH,
-        u1, upper.y / floorH,
-        u1, lower.y / floorH,
+        projectU(a0), lower.y / floorH,
+        projectU(a1), upper.y / floorH,
+        projectU(b1), upper.y / floorH,
+        projectU(b0), lower.y / floorH,
       );
-      idx.push(n, n + 1, n + 2, n, n + 2, n + 3);
+      // A short corner wing collapses to one point at the mouth. Omit its
+      // zero-area half rather than asking the normal generator to normalize it.
+      if (upperLengthSq > 1e-8) idx.push(n, n + 1, n + 2);
+      if (lowerLengthSq > 1e-8) idx.push(n, n + 2, n + 3);
     }
   }
   const geo = new THREE.BufferGeometry();
@@ -546,17 +560,18 @@ export const builders: Record<string, (ctx: LandmarkCtx) => THREE.Group> = {
     g.add(towerFacade(plan(nodeCut), baseH, y0, lobbyMat, 2.8, 3.35));
     g.add(towerSolid(plan(nodeCut), baseH, y1, HEARST_COLLISION));
 
-    // Forty upper floors: ten four-storey structural modules. The glass is one
-    // clean, continuous eight-sided curtain wall; the separately modelled
-    // steel frame below supplies the tower's diamonds and bird's-mouth depth.
-    // Lofting the glass through every diagrid midpoint twisted each quad into
-    // two visibly different triangles, producing a second jagged "diagrid"
-    // across the glazing at oblique angles.
-    const modules = 10;
+    // Nine four-storey structural modules run from roughly floor 10 to 46.
+    // Four eight-storey bird's mouths meet at the documented 14th, 22nd, 30th
+    // and 38th-floor nodes. Fixed anchors hold the broad center of each facade
+    // in one plane while the final 4.5m beside each corner folds inward.
+    const modules = HEARST_DIAGRID_MODULES;
     const moduleH = (y1 - y0) / modules;
-    g.add(towerFacade(plan(nodeCut), y0, y1, glassMat, 2.8, moduleH / 4));
+    const curtainLevels = hearstBirdMouthLevels(
+      y0, y1, HW, HD, nodeCut, biteCut,
+    );
+    g.add(loftFacade(curtainLevels, glassMat, 2.8, moduleH / 4));
 
-    // Bake the 528-piece lattice straight into one geometry before it enters
+    // Bake the 476-piece lattice straight into one geometry before it enters
     // the landmark tree. Sharing the unit cylinder keeps every close fly-by
     // beam identical, while pre-merging eliminates hundreds of Mesh nodes,
     // matrix updates and LandmarkManager traversal steps on every approach.
@@ -601,28 +616,34 @@ export const builders: Record<string, (ctx: LandmarkCtx) => THREE.Group> = {
     }
 
     // The diagonal structure wraps continuously through each recessed corner.
+    // Its intermediate joints follow a linear half-step between the same
+    // boundary rings as the glazing; this retains the four members per corner
+    // module while removing the former ten unrelated midpoint notches.
     const cornerPairs: [number, number][] = [[1, 2], [3, 4], [5, 6], [7, 0]];
     for (let r = 0; r < modules; r++) {
       const yb = y0 + r * moduleH, ym = yb + moduleH / 2, yt = yb + moduleH;
-      const node = plan(nodeCut), bite = plan(biteCut);
+      const lower = plan(hearstBoundaryCut(r, nodeCut, biteCut));
+      const upper = plan(hearstBoundaryCut(r + 1, nodeCut, biteCut));
       for (const [a, b] of cornerPairs) {
-        const nbA = new THREE.Vector3(node[a][0], yb, node[a][1]);
-        const nbB = new THREE.Vector3(node[b][0], yb, node[b][1]);
-        const nmA = new THREE.Vector3(bite[a][0], ym, bite[a][1]);
-        const nmB = new THREE.Vector3(bite[b][0], ym, bite[b][1]);
-        const ntA = new THREE.Vector3(node[a][0], yt, node[a][1]);
-        const ntB = new THREE.Vector3(node[b][0], yt, node[b][1]);
-        addBeam(nbA, nmB, 0.52);
-        addBeam(nbB, nmA, 0.52);
-        addBeam(nmA, ntB, 0.52);
-        addBeam(nmB, ntA, 0.52);
+        const lowerA = new THREE.Vector3(lower[a][0], yb, lower[a][1]);
+        const lowerB = new THREE.Vector3(lower[b][0], yb, lower[b][1]);
+        const upperA = new THREE.Vector3(upper[a][0], yt, upper[a][1]);
+        const upperB = new THREE.Vector3(upper[b][0], yt, upper[b][1]);
+        const midA = lowerA.clone().lerp(upperA, 0.5).setY(ym);
+        const midB = lowerB.clone().lerp(upperB, 0.5).setY(ym);
+        addBeam(lowerA, midB, 0.52);
+        addBeam(lowerB, midA, 0.52);
+        addBeam(midA, upperB, 0.52);
+        addBeam(midB, upperA, 0.52);
       }
     }
 
-    // Slim perimeter node plates terminate each four-storey diamond; there are
-    // deliberately no vertical corner mullions, preserving the peeled profile.
+    // Slim perimeter node plates terminate each four-storey diamond and follow
+    // the four recessed boundary rings. There are deliberately no vertical
+    // corner mullions, preserving the peeled bird's-mouth profile.
     for (let r = 0; r <= modules; r++) {
-      const ring = plan(nodeCut), y = y0 + r * moduleH;
+      const ring = plan(hearstBoundaryCut(r, nodeCut, biteCut));
+      const y = y0 + r * moduleH;
       for (let i = 0; i < ring.length; i++) {
         const a = ring[i], b = ring[(i + 1) % ring.length];
         addBeam(
@@ -632,7 +653,7 @@ export const builders: Record<string, (ctx: LandmarkCtx) => THREE.Group> = {
         );
       }
     }
-    const expectedBeamCount = 528;
+    const expectedBeamCount = HEARST_DIAGRID_BEAM_COUNT;
     if (beamGeos.length !== expectedBeamCount) {
       throw new Error(`Hearst diagrid count changed: ${beamGeos.length} !== ${expectedBeamCount}`);
     }
