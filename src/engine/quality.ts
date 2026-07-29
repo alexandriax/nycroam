@@ -62,7 +62,10 @@ const RENDERING_TIERS: Record<QualityLevel, RenderingTierContract> = {
     antialiasing: 'smaa',
     fallbackAntialiasing: 'smaa',
     grade: 'full',
-    gtao: { scale: 0.4, samples: 6 },
+    // High keeps contact AO, but at a genuinely cheaper rung than Ultra.
+    // The previous 0.4²×6 workload was effectively identical to 0.35²×8 and
+    // left no useful performance step between the two desktop tiers.
+    gtao: { scale: 0.35, samples: 5 },
     bloom: { scale: 0.25, strength: 0.1, threshold: 0.92 },
     temporal: false,
     reflections: 'sky-probe',
