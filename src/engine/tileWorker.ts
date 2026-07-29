@@ -1218,6 +1218,61 @@ function buildTile(tile: TileJson, detail: TileBuildDetail, requestId: number): 
       });
     }
   }
+  // Explicit OSM crossing ways suppress topology inference nearby. Without
+  // this guard a complex node (especially Columbus Circle) received the real
+  // crossing plus a second five-bar crossing for every connected road piece.
+  const explicitCrossingPoints: Array<readonly [number, number]> = [];
+  for (const road of tile.roads ?? []) {
+    if (road.c !== 'crossing') continue;
+    for (let i = 0; i < road.p.length; i += 2) {
+      explicitCrossingPoints.push([
+        toWorld(road.p[i], ox),
+        toWorld(road.p[i + 1], oz),
+      ]);
+    }
+  }
+  const hasExplicitCrossingNear = (x: number, z: number): boolean =>
+    explicitCrossingPoints.some(([cx, cz]) => (cx - x) ** 2 + (cz - z) ** 2 <= 13 ** 2);
+  const inferredCrosswalkKeys = new Set<string>();
+  const crosswalkRoads: { pts: number[]; half: number }[] = [];
+  for (const road of tile.roads ?? []) {
+    if (road.b || !VEHICULAR_ROADS.has(road.c)) continue;
+    const style = ROAD_STYLE[road.c] ?? ROAD_STYLE.residential;
+    const width = Math.max(1.2, Math.min(45, road.w !== undefined ? road.w / 10 : style.w));
+    crosswalkRoads.push({
+      pts: road.p.map((value, index) => toWorld(value, index % 2 === 0 ? ox : oz)),
+      half: width * 0.5,
+    });
+  }
+  const crosswalkRoadHalfWidth = (
+    x: number,
+    z: number,
+    crossingDx: number,
+    crossingDz: number,
+  ): number => {
+    let bestHalfWidth = 0;
+    for (const road of crosswalkRoads) {
+      for (let i = 2; i < road.pts.length; i += 2) {
+        const ax = road.pts[i - 2], az = road.pts[i - 1];
+        const bx = road.pts[i], bz = road.pts[i + 1];
+        const dx = bx - ax, dz = bz - az;
+        const lengthSq = dx * dx + dz * dz;
+        if (lengthSq < 1e-6) continue;
+        const t = Math.max(0, Math.min(1, ((x - ax) * dx + (z - az) * dz) / lengthSq));
+        const qx = ax + dx * t, qz = az + dz * t;
+        if ((x - qx) ** 2 + (z - qz) ** 2 > (road.half + 0.3) ** 2) continue;
+        const inverseLength = 1 / Math.sqrt(lengthSq);
+        const parallel = Math.abs(
+          crossingDx * dx * inverseLength + crossingDz * dz * inverseLength,
+        );
+        // A crosswalk traverses a carriageway. Reject OSM pedestrian-network
+        // fragments that run along a lane or diagonally through a junction.
+        if (parallel <= 0.58) bestHalfWidth = Math.max(bestHalfWidth, road.half);
+      }
+    }
+    return bestHalfWidth;
+  };
+  const explicitCrosswalkPaintKeys = new Set<string>();
   const drivewayCuts: [number, number][] = [];
   for (const road of tile.roads ?? []) {
     if (!(road.f && (road.f & ROAD_FLAG_DRIVEWAY)) || road.p.length < 4) continue;
@@ -1355,23 +1410,61 @@ function buildTile(tile: TileJson, detail: TileBuildDetail, requestId: number): 
         buildRibbon(mAcc, pts, 0.1, bys, WHITE, roadWidth / 2 - 0.14);
         buildRibbon(mAcc, pts, 0.1, bys, WHITE, -(roadWidth / 2 - 0.14));
       } else if (detail === 2 && (r.c === 'crossing' || (roadFlags & ROAD_FLAG_CROSSING))) {
-        // continental crosswalk: thick bars perpendicular to the walking line
+        // An OSM crossing way is the pedestrian travel line, often spanning
+        // sidewalk, median, and several carriageways. Painting bars at every
+        // point along it creates a huge ladder/starburst at complex junctions.
+        // Instead, identify each contiguous carriageway encounter and place one
+        // compact continental cluster there. Bars run with pedestrian travel
+        // and are spaced along the road direction.
         const total = polyLength(pts);
-        // Source ways commonly begin on the sidewalk. Insetting the paint keeps
-        // the first/last bar below the curb face instead of striping the paving.
         const paintInset = Math.min(1.15, total * 0.18);
-        for (let d = paintInset; d <= total - paintInset; d += 0.95) {
+        const clusters: Array<{ start: number; end: number; halfWidth: number }> = [];
+        let active: { start: number; end: number; halfWidth: number } | null = null;
+        const sampleStep = 0.55;
+        for (let d = paintInset; d <= total - paintInset + 0.001; d += sampleStep) {
           const [cx, cz, tx, tz, cy] = pointAt(pts, mys, d);
-          const bx = -tz, bz = tx; // bar axis = perpendicular to crossing line
-          const bw = roadWidth * 0.42; // bar length across the crossing ribbon
-          const hw = 0.24; // half of bar thickness along the walk
-          const base = mAcc.vcount;
-          mAcc.vertex(cx - tx * hw + bx * bw, cy, cz - tz * hw + bz * bw, 0, 1, 0, WHITE[0], WHITE[1], WHITE[2]);
-          mAcc.vertex(cx + tx * hw + bx * bw, cy, cz + tz * hw + bz * bw, 0, 1, 0, WHITE[0], WHITE[1], WHITE[2]);
-          mAcc.vertex(cx + tx * hw - bx * bw, cy, cz + tz * hw - bz * bw, 0, 1, 0, WHITE[0], WHITE[1], WHITE[2]);
-          mAcc.vertex(cx - tx * hw - bx * bw, cy, cz - tz * hw - bz * bw, 0, 1, 0, WHITE[0], WHITE[1], WHITE[2]);
-          pushUpTri(mAcc, base, base + 1, base + 2);
-          pushUpTri(mAcc, base, base + 2, base + 3);
+          void cy;
+          const halfWidth = crosswalkRoadHalfWidth(cx, cz, tx, tz);
+          if (halfWidth > 0) {
+            if (!active) active = { start: d, end: d, halfWidth };
+            else {
+              active.end = d;
+              active.halfWidth = Math.max(active.halfWidth, halfWidth);
+            }
+          } else if (active) {
+            clusters.push(active);
+            active = null;
+          }
+        }
+        if (active) clusters.push(active);
+
+        for (const cluster of clusters) {
+          if (cluster.end - cluster.start < 1.35) continue;
+          const centerDistance = (cluster.start + cluster.end) * 0.5;
+          const [cx, cz, tx, tz, cy] = pointAt(pts, mys, centerDistance);
+          const bearing = (Math.atan2(tz, tx) + Math.PI) % Math.PI;
+          const key = `${Math.round(cx / 3)}:${Math.round(cz / 3)}:${Math.round(bearing / (Math.PI / 12))}`;
+          if (explicitCrosswalkPaintKeys.has(key)) continue;
+          explicitCrosswalkPaintKeys.add(key);
+          const crossingLength = Math.min(
+            14,
+            Math.max(3.2, cluster.end - cluster.start + sampleStep),
+          );
+          const roadTx = -tz, roadTz = tx;
+          for (let bar = -2; bar <= 2; bar++) {
+            const offset = bar * 0.86;
+            addRoadRect(
+              mAcc,
+              cx + roadTx * offset,
+              cz + roadTz * offset,
+              tx,
+              tz,
+              crossingLength,
+              0.46,
+              cy + 0.004,
+              WHITE,
+            );
+          }
         }
       } else if (detail === 2 && ['motorway', 'trunk', 'primary', 'secondary'].includes(r.c)) {
         buildRibbon(mAcc, pts, 0.12, mys, YELLOW, 0.17);
@@ -1409,10 +1502,31 @@ function buildTile(tile: TileJson, detail: TileBuildDetail, requestId: number): 
       }
 
       // Crosswalks are inferred only at real shared OSM endpoints, never at
-      // arbitrary tile clips. Explicit crossing ways above still take priority.
+      // arbitrary tile clips. Explicit crossing ways above take priority and a
+      // quantized direction key prevents multiple OSM road pieces at the same
+      // junction from painting the same inferred crossing repeatedly.
       if (detail === 2 && !r.b && SURFACE_STREETS.has(r.c) && r.c !== 'living_street') {
-        if (roadFlags & ROAD_FLAG_INTERSECTION_START) addTopologyCrosswalk(mAcc, pts, mys, roadWidth, true);
-        if (roadFlags & ROAD_FLAG_INTERSECTION_END) addTopologyCrosswalk(mAcc, pts, mys, roadWidth, false);
+        const maybeAddTopologyCrosswalk = (atStart: boolean) => {
+          const pointIndex = atStart ? 0 : n - 1;
+          const x = pts[pointIndex * 2], z = pts[pointIndex * 2 + 1];
+          if (hasExplicitCrossingNear(x, z)) return;
+          const neighbor = atStart ? 1 : n - 2;
+          let dx = pts[neighbor * 2] - x;
+          let dz = pts[neighbor * 2 + 1] - z;
+          const length = Math.hypot(dx, dz) || 1;
+          dx /= length;
+          dz /= length;
+          // Undirected 15-degree bearing bucket: opposite-digitized pieces are
+          // the same crossing, perpendicular approaches remain independent.
+          const bearing = (Math.atan2(dz, dx) + Math.PI) % Math.PI;
+          const directionBucket = Math.round(bearing / (Math.PI / 12));
+          const key = `${Math.round(x / 4)}:${Math.round(z / 4)}:${directionBucket}`;
+          if (inferredCrosswalkKeys.has(key)) return;
+          inferredCrosswalkKeys.add(key);
+          addTopologyCrosswalk(mAcc, pts, mys, roadWidth, atStart);
+        };
+        if (roadFlags & ROAD_FLAG_INTERSECTION_START) maybeAddTopologyCrosswalk(true);
+        if (roadFlags & ROAD_FLAG_INTERSECTION_END) maybeAddTopologyCrosswalk(false);
       }
 
       // Bounded merged road furniture/decal layer: deterministic manholes,

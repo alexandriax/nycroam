@@ -296,6 +296,12 @@ test('base surfaces have one owning tier and every installed tier is disposed on
   );
   assert.match(workerSource, /const sidewalkLine = trimPolyline\(/);
   assert.match(workerSource, /const paintInset = Math\.min\(1\.15, total \* 0\.18\)/);
+  assert.match(workerSource, /const halfWidth = crosswalkRoadHalfWidth\(cx, cz, tx, tz\)/);
+  assert.match(workerSource, /const clusters: Array<\{ start: number; end: number; halfWidth: number \}>/);
+  assert.match(workerSource, /explicitCrosswalkPaintKeys\.has\(key\)/);
+  assert.match(workerSource, /Bars run with pedestrian travel/);
+  assert.match(workerSource, /if \(hasExplicitCrossingNear\(x, z\)\) return/);
+  assert.match(workerSource, /inferredCrosswalkKeys\.has\(key\)/);
   assert.match(managerSource, /forEachTileDetailLayer\(rec\.layerGroups/);
   assert.match(managerSource, /disposeOwnedResources\(rec\.geometries, rec\.textures, rec\.materials\)/);
 
