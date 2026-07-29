@@ -22,6 +22,7 @@ import {
   trafficSweptConflict,
   yieldsTo,
 } from '../../src/engine/population/trafficSafety.ts';
+import { buildVehicleBodyGeometry } from '../../src/engine/population/vehicleGeometry.ts';
 
 function path(kind, width, points, flags = 0) {
   return {
@@ -62,6 +63,49 @@ test('population ceilings are explicit and remain below the street budget', () =
       ]),
     ),
     { low: 470, medium: 978, high: 1622, ultra: 2272 },
+  );
+});
+
+test('vehicle body is a closed outward-facing shell from every exterior angle', () => {
+  const geometry = buildVehicleBodyGeometry();
+  const position = geometry.getAttribute('position');
+  const index = geometry.getIndex();
+  assert.ok(index);
+  assert.equal(index.count / 3, 92);
+
+  const center = [0, 0.55, 0];
+  const edgeUses = new Map();
+  for (let i = 0; i < index.count; i += 3) {
+    const ia = index.getX(i);
+    const ib = index.getX(i + 1);
+    const ic = index.getX(i + 2);
+    for (const [from, to] of [[ia, ib], [ib, ic], [ic, ia]]) {
+      const key = from < to ? `${from}:${to}` : `${to}:${from}`;
+      edgeUses.set(key, (edgeUses.get(key) ?? 0) + 1);
+    }
+    const a = [position.getX(ia), position.getY(ia), position.getZ(ia)];
+    const b = [position.getX(ib), position.getY(ib), position.getZ(ib)];
+    const c = [position.getX(ic), position.getY(ic), position.getZ(ic)];
+    const ab = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+    const ac = [c[0] - a[0], c[1] - a[1], c[2] - a[2]];
+    const normal = [
+      ab[1] * ac[2] - ab[2] * ac[1],
+      ab[2] * ac[0] - ab[0] * ac[2],
+      ab[0] * ac[1] - ab[1] * ac[0],
+    ];
+    const radial = [
+      (a[0] + b[0] + c[0]) / 3 - center[0],
+      (a[1] + b[1] + c[1]) / 3 - center[1],
+      (a[2] + b[2] + c[2]) / 3 - center[2],
+    ];
+    assert.ok(
+      normal[0] * radial[0] + normal[1] * radial[1] + normal[2] * radial[2] > 0,
+      `triangle ${i / 3} faces into the vehicle`,
+    );
+  }
+  assert.ok(
+    [...edgeUses.values()].every((uses) => uses === 2),
+    'every shell edge must be shared by exactly two panels',
   );
 });
 
