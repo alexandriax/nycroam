@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { quality } from './quality';
 import { makeCloudTexture } from './textures';
+import { LANDMARK_SHADOW_LAYER } from './landmarks/layers.js';
 
 export const SKY = {
   zenith: new THREE.Color('#6ea3d8'),
@@ -169,6 +170,10 @@ export function setupLights(scene: THREE.Scene) {
   if (q.shadows) {
     sun.castShadow = true;
     sun.shadow.mapSize.set(q.shadowMapSize, q.shadowMapSize);
+    // Hero landmark visuals stay on the main-camera layer but do not cast.
+    // Their one-draw simplified silhouettes live on this shadow-only layer.
+    // Enabling (not setting) preserves layer 0 for all ordinary city casters.
+    sun.shadow.camera.layers.enable(LANDMARK_SHADOW_LAYER);
     // Extent / near / far / bias are all owned by followSun() from here on --
     // they move together with the coverage step, and a stale hand-set frustum
     // would fight it on the first frame.

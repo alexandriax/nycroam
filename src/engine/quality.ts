@@ -14,6 +14,85 @@
 
 export type QualityLevel = 'low' | 'medium' | 'high' | 'ultra';
 
+export interface RenderingTierContract {
+  antialiasing: 'fxaa' | 'smaa' | 'temporal';
+  fallbackAntialiasing: 'fxaa' | 'smaa';
+  grade: 'none' | 'minimal' | 'full';
+  gtao: false | { scale: number; samples: number };
+  bloom: false | { scale: number; strength: number; threshold: number };
+  temporal: false | {
+    /** History contribution for a static, depth-consistent pixel. */
+    maxHistoryWeight: number;
+    jitterSamples: number;
+  };
+  reflections: 'sky-probe';
+  /**
+   * Deliberately bounded, texel-snapped single frustum. True CSM needs a
+   * distance-selecting light shader; stacking ordinary DirectionalLights
+   * double-lights and double-shadows the overlap and is not a valid cascade.
+   */
+  shadowStrategy: 'none' | 'snapped-bounded-frustum';
+  materialDetail: 'simplified' | 'near-pbr' | 'near-mid-pbr' | 'extended-pbr';
+}
+
+const RENDERING_TIERS: Record<QualityLevel, RenderingTierContract> = {
+  low: {
+    antialiasing: 'fxaa',
+    fallbackAntialiasing: 'fxaa',
+    grade: 'none',
+    gtao: false,
+    bloom: false,
+    temporal: false,
+    reflections: 'sky-probe',
+    shadowStrategy: 'none',
+    materialDetail: 'simplified',
+  },
+  medium: {
+    antialiasing: 'smaa',
+    fallbackAntialiasing: 'smaa',
+    grade: 'minimal',
+    gtao: false,
+    bloom: false,
+    temporal: false,
+    reflections: 'sky-probe',
+    shadowStrategy: 'snapped-bounded-frustum',
+    materialDetail: 'near-pbr',
+  },
+  high: {
+    antialiasing: 'smaa',
+    fallbackAntialiasing: 'smaa',
+    grade: 'full',
+    gtao: { scale: 0.5, samples: 8 },
+    bloom: { scale: 0.5, strength: 0.1, threshold: 0.92 },
+    temporal: false,
+    reflections: 'sky-probe',
+    shadowStrategy: 'snapped-bounded-frustum',
+    materialDetail: 'near-mid-pbr',
+  },
+  ultra: {
+    antialiasing: 'temporal',
+    fallbackAntialiasing: 'smaa',
+    grade: 'full',
+    gtao: { scale: 0.58, samples: 12 },
+    bloom: { scale: 0.5, strength: 0.16, threshold: 0.92 },
+    temporal: { maxHistoryWeight: 0.88, jitterSamples: 8 },
+    reflections: 'sky-probe',
+    shadowStrategy: 'snapped-bounded-frustum',
+    materialDetail: 'extended-pbr',
+  },
+};
+
+/** Immutable-by-convention authored rendering contract for deterministic QA. */
+export function renderingTierContract(level: QualityLevel): RenderingTierContract {
+  const contract = RENDERING_TIERS[level];
+  return {
+    ...contract,
+    gtao: contract.gtao ? { ...contract.gtao } : false,
+    bloom: contract.bloom ? { ...contract.bloom } : false,
+    temporal: contract.temporal ? { ...contract.temporal } : false,
+  };
+}
+
 export interface QualityTier {
   level: QualityLevel;
   shadows: boolean;

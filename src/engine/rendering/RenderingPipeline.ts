@@ -7,16 +7,31 @@ import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
 import { SMAAPass } from 'three/examples/jsm/postprocessing/SMAAPass.js';
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
-import type { QualityLevel } from '../quality';
+import {
+  renderingTierContract,
+  type QualityLevel,
+  type RenderingTierContract,
+} from '../quality';
+import { TemporalAAPass, type TemporalAAStats } from './TemporalAAPass';
 
 export type RenderMode = 'street' | 'station' | 'ride' | 'bus';
 
 export interface RenderingPipelineStats {
   active: boolean;
-  antialiasing: 'fxaa' | 'smaa';
+  antialiasing: 'fxaa' | 'smaa' | 'temporal';
+  fallbackAntialiasing: 'fxaa' | 'smaa';
   ao: boolean;
+  aoScale: number;
+  aoSamples: number;
   bloom: boolean;
+  bloomScale: number;
+  bloomStrength: number;
+  bloomThreshold: number;
   grade: boolean;
+  temporal: TemporalAAStats | null;
+  reflections: 'sky-probe';
+  selectiveScreenSpaceReflections: false;
+  enabledPasses: string[];
   effectsLevel: 0 | 1 | 2;
   renderTargetBytes: number;
 }
@@ -65,8 +80,9 @@ const gradeShader = {
 /**
  * Tiered post-processing with a deliberately short cost ladder.
  *
- * AA is never disabled: Low uses a single FXAA pass while every other tier uses
- * SMAA. The adaptive governor controls AO/bloom/grade independently, so a GPU
+ * AA is never disabled: Low uses FXAA, Medium/High use SMAA, and Ultra uses a
+ * depth-reprojected temporal resolve with SMAA as its no-history fallback. The
+ * adaptive governor controls temporal/AO/bloom/grade independently, so a GPU
  * under pressure gives up finishing work before render scale. Expensive passes
  * are allocated only for the tiers that can ever use them.
  */
@@ -79,8 +95,10 @@ export class RenderingPipeline {
   private readonly gradePass: ShaderPass | null;
   private readonly fxaaPass: FXAAPass | null;
   private readonly smaaPass: SMAAPass | null;
+  private readonly temporalPass: TemporalAAPass | null;
   private readonly outputPass: OutputPass;
   private readonly level: QualityLevel;
+  private readonly contract: RenderingTierContract;
   private readonly bytesPerPixel: number;
   private effectsLevel: 0 | 1 | 2;
   private mode: RenderMode = 'street';
@@ -96,17 +114,22 @@ export class RenderingPipeline {
   ) {
     this.renderer = renderer;
     this.level = level;
+    this.contract = renderingTierContract(level);
     this.effectsLevel = initialEffectsLevel;
 
     // Mobile tiers keep the two full-screen color buffers at RGBA8. Desktop
     // High/Ultra retain HDR values for emissive billboards and controlled bloom.
     const hdr = level === 'high' || level === 'ultra';
+    const depthTexture = new THREE.DepthTexture(1, 1, THREE.UnsignedIntType);
+    depthTexture.format = THREE.DepthFormat;
+    depthTexture.name = 'NYCRoam.Post.Depth';
     const target = new THREE.WebGLRenderTarget(1, 1, {
       type: hdr ? THREE.HalfFloatType : THREE.UnsignedByteType,
       minFilter: THREE.LinearFilter,
       magFilter: THREE.LinearFilter,
       depthBuffer: true,
       stencilBuffer: false,
+      depthTexture,
     });
     target.texture.name = `NYCRoam.Post.${hdr ? 'RGBA16F' : 'RGBA8'}`;
     this.bytesPerPixel = hdr ? 8 : 4;
@@ -114,7 +137,18 @@ export class RenderingPipeline {
     this.renderPass = new RenderPass(scene, camera);
     this.composer.addPass(this.renderPass);
 
-    if (hdr) {
+    if (this.contract.temporal) {
+      this.temporalPass = new TemporalAAPass(
+        camera,
+        THREE.HalfFloatType,
+        this.contract.temporal.maxHistoryWeight,
+      );
+      this.composer.addPass(this.temporalPass);
+    } else {
+      this.temporalPass = null;
+    }
+
+    if (this.contract.gtao) {
       this.aoPass = new GTAOPass(scene, camera, 1, 1);
       this.aoPass.blendIntensity = level === 'ultra' ? 0.72 : 0.58;
       this.aoPass.updateGtaoMaterial({
@@ -123,7 +157,7 @@ export class RenderingPipeline {
         thickness: 1.1,
         distanceFallOff: 1,
         scale: 0.72,
-        samples: level === 'ultra' ? 12 : 8,
+        samples: this.contract.gtao.samples,
         screenSpaceRadius: false,
       });
       this.aoPass.updatePdMaterial({
@@ -132,30 +166,33 @@ export class RenderingPipeline {
         normalPhi: 3.5,
         radius: level === 'ultra' ? 7 : 5,
         rings: 2,
-        samples: level === 'ultra' ? 12 : 8,
+        samples: this.contract.gtao.samples,
       });
       this.composer.addPass(this.aoPass);
+    } else {
+      this.aoPass = null;
+    }
 
+    if (this.contract.bloom) {
       this.bloomPass = new UnrealBloomPass(
         new THREE.Vector2(1, 1),
-        level === 'ultra' ? 0.16 : 0.1,
+        this.contract.bloom.strength,
         0.32,
-        0.92,
+        this.contract.bloom.threshold,
       );
       this.composer.addPass(this.bloomPass);
     } else {
-      this.aoPass = null;
       this.bloomPass = null;
     }
 
-    if (level !== 'low') {
+    if (this.contract.grade !== 'none') {
       this.gradePass = new ShaderPass(gradeShader);
       this.composer.addPass(this.gradePass);
     } else {
       this.gradePass = null;
     }
 
-    if (level === 'low') {
+    if (this.contract.fallbackAntialiasing === 'fxaa') {
       this.fxaaPass = new FXAAPass();
       this.smaaPass = null;
       this.composer.addPass(this.fxaaPass);
@@ -179,14 +216,14 @@ export class RenderingPipeline {
     // GTAO and bloom intentionally work below the main color resolution. Their
     // denoise/blur stages reconstruct broad contact and glow, saving substantial
     // bandwidth at high-DPR desktop resolutions.
-    const aoScale = this.level === 'ultra' ? 0.58 : 0.5;
+    const aoScale = this.contract.gtao ? this.contract.gtao.scale : 0;
     this.aoPass?.setSize(
       Math.max(1, Math.round(this.physicalWidth * aoScale)),
       Math.max(1, Math.round(this.physicalHeight * aoScale)),
     );
     this.bloomPass?.setSize(
-      Math.max(1, Math.round(this.physicalWidth * 0.5)),
-      Math.max(1, Math.round(this.physicalHeight * 0.5)),
+      Math.max(1, Math.round(this.physicalWidth * (this.contract.bloom ? this.contract.bloom.scale : 0.5))),
+      Math.max(1, Math.round(this.physicalHeight * (this.contract.bloom ? this.contract.bloom.scale : 0.5))),
     );
   }
 
@@ -216,32 +253,70 @@ export class RenderingPipeline {
   }
 
   render(scene: THREE.Scene, mode: RenderMode, deltaSeconds: number): void {
-    if (scene !== this.renderPass.scene) this.renderPass.scene = scene;
+    const sceneChanged = scene !== this.renderPass.scene;
+    if (sceneChanged) {
+      this.renderPass.scene = scene;
+      this.temporalPass?.reset();
+    }
     if (this.aoPass && scene !== this.aoPass.scene) this.aoPass.scene = scene;
     if (mode !== this.mode) {
       this.mode = mode;
+      this.temporalPass?.reset();
       this.applyPassState();
     }
-    this.composer.render(deltaSeconds);
+    this.temporalPass?.beginFrameJitter();
+    try {
+      this.composer.render(deltaSeconds);
+    } finally {
+      this.temporalPass?.endFrameJitter();
+    }
   }
 
   stats(): RenderingPipelineStats {
     const colorBuffers = this.physicalWidth * this.physicalHeight * this.bytesPerPixel * 2;
     const depth = this.physicalWidth * this.physicalHeight * 4 * 2;
+    const aoScale = this.contract.gtao ? this.contract.gtao.scale : 0;
     const ao = this.aoPass
-      ? Math.round(this.physicalWidth * this.physicalHeight * 0.25) * (8 + 4 + 8)
+      ? Math.round(this.physicalWidth * this.physicalHeight * aoScale * aoScale) * (8 + 4 + 8)
       : 0;
+    const bloomScale = this.contract.bloom ? this.contract.bloom.scale : 0;
     const bloom = this.bloomPass
-      ? Math.round(this.physicalWidth * this.physicalHeight * 0.34) * this.bytesPerPixel
+      ? Math.round(this.physicalWidth * this.physicalHeight * bloomScale * bloomScale * 1.36)
+        * this.bytesPerPixel
       : 0;
+    const temporal = this.temporalPass?.stats() ?? null;
+    const enabledPasses = [
+      'scene',
+      this.temporalPass?.enabled ? 'temporal-resolve' : null,
+      this.aoPass?.enabled ? 'gtao' : null,
+      this.bloomPass?.enabled ? 'bloom' : null,
+      this.gradePass?.enabled ? 'grade' : null,
+      this.fxaaPass?.enabled ? 'fxaa' : null,
+      this.smaaPass?.enabled ? 'smaa' : null,
+      'output',
+    ].filter((value): value is string => value !== null);
     return {
       active: true,
-      antialiasing: this.fxaaPass ? 'fxaa' : 'smaa',
+      antialiasing: this.temporalPass?.enabled
+        ? 'temporal'
+        : this.fxaaPass
+          ? 'fxaa'
+          : 'smaa',
+      fallbackAntialiasing: this.contract.fallbackAntialiasing,
       ao: !!this.aoPass?.enabled,
+      aoScale,
+      aoSamples: this.contract.gtao ? this.contract.gtao.samples : 0,
       bloom: !!this.bloomPass?.enabled,
+      bloomScale,
+      bloomStrength: this.contract.bloom ? this.contract.bloom.strength : 0,
+      bloomThreshold: this.contract.bloom ? this.contract.bloom.threshold : 0,
       grade: !!this.gradePass?.enabled,
+      temporal,
+      reflections: this.contract.reflections,
+      selectiveScreenSpaceReflections: false,
+      enabledPasses,
       effectsLevel: this.effectsLevel,
-      renderTargetBytes: colorBuffers + depth + ao + bloom,
+      renderTargetBytes: colorBuffers + depth + ao + bloom + (temporal?.historyBytes ?? 0),
     };
   }
 
@@ -251,6 +326,7 @@ export class RenderingPipeline {
     this.gradePass?.dispose();
     this.fxaaPass?.dispose();
     this.smaaPass?.dispose();
+    this.temporalPass?.dispose();
     this.outputPass.dispose();
     this.renderPass.dispose();
     this.composer.dispose();
@@ -279,7 +355,22 @@ export class RenderingPipeline {
     }
     if (this.gradePass) {
       this.gradePass.enabled = this.effectsLevel >= 1;
-      this.gradePass.uniforms.strength.value = this.effectsLevel === 2 ? 1 : 0.62;
+      const authored = this.contract.grade === 'minimal'
+        ? 0.42
+        : this.level === 'ultra'
+          ? 1
+          : 0.84;
+      this.gradePass.uniforms.strength.value = authored * (this.effectsLevel === 2 ? 1 : 0.62);
     }
+    const temporalEnabled = !!this.temporalPass
+      && this.effectsLevel === 2
+      && this.mode !== 'ride';
+    if (this.temporalPass) {
+      if (this.temporalPass.enabled !== temporalEnabled) this.temporalPass.reset();
+      this.temporalPass.enabled = temporalEnabled;
+    }
+    // SMAA is the zero-history fallback during adaptive shedding, train rides,
+    // camera cuts and on every non-Ultra tier. Never stack it after TAA.
+    if (this.smaaPass) this.smaaPass.enabled = !temporalEnabled;
   }
 }
