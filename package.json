@@ -12,6 +12,7 @@
     "benchmark:run": "node scripts/benchmarks/run.mjs",
     "benchmark:soak": "npm run build && node scripts/benchmarks/run.mjs --soak-minutes 5",
     "benchmark:install-browser": "playwright install chromium",
+    "materials:build": "node scripts/materials/build-material-library.mjs",
     "data:osm": "node scripts/fetch-osm.mjs",
     "data:terrain": "node scripts/fetch-terrain.mjs",
     "data:tiles": "node scripts/build-tiles.mjs",

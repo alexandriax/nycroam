@@ -12,6 +12,7 @@ import { setupSky, setupLights, followSun, makeOutdoorEnvironment, SKY } from '.
 import { mobileQualityRequested, quality, runtimePerformanceProfile } from './quality';
 import { installAtmosphere } from './atmosphere';
 import { makeSkylineMaterial, makeFlatMaterial, makeWaterMaterial } from './materials';
+import { materialLibrary } from './materialLibrary';
 import { EntranceManager, disposeGroup } from './EntranceManager';
 import { PlaqueManager, type PlaqueInfo } from './PlaqueManager';
 import { BikeManager, buildMountedBike } from './bikes';
@@ -257,6 +258,10 @@ export class World {
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 1.08;
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
+    // The shared uniform objects start on 1px neutral textures and swap to the
+    // device-native KTX2 transcodes in place, so already-compiled city shaders
+    // do not stall for a second compilation when the atlases become ready.
+    void materialLibrary.initialize(this.renderer, q.level);
     this.authoredShadowMapSize = q.shadowMapSize;
     this.authoredLoadRadius = q.loadRadius;
     this.tileWorkerCount = q.tileWorkers;
@@ -2611,7 +2616,9 @@ export class World {
       sceneResources: estimateSceneResources(this.activeRenderScene),
       rendering: this.rendering.stats(),
       streaming: this.tiles.streamingReport(),
+      landmarks: this.landmarks.lodStats(),
       governor: this.qualityGovernor.snapshot,
+      materials: materialLibrary.report(),
     };
   }
   benchmarkRoutes() { return goldenRouteIds(); }
@@ -2707,6 +2714,7 @@ export class World {
     this.envTex?.dispose();
     this.gpuTimer.dispose();
     this.rendering.dispose();
+    materialLibrary.dispose();
     this.renderer.dispose();
   }
 }
