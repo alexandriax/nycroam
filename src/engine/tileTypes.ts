@@ -1,5 +1,20 @@
 // Tile JSON schema (produced by scripts/build-tiles.mjs) and worker message protocol.
 
+/**
+ * Stable façade archetype contract shared by the tile builder, worker, and
+ * façade shader. Values are serialized rather than shader-specific flags so
+ * future render tiers can interpret the same compact tile data differently.
+ */
+export type BuildingArchetype =
+  | 0 // brick / prewar
+  | 1 // glass curtain wall
+  | 2 // limestone / stone
+  | 3 // concrete / postwar
+  | 4 // industrial / loft
+  | 5 // brownstone / rowhouse
+  | 6 // metal / commercial
+  | 7; // mixed-use / storefront
+
 export interface TileBuilding {
   p: number[][]; // rings: [outer, hole, hole...] flat [dx0,dz0,...] integer decimeters rel. to tile origin
   h: number; // height m
@@ -7,6 +22,17 @@ export interface TileBuilding {
   n?: string; // name
   k?: string; // building kind
   b?: number; // v2: ground elevation m
+  a?: BuildingArchetype; // semantic façade archetype; absent in legacy v1/v2 tiles
+  // Sparse source semantics. One-character keys keep JSON overhead low; raw
+  // OSM strings are retained so improved inference can be shipped without
+  // rebuilding the source cache. New clients may ignore any/all of these.
+  f?: string; // building:material
+  c?: string; // building:colour (or legacy building:color)
+  r?: string; // roof:shape
+  q?: string; // roof:material
+  o?: string; // roof:colour (or legacy roof:color)
+  l?: number | string; // building:levels; number when losslessly numeric
+  d?: string; // start_date
 }
 
 export interface TileRoad {
@@ -51,7 +77,7 @@ export interface MeshPayload {
   color: Float32Array;
   index: Uint32Array;
   uv?: Float32Array;
-  style?: Float32Array; // buildings: 0 = masonry, 1 = glass (per vertex)
+  style?: Float32Array; // buildings: BuildingArchetype 0..7 (per vertex)
 }
 
 export interface BuildResponse {

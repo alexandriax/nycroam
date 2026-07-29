@@ -321,6 +321,11 @@ function stableHash8(id) {
   const frac = h - Math.floor(h);
   return Math.floor(frac * 8);
 }
+function stableUnit(id, salt = 0) {
+  const n = Number(id);
+  const h = Math.sin(n * 12.9898 + salt * 78.233) * 43758.5453;
+  return h - Math.floor(h);
+}
 function computeHeight(tags, id) {
   const h = parseLength(tags.height);
   if (h != null && Number.isFinite(h) && h > 0) return h;
@@ -337,6 +342,88 @@ function computeMinHeight(tags) {
     const lvl = parseFloat(tags['building:min_level']);
     if (Number.isFinite(lvl) && lvl > 0) return lvl * 3.35;
   }
+  return 0;
+}
+
+// ---- sparse building semantics --------------------------------------------------------
+// The output uses one-character optional keys (see TileBuilding) so keeping
+// source-authored identity does not turn the streamed JSON into a tag dump.
+// Raw values are retained when present; the compact archetype is always baked
+// so rendering remains one merged mesh with one numeric vertex attribute.
+function cleanSemantic(raw) {
+  if (raw === undefined || raw === null) return undefined;
+  const value = String(raw).trim();
+  return value || undefined;
+}
+function semanticTag(tags, canonical, alias) {
+  return cleanSemantic(tags[canonical] ?? (alias ? tags[alias] : undefined));
+}
+function compactLevels(raw) {
+  const value = cleanSemantic(raw);
+  if (value === undefined) return undefined;
+  if (/^-?\d+(?:\.\d+)?$/.test(value)) {
+    const n = Number(value);
+    if (Number.isFinite(n)) return n;
+  }
+  return value;
+}
+function sourceYear(raw) {
+  const match = cleanSemantic(raw)?.match(/(?:^|\D)((?:1[6-9]|20)\d{2})(?:\D|$)/);
+  return match ? Number(match[1]) : undefined;
+}
+function materialHas(material, pattern) {
+  return pattern.test((material ?? '').toLowerCase());
+}
+
+/**
+ * Stable 0..7 archetype contract:
+ *   0 brick/prewar, 1 glass curtain, 2 limestone/stone, 3 concrete/postwar,
+ *   4 industrial/loft, 5 brownstone/rowhouse, 6 metal/commercial,
+ *   7 mixed-use/storefront.
+ *
+ * Explicit material/kind/year signals win. Geometry and a stable OSM-id hash
+ * fill gaps without producing block-by-block visual noise.
+ */
+function deriveBuildingArchetype({ id, height, area, kind, material, startDate }) {
+  const k = (kind ?? '').toLowerCase();
+  const m = (material ?? '').toLowerCase();
+  const year = sourceYear(startDate);
+  const r = stableUnit(id, 17);
+
+  if (materialHas(m, /glass|mirror/)) return 1;
+  if (materialHas(m, /limestone|sandstone|granite|marble|stone/)) return 2;
+  if (materialHas(m, /concrete|cement|plaster|stucco|block/)) return 3;
+  if (materialHas(m, /metal|steel|aluminium|aluminum|copper|zinc/)) return 6;
+  if (materialHas(m, /brick|masonry/)) {
+    if (/industrial|warehouse|manufactur|factory/.test(k)) return 4;
+    if (/house|terrace|detached|bungalow/.test(k) && height <= 22) return 5;
+    return 0;
+  }
+  if (materialHas(m, /wood|timber/)) return 5;
+
+  if (/industrial|warehouse|manufactur|factory|garage|hangar/.test(k)) return 4;
+  if (/house|terrace|detached|bungalow|brownstone/.test(k)) return 5;
+  if (/church|cathedral|chapel|synagogue|mosque|civic|government|museum|university|college|school|hospital/.test(k)) return 2;
+  if (/retail|shop|supermarket|kiosk|mixed/.test(k)) return height < 50 ? 7 : 6;
+  if (/office|commercial|hotel/.test(k)) {
+    if (height >= 60 && (year === undefined || year >= 1975)) return r < 0.76 ? 1 : 6;
+    return height < 38 ? 7 : 6;
+  }
+
+  if (year !== undefined) {
+    if (year <= 1945) {
+      if (height <= 22 && area < 1200 && r < 0.38) return 5;
+      return 0;
+    }
+    if (year <= 1985 && height >= 25) return 3;
+    if (year >= 1986 && height >= 45) return r < 0.76 ? 1 : 6;
+  }
+
+  if (area >= 2600 && height <= 35) return 4;
+  if (height >= 90) return r < 0.72 ? 1 : r < 0.9 ? 3 : 2;
+  if (height >= 45) return r < 0.42 ? 1 : r < 0.76 ? 3 : r < 0.9 ? 2 : 0;
+  if (height <= 18 && area < 1200 && r < 0.34) return 5;
+  if (height <= 38 && r > 0.92) return 7;
   return 0;
 }
 
@@ -447,13 +534,24 @@ async function main() {
     const kindTag = isPart ? partVal : buildingVal;
     const kind = kindTag && kindTag !== 'yes' ? kindTag : undefined;
     const name = tags.name || undefined;
+    const material = semanticTag(tags, 'building:material');
+    const colour = semanticTag(tags, 'building:colour', 'building:color');
+    const roofShape = semanticTag(tags, 'roof:shape');
+    const roofMaterial = semanticTag(tags, 'roof:material');
+    const roofColour = semanticTag(tags, 'roof:colour', 'roof:color');
+    const levels = compactLevels(tags['building:levels']);
+    const startDate = cleanSemantic(tags.start_date);
 
     for (const poly of polys) {
       const holeArea = poly.holes.reduce((s, h) => s + Math.abs(ringArea(h)), 0);
       const area = Math.abs(ringArea(poly.outer)) - holeArea;
+      const archetype = deriveBuildingArchetype({
+        id: el.id, height, area, kind, material, startDate,
+      });
       buildingElements.push({
         isPart, outer: poly.outer, holes: poly.holes, height, minHeight, kind, name,
-        area, centroid: centroidOf(poly.outer),
+        area, centroid: centroidOf(poly.outer), archetype,
+        material, colour, roofShape, roofMaterial, roofColour, levels, startDate,
       });
     }
   }
@@ -997,6 +1095,8 @@ async function main() {
   const tileBuildings = new Map(); // key -> array of output objs
   const tileBuildingFootprints = new Map(); // key -> array of {outer,holes} world-meter rings (for tree placement filters)
   const skylineCandidates = [];
+  const archetypeCounts = new Array(8).fill(0);
+  const semanticCounts = { material: 0, colour: 0, roofShape: 0, roofMaterial: 0, roofColour: 0, levels: 0, startDate: 0 };
   for (const b of keptBuildings) {
     let cleared = fitCleared.has(b);
     for (const lc of LANDMARK_CLEAR) {
@@ -1009,10 +1109,26 @@ async function main() {
     const [tx, tz] = tileOf(b.centroid);
     const key = tileKeyOf(tx, tz);
     const p = [toTileLocalDecimeters(b.outer, tx, tz), ...b.holes.map((h) => toTileLocalDecimeters(h, tx, tz))];
-    const obj = { p, h: round1(b.height), b: round1(terrainAt(b.centroid[0], b.centroid[1])) };
+    if (!Number.isInteger(b.archetype) || b.archetype < 0 || b.archetype > 7) {
+      throw new Error(`invalid building archetype ${b.archetype} at ${b.centroid.join(',')}`);
+    }
+    const obj = {
+      p,
+      h: round1(b.height),
+      b: round1(terrainAt(b.centroid[0], b.centroid[1])),
+      a: b.archetype,
+    };
+    archetypeCounts[b.archetype]++;
     if (b.minHeight > 0) obj.m = round1(b.minHeight);
     if (b.name) obj.n = b.name;
     if (b.kind) obj.k = b.kind;
+    if (b.material) { obj.f = b.material; semanticCounts.material++; }
+    if (b.colour) { obj.c = b.colour; semanticCounts.colour++; }
+    if (b.roofShape) { obj.r = b.roofShape; semanticCounts.roofShape++; }
+    if (b.roofMaterial) { obj.q = b.roofMaterial; semanticCounts.roofMaterial++; }
+    if (b.roofColour) { obj.o = b.roofColour; semanticCounts.roofColour++; }
+    if (b.levels !== undefined) { obj.l = b.levels; semanticCounts.levels++; }
+    if (b.startDate) { obj.d = b.startDate; semanticCounts.startDate++; }
     if (!tileBuildings.has(key)) tileBuildings.set(key, []);
     tileBuildings.get(key).push(obj);
     if (!tileBuildingFootprints.has(key)) tileBuildingFootprints.set(key, []);
@@ -1022,6 +1138,12 @@ async function main() {
   }
 
   console.log(`  landmark clearing: ${landmarkCleared} buildings dropped at ${LANDMARK_CLEAR.length} premium-landmark sites`);
+  console.log(`  archetypes [brick, glass, stone, concrete, industrial, brownstone, metal, mixed]: ${archetypeCounts.join(', ')}`);
+  console.log(
+    `  source semantics retained: material ${semanticCounts.material}, colour ${semanticCounts.colour}, ` +
+      `roof shape ${semanticCounts.roofShape}, roof material ${semanticCounts.roofMaterial}, ` +
+      `roof colour ${semanticCounts.roofColour}, levels ${semanticCounts.levels}, start_date ${semanticCounts.startDate}`,
+  );
 
   // ---- ROADS ----------------------------------------------------------------------------
   console.log('Processing roads...');

@@ -1,8 +1,8 @@
 // Web worker: fetch tile JSON -> build merged geometry buffers (transferable).
 import earcut from 'earcut';
-import type { BuildRequest, BuildResponse, MeshPayload, TileJson, CollisionData } from './tileTypes';
+import type { BuildRequest, BuildResponse, MeshPayload, TileJson, CollisionData, BuildingArchetype } from './tileTypes';
 import { ROAD_STYLE, AREA_STYLE, CONCRETE_CLASSES, PATH_KIND_ROAD, PATH_KIND_BIKE, PATH_KIND_SERVICE } from './tileTypes';
-import { buildingColor, hash01 } from './palette';
+import { buildingColor, hash01, legacyBuildingArchetype, roofColor } from './palette';
 import { TILE_SIZE } from './geo';
 import { LANDMARKS_PLACED } from './landmarks/registry';
 
@@ -51,6 +51,10 @@ const CURATED_LANES: Record<string, { side: 'w' | 'e' | 'n' | 's'; zMin: number;
 
 // road classes that can carry a curated painted lane
 const LANE_CLASSES = new Set(['primary', 'secondary', 'tertiary', 'unclassified', 'residential']);
+// A small, merged curb cap on major surface streets gives the road/sidewalk
+// boundary a readable height break without multiplying per-tile draw calls.
+// Side streets keep the shader/vertex gutter only to bound geometry growth.
+const CURBED_STREETS = new Set(['primary', 'secondary', 'tertiary']);
 
 // Vehicular road classes (a sign inside one of these ribbons is standing in the
 // street). Footways/paths/crossings are excluded — signs belong on sidewalks.
@@ -254,8 +258,31 @@ function reverseRing(pts: number[]): number[] {
   return out;
 }
 
+function isConvexRing(pts: number[]): boolean {
+  const count = pts.length / 2;
+  let sign = 0;
+  for (let i = 0; i < count; i++) {
+    const a = i * 2, b = ((i + 1) % count) * 2, c = ((i + 2) % count) * 2;
+    const cross = (pts[b] - pts[a]) * (pts[c + 1] - pts[b + 1])
+      - (pts[b + 1] - pts[a + 1]) * (pts[c] - pts[b]);
+    if (Math.abs(cross) < 1e-5) continue;
+    const next = cross > 0 ? 1 : -1;
+    if (sign && next !== sign) return false;
+    sign = next;
+  }
+  return sign !== 0;
+}
+
 /** Extrude a polygon (rings in world meters, flat [x,z]) from y0 to y1 into acc. */
-function extrude(acc: MeshAcc, rings: number[][], y0: number, y1: number, color: [number, number, number], bottomCap = false) {
+function extrude(
+  acc: MeshAcc,
+  rings: number[][],
+  y0: number,
+  y1: number,
+  color: [number, number, number],
+  bottomCap = false,
+  roofColor: [number, number, number] = color,
+) {
   // orient: outer ring negative shoelace (see design note), holes positive -> normal (-dz,0,dx) faces outward
   const oriented = rings.map((r, i) => {
     const a = ringArea(r);
@@ -310,8 +337,9 @@ function extrude(acc: MeshAcc, rings: number[][], y0: number, y1: number, color:
   }
   const base = acc.vcount;
   const roofShade = 0.92;
+  const [rr, rg, rb] = roofColor;
   for (let i = 0; i < flat.length; i += 2) {
-    acc.vertex(flat[i], y1, flat[i + 1], 0, 1, 0, cr * roofShade, cg * roofShade, cb * roofShade);
+    acc.vertex(flat[i], y1, flat[i + 1], 0, 1, 0, rr * roofShade, rg * roofShade, rb * roofShade);
   }
   const fixedTris: number[] = [];
   for (let t = 0; t < tris.length; t += 3) {
@@ -336,6 +364,50 @@ function extrude(acc: MeshAcc, rings: number[][], y0: number, y1: number, color:
     for (let t = 0; t < fixedTris.length; t += 3) {
       acc.tri(base2 + fixedTris[t], base2 + fixedTris[t + 2], base2 + fixedTris[t + 1]);
     }
+  }
+}
+
+/**
+ * Low-cost authored silhouette for source-tagged pyramidal/hipped/domed roofs.
+ * Faces are appended to the same merged building mesh and therefore add no
+ * material or draw calls. Eligibility is deliberately narrow to avoid invalid
+ * fans on complex/holed footprints.
+ */
+function addApexRoof(
+  acc: MeshAcc,
+  ring: number[],
+  eaveY: number,
+  apexY: number,
+  color: [number, number, number],
+) {
+  const count = ring.length / 2;
+  if (count < 3 || count > 12) return;
+  let cx = 0, cz = 0;
+  for (let i = 0; i < ring.length; i += 2) { cx += ring[i]; cz += ring[i + 1]; }
+  cx /= count;
+  cz /= count;
+
+  for (let i = 0; i < count; i++) {
+    const j = (i + 1) % count;
+    let ax = ring[i * 2], az = ring[i * 2 + 1];
+    let bx = ring[j * 2], bz = ring[j * 2 + 1];
+    const ux = bx - ax, uy = 0, uz = bz - az;
+    const vx = cx - ax, vy = apexY - eaveY, vz = cz - az;
+    let nx = uy * vz - uz * vy;
+    let ny = uz * vx - ux * vz;
+    let nz = ux * vy - uy * vx;
+    if (ny < 0) {
+      [ax, bx] = [bx, ax];
+      [az, bz] = [bz, az];
+      nx = -nx; ny = -ny; nz = -nz;
+    }
+    const len = Math.hypot(nx, ny, nz) || 1;
+    nx /= len; ny /= len; nz /= len;
+    const base = acc.vcount;
+    acc.vertex(ax, eaveY, az, nx, ny, nz, color[0], color[1], color[2]);
+    acc.vertex(bx, eaveY, bz, nx, ny, nz, color[0], color[1], color[2]);
+    acc.vertex(cx, apexY, cz, nx, ny, nz, color[0], color[1], color[2]);
+    acc.tri(base, base + 1, base + 2);
   }
 }
 
@@ -390,6 +462,7 @@ function buildRibbon(
   lateralOffset = 0,
   uvScale = 0,
   dashes: [number, number] | null = null,
+  edgeShade = 1,
 ) {
   const n = pts.length / 2;
   if (n < 2) return;
@@ -419,19 +492,35 @@ function buildRibbon(
 
   const emit = (i0: number, i1: number) => {
     const base = acc.vcount;
+    const shadedEdges = edgeShade < 0.999;
+    const rowVerts = shadedEdges ? 3 : 2;
     for (let i = i0; i <= i1; i++) {
       const x = pts[i * 2] + laterals[i * 2] * lateralOffset;
       const z = pts[i * 2 + 1] + laterals[i * 2 + 1] * lateralOffset;
       const lx = laterals[i * 2], lz = laterals[i * 2 + 1];
       const y = ys[i];
       const u = uvScale ? dists[i] * uvScale : 0;
-      acc.vertex(x + lx * hw, y, z + lz * hw, 0, 1, 0, col[0], col[1], col[2], u, (hw * uvScale));
-      acc.vertex(x - lx * hw, y, z - lz * hw, 0, 1, 0, col[0], col[1], col[2], u, -(hw * uvScale));
+      if (shadedEdges) {
+        acc.vertex(x + lx * hw, y, z + lz * hw, 0, 1, 0, col[0] * edgeShade, col[1] * edgeShade, col[2] * edgeShade, u, (hw * uvScale));
+        acc.vertex(x, y, z, 0, 1, 0, col[0], col[1], col[2], u, 0);
+        acc.vertex(x - lx * hw, y, z - lz * hw, 0, 1, 0, col[0] * edgeShade, col[1] * edgeShade, col[2] * edgeShade, u, -(hw * uvScale));
+      } else {
+        acc.vertex(x + lx * hw, y, z + lz * hw, 0, 1, 0, col[0], col[1], col[2], u, (hw * uvScale));
+        acc.vertex(x - lx * hw, y, z - lz * hw, 0, 1, 0, col[0], col[1], col[2], u, -(hw * uvScale));
+      }
     }
     for (let i = 0; i < i1 - i0; i++) {
-      const a = base + i * 2;
-      pushUpTri(acc, a, a + 2, a + 1);
-      pushUpTri(acc, a + 1, a + 2, a + 3);
+      const a = base + i * rowVerts;
+      const b = a + rowVerts;
+      if (shadedEdges) {
+        pushUpTri(acc, a, b, a + 1);
+        pushUpTri(acc, a + 1, b, b + 1);
+        pushUpTri(acc, a + 1, b + 1, a + 2);
+        pushUpTri(acc, a + 2, b + 1, b + 2);
+      } else {
+        pushUpTri(acc, a, b, a + 1);
+        pushUpTri(acc, a + 1, b, b + 1);
+      }
     }
   };
 
@@ -560,11 +649,38 @@ function buildTile(tile: TileJson): BuildResponse {
       const h = Math.max(3, b.h);
       const minH = b.m ?? 0;
       const base = b.b ?? 0;
-      const bc = buildingColor(seed, h);
-      bAcc.styleCursor = bc.glass ? 1 : 0;
+      const archetype = (
+        Number.isInteger(b.a) && (b.a as number) >= 0 && (b.a as number) <= 7
+          ? b.a
+          : legacyBuildingArchetype(seed, h, b.k)
+      ) as BuildingArchetype;
+      const bc = buildingColor(seed, h, archetype, b.c);
+      const rc = roofColor(seed, b.q, b.o, bc.col);
+      bAcc.styleCursor = bc.archetype;
+      const roofShape = (b.r ?? '').toLowerCase();
+      const solidHeight = h - minH;
+      const apexRoof = rings.length === 1
+        && /^(pyramidal|hipped|dome|round|cone|onion|mansard)$/.test(roofShape)
+        && rings[0].length >= 6
+        && rings[0].length <= 24
+        && isConvexRing(rings[0])
+        && solidHeight >= 5;
+      const roofRise = apexRoof
+        ? Math.min(7, solidHeight * 0.35, Math.max(1.2, h * (roofShape === 'dome' || roofShape === 'onion' ? 0.18 : 0.12)))
+        : 0;
+      const wallTop = base + h - roofRise;
       // sink foundations 2.5m so sloped ground never shows a gap under walls;
       // elevated parts get a sealed underside
-      extrude(bAcc, rings, base + minH - (minH > 0 ? 0 : 2.5), base + h, bc.col, minH > 0);
+      extrude(
+        bAcc,
+        rings,
+        base + minH - (minH > 0 ? 0 : 2.5),
+        wallTop,
+        bc.col,
+        minH > 0,
+        rc,
+      );
+      if (apexRoof) addApexRoof(bAcc, rings[0], wallTop, base + h, rc);
 
       // collision for every solid part: ground-level buildings push the player
       // out; elevated parts (setback towers, skybridges) carry base+top so the
@@ -590,7 +706,7 @@ function buildTile(tile: TileJson): BuildResponse {
         cx /= n; cz /= n;
         // rough area check
         const area = Math.abs(ringArea(ring));
-        if (area > 220) { bAcc.styleCursor = 0; waterTower(bAcc, cx, cz, base + h, seed + 5); }
+        if (area > 220) { bAcc.styleCursor = 4; waterTower(bAcc, cx, cz, base + h, seed + 5); }
       }
     }
   }
@@ -658,8 +774,10 @@ function buildTile(tile: TileJson): BuildResponse {
     }
   }
 
+  let roadIndex = 0;
   if (tile.roads) {
     for (const r of tile.roads) {
+      const roadSeed = seedBase + roadIndex++ * 53;
       const style = ROAD_STYLE[r.c] ?? ROAD_STYLE.residential;
       const bike = r.c === 'cycleway';
       const n = r.p.length / 2;
@@ -683,6 +801,7 @@ function buildTile(tile: TileJson): BuildResponse {
       }
       const concrete = CONCRETE_CLASSES.has(r.c);
       const acc = concrete ? wAcc : rAcc;
+      const surfaceVariation = 0.94 + hash01(roadSeed + 31) * 0.1;
       // near-white base tint so the texture map carries the color
       const tint: [number, number, number] = r.b
         ? [0.95, 0.97, 1.02]
@@ -690,8 +809,22 @@ function buildTile(tile: TileJson): BuildResponse {
           ? [style.col[0] * 1.55, style.col[1] * 1.55, style.col[2] * 1.55]
           : [style.col[0] * 4.2, style.col[1] * 4.2, style.col[2] * 4.2];
       buildRibbon(acc, pts, style.w, ys, [
-        Math.min(1.15, tint[0]), Math.min(1.15, tint[1]), Math.min(1.15, tint[2]),
-      ], 0, 0.25);
+        Math.min(1.15, tint[0] * surfaceVariation),
+        Math.min(1.15, tint[1] * surfaceVariation),
+        Math.min(1.15, tint[2] * surfaceVariation),
+      ], 0, 0.25, null, concrete ? 1 : 0.73);
+
+      // Major-street curb caps join the existing merged sidewalk payload
+      // (distance tier 2) and disappear before far-field geometry matters.
+      // The asphalt's edge-shaded center strip supplies gutters everywhere
+      // else without extra draw calls or separate streamed payloads.
+      if (!r.b && CURBED_STREETS.has(r.c)) {
+        const cys = ys.map((y) => y + 0.1);
+        const curbCol: [number, number, number] = [0.78, 0.79, 0.78];
+        const curbOffset = style.w / 2 + 0.17;
+        buildRibbon(wAcc, pts, 0.34, cys, curbCol, curbOffset, 0.25);
+        buildRibbon(wAcc, pts, 0.34, cys, curbCol, -curbOffset, 0.25);
+      }
 
       // ---- markings ----
       const mys = ys.map((y) => y + 0.02);
