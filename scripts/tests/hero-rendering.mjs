@@ -16,10 +16,17 @@ import {
   temporalHistoryWeight,
 } from '../../src/engine/rendering/TemporalAAPass.ts';
 import {
+  HEARST_BIRD_MOUTH_THROAT_COUNT,
   HEARST_BIRD_MOUTH_BOUNDARIES,
   HEARST_DIAGRID_BEAM_COUNT,
   HEARST_DIAGRID_MODULES,
+  HEARST_FACE_BAYS,
+  HEARST_FACE_DIAGONAL_COUNT,
+  HEARST_FACE_TIER_RAIL_COUNT,
   hearstBirdMouthLevels,
+  hearstBoundaryCut,
+  hearstFaceDiagonals,
+  hearstFaceGridAlong,
 } from '../../src/engine/landmarks/hearstGeometry.ts';
 
 test('rendering contracts expose the deliberate per-tier cost ladder', () => {
@@ -74,7 +81,11 @@ test('temporal resolve uses centered jitter and rejects moving/depth-edge histor
 test('Hearst curtain wall preserves four localized bird-mouth corner bands', () => {
   assert.equal(HEARST_DIAGRID_MODULES, 9);
   assert.deepEqual(HEARST_BIRD_MOUTH_BOUNDARIES, [1, 3, 5, 7]);
-  assert.equal(HEARST_DIAGRID_BEAM_COUNT, 476);
+  assert.deepEqual(HEARST_FACE_BAYS, [3, 3, 2, 2]);
+  assert.equal(HEARST_FACE_DIAGONAL_COUNT, 90);
+  assert.equal(HEARST_FACE_TIER_RAIL_COUNT, 40);
+  assert.equal(HEARST_BIRD_MOUTH_THROAT_COUNT, 16);
+  assert.equal(HEARST_DIAGRID_BEAM_COUNT, 146);
 
   const levels = hearstBirdMouthLevels(32.5, 182);
   assert.equal(levels.length, HEARST_DIAGRID_MODULES + 1);
@@ -106,6 +117,89 @@ test('Hearst curtain wall preserves four localized bird-mouth corner bands', () 
     for (const level of levels.slice(1)) {
       assert.deepEqual(level.points[index], [x, z]);
     }
+  }
+});
+
+test('Hearst steel uses one alternating triangle per real-scale facade bay', () => {
+  const nodeCut = 1.7, biteCut = 6.2;
+  const broad = hearstFaceDiagonals(24, 3, nodeCut, biteCut);
+  const short = hearstFaceDiagonals(18.5, 2, nodeCut, biteCut);
+  assert.equal(broad.length, 27);
+  assert.equal(short.length, 18);
+
+  // A bird's mouth is a localized corner fold, not a pinch across the face.
+  // Every interior 40-foot node stays invariant through all ten tiers.
+  for (const [halfExtent, bays] of [[24, 3], [18.5, 2]]) {
+    const fixedHalf = halfExtent - biteCut;
+    for (let index = 1; index < bays; index++) {
+      const expected = -fixedHalf + index * ((fixedHalf * 2) / bays);
+      for (let boundary = 0; boundary <= HEARST_DIAGRID_MODULES; boundary++) {
+        assert.ok(Math.abs(hearstFaceGridAlong(
+          boundary, index, halfExtent, bays, nodeCut, biteCut,
+        ) - expected) < 1e-9);
+      }
+    }
+
+    // Only edge nodes move: normal tiers retain the short corner wing while
+    // the four recessed tiers meet the fixed facade anchors.
+    for (let boundary = 0; boundary <= HEARST_DIAGRID_MODULES; boundary++) {
+      const expectedHalf = halfExtent
+        - hearstBoundaryCut(boundary, nodeCut, biteCut);
+      assert.equal(hearstFaceGridAlong(
+        boundary, 0, halfExtent, bays, nodeCut, biteCut,
+      ), -expectedHalf);
+      assert.equal(hearstFaceGridAlong(
+        boundary, bays, halfExtent, bays, nodeCut, biteCut,
+      ), expectedHalf);
+    }
+  }
+
+  for (const [members, halfExtent, bays] of [
+    [broad, 24, 3],
+    [short, 18.5, 2],
+  ]) {
+    for (let module = 0; module < HEARST_DIAGRID_MODULES; module++) {
+      const tier = members.filter((member) => member.module === module);
+      assert.equal(tier.length, bays);
+      assert.deepEqual(tier.map((member) => member.bay), (
+        Array.from({ length: bays }, (_, bay) => bay)
+      ));
+
+      const lowerHalf = halfExtent
+        - hearstBoundaryCut(module, nodeCut, biteCut);
+      const upperHalf = halfExtent
+        - hearstBoundaryCut(module + 1, nodeCut, biteCut);
+      for (const member of tier) {
+        assert.ok(Math.abs(member.lowerAlong) <= lowerHalf + 1e-9);
+        assert.ok(Math.abs(member.upperAlong) <= upperHalf + 1e-9);
+        assert.ok(Math.abs(member.lowerAlong - member.upperAlong) > 1);
+
+        // Adjacent bays reverse slope; the following tier reverses it again.
+        const slope = Math.sign(member.upperAlong - member.lowerAlong);
+        assert.equal(slope, (module + member.bay) % 2 === 0 ? -1 : 1);
+      }
+    }
+  }
+
+  // Every bay has exactly one member. The deleted topology put two crossing
+  // diagonals in each bay and four more short diagonals on every corner tier.
+  const bayKeys = broad.map(({ module, bay }) => `${module}:${bay}`);
+  assert.equal(new Set(bayKeys).size, broad.length);
+
+  // Both ends of each two-bay short face converge into every recessed tier;
+  // those main members and a single throat rail define each bird's mouth.
+  for (const boundary of HEARST_BIRD_MOUTH_BOUNDARIES) {
+    const lowerTier = short.filter((member) => member.module === boundary - 1);
+    const upperTier = short.filter((member) => member.module === boundary);
+    const mouthHalf = 18.5 - biteCut;
+    assert.deepEqual(
+      lowerTier.map((member) => member.upperAlong).sort((a, b) => a - b),
+      [-mouthHalf, mouthHalf],
+    );
+    assert.deepEqual(
+      upperTier.map((member) => member.lowerAlong).sort((a, b) => a - b),
+      [-mouthHalf, mouthHalf],
+    );
   }
 });
 

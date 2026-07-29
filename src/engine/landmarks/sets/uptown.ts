@@ -7,10 +7,13 @@ import {
   box, cyl, strut, colonnade, lathe, archWall, figure, canvasTexture, twoSidedPanel,
 } from '../kit';
 import {
+  HEARST_BIRD_MOUTH_BOUNDARIES,
   HEARST_DIAGRID_BEAM_COUNT,
   HEARST_DIAGRID_MODULES,
+  HEARST_FACE_BAYS,
   hearstBirdMouthLevels,
   hearstBoundaryCut,
+  hearstFaceDiagonals,
 } from '../hearstGeometry';
 
 /**
@@ -571,10 +574,11 @@ export const builders: Record<string, (ctx: LandmarkCtx) => THREE.Group> = {
     );
     g.add(loftFacade(curtainLevels, glassMat, 2.8, moduleH / 4));
 
-    // Bake the 476-piece lattice straight into one geometry before it enters
-    // the landmark tree. Sharing the unit cylinder keeps every close fly-by
-    // beam identical, while pre-merging eliminates hundreds of Mesh nodes,
-    // matrix updates and LandmarkManager traversal steps on every approach.
+    // Bake the reference-scale lattice straight into one geometry before it
+    // enters the landmark tree. One alternating diagonal per 40-foot bay makes
+    // the real four-storey triangular frame; the former X in every cell and
+    // supplemental mini-diagrid over every chamfer made the tower read as
+    // decorative latticework instead of structure.
     const beamGeo = new THREE.CylinderGeometry(1, 1, 1, 5);
     const beamGeos: THREE.BufferGeometry[] = [];
     const beamUp = new THREE.Vector3(0, 1, 0);
@@ -593,10 +597,10 @@ export const builders: Record<string, (ctx: LandmarkCtx) => THREE.Group> = {
       beamGeos.push(beamGeo.clone().applyMatrix4(beamMatrix));
     };
     const faces = [
-      { axis: 'z' as const, fixed: -HD - 0.12, half: HW - biteCut, bays: 4 },
-      { axis: 'z' as const, fixed: HD + 0.12, half: HW - biteCut, bays: 4 },
-      { axis: 'x' as const, fixed: -HW - 0.12, half: HD - biteCut, bays: 3 },
-      { axis: 'x' as const, fixed: HW + 0.12, half: HD - biteCut, bays: 3 },
+      { axis: 'z' as const, fixed: -HD - 0.12, halfExtent: HW, bays: HEARST_FACE_BAYS[0] },
+      { axis: 'z' as const, fixed: HD + 0.12, halfExtent: HW, bays: HEARST_FACE_BAYS[1] },
+      { axis: 'x' as const, fixed: -HW - 0.12, halfExtent: HD, bays: HEARST_FACE_BAYS[2] },
+      { axis: 'x' as const, fixed: HW + 0.12, halfExtent: HD, bays: HEARST_FACE_BAYS[3] },
     ];
     const facePoint = (
       face: (typeof faces)[number], along: number, y: number,
@@ -604,52 +608,47 @@ export const builders: Record<string, (ctx: LandmarkCtx) => THREE.Group> = {
       ? new THREE.Vector3(along, y, face.fixed)
       : new THREE.Vector3(face.fixed, y, along);
     for (const face of faces) {
-      const segment = (face.half * 2) / face.bays;
-      for (let r = 0; r < modules; r++) {
-        const yb = y0 + r * moduleH, yt = yb + moduleH;
-        for (let i = 0; i < face.bays; i++) {
-          const a = -face.half + i * segment, b = a + segment;
-          addBeam(facePoint(face, a, yb), facePoint(face, b, yt), 0.52);
-          addBeam(facePoint(face, a, yt), facePoint(face, b, yb), 0.52);
-        }
+      for (const diagonal of hearstFaceDiagonals(
+        face.halfExtent, face.bays, nodeCut, biteCut,
+      )) {
+        const yb = y0 + diagonal.module * moduleH;
+        addBeam(
+          facePoint(face, diagonal.lowerAlong, yb),
+          facePoint(face, diagonal.upperAlong, yb + moduleH),
+          0.52,
+        );
       }
     }
 
-    // The diagonal structure wraps continuously through each recessed corner.
-    // Its intermediate joints follow a linear half-step between the same
-    // boundary rings as the glazing; this retains the four members per corner
-    // module while removing the former ten unrelated midpoint notches.
-    const cornerPairs: [number, number][] = [[1, 2], [3, 4], [5, 6], [7, 0]];
-    for (let r = 0; r < modules; r++) {
-      const yb = y0 + r * moduleH, ym = yb + moduleH / 2, yt = yb + moduleH;
-      const lower = plan(hearstBoundaryCut(r, nodeCut, biteCut));
-      const upper = plan(hearstBoundaryCut(r + 1, nodeCut, biteCut));
-      for (const [a, b] of cornerPairs) {
-        const lowerA = new THREE.Vector3(lower[a][0], yb, lower[a][1]);
-        const lowerB = new THREE.Vector3(lower[b][0], yb, lower[b][1]);
-        const upperA = new THREE.Vector3(upper[a][0], yt, upper[a][1]);
-        const upperB = new THREE.Vector3(upper[b][0], yt, upper[b][1]);
-        const midA = lowerA.clone().lerp(upperA, 0.5).setY(ym);
-        const midB = lowerB.clone().lerp(upperB, 0.5).setY(ym);
-        addBeam(lowerA, midB, 0.52);
-        addBeam(lowerB, midA, 0.52);
-        addBeam(midA, upperB, 0.52);
-        addBeam(midB, upperA, 0.52);
-      }
-    }
-
-    // Slim perimeter node plates terminate each four-storey diamond and follow
-    // the four recessed boundary rings. There are deliberately no vertical
-    // corner mullions, preserving the peeled bird's-mouth profile.
+    // Slim horizontal members join the structural nodes across the four broad
+    // planes. They remain subordinate to the diagonals and stop before each
+    // chamfer, avoiding ten bright octagonal belts around the entire tower.
     for (let r = 0; r <= modules; r++) {
-      const ring = plan(hearstBoundaryCut(r, nodeCut, biteCut));
       const y = y0 + r * moduleH;
-      for (let i = 0; i < ring.length; i++) {
-        const a = ring[i], b = ring[(i + 1) % ring.length];
+      const cut = hearstBoundaryCut(r, nodeCut, biteCut);
+      for (const face of faces) {
+        const half = face.halfExtent - cut;
+        addBeam(
+          facePoint(face, -half, y),
+          facePoint(face, half, y),
+          r === 0 || r === modules ? 0.28 : 0.14,
+        );
+      }
+    }
+
+    // At the four real recessed tiers, one throat member closes each corner
+    // node. Negative space and the converging main-face diagonals now describe
+    // the bird's mouth; there are no short diagonal diamonds on the chamfer.
+    const cornerPairs: [number, number][] = [[1, 2], [3, 4], [5, 6], [7, 0]];
+    for (const boundary of HEARST_BIRD_MOUTH_BOUNDARIES) {
+      const ring = plan(biteCut);
+      const y = y0 + boundary * moduleH;
+      for (const [aIndex, bIndex] of cornerPairs) {
+        const a = ring[aIndex], b = ring[bIndex];
         addBeam(
           new THREE.Vector3(a[0], y, a[1]),
           new THREE.Vector3(b[0], y, b[1]),
-          r === 0 || r === modules ? 0.38 : 0.25,
+          0.18,
         );
       }
     }
