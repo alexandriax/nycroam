@@ -6,7 +6,7 @@ import { LANDMARK_SHADOW_LAYER } from './layers.js';
 export { LANDMARK_SHADOW_LAYER } from './layers.js';
 
 /**
- * These are the 23 landmarks for which silhouette and recognition matter at
+ * These are the landmarks for which silhouette and recognition matter at
  * city-view distances. Their source remains the fitted procedural authored
  * model: converting it to a nominal glTF would discard live footprint fitting,
  * terrain placement, shared materials and exact OSM anchoring without making
@@ -33,6 +33,7 @@ export const HERO_LANDMARK_LOD_IDS = new Set([
   'united-nations',
   'queensboro-bridge',
   'columbus-circle',
+  'hearst-tower',
   'met-museum',
   'guggenheim',
   'gwb',

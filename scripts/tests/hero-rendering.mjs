@@ -16,17 +16,26 @@ import {
   temporalHistoryWeight,
 } from '../../src/engine/rendering/TemporalAAPass.ts';
 import {
-  HEARST_BIRD_MOUTH_THROAT_COUNT,
+  HEARST_BIRD_MOUTH_CUT,
   HEARST_BIRD_MOUTH_BOUNDARIES,
+  HEARST_DIAGONALS_PER_MODULE,
+  HEARST_DIAGONAL_SEGMENT_COUNT,
   HEARST_DIAGRID_BEAM_COUNT,
   HEARST_DIAGRID_MODULES,
   HEARST_FACE_BAYS,
-  HEARST_FACE_DIAGONAL_COUNT,
-  HEARST_FACE_TIER_RAIL_COUNT,
-  hearstBirdMouthLevels,
-  hearstBoundaryCut,
-  hearstFaceDiagonals,
-  hearstFaceGridAlong,
+  HEARST_GRID_MODULE,
+  HEARST_PERIMETER_NODE_COUNT,
+  HEARST_RING_SEGMENT_COUNT,
+  HEARST_SHARP_CORNER_CUT,
+  HEARST_TOWER_DEPTH,
+  HEARST_TOWER_WIDTH,
+  hearstBoundaryIsBirdMouth,
+  hearstBoundaryIsChamfered,
+  hearstCurtainLevels,
+  hearstDiagridSegments,
+  hearstPerimeterRing,
+  hearstProjectedDiagonalAngle,
+  hearstRingPerimeter,
 } from '../../src/engine/landmarks/hearstGeometry.ts';
 
 test('rendering contracts expose the deliberate per-tier cost ladder', () => {
@@ -78,134 +87,173 @@ test('temporal resolve uses centered jitter and rejects moving/depth-edge histor
   assert.ok(movingEdge < moving && movingEdge < edge);
 });
 
-test('Hearst curtain wall preserves four localized bird-mouth corner bands', () => {
+test('Hearst curtain wall preserves four eight-storey mouths and a phased roof', () => {
   assert.equal(HEARST_DIAGRID_MODULES, 9);
   assert.deepEqual(HEARST_BIRD_MOUTH_BOUNDARIES, [1, 3, 5, 7]);
-  assert.deepEqual(HEARST_FACE_BAYS, [3, 3, 2, 2]);
-  assert.equal(HEARST_FACE_DIAGONAL_COUNT, 90);
-  assert.equal(HEARST_FACE_TIER_RAIL_COUNT, 40);
-  assert.equal(HEARST_BIRD_MOUTH_THROAT_COUNT, 16);
-  assert.equal(HEARST_DIAGRID_BEAM_COUNT, 146);
+  assert.equal(HEARST_TOWER_WIDTH, HEARST_GRID_MODULE * 4);
+  assert.equal(HEARST_TOWER_DEPTH, HEARST_GRID_MODULE * 3);
+  assert.equal(HEARST_BIRD_MOUTH_CUT, HEARST_GRID_MODULE / 2);
 
-  const levels = hearstBirdMouthLevels(32.5, 182);
+  const y0 = 33.53, y1 = 182;
+  const levels = hearstCurtainLevels(y0, y1);
   assert.equal(levels.length, HEARST_DIAGRID_MODULES + 1);
-  const step = (182 - 32.5) / HEARST_DIAGRID_MODULES;
+  const step = (y1 - y0) / HEARST_DIAGRID_MODULES;
   levels.forEach((level, boundary) => {
-    assert.ok(Math.abs(level.y - (32.5 + boundary * step)) < 1e-9);
-    assert.equal(level.points.length, 16);
+    assert.ok(Math.abs(level.y - (y0 + boundary * step)) < 1e-9);
+    assert.equal(level.points.length, 8);
+    assert.equal(new Set(level.points.map(([x, z]) => `${x}:${z}`)).size, 8);
   });
 
-  // At a mouth the moving corner-wing point meets its fixed facade anchor.
-  // Every other boundary retains a 4.5m wing, so the recesses cannot spread
-  // into a ten-band sawtooth over the whole glass shaft.
-  const recessed = levels
-    .map((level, boundary) => (
-      Math.abs(level.points[0][0] - level.points[1][0]) < 1e-9
-        ? boundary
-        : -1
-    ))
-    .filter((boundary) => boundary >= 0);
-  assert.deepEqual(recessed, [1, 3, 5, 7]);
-  for (const boundary of [0, 2, 4, 6, 8, 9]) {
-    assert.ok(Math.abs(levels[boundary].points[0][0] - levels[boundary].points[1][0]) > 4);
-  }
+  assert.deepEqual(
+    levels
+      .map((_, boundary) => boundary)
+      .filter(hearstBoundaryIsBirdMouth),
+    [1, 3, 5, 7],
+  );
+  assert.deepEqual(
+    levels
+      .map((_, boundary) => boundary)
+      .filter(hearstBoundaryIsChamfered),
+    [1, 3, 5, 7, 9],
+  );
+  assert.equal(hearstBoundaryIsBirdMouth(9), false);
 
-  // Four broad facade-center edges never move in plan; only their short
-  // corner wings and chamfers participate in the loft.
-  for (const index of [1, 2, 5, 6, 9, 10, 13, 14]) {
-    const [x, z] = levels[0].points[index];
-    for (const level of levels.slice(1)) {
-      assert.deepEqual(level.points[index], [x, z]);
+  const halfWidth = HEARST_TOWER_WIDTH / 2;
+  assert.ok(Math.abs(
+    levels[0].points[0][0] - (-halfWidth + HEARST_SHARP_CORNER_CUT),
+  ) < 1e-9);
+  assert.ok(Math.abs(
+    levels[1].points[0][0] - (-halfWidth + HEARST_BIRD_MOUTH_CUT),
+  ) < 1e-9);
+  // The roof stays on the half-module phase so the final diagonals do not
+  // stretch across a full corner and flatten to the wrong angle.
+  assert.deepEqual(levels[9].points, levels[1].points);
+
+  const triangleArea3d = (a, b, c) => {
+    const ab = new THREE.Vector3().subVectors(b, a);
+    const ac = new THREE.Vector3().subVectors(c, a);
+    return ab.cross(ac).length() * 0.5;
+  };
+  const outwardDot = (a, b, c) => {
+    const normal = new THREE.Vector3()
+      .subVectors(b, a)
+      .cross(new THREE.Vector3().subVectors(c, a));
+    const center = new THREE.Vector3()
+      .copy(a).add(b).add(c).multiplyScalar(1 / 3);
+    const outward = new THREE.Vector3(
+      center.x / (HEARST_TOWER_WIDTH / 2),
+      0,
+      center.z / (HEARST_TOWER_DEPTH / 2),
+    ).normalize();
+    return normal.dot(outward);
+  };
+  for (let level = 0; level + 1 < levels.length; level++) {
+    for (let index = 0; index < 8; index++) {
+      const next = (index + 1) % 8;
+      const lower = levels[level], upper = levels[level + 1];
+      const points = [
+        new THREE.Vector3(...[lower.points[index][0], lower.y, lower.points[index][1]]),
+        new THREE.Vector3(...[upper.points[index][0], upper.y, upper.points[index][1]]),
+        new THREE.Vector3(...[upper.points[next][0], upper.y, upper.points[next][1]]),
+        new THREE.Vector3(...[lower.points[next][0], lower.y, lower.points[next][1]]),
+      ];
+      assert.ok(triangleArea3d(points[0], points[1], points[2]) > 1e-4);
+      assert.ok(triangleArea3d(points[0], points[2], points[3]) > 1e-4);
+      assert.ok(outwardDot(points[0], points[1], points[2]) > 0);
+      assert.ok(outwardDot(points[0], points[2], points[3]) > 0);
     }
   }
 });
 
-test('Hearst steel uses one alternating triangle per real-scale facade bay', () => {
-  const nodeCut = 1.7, biteCut = 6.2;
-  const broad = hearstFaceDiagonals(24, 3, nodeCut, biteCut);
-  const short = hearstFaceDiagonals(18.5, 2, nodeCut, biteCut);
-  assert.equal(broad.length, 27);
-  assert.equal(short.length, 18);
+test('Hearst steel is one continuous 40-foot perimeter diagrid', () => {
+  assert.deepEqual(HEARST_FACE_BAYS, [4, 4, 3, 3]);
+  assert.equal(HEARST_PERIMETER_NODE_COUNT, 14);
+  assert.equal(HEARST_DIAGONALS_PER_MODULE, 28);
+  assert.equal(HEARST_DIAGONAL_SEGMENT_COUNT, 252);
+  assert.equal(HEARST_RING_SEGMENT_COUNT, 140);
+  assert.equal(HEARST_DIAGRID_BEAM_COUNT, 392);
 
-  // A bird's mouth is a localized corner fold, not a pinch across the face.
-  // Every interior 40-foot node stays invariant through all ten tiers.
-  for (const [halfExtent, bays] of [[24, 3], [18.5, 2]]) {
-    const fixedHalf = halfExtent - biteCut;
-    for (let index = 1; index < bays; index++) {
-      const expected = -fixedHalf + index * ((fixedHalf * 2) / bays);
-      for (let boundary = 0; boundary <= HEARST_DIAGRID_MODULES; boundary++) {
-        assert.ok(Math.abs(hearstFaceGridAlong(
-          boundary, index, halfExtent, bays, nodeCut, biteCut,
-        ) - expected) < 1e-9);
-      }
-    }
+  const fullPerimeter = (HEARST_TOWER_WIDTH + HEARST_TOWER_DEPTH) * 2;
+  assert.ok(Math.abs(hearstRingPerimeter(0) - fullPerimeter) < 1e-9);
+  const expectedMouthPerimeter = fullPerimeter
+    - HEARST_BIRD_MOUTH_CUT * 8
+    + Math.SQRT2 * HEARST_BIRD_MOUTH_CUT * 4;
+  assert.ok(Math.abs(hearstRingPerimeter(1) - expectedMouthPerimeter) < 1e-9);
 
-    // Only edge nodes move: normal tiers retain the short corner wing while
-    // the four recessed tiers meet the fixed facade anchors.
-    for (let boundary = 0; boundary <= HEARST_DIAGRID_MODULES; boundary++) {
-      const expectedHalf = halfExtent
-        - hearstBoundaryCut(boundary, nodeCut, biteCut);
-      assert.equal(hearstFaceGridAlong(
-        boundary, 0, halfExtent, bays, nodeCut, biteCut,
-      ), -expectedHalf);
-      assert.equal(hearstFaceGridAlong(
-        boundary, bays, halfExtent, bays, nodeCut, biteCut,
-      ), expectedHalf);
-    }
-  }
-
-  for (const [members, halfExtent, bays] of [
-    [broad, 24, 3],
-    [short, 18.5, 2],
-  ]) {
-    for (let module = 0; module < HEARST_DIAGRID_MODULES; module++) {
-      const tier = members.filter((member) => member.module === module);
-      assert.equal(tier.length, bays);
-      assert.deepEqual(tier.map((member) => member.bay), (
-        Array.from({ length: bays }, (_, bay) => bay)
-      ));
-
-      const lowerHalf = halfExtent
-        - hearstBoundaryCut(module, nodeCut, biteCut);
-      const upperHalf = halfExtent
-        - hearstBoundaryCut(module + 1, nodeCut, biteCut);
-      for (const member of tier) {
-        assert.ok(Math.abs(member.lowerAlong) <= lowerHalf + 1e-9);
-        assert.ok(Math.abs(member.upperAlong) <= upperHalf + 1e-9);
-        assert.ok(Math.abs(member.lowerAlong - member.upperAlong) > 1);
-
-        // Adjacent bays reverse slope; the following tier reverses it again.
-        const slope = Math.sign(member.upperAlong - member.lowerAlong);
-        assert.equal(slope, (module + member.bay) % 2 === 0 ? -1 : 1);
-      }
+  for (let boundary = 0; boundary <= HEARST_DIAGRID_MODULES; boundary++) {
+    const ring = hearstPerimeterRing(boundary);
+    assert.equal(ring.length, HEARST_PERIMETER_NODE_COUNT);
+    assert.equal(new Set(ring.map(({ point: [x, z] }) => `${x}:${z}`)).size, 14);
+    const chamferEdges = ring.filter(({ point }, index) => {
+      const next = ring[(index + 1) % ring.length].point;
+      return Math.abs(point[0] - next[0]) > 1e-9
+        && Math.abs(point[1] - next[1]) > 1e-9;
+    });
+    assert.equal(chamferEdges.length, hearstBoundaryIsChamfered(boundary) ? 4 : 0);
+    for (let index = 0; index < ring.length; index++) {
+      const point = ring[index].point;
+      const next = ring[(index + 1) % ring.length].point;
+      const length = Math.hypot(point[0] - next[0], point[1] - next[1]);
+      assert.ok(
+        Math.abs(length - HEARST_GRID_MODULE) < 1e-9
+        || Math.abs(length - Math.SQRT2 * HEARST_BIRD_MOUTH_CUT) < 1e-9,
+      );
     }
   }
 
-  // Every bay has exactly one member. The deleted topology put two crossing
-  // diagonals in each bay and four more short diagonals on every corner tier.
-  const bayKeys = broad.map(({ module, bay }) => `${module}:${bay}`);
-  assert.equal(new Set(bayKeys).size, broad.length);
+  const y0 = 33.53, y1 = 182;
+  const moduleH = (y1 - y0) / HEARST_DIAGRID_MODULES;
+  assert.ok(hearstProjectedDiagonalAngle(moduleH) >= 68);
+  assert.ok(hearstProjectedDiagonalAngle(moduleH) <= 72);
+  const expectedLength = Math.hypot(moduleH, HEARST_GRID_MODULE / 2);
+  const segments = hearstDiagridSegments();
+  assert.equal(segments.length, HEARST_DIAGONAL_SEGMENT_COUNT);
+  assert.equal(
+    new Set(segments.map((segment) => (
+      `${segment.module}:${segment.lowerIndex}>${segment.module + 1}:${segment.upperIndex}`
+    ))).size,
+    HEARST_DIAGONAL_SEGMENT_COUNT,
+  );
+  const degree = new Map();
+  for (const segment of segments) {
+    const planarRunX = Math.abs(segment.upper[0] - segment.lower[0]);
+    const planarRunZ = Math.abs(segment.upper[1] - segment.lower[1]);
+    assert.ok(
+      (planarRunX < 1e-9 && planarRunZ > 0)
+      || (planarRunZ < 1e-9 && planarRunX > 0),
+      'every diagonal stays in exactly one facade plane',
+    );
+    assert.ok(Math.abs(Math.hypot(planarRunX, planarRunZ) - HEARST_GRID_MODULE / 2) < 1e-9);
+    assert.ok(Math.abs(
+      Math.hypot(planarRunX, moduleH, planarRunZ) - expectedLength,
+    ) < 1e-9);
+    for (const key of [
+      `${segment.module}:${segment.lowerIndex}`,
+      `${segment.module + 1}:${segment.upperIndex}`,
+    ]) {
+      degree.set(key, (degree.get(key) ?? 0) + 1);
+    }
+  }
 
-  // Both ends of each two-bay short face converge into every recessed tier;
-  // those main members and a single throat rail define each bird's mouth.
-  for (const boundary of HEARST_BIRD_MOUTH_BOUNDARIES) {
-    const lowerTier = short.filter((member) => member.module === boundary - 1);
-    const upperTier = short.filter((member) => member.module === boundary);
-    const mouthHalf = 18.5 - biteCut;
-    assert.deepEqual(
-      lowerTier.map((member) => member.upperAlong).sort((a, b) => a - b),
-      [-mouthHalf, mouthHalf],
-    );
-    assert.deepEqual(
-      upperTier.map((member) => member.lowerAlong).sort((a, b) => a - b),
-      [-mouthHalf, mouthHalf],
-    );
+  for (let module = 0; module < HEARST_DIAGRID_MODULES; module++) {
+    const tier = segments.filter((segment) => segment.module === module);
+    assert.equal(tier.length, HEARST_DIAGONALS_PER_MODULE);
+    assert.equal(tier.filter((segment) => segment.corner).length, 8);
+  }
+  for (let boundary = 0; boundary <= HEARST_DIAGRID_MODULES; boundary++) {
+    for (let index = 0; index < HEARST_PERIMETER_NODE_COUNT; index++) {
+      assert.equal(
+        degree.get(`${boundary}:${index}`),
+        boundary === 0 || boundary === HEARST_DIAGRID_MODULES ? 2 : 4,
+      );
+    }
   }
 });
 
 test('the recognizable hero set is complete, bounded and backed by registry entries', () => {
   assert.ok(HERO_LANDMARK_LOD_IDS.size >= 15);
   assert.ok(HERO_LANDMARK_LOD_IDS.size <= 25);
+  assert.equal(HERO_LANDMARK_LOD_IDS.has('hearst-tower'), true);
   const registryUrl = new URL('../../src/engine/landmarks/registry.ts', import.meta.url);
   const registry = readFileSync(registryUrl, 'utf8');
   const source = ts.createSourceFile(
