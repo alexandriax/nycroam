@@ -35,6 +35,8 @@ import type {
   ComplexSpec, GroupSpec, MezzSpec, StairSpec, TrackSpec,
 } from './complextypes';
 import { groupToWorld, worldToGroup, groupRectToWorld } from './complextypes';
+import { quality } from '../quality';
+import { batchStaticStationMeshes, type StationBatchStats } from '../performance/stationBatch';
 
 const CEIL = 3.6; // platform-level ceiling above platform floor
 const MEZZ_HEADROOM = 3.0; // mezz/corridor ceiling above its floor
@@ -101,6 +103,8 @@ export class ComplexStationWorld {
   /** Forwarded to every group scheduler: fires when any train pulls in. */
   onArrive: (() => void) | null = null;
   readonly groups: BuiltGroup[] = [];
+  /** Static color/shadow submission reduction, exposed for profiling/HUD QA. */
+  readonly batchStats: StationBatchStats;
 
   private cx: ComplexSpec;
   private stairs: BuiltStair[] = [];
@@ -148,13 +152,26 @@ export class ComplexStationWorld {
     setupStationLights(this.scene, Math.min(extent + 25, 160));
     this.build();
     this.scene.traverse((o) => {
-      if (o instanceof THREE.Mesh) o.receiveShadow = true;
+      if (o instanceof THREE.Mesh && !(o.material instanceof THREE.MeshBasicMaterial)) {
+        o.receiveShadow = true;
+      }
     });
-    for (const g of this.shadowCasters) {
-      g.traverse((o) => {
-        if (o instanceof THREE.Mesh) o.castShadow = true;
-      });
+    if (quality().stationShadows) {
+      for (const g of this.shadowCasters) {
+        g.traverse((o) => {
+          if (o instanceof THREE.Mesh) o.castShadow = true;
+        });
+      }
     }
+    // Group nodes and their transforms remain in place for TrainScheduler;
+    // only the immutable descendants built above are flattened into root-space
+    // batches. Countdown boards remain live because their CanvasTextures are
+    // updated in place and the replacement mesh keeps the same material.
+    this.batchStats = batchStaticStationMeshes(
+      this.root,
+      (geometry) => this.track(geometry),
+    );
+    this.shadowCasters.length = 0;
   }
 
   // ---- small helpers ------------------------------------------------------

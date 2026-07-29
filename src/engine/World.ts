@@ -8,8 +8,8 @@ import {
   pointInBuildings, buildingRingsAt, pointInBuildingsExcept, roofBelow,
 } from './collision';
 import { PATH_KIND_ROAD, type RoadPaths } from './tileTypes';
-import { setupSky, setupLights, followSun, SKY } from './sky';
-import { mobileQualityRequested, quality } from './quality';
+import { setupSky, setupLights, followSun, makeOutdoorEnvironment, SKY } from './sky';
+import { mobileQualityRequested, quality, runtimePerformanceProfile } from './quality';
 import { installAtmosphere } from './atmosphere';
 import { makeSkylineMaterial, makeFlatMaterial, makeWaterMaterial } from './materials';
 import { EntranceManager, disposeGroup } from './EntranceManager';
@@ -38,6 +38,13 @@ import { routeColor } from './subway/types';
 import { boardLabel } from './subway/directions';
 import { lonLatToXZ, xzToLonLat, googleMapsUrl, ORIGIN, M_PER_DEG_LAT, M_PER_DEG_LON } from './geo';
 import { loadTerrain, heightAt } from './terrain';
+import { StreetLife } from './StreetLife';
+import {
+  QualityGovernor,
+  type QualityDecision,
+  type RuntimeQualitySettings,
+} from './performance/QualityGovernor';
+import { WebGLGpuTimer } from './performance/WebGLGpuTimer';
 
 const SAVE_KEY = 'nycroam';
 const LEGACY_SAVE_KEY = 'nycworld'; // read-only: keeps positions saved before the rename
@@ -123,6 +130,7 @@ export class World {
   private camera: THREE.PerspectiveCamera;
   private streetScene = new THREE.Scene();
   private tiles: TileManager;
+  private streetLife: StreetLife;
   private entrances: EntranceManager;
   private plaques: PlaqueManager;
   private nearPlaque: PlaqueInfo | null = null; // building whose plaque is in reach (street mode)
@@ -172,7 +180,13 @@ export class World {
   // reduced UNDER LOAD, and recovers by itself.
   private maxPixelRatio = 2;
   private dynPixelRatio = 2;
-  private goodTicks = 0; // consecutive fast HUD ticks before stepping back up
+  private authoredShadowMapSize = 1024;
+  private authoredLoadRadius = 1150;
+  private tileWorkerCount = 2;
+  private qualityGovernor: QualityGovernor;
+  private gpuTimer: WebGLGpuTimer;
+  private lastGpuMs: number | null = null;
+  private governorSawTransition = false;
   /** What the adaptive loop has given up so far, newest last (settings UI + debug). */
   perfNotes: string[] = [];
   private transitioning = false;
@@ -184,6 +198,9 @@ export class World {
   private skyDome: THREE.Object3D | null = null;
   private lastRaf = 0;
   private tickInterval = 0;
+  /** Outdoor sky/ground probe used by street glass, metal and vehicles. */
+  private streetEnvTex: THREE.Texture | null = null;
+  /** Indoor softbox probe used by stations and subway rides. */
   private envTex: THREE.Texture | null = null;
   private baseLoadRadius = 1150;
   private currentStationSpec: StationSpec | null = null;
@@ -210,12 +227,30 @@ export class World {
     installAtmosphere();
     this.isMobile = mobileQualityRequested();
     const q = quality();
+    const runtimeProfile = runtimePerformanceProfile();
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
     this.maxPixelRatio = Math.min(window.devicePixelRatio, q.pixelRatioCap);
     this.dynPixelRatio = this.maxPixelRatio;
     this.renderer.setPixelRatio(this.dynPixelRatio);
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 1.08;
+    this.renderer.outputColorSpace = THREE.SRGBColorSpace;
+    this.authoredShadowMapSize = q.shadowMapSize;
+    this.authoredLoadRadius = q.loadRadius;
+    this.tileWorkerCount = q.tileWorkers;
+    this.qualityGovernor = new QualityGovernor({
+      targetFrameMs: 1000 / runtimeProfile.targetFps,
+      minRenderScale: runtimeProfile.minRenderScale,
+      minPopulationScale: runtimeProfile.minPopulationScale,
+      minDetailDistanceScale: runtimeProfile.minDetailDistanceScale,
+      minStreamingScale: runtimeProfile.minStreamingScale,
+    }, {
+      // There is deliberately no full-screen effects pass yet. Starting this
+      // rung at zero keeps the governor from "reducing" a no-op under load.
+      effectsLevel: 0,
+      shadowLevel: q.shadows ? 2 : 0,
+    });
+    this.gpuTimer = new WebGLGpuTimer(this.renderer.getContext());
     if (q.shadows) {
       this.renderer.shadowMap.enabled = true;
       // PCF on the low-memory tiers: soft PCF costs a 4x wider kernel for a
@@ -223,10 +258,16 @@ export class World {
       this.renderer.shadowMap.type = q.shadowMapSize >= 2048 ? THREE.PCFSoftShadowMap : THREE.PCFShadowMap;
     }
 
-    // env map so metallic materials (trains, rails, turnstiles) read as steel
+    // Keep indoor and outdoor probes separate. A studio RoomEnvironment makes
+    // subway steel legible, but produces implausible rectangular highlights on
+    // street glass. The outdoor PMREM mirrors the visible sun/sky/ground and is
+    // generated only once, not rendered every frame.
     const pmrem = new THREE.PMREMGenerator(this.renderer);
-    this.envTex = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+    this.envTex = pmrem.fromScene(new RoomEnvironment(), 0.02).texture;
     pmrem.dispose();
+    this.streetEnvTex = makeOutdoorEnvironment(this.renderer);
+    this.streetScene.environment = this.streetEnvTex;
+    this.streetScene.environmentIntensity = q.level === 'low' ? 0.4 : 0.56;
 
     // Draw distance, streaming radius and worker count all come from the tier
     // now, not from a UA regex: a recent tablet earns more of them than a
@@ -241,6 +282,7 @@ export class World {
     this.tiles = new TileManager(this.streetScene, q.tileWorkers, (g) => this.compileGroup(g));
     this.tiles.loadRadius = loadRadius;
     this.tiles.unloadRadius = this.tiles.loadRadius + 300;
+    this.streetLife = new StreetLife(this.streetScene, q.level);
     this.entrances = new EntranceManager(
       this.streetScene,
       // OSM entrance points often sit in the roadway (Columbus Circle's island
@@ -290,7 +332,7 @@ export class World {
     // injected so the system stays compile-independent of the mesh modules
     this.buses = new BusSystem(
       this.streetScene,
-      (o) => new BusModel(o, this.envTex),
+      (o) => new BusModel(o, this.streetEnvTex),
       buildBusStop,
     );
     // pull each stop kit off the roadway onto the sidewalk once its tiles load
@@ -1756,10 +1798,14 @@ export class World {
   }
 
   private step = () => {
+    const cpuStartedAt = performance.now();
     // self-heal: if we were constructed while the window reported zero size
     // (embedded panes, background tabs), pick up the real size on first frame
     if (this.renderer.domElement.width === 0 && window.innerWidth > 0) this.resize();
-    const dt = Math.min(0.05, this.clock.getDelta());
+    const rawDt = this.clock.getDelta();
+    const dt = Math.min(0.05, rawDt);
+    if (this.governorSawTransition && !this.transitioning) this.qualityGovernor.clearHistory();
+    this.governorSawTransition = this.transitioning;
     const preX = this.pos.x, preZ = this.pos.z; // for the walk-bob's ground speed
     const input = this.controls.consumeInput();
     const { fwd, right } = this.controls.basis();
@@ -1904,6 +1950,12 @@ export class World {
       this.buses.update(this.pos.x, this.pos.z, dt);
       this.tram.update(this.pos.x, this.pos.z, dt);
       this.landmarks.update(this.pos.x, this.pos.z, dt);
+      this.streetLife.update(
+        this.pos.x,
+        this.pos.z,
+        () => this.tiles.roadPathsNear(this.pos.x, this.pos.z, 1),
+        performance.now() / 1000,
+      );
 
       if (this.riding && this.bikeView) {
         // ground speed, not input: ride into a wall and the pedals stop too
@@ -2044,6 +2096,12 @@ export class World {
         this.bikes.update(this.pos.x, this.pos.z, dt);
         this.tram.update(this.pos.x, this.pos.z, dt);
         this.landmarks.update(this.pos.x, this.pos.z, dt);
+        this.streetLife.update(
+          this.pos.x,
+          this.pos.z,
+          () => this.tiles.roadPathsNear(this.pos.x, this.pos.z, 1),
+          performance.now() / 1000,
+        );
         this.hoodTimer -= dt;
         if (this.hoodTimer <= 0) {
           this.hoodTimer = 1.0;
@@ -2204,7 +2262,19 @@ export class World {
     const scene = this.mode === 'ride' && this.ride ? this.ride.scene
       : this.mode === 'station' && this.station ? this.station.scene
       : this.streetScene;
+    this.gpuTimer.beginFrame();
     this.renderer.render(scene, this.camera);
+    this.gpuTimer.endFrame();
+    this.lastGpuMs = this.gpuTimer.poll() ?? this.lastGpuMs;
+    const decision = this.qualityGovernor.sample({
+      nowMs: performance.now(),
+      frameMs: rawDt * 1000,
+      cpuMs: performance.now() - cpuStartedAt,
+      gpuMs: this.lastGpuMs,
+      streamingPressure: Math.min(1, this.hud.tilesPending / Math.max(4, this.tileWorkerCount * 3)),
+      ignore: this.hud.loading || this.transitioning || document.hidden,
+    });
+    if (decision) this.applyRuntimeQuality(decision);
 
     // hud throttled
     this.fpsAcc += dt; this.fpsFrames++;
@@ -2216,44 +2286,11 @@ export class World {
       this.hud.tilesPending = stats.pending;
       this.hud.fps = Math.round(this.fpsFrames / Math.max(0.001, this.fpsAcc));
       this.hud.fly = this.controls.fly;
-      this.adaptResolution();
       this.fpsAcc = 0; this.fpsFrames = 0;
       this.pushHud();
       this.save();
     }
   };
-
-  /**
-   * Called once per HUD tick (0.5s) with the tick's frame stats still in
-   * fpsAcc/fpsFrames. Sustained > ~22ms frames drop the render scale a notch
-   * (floor 1.0); sustained fast frames for 3s step it back toward full. The
-   * thresholds straddle 60fps with wide hysteresis so it never oscillates,
-   * and the loading fade is skipped so boot-time jank can't trigger a drop.
-   */
-  private adaptResolution() {
-    if (this.hud.loading || this.transitioning || this.fpsFrames < 8) return;
-    const avgMs = (this.fpsAcc / this.fpsFrames) * 1000;
-    if (avgMs > 22 && this.dynPixelRatio > 1.0) {
-      this.dynPixelRatio = Math.max(1.0, this.dynPixelRatio - 0.25);
-      this.goodTicks = 0;
-      this.applyResolution();
-    } else if (avgMs > 30 && this.dynPixelRatio <= 1.0) {
-      // Render scale is already at the floor, so keep walking down the cost
-      // ladder. Each rung is a persistent device-class signal, so none of them
-      // step back up within the session -- only the pixel ratio does, because
-      // that is the only rung a transient load spike can trip.
-      this.degrade();
-      this.goodTicks = 0;
-    } else if (avgMs < 12.5 && this.dynPixelRatio < this.maxPixelRatio) {
-      if (++this.goodTicks >= 6) {
-        this.dynPixelRatio = Math.min(this.maxPixelRatio, this.dynPixelRatio + 0.25);
-        this.goodTicks = 0;
-        this.applyResolution();
-      }
-    } else {
-      this.goodTicks = 0;
-    }
-  }
 
   private applyResolution() {
     this.renderer.setPixelRatio(this.dynPixelRatio);
@@ -2261,35 +2298,52 @@ export class World {
   }
 
   /**
-   * One rung down the cost ladder, for a device that cannot hold 60fps even at
-   * 1x render scale. Ordered cheapest-looking-loss first: shadow resolution,
-   * then draw distance, then shadows entirely. Stops at the bottom rung rather
-   * than degrading forever.
+   * Apply one decision from the percentile governor. The settings are a full
+   * snapshot, so recovery walks the exact reverse path and every subsystem
+   * stays in sync.
    */
-  private degrade() {
+  private applyRuntimeQuality(decision: QualityDecision) {
+    const settings: RuntimeQualitySettings = decision.settings;
+    const nextPixelRatio = Math.max(0.75, this.maxPixelRatio * settings.renderScale);
+    if (Math.abs(nextPixelRatio - this.dynPixelRatio) >= 0.02) {
+      this.dynPixelRatio = nextPixelRatio;
+      this.applyResolution();
+    }
+
     const sun = this.sun;
-    if (sun?.castShadow && sun.shadow.mapSize.x > 1024) {
-      sun.shadow.mapSize.set(sun.shadow.mapSize.x / 2, sun.shadow.mapSize.y / 2);
-      sun.shadow.map?.dispose();
-      sun.shadow.map = null;
-      // followSun keys its bias off the map size, so let it reconfigure
-      sun.userData.shMap = -1;
-      this.perfNotes.push(`shadow map -> ${sun.shadow.mapSize.x}`);
-      return;
+    if (sun) {
+      const nextShadowSize = settings.shadowLevel === 2
+        ? this.authoredShadowMapSize
+        : settings.shadowLevel === 1
+          ? Math.max(1024, Math.floor(this.authoredShadowMapSize / 2))
+          : 0;
+      if (nextShadowSize === 0) {
+        sun.castShadow = false;
+        this.renderer.shadowMap.enabled = false;
+      } else {
+        this.renderer.shadowMap.enabled = true;
+        sun.castShadow = true;
+        if (sun.shadow.mapSize.x !== nextShadowSize) {
+          sun.shadow.mapSize.set(nextShadowSize, nextShadowSize);
+          sun.shadow.map?.dispose();
+          sun.shadow.map = null;
+          // followSun derives bias/frustum state from the current map size.
+          sun.userData.shMap = -1;
+        }
+      }
     }
-    if (this.baseLoadRadius > 560) {
-      this.baseLoadRadius = Math.max(560, Math.round(this.baseLoadRadius * 0.8));
-      this.perfNotes.push(`load radius -> ${this.baseLoadRadius}`);
-      return;
-    }
-    if (sun?.castShadow) {
-      // Last rung. The scene is lit by hemi + sun + fill, so losing cast shadows
-      // flattens it but leaves it correctly exposed; bring the ambient back up
-      // the way the no-shadow tier is authored in sky.ts.
-      sun.castShadow = false;
-      this.renderer.shadowMap.enabled = false;
-      this.perfNotes.push('shadows off');
-    }
+
+    this.baseLoadRadius = Math.max(
+      560,
+      Math.round(this.authoredLoadRadius * settings.detailDistanceScale),
+    );
+    this.tiles.prefetchScale = settings.streamingScale;
+    this.streetLife.setPopulationScale(settings.populationScale);
+
+    this.perfNotes.push(
+      `${decision.direction} ${decision.knob}: ${decision.previous} -> ${decision.value}`,
+    );
+    if (this.perfNotes.length > 10) this.perfNotes.splice(0, this.perfNotes.length - 10);
   }
 
   /**
@@ -2473,6 +2527,7 @@ export class World {
     window.removeEventListener('resize', this.resize);
     this.controls.dispose();
     this.tiles.destroy();
+    this.streetLife.destroy();
     this.entrances.destroy();
     this.plaques.destroy();
     this.bikes.destroy();
@@ -2484,6 +2539,9 @@ export class World {
     this.scheduler?.dispose();
     this.station?.dispose();
     this.ride?.dispose();
+    this.streetEnvTex?.dispose();
+    this.envTex?.dispose();
+    this.gpuTimer.dispose();
     this.renderer.dispose();
   }
 }

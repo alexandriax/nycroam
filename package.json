@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
+    "test:engine": "node --test scripts/tests/*.mjs",
     "start": "next start",
     "data:osm": "node scripts/fetch-osm.mjs",
     "data:terrain": "node scripts/fetch-terrain.mjs",

@@ -10,6 +10,18 @@ import {
 } from './materials';
 import { SKY } from './sky';
 import { buildSignsMesh, buildHydrants, hydrantMaterial } from './streetFurniture';
+import { disposeOwnedResources } from './performance/resourceLifetime';
+import { quality } from './quality';
+
+/** Conservative footprint of the widest deterministic canopy profile. */
+const TREE_CANOPY_RADIUS = 3.4;
+/** Scale/color families; one asymmetric shared geometry still means one draw. */
+const TREE_PROFILES = [
+  { x: 1.12, y: 0.94, z: 1.02, hue: 0.29, sat: 0.34, light: 0.215 }, // broad street tree
+  { x: 0.76, y: 1.28, z: 0.74, hue: 0.32, sat: 0.3, light: 0.19 }, // columnar
+  { x: 1.28, y: 0.82, z: 1.12, hue: 0.255, sat: 0.4, light: 0.23 }, // spreading park tree
+  { x: 0.94, y: 1.12, z: 1.06, hue: 0.3, sat: 0.27, light: 0.24 }, // oval crown
+] as const;
 
 interface TileRecord {
   key: string;
@@ -23,6 +35,8 @@ interface TileRecord {
   signs: BuildResponse['signs']; // kept for the "current street" HUD lookup
   geometries: THREE.BufferGeometry[];
   textures: THREE.Texture[];
+  /** Per-tile materials only. Shared manager materials never enter this list. */
+  materials: THREE.Material[];
   lod: number; // current detail bucket (0 = full .. 3 = buildings only)
   facade: THREE.Mesh | null;
   facadeDetailed: boolean;
@@ -55,7 +69,8 @@ export class TileManager {
   private lastWaterNow = 0; // performance.now() at the previous update(), for the water dt
   private hydrantMat = hydrantMaterial();
   private trunkMat = treeTrunkMaterial();
-  private canopyMat = treeCanopyMaterial();
+  private canopyKit = treeCanopyMaterial();
+  private canopyMat = this.canopyKit.mat;
   private trunkGeo = new THREE.CylinderGeometry(0.11, 0.16, 2.4, 5);
   private canopyGeo: THREE.BufferGeometry;
   private pendingAdd: BuildResponse[] = [];
@@ -65,6 +80,7 @@ export class TileManager {
   private prefetchPlanX = Number.NaN;
   private prefetchPlanZ = Number.NaN;
   private prefetchPlanRadius = 0;
+  private prefetchPlanScale = 1;
   private nextPrefetchPlanAt = 0;
   // Candidate discovery, unload checks and LOD transitions are spatial work:
   // rerunning all of them for a sub-pixel camera move wastes the main thread.
@@ -78,6 +94,8 @@ export class TileManager {
   private compile: ((g: THREE.Object3D) => Promise<void>) | null;
   loadRadius = 1100;
   unloadRadius = 1400;
+  /** Runtime governor multiplier for speculative cache warming only. */
+  prefetchScale = 1;
   ready = false;
 
   constructor(scene: THREE.Scene, workerCount = 2, compile: ((g: THREE.Object3D) => Promise<void>) | null = null) {
@@ -182,9 +200,9 @@ export class TileManager {
         if (!trees) continue;
         for (let i = 0; i < trees.length; i += 5) {
           const scale = trees[i + 3];
-          // The irregular canopy geometry reaches ~2.5 scale units from its
-          // trunk after its displaced crown and offset lobe are merged.
-          const r = 2.5 * scale + padding;
+          // Includes the widest non-uniform species profile plus a small lean.
+          // Trees remain non-colliding; this only keeps teleport cameras out.
+          const r = TREE_CANOPY_RADIUS * scale + padding;
           if ((trees[i] - x) ** 2 + (trees[i + 2] - z) ** 2 < r * r) return true;
         }
       }
@@ -210,7 +228,11 @@ export class TileManager {
     // every mode), so this keeps tile water rippling in lockstep with the ocean without
     // World having to drive it. Clamp dt so a backgrounded tab / first frame can't jump it.
     const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
-    if (this.lastWaterNow) this.waterKit.update(Math.min(0.1, (now - this.lastWaterNow) / 1000));
+    if (this.lastWaterNow) {
+      const materialDt = Math.min(0.1, (now - this.lastWaterNow) / 1000);
+      this.waterKit.update(materialDt);
+      this.canopyKit.update(materialDt);
+    }
     this.lastWaterNow = now;
 
     if (!this.ready) return;
@@ -261,7 +283,8 @@ export class TileManager {
       const planMoveSq = (camX - this.prefetchPlanX) ** 2 + (camZ - this.prefetchPlanZ) ** 2;
       const planStale = !Number.isFinite(planMoveSq)
         || planMoveSq >= (TILE_SIZE * 0.5) ** 2
-        || Math.abs(this.loadRadius - this.prefetchPlanRadius) >= 128;
+        || Math.abs(this.loadRadius - this.prefetchPlanRadius) >= 128
+        || Math.abs(this.prefetchScale - this.prefetchPlanScale) >= 0.05;
       if (planStale || (this.prefetchQueue.length === 0 && now >= this.nextPrefetchPlanAt)) {
         this.planPrefetch(camX, camZ);
         this.nextPrefetchPlanAt = now + 1000;
@@ -287,7 +310,7 @@ export class TileManager {
         this.records.set(key, {
           key, tx, tz, state: 'queued', group: null, collision: null, roadPaths: null,
           trees: null, signs: null, geometries: [], textures: [], lod: 0, facade: null,
-          facadeDetailed: true,
+          materials: [], facadeDetailed: true,
         });
         this.queue.push(key);
       }
@@ -389,7 +412,7 @@ export class TileManager {
   /** Build a nearest-first list for the one ring just beyond resident tiles. */
   private planPrefetch(camX: number, camZ: number) {
     const ctx = Math.floor(camX / TILE_SIZE), ctz = Math.floor(camZ / TILE_SIZE);
-    const pr = this.loadRadius + 400;
+    const pr = this.loadRadius + 400 * Math.max(0.5, Math.min(1, this.prefetchScale));
     const prSq = pr * pr;
     const prTiles = Math.ceil(pr / TILE_SIZE);
     const candidates: { key: string; dSq: number }[] = [];
@@ -407,6 +430,7 @@ export class TileManager {
     this.prefetchPlanX = camX;
     this.prefetchPlanZ = camZ;
     this.prefetchPlanRadius = this.loadRadius;
+    this.prefetchPlanScale = this.prefetchScale;
   }
 
   /** Keep prefetch below both the browser's and the worker stream's bandwidth. */
@@ -548,6 +572,8 @@ export class TileManager {
       group.add(mesh);
       rec.geometries.push(mesh.geometry);
       rec.textures.push(texture);
+      if (Array.isArray(mesh.material)) rec.materials.push(...mesh.material);
+      else rec.materials.push(mesh.material);
     }
     if (res.hydrants && res.hydrants.length >= 4) {
       const hyd = buildHydrants(res.hydrants, this.hydrantMat);
@@ -559,22 +585,67 @@ export class TileManager {
       const count = res.trees.length / 5;
       const trunks = new THREE.InstancedMesh(this.trunkGeo, this.trunkMat, count);
       const canopies = new THREE.InstancedMesh(this.canopyGeo, this.canopyMat, count);
-      const m = new THREE.Matrix4();
+      const trunkMatrix = new THREE.Matrix4();
+      const canopyMatrix = new THREE.Matrix4();
+      const position = new THREE.Vector3();
+      const scale = new THREE.Vector3();
+      const rotation = new THREE.Quaternion();
+      const euler = new THREE.Euler(0, 0, 0, 'YXZ');
       const c = new THREE.Color();
       for (let i = 0; i < count; i++) {
         const x = res.trees[i * 5], y = res.trees[i * 5 + 1], z = res.trees[i * 5 + 2];
         const s = res.trees[i * 5 + 3], hue = res.trees[i * 5 + 4];
-        m.makeScale(s, s, s).setPosition(x, y, z);
-        trunks.setMatrixAt(i, m);
-        canopies.setMatrixAt(i, m);
-        c.setHSL(0.29 + hue * 0.06, 0.38, 0.3 + hue * 0.12);
+        // The source's stable position/hue becomes a deterministic species,
+        // orientation and lean—no new tile payload and no runtime randomness.
+        const seed = x * 0.137 + z * 0.173 + hue * 997.3;
+        const species = Math.min(TREE_PROFILES.length - 1, Math.floor(hash01(seed) * TREE_PROFILES.length));
+        const profile = TREE_PROFILES[species];
+        const spread = 0.92 + hash01(seed + 11.7) * 0.16;
+        const height = 0.94 + hash01(seed + 23.9) * 0.13;
+        const yaw = hash01(seed + 37.1) * Math.PI * 2;
+        const leanX = (hash01(seed + 51.3) - 0.5) * 0.07;
+        const leanZ = (hash01(seed + 67.9) - 0.5) * 0.07;
+        position.set(x, y, z);
+        euler.set(leanX, yaw, leanZ);
+        rotation.setFromEuler(euler);
+
+        const trunkWidth = 0.76 + profile.x * 0.12 + hash01(seed + 79.1) * 0.16;
+        scale.set(s * trunkWidth, s * profile.y * height, s * trunkWidth);
+        trunkMatrix.compose(position, rotation, scale);
+        trunks.setMatrixAt(i, trunkMatrix);
+
+        scale.set(
+          s * profile.x * spread,
+          s * profile.y * height,
+          s * profile.z * (1.04 - (spread - 0.92) * 0.5),
+        );
+        canopyMatrix.compose(position, rotation, scale);
+        canopies.setMatrixAt(i, canopyMatrix);
+
+        c.setHSL(
+          profile.hue + (hue - 0.5) * 0.035,
+          profile.sat * (0.9 + hash01(seed + 91.7) * 0.2),
+          profile.light + (hash01(seed + 103.1) - 0.5) * 0.07,
+        );
         canopies.setColorAt(i, c);
+        c.setHSL(
+          0.065 + hash01(seed + 113.9) * 0.025,
+          0.08 + hash01(seed + 127.3) * 0.08,
+          0.78 + hash01(seed + 139.7) * 0.12,
+        );
+        trunks.setColorAt(i, c);
       }
       trunks.instanceMatrix.needsUpdate = true;
       canopies.instanceMatrix.needsUpdate = true;
+      if (trunks.instanceColor) trunks.instanceColor.needsUpdate = true;
       if (canopies.instanceColor) canopies.instanceColor.needsUpdate = true;
-      canopies.castShadow = true;
-      trunks.castShadow = true;
+      const q = quality();
+      // Medium keeps one canopy caster per tile; its slender trunks are not
+      // worth doubling that foliage shadow cost. Low skips the pass entirely.
+      canopies.castShadow = q.shadows && q.level !== 'low';
+      trunks.castShadow = q.level === 'high' || q.level === 'ultra';
+      canopies.receiveShadow = q.shadows;
+      trunks.receiveShadow = q.shadows;
       trunks.userData.lodTier = 2;
       canopies.userData.lodTier = 2;
       group.add(trunks, canopies);
@@ -606,13 +677,9 @@ export class TileManager {
   private dispose(rec: TileRecord) {
     if (rec.group) {
       this.scene.remove(rec.group);
-      for (const g of rec.geometries) g.dispose();
-      for (const t of rec.textures) t.dispose();
+      disposeOwnedResources(rec.geometries, rec.textures, rec.materials);
       rec.group.traverse((o) => {
         if (o instanceof THREE.InstancedMesh) o.dispose();
-        if (o instanceof THREE.Mesh && (o.material as THREE.MeshLambertMaterial).map instanceof THREE.CanvasTexture) {
-          (o.material as THREE.Material).dispose(); // per-tile sign material
-        }
       });
     }
   }
@@ -625,5 +692,17 @@ export class TileManager {
     for (const w of this.workers) w.terminate();
     for (const rec of this.records.values()) this.dispose(rec);
     this.records.clear();
+    this.trunkGeo.dispose();
+    this.canopyGeo.dispose();
+    this.facadeMat.dispose();
+    this.facadeSimpleMat.dispose();
+    this.flatMat.dispose();
+    this.roadMat.dispose();
+    this.walkMat.dispose();
+    this.markingsMat.dispose();
+    this.waterKit.mat.dispose();
+    this.hydrantMat.dispose();
+    this.trunkMat.dispose();
+    this.canopyMat.dispose();
   }
 }

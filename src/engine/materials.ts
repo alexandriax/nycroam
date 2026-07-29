@@ -6,7 +6,7 @@ import {
 import { quality } from './quality';
 
 /**
- * Facade material: Lambert + injected procedural window grid on vertical faces.
+ * Facade material: Lambert + procedural window grid on vertical faces.
  * Windows are carved in the fragment shader from world position; brick/roof
  * normals are world-projected so close surfaces carry real light relief without
  * extra geometry. Screen-space filtering keeps the grid stable in motion, and
@@ -16,13 +16,18 @@ import { quality } from './quality';
 export function makeFacadeMaterial(): THREE.MeshLambertMaterial {
   // DoubleSide + front-facing test: if imperfect OSM data leaves any opening,
   // the inside of the far wall renders as a dark interior instead of void.
+  const q = quality();
+  // Keep the city-scale facade batch on Lambert: the procedural window shader
+  // supplies the reflection cues, while applying the full Standard BRDF to
+  // every visible building is a poor mobile/desktop trade at this scale.
   const mat = new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.DoubleSide });
+  mat.dithering = true;
   const brick = makeBrickTexture('red');
   const roof = makeRoofTexture();
   // Normal-map relief is the premium desktop close-up path. Mobile keeps the
   // anti-aliased windows/reflections but avoids a second texture sample before
   // lighting; its lower resolution makes the micro-relief imperceptible anyway.
-  const premiumSurfaceNormals = quality().shadows;
+  const premiumSurfaceNormals = q.level === 'high' || q.level === 'ultra';
   mat.onBeforeCompile = (shader) => {
     shader.uniforms.uBrick = { value: brick.map };
     shader.uniforms.uBrickNormal = { value: brick.normal };
@@ -84,7 +89,12 @@ export function makeFacadeMaterial(): THREE.MeshLambertMaterial {
           vec3 faceN = normalize(vWNormal) * (gl_FrontFacing ? 1.0 : -1.0);
           float verticalN = 1.0 - abs(faceN.y);
           float detailN = 1.0 - smoothstep(80.0, 260.0, distance(cameraPosition, vWPos));
-          if (verticalN > 0.55 && vWPos.y > 0.5 && vStyle < 0.5 && detailN > 0.001) {
+          float styleN = floor(vStyle + 0.5);
+          bool texturedMasonry = styleN < 0.5
+            || abs(styleN - 4.0) < 0.5
+            || abs(styleN - 5.0) < 0.5
+            || abs(styleN - 7.0) < 0.5;
+          if (verticalN > 0.55 && vWPos.y > 0.5 && texturedMasonry && detailN > 0.001) {
             float uN = vWPos.x * faceN.z - vWPos.z * faceN.x;
             float floorHN = vWPos.y < 4.6 ? 4.6 : 3.1;
             float winWN = vWPos.y < 4.6 ? 4.2 : 2.5;
@@ -124,9 +134,19 @@ export function makeFacadeMaterial(): THREE.MeshLambertMaterial {
             if (detail > 0.001) {
             float u = vWPos.x * wn.z - vWPos.z * wn.x;
             float v = vWPos.y;
-            bool glassTower = vStyle > 0.5;
-            float floorH = glassTower ? 3.4 : 3.1;
-            float winW = glassTower ? 1.7 : 2.5;
+            // Eight stable archetypes. Styles 0/1 intentionally retain the old
+            // masonry/glass behavior, so tiles produced before the semantic
+            // pipeline upgrade render identically.
+            float styleId = clamp(floor(vStyle + 0.5), 0.0, 7.0);
+            bool glassTower = abs(styleId - 1.0) < 0.5 || abs(styleId - 6.0) < 0.5;
+            bool industrial = abs(styleId - 4.0) < 0.5;
+            bool brownstone = abs(styleId - 5.0) < 0.5;
+            bool concrete = abs(styleId - 3.0) < 0.5;
+            bool stone = abs(styleId - 2.0) < 0.5;
+            float floorH = glassTower ? 3.4 : industrial ? 4.15 : brownstone ? 3.25 : 3.1;
+            float winW = abs(styleId - 6.0) < 0.5 ? 1.45
+              : glassTower ? 1.7 : industrial ? 3.2 : concrete ? 3.35
+              : brownstone ? 2.8 : stone ? 2.6 : 2.5;
             bool storefront = v < 4.6;
             if (storefront) { floorH = 4.6; winW = 4.2; }
             // Cell coordinates BEFORE the fract(), so their screen-space
@@ -178,7 +198,9 @@ export function makeFacadeMaterial(): THREE.MeshLambertMaterial {
               // so each building keeps its palette color)
               vec3 bt = texture2D(uBrick, vec2(u, v) / 1.2).rgb;
               float bl = dot(bt, vec3(0.333)) * 1.75;
-              diffuseColor.rgb *= mix(1.0, bl, 0.34 * (1.0 - win));
+              float masonryRelief = industrial ? 0.3 : brownstone ? 0.24
+                : (stone || concrete) ? 0.08 : 0.34;
+              diffuseColor.rgb *= mix(1.0, bl, masonryRelief * (1.0 - win));
               vec3 glass = mix(vec3(0.13, 0.16, 0.2), vec3(0.38, 0.44, 0.52), rnd * rnd);
               if (storefront) glass = mix(vec3(0.1, 0.11, 0.13), vec3(0.3, 0.28, 0.24), rnd);
               glass = mix(glass, skyGlass, (storefront ? 0.18 : 0.27) + fresnel * 0.35);
@@ -246,28 +268,40 @@ export function makeFlatMaterial(): THREE.MeshLambertMaterial {
 }
 
 /** Asphalt roadbed with aggregate normal detail (UVs from the worker). */
-export function makeRoadMaterial(): THREE.MeshLambertMaterial {
+export function makeRoadMaterial(): THREE.MeshLambertMaterial | THREE.MeshStandardMaterial {
   const t = makeAsphaltTexture();
-  const mat = new THREE.MeshLambertMaterial({
+  const q = quality();
+  // Full roughness response is reserved for desktop; the mobile Lambert path
+  // keeps the exact same albedo/normal read without paying for IBL per pixel.
+  const common = {
     vertexColors: true,
-    color: 0x8a8d92, // texture carries most of the tone; vertex colors tint per class
+    color: 0xffffff, // preserve the authored asphalt albedo; vertex colors still tint per class
     map: t.map,
     normalMap: t.normal,
-  });
+  };
+  const mat = q.level === 'high' || q.level === 'ultra'
+    ? new THREE.MeshStandardMaterial({ ...common, roughness: 0.91, metalness: 0.015 })
+    : new THREE.MeshLambertMaterial(common);
   mat.normalScale = new THREE.Vector2(0.7, 0.7);
+  mat.dithering = true;
   return mat;
 }
 
 /** Poured-concrete walks with score joints. */
-export function makeWalkMaterial(): THREE.MeshLambertMaterial {
+export function makeWalkMaterial(): THREE.MeshLambertMaterial | THREE.MeshStandardMaterial {
   const t = makeSidewalkTexture();
-  const mat = new THREE.MeshLambertMaterial({
+  const common = {
     vertexColors: true,
-    color: 0xb8b6af,
+    color: 0xffffff,
     map: t.map,
     normalMap: t.normal,
-  });
+  };
+  const q = quality();
+  const mat = q.level === 'high' || q.level === 'ultra'
+    ? new THREE.MeshStandardMaterial({ ...common, roughness: 0.94, metalness: 0 })
+    : new THREE.MeshLambertMaterial(common);
   mat.normalScale = new THREE.Vector2(0.8, 0.8);
+  mat.dithering = true;
   return mat;
 }
 
@@ -347,12 +381,100 @@ export function makeSkylineMaterial(skyColor: THREE.Color): THREE.MeshLambertMat
 }
 
 export const treeTrunkMaterial = () => {
+  const q = quality();
+  // Low avoids both bark samples; at the tier's 1x cap the five-sided trunk is
+  // primarily a silhouette. Medium keeps the existing Lambert texture path,
+  // while desktop tiers gain a rough, non-metallic bark response from the
+  // outdoor environment without changing draw count.
+  if (q.level === 'low') {
+    return new THREE.MeshLambertMaterial({ color: 0x806a56 });
+  }
   const t = makeBarkTexture();
-  const mat = new THREE.MeshLambertMaterial({ color: 0xcbb59a, map: t.map, normalMap: t.normal });
-  mat.normalScale = new THREE.Vector2(0.9, 0.9);
+  const mat = q.level === 'high' || q.level === 'ultra'
+    ? new THREE.MeshStandardMaterial({
+      color: 0xffffff, map: t.map, normalMap: t.normal, roughness: 0.96, metalness: 0,
+    })
+    : new THREE.MeshLambertMaterial({ color: 0xffffff, map: t.map, normalMap: t.normal });
+  mat.normalScale = new THREE.Vector2(0.72, 0.72);
+  mat.dithering = true;
   return mat;
 };
-export const treeCanopyMaterial = () => new THREE.MeshLambertMaterial({ color: 0x4d7a45 });
+
+export interface TreeCanopyMaterialKit {
+  mat: THREE.MeshLambertMaterial | THREE.MeshStandardMaterial;
+  /** Advance one shared wind phase for every instanced canopy in the city. */
+  update: (dt: number) => void;
+}
+
+/**
+ * Opaque instanced foliage with a cheap shared wind/translucency cue.
+ *
+ * The canopy remains a closed low-poly mesh: no alpha cards, sorting or
+ * overdraw. Wind runs in the shared vertex program and uses each instance's
+ * world translation as its phase, so an entire tile is still one draw.
+ */
+export function treeCanopyMaterial(): TreeCanopyMaterialKit {
+  const q = quality();
+  const premium = q.level === 'high' || q.level === 'ultra';
+  const animated = q.level !== 'low';
+  const mat = premium
+    ? new THREE.MeshStandardMaterial({
+      color: 0xffffff, roughness: 0.9, metalness: 0,
+    })
+    : new THREE.MeshLambertMaterial({ color: 0xffffff });
+  mat.dithering = true;
+  const uTime = { value: 0 };
+
+  if (animated) {
+    const windAmp = premium ? 0.075 : 0.04;
+    const transmit = premium ? 0.12 : 0.055;
+    mat.onBeforeCompile = (shader) => {
+      shader.uniforms.uTreeTime = uTime;
+      shader.vertexShader = shader.vertexShader
+        .replace(
+          '#include <common>',
+          `#include <common>
+          uniform float uTreeTime;`
+        )
+        .replace(
+          '#include <begin_vertex>',
+          `#include <begin_vertex>
+          #ifdef USE_INSTANCING
+            // Lower vertices stay tied to the trunk; upper crown vertices move
+            // a few centimetres. World-position phase prevents tiled lockstep.
+            float treeCrown = smoothstep(1.25, 4.8, position.y);
+            float treePhase = instanceMatrix[3].x * 0.031 + instanceMatrix[3].z * 0.023;
+            float treeGust = sin(uTreeTime * 0.82 + treePhase)
+              + 0.38 * sin(uTreeTime * 1.71 + treePhase * 1.83);
+            transformed.x += treeGust * treeCrown * ${windAmp.toFixed(3)};
+            transformed.z += sin(uTreeTime * 0.67 + treePhase * 1.27)
+              * treeCrown * ${(windAmp * 0.58).toFixed(3)};
+          #endif`
+        );
+      shader.fragmentShader = shader.fragmentShader.replace(
+        '#include <lights_fragment_end>',
+        `#include <lights_fragment_end>
+        {
+          // A restrained thin-leaf cue on the sun-opposed side of the closed
+          // crown. This is lighting only—there is no transparent overdraw.
+          vec3 treeSunView = normalize((viewMatrix * vec4(-0.5566, 0.6875, -0.4665, 0.0)).xyz);
+          float treeBack = max(dot(-normal, treeSunView), 0.0);
+          treeBack *= treeBack;
+          reflectedLight.indirectDiffuse += diffuseColor.rgb
+            * vec3(0.55, 0.82, 0.28) * treeBack * ${transmit.toFixed(3)};
+        }`
+      );
+    };
+    mat.customProgramCacheKey = () => `nycroam-tree-canopy-${q.level}`;
+  }
+
+  return {
+    mat,
+    update: animated
+      ? (dt: number) => { uTime.value += Math.min(0.1, Math.max(0, dt)); }
+      : () => {},
+  };
+}
 
 /**
  * Animated river water: worldspace wave normals, fresnel toward the sky at

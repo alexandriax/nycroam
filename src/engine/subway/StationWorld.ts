@@ -14,6 +14,8 @@ import type { WalkBox } from '../collision';
 import { setupStationLights } from '../sky';
 import { directionLabel, bothDirectionsLabel } from './directions';
 import { BLACK, SANS } from '../fonts';
+import { quality } from '../quality';
+import { batchStaticStationMeshes, type StationBatchStats } from '../performance/stationBatch';
 
 export interface CrossSection {
   width: number;
@@ -408,6 +410,8 @@ export class StationWorld {
   // Each lists the next trains for the directions that platform serves as
   // per-line paged rows, redrawn from arrivalsFn() on a timer in update().
   private countdown!: PlatformCountdown;
+  /** Static color/shadow submission reduction, exposed for profiling/HUD QA. */
+  readonly batchStats: StationBatchStats;
 
   constructor(spec: StationSpec, env: THREE.Texture | null = null) {
     this.name = spec.name;
@@ -419,17 +423,31 @@ export class StationWorld {
     }
     setupStationLights(this.scene, spec.layout.platformLength / 2 + 25);
     this.build(spec);
-    // selective shadows: small furniture + columns cast; floors/walls receive.
+    // Selective shadows: small furniture + columns cast; floors/walls receive.
     // Ceilings must not cast (the light sits above them) — they're excluded
     // by only enabling casting on the prop groups below.
     this.scene.traverse((o) => {
-      if (o instanceof THREE.Mesh) o.receiveShadow = true;
+      if (o instanceof THREE.Mesh && !(o.material instanceof THREE.MeshBasicMaterial)) {
+        o.receiveShadow = true;
+      }
     });
-    for (const g of this.shadowCasters) {
-      g.traverse((o) => {
-        if (o instanceof THREE.Mesh) o.castShadow = true;
-      });
+    // With no shadow-casting station light these flags only split otherwise
+    // compatible static batches. Leave them off on low/medium mobile.
+    if (quality().stationShadows) {
+      for (const g of this.shadowCasters) {
+        g.traverse((o) => {
+          if (o instanceof THREE.Mesh) o.castShadow = true;
+        });
+      }
     }
+    // Everything built so far is immutable. Trains are attached later by the
+    // scheduler, and countdown boards animate by updating a shared texture, so
+    // consolidating geometry here preserves all dynamic behaviour.
+    this.batchStats = batchStaticStationMeshes(
+      this.scene,
+      (geometry) => this.track(geometry),
+    );
+    this.shadowCasters.length = 0;
   }
 
   private shadowCasters: THREE.Object3D[] = [];

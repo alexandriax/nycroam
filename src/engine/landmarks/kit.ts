@@ -46,9 +46,15 @@ export const BRONZE = new THREE.MeshStandardMaterial({ color: '#6d4f2f', metalne
 export const VERDIGRIS = new THREE.MeshLambertMaterial({ color: '#5e9c8a' });
 export const GOLD = new THREE.MeshStandardMaterial({ color: '#c9a227', metalness: 0.85, roughness: 0.3 });
 export const STEEL_LM = new THREE.MeshStandardMaterial({ color: '#9aa3ab', metalness: 0.8, roughness: 0.35 });
-export const GLASS_LM = new THREE.MeshStandardMaterial({ color: '#7fa8c4', metalness: 0.6, roughness: 0.12 });
+// Architectural glass is a dielectric, not a metal. The street scene supplies
+// the outdoor PMREM that gives this its sky/ground response.
+export const GLASS_LM = new THREE.MeshStandardMaterial({
+  color: '#7fa8c4', metalness: 0.02, roughness: 0.17, envMapIntensity: 0.95,
+});
 export const WHITE_LM = new THREE.MeshLambertMaterial({ color: '#e9ecef' });
-export const WATER_LM = new THREE.MeshStandardMaterial({ color: '#2a5a70', metalness: 0.3, roughness: 0.25 });
+export const WATER_LM = new THREE.MeshStandardMaterial({
+  color: '#2a5a70', metalness: 0.01, roughness: 0.22, envMapIntensity: 0.85,
+});
 export const GREEN_PATINA = new THREE.MeshLambertMaterial({ color: '#3f7f63' });
 
 // ---- geometry helpers -------------------------------------------------------

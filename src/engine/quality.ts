@@ -42,6 +42,17 @@ export interface QualityTier {
   tileWorkers: number;
 }
 
+export interface RuntimePerformanceProfile {
+  /** Sustained target; handhelds keep thermal margin instead of chasing 60. */
+  targetFps: 30 | 45 | 60;
+  /** Lowest multiplier applied to the tier's pixelRatioCap at runtime. */
+  minRenderScale: number;
+  /** Population and detail floors used by the adaptive quality governor. */
+  minPopulationScale: number;
+  minDetailDistanceScale: number;
+  minStreamingScale: number;
+}
+
 const TIERS: Record<QualityLevel, Omit<QualityTier, 'level'>> = {
   // Software rasterisers and 2015-era mobile GPUs. No shadow pass at all, half
   // the draw distance, and a hard 1x pixel ratio.
@@ -185,6 +196,28 @@ export function setQualityOverride(level: QualityLevel | null) {
 
 export function qualityOverride(): QualityLevel | null {
   return stored();
+}
+
+/**
+ * Stable policy defaults for the percentile-based runtime governor.
+ *
+ * This is intentionally separate from QualityTier: a tier describes authored
+ * capability while this profile describes how much of it may be surrendered
+ * under sustained load. Callers can override the target for benchmark modes.
+ */
+export function runtimePerformanceProfile(): RuntimePerformanceProfile {
+  const q = quality();
+  const forcedHandheld = typeof location !== 'undefined'
+    && new URLSearchParams(location.search).has('touch');
+  const handheld = typeof navigator !== 'undefined'
+    && (forcedHandheld || /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent));
+  return {
+    targetFps: q.level === 'low' ? 30 : handheld ? 45 : 60,
+    minRenderScale: q.level === 'low' ? 0.8 : handheld ? 0.67 : 0.55,
+    minPopulationScale: handheld ? 0.35 : 0.5,
+    minDetailDistanceScale: handheld ? 0.6 : 0.7,
+    minStreamingScale: handheld ? 0.55 : 0.7,
+  };
 }
 
 export const QUALITY_LEVELS = LEVELS;

@@ -5,6 +5,7 @@ import { mergeByMaterial, disposeGroup } from '../EntranceManager';
 import { heightAt } from '../terrain';
 import type { CollisionData } from '../tileTypes';
 import type { LandmarkCtx } from './kit';
+import { quality } from '../quality';
 
 type BuilderMap = Record<string, (ctx: LandmarkCtx) => THREE.Group>;
 
@@ -295,7 +296,17 @@ export class LandmarkManager {
       // collapses everything into one geometry per material
       const collision = deriveCollision(raw, px, gy, pz, rot);
       await this.yieldFrame(); // collision walked the whole tree; merge in a fresh frame
-      const group = mergeByMaterial(raw);
+      // Landmark batches are few meshes (one per material), so they can afford
+      // to anchor to the street with real sun shadows on capable tiers. Pass
+      // defaults through the merger; source primitives use Three's false
+      // defaults and the old replacement meshes silently remained unshadowed.
+      const q = quality();
+      const group = mergeByMaterial(raw, {
+        // Keep the mobile shadow pass bounded: landmarks receive the street
+        // map on Medium but join its caster pass only on desktop tiers.
+        castShadow: q.level === 'high' || q.level === 'ultra',
+        receiveShadow: q.shadows,
+      });
       group.position.set(px, gy, pz);
       group.rotation.y = rot;
       // Claim the slot + register collision synchronously so the landmark is

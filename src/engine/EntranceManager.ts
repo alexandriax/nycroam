@@ -5,42 +5,69 @@ import type { SubwayData, StationSpec, EntranceSpec } from './subway/types';
 import { buildEntranceKit } from './streetprops';
 import { heightAt } from './terrain';
 import { canvas2d } from './canvas2d';
+import { quality } from './quality';
 
 /**
  * Collapse a prop group into one mesh per material (a kit is otherwise ~40
  * meshes — railing posts, steps, rails — which wrecks the draw-call budget).
+ *
+ * Shadow state is part of the batch key. Collapsing a shadow-casting mesh into
+ * a new Mesh used to silently reset both flags to false; landmarks then looked
+ * detached even on tiers that had paid for the shadow pass.
  */
-export function mergeByMaterial(group: THREE.Group): THREE.Group {
+export function mergeByMaterial(
+  group: THREE.Group,
+  defaults: { castShadow?: boolean; receiveShadow?: boolean } = {},
+): THREE.Group {
   group.updateMatrixWorld(true);
-  const byMat = new Map<THREE.Material, THREE.BufferGeometry[]>();
+  interface Batch {
+    geos: THREE.BufferGeometry[];
+    castShadow: boolean;
+    receiveShadow: boolean;
+  }
+  const byMat = new Map<THREE.Material, Map<string, Batch>>();
   group.traverse((o) => {
     if (o instanceof THREE.Mesh && !Array.isArray(o.material)) {
       const g = (o.geometry as THREE.BufferGeometry).clone().applyMatrix4(o.matrixWorld);
-      // drop UVs mismatches: mergeGeometries needs consistent attributes
-      const list = byMat.get(o.material) ?? [];
-      list.push(g);
-      byMat.set(o.material, list);
+      const castShadow = o.castShadow || defaults.castShadow === true;
+      const receiveShadow = o.receiveShadow || defaults.receiveShadow === true;
+      const key = `${castShadow ? 1 : 0}:${receiveShadow ? 1 : 0}`;
+      let batches = byMat.get(o.material);
+      if (!batches) {
+        batches = new Map();
+        byMat.set(o.material, batches);
+      }
+      let batch = batches.get(key);
+      if (!batch) {
+        batch = { geos: [], castShadow, receiveShadow };
+        batches.set(key, batch);
+      }
+      batch.geos.push(g);
     }
   });
   const out = new THREE.Group();
   out.name = group.name;
-  for (const [mat, geos] of byMat) {
-    // normalize attribute sets (some builder geometries lack uv)
-    const attrNames = ['position', 'normal', 'uv'];
-    const allHaveUv = geos.every((g) => g.getAttribute('uv'));
-    for (const g of geos) {
-      for (const name of Object.keys(g.attributes)) {
-        if (!attrNames.includes(name)) g.deleteAttribute(name);
+  for (const [mat, batches] of byMat) {
+    for (const { geos, castShadow, receiveShadow } of batches.values()) {
+      // normalize attribute sets (some builder geometries lack uv)
+      const attrNames = ['position', 'normal', 'uv'];
+      const allHaveUv = geos.every((g) => g.getAttribute('uv'));
+      for (const g of geos) {
+        for (const name of Object.keys(g.attributes)) {
+          if (!attrNames.includes(name)) g.deleteAttribute(name);
+        }
+        if (!allHaveUv && g.getAttribute('uv')) g.deleteAttribute('uv');
+        if (g.index === null) g.setIndex([...Array(g.getAttribute('position').count).keys()]);
       }
-      if (!allHaveUv && g.getAttribute('uv')) g.deleteAttribute('uv');
-      if (g.index === null) g.setIndex([...Array(g.getAttribute('position').count).keys()]);
+      const merged = mergeGeometries(geos, false);
+      for (const g of geos) g.dispose();
+      if (!merged) continue;
+      const mesh = new THREE.Mesh(merged, mat);
+      mesh.castShadow = castShadow;
+      mesh.receiveShadow = receiveShadow;
+      mesh.matrixAutoUpdate = false;
+      out.add(mesh);
     }
-    const merged = mergeGeometries(geos, false);
-    for (const g of geos) g.dispose();
-    if (!merged) continue;
-    const mesh = new THREE.Mesh(merged, mat);
-    mesh.matrixAutoUpdate = false;
-    out.add(mesh);
   }
   // dispose source geometries from the original group
   group.traverse((o) => {
@@ -185,7 +212,13 @@ export class EntranceManager {
     const key = `${kind}\u001f${routes.join('\u001f')}`;
     let template = this.templates.get(key);
     if (!template) {
-      template = mergeByMaterial(buildEntranceKit(routes, kind, name));
+      const q = quality();
+      template = mergeByMaterial(buildEntranceKit(routes, kind, name), {
+        // Medium mobile keeps the receiving/contact cue but does not add every
+        // entrance material to the sun's shadow pass.
+        castShadow: q.level === 'high' || q.level === 'ultra',
+        receiveShadow: q.shadows,
+      });
       // Cloned Mesh objects retain these geometry/material references. Mark
       // them so stream-out disposal leaves the owning template intact.
       template.traverse((o) => {
