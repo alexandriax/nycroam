@@ -546,19 +546,15 @@ export const builders: Record<string, (ctx: LandmarkCtx) => THREE.Group> = {
     g.add(towerFacade(plan(nodeCut), baseH, y0, lobbyMat, 2.8, 3.35));
     g.add(towerSolid(plan(nodeCut), baseH, y1, HEARST_COLLISION));
 
-    // Forty upper floors: ten four-storey structural modules. At every module
-    // midpoint the eight-sided ring pulls 4.5m farther in at the corners,
-    // producing the repeating concave facets visible in real skyline views.
+    // Forty upper floors: ten four-storey structural modules. The glass is one
+    // clean, continuous eight-sided curtain wall; the separately modelled
+    // steel frame below supplies the tower's diamonds and bird's-mouth depth.
+    // Lofting the glass through every diagrid midpoint twisted each quad into
+    // two visibly different triangles, producing a second jagged "diagrid"
+    // across the glazing at oblique angles.
     const modules = 10;
     const moduleH = (y1 - y0) / modules;
-    const levels: { y: number; points: PlanPoint[] }[] = [];
-    for (let r = 0; r < modules; r++) {
-      const yb = y0 + r * moduleH;
-      if (r === 0) levels.push({ y: yb, points: plan(nodeCut) });
-      levels.push({ y: yb + moduleH / 2, points: plan(biteCut) });
-      levels.push({ y: yb + moduleH, points: plan(nodeCut) });
-    }
-    g.add(loftFacade(levels, glassMat, 2.8, moduleH / 4));
+    g.add(towerFacade(plan(nodeCut), y0, y1, glassMat, 2.8, moduleH / 4));
 
     // Bake the 528-piece lattice straight into one geometry before it enters
     // the landmark tree. Sharing the unit cylinder keeps every close fly-by

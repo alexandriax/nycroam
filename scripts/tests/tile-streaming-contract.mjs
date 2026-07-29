@@ -290,7 +290,12 @@ test('base surfaces have one owning tier and every installed tier is disposed on
   assert.equal(tileTypes.tileRoadSurfaceDetail('residential'), 1);
   assert.match(workerSource, /if \(tileDetailIncludesBaseSurfaces\(detail\)\) \{/);
   assert.match(workerSource, /if \(tileDetailIncludesBaseSurfaces\(detail\) && tile\.areas\)/);
-  assert.match(workerSource, /const emitSurface = detail === tileRoadSurfaceDetail\(r\.c\)/);
+  assert.match(
+    workerSource,
+    /const emitSurface = r\.c !== 'crossing' && detail === tileRoadSurfaceDetail\(r\.c\)/,
+  );
+  assert.match(workerSource, /const sidewalkLine = trimPolyline\(/);
+  assert.match(workerSource, /const paintInset = Math\.min\(1\.15, total \* 0\.18\)/);
   assert.match(managerSource, /forEachTileDetailLayer\(rec\.layerGroups/);
   assert.match(managerSource, /disposeOwnedResources\(rec\.geometries, rec\.textures, rec\.materials\)/);
 

@@ -980,6 +980,43 @@ function pointAt(pts: number[], ys: number[], d: number): [number, number, numbe
   return [pts[0], pts[1], 1, 0, ys[0]];
 }
 
+/**
+ * Remove an arc-length interval from each end of a polyline while preserving
+ * every interior bend. Attached sidewalks use this at real junctions so their
+ * offset ribbons stop at the curb return instead of continuing across the
+ * intersecting carriageway.
+ */
+function trimPolyline(
+  pts: number[],
+  ys: number[],
+  trimStart: number,
+  trimEnd: number,
+): { pts: number[]; ys: number[] } | null {
+  const total = polyLength(pts);
+  const start = Math.max(0, trimStart);
+  const end = Math.min(total, total - Math.max(0, trimEnd));
+  if (end - start < 1.25) return null;
+
+  const startPoint = pointAt(pts, ys, start);
+  const endPoint = pointAt(pts, ys, end);
+  const outPts = [startPoint[0], startPoint[1]];
+  const outYs = [startPoint[4]];
+  let distance = 0;
+  for (let i = 1; i < pts.length / 2; i++) {
+    distance += Math.hypot(
+      pts[i * 2] - pts[(i - 1) * 2],
+      pts[i * 2 + 1] - pts[(i - 1) * 2 + 1],
+    );
+    if (distance > start + 1e-4 && distance < end - 1e-4) {
+      outPts.push(pts[i * 2], pts[i * 2 + 1]);
+      outYs.push(ys[i]);
+    }
+  }
+  outPts.push(endPoint[0], endPoint[1]);
+  outYs.push(endPoint[4]);
+  return { pts: outPts, ys: outYs };
+}
+
 function pushUpTri(acc: MeshAcc, a: number, b: number, c: number) {
   const p = acc.pos;
   const ax = p[a * 3], az = p[a * 3 + 2];
@@ -1241,7 +1278,11 @@ function buildTile(tile: TileJson, detail: TileBuildDetail, requestId: number): 
       // Base carries only the broad road skeleton. Mid adds the missing local
       // streets/paths plus street-section geometry without repeating any base
       // road ribbon.
-      const emitSurface = detail === tileRoadSurfaceDetail(r.c);
+      // A crossing way is a routing centerline between two kerbs, not another
+      // slab of pavement. Its former concrete ribbon was the pale "sidewalk in
+      // the street" visible at every Manhattan crosswalk; near detail owns only
+      // the road marking below.
+      const emitSurface = r.c !== 'crossing' && detail === tileRoadSurfaceDetail(r.c);
       if (emitSurface) buildRibbon(acc, pts, roadWidth, ys, roadColor, 0, 0.25, null, concrete ? 1 : 0.73);
       if (detail === 1 && !r.b && !concrete && SURFACE_STREETS.has(r.c)) {
         const rememberFan = (pointIndex: number) => {
@@ -1259,23 +1300,45 @@ function buildTile(tile: TileJson, detail: TileBuildDetail, requestId: number): 
       // sidewalk strip where source/inference says the sidewalk is attached.
       // Legacy public tiles retain conservative two-sided sidewalks.
       if (detail === 1 && !r.b && SURFACE_STREETS.has(r.c) && !(roadFlags & ROAD_FLAG_DRIVEWAY)) {
-        const curbCuts = drivewayCuts.filter(
-          ([x, z]) => pointPolylineDistance(x, z, pts) <= roadWidth / 2 + 4.5,
-        );
         const gutterY = ys.map((y) => y + 0.006);
         const gutterCol: [number, number, number] = [0.36, 0.37, 0.38];
         buildRibbon(rAcc, pts, 0.42, gutterY, gutterCol, roadWidth / 2 - 0.24, 0.25);
         buildRibbon(rAcc, pts, 0.42, gutterY, gutterCol, -(roadWidth / 2 - 0.24), 0.25);
-        const sidewalkY = ys.map((y) => y + 0.14);
-        if (roadFlags & ROAD_FLAG_SIDEWALK_LEFT) {
-          buildRaisedCurb(wAcc, pts, ys, roadWidth / 2 + 0.16, 0.14, curbCuts);
-          buildRibbon(wAcc, pts, 2.0, sidewalkY, [0.82, 0.82, 0.79], roadWidth / 2 + 1.33, 0.25);
-        }
-        if (roadFlags & ROAD_FLAG_SIDEWALK_RIGHT) {
-          buildRaisedCurb(wAcc, pts, ys, -(roadWidth / 2 + 0.16), 0.14, curbCuts);
-          buildRibbon(wAcc, pts, 2.0, sidewalkY, [0.82, 0.82, 0.79], -(roadWidth / 2 + 1.33), 0.25);
+        const junctionInset = Math.min(polyLength(pts) * 0.34, roadWidth * 0.52 + 1.2);
+        const sidewalkLine = trimPolyline(
+          pts,
+          ys,
+          roadFlags & ROAD_FLAG_INTERSECTION_START ? junctionInset : 0,
+          roadFlags & ROAD_FLAG_INTERSECTION_END ? junctionInset : 0,
+        );
+        if (sidewalkLine) {
+          const sidewalkY = sidewalkLine.ys.map((y) => y + 0.14);
+          const sidewalkCuts = drivewayCuts.filter(
+            ([x, z]) => pointPolylineDistance(x, z, sidewalkLine.pts) <= roadWidth / 2 + 4.5,
+          );
+          if (roadFlags & ROAD_FLAG_SIDEWALK_LEFT) {
+            buildRaisedCurb(
+              wAcc, sidewalkLine.pts, sidewalkLine.ys,
+              roadWidth / 2 + 0.16, 0.14, sidewalkCuts,
+            );
+            buildRibbon(
+              wAcc, sidewalkLine.pts, 2.0, sidewalkY,
+              [0.82, 0.82, 0.79], roadWidth / 2 + 1.33, 0.25,
+            );
+          }
+          if (roadFlags & ROAD_FLAG_SIDEWALK_RIGHT) {
+            buildRaisedCurb(
+              wAcc, sidewalkLine.pts, sidewalkLine.ys,
+              -(roadWidth / 2 + 0.16), 0.14, sidewalkCuts,
+            );
+            buildRibbon(
+              wAcc, sidewalkLine.pts, 2.0, sidewalkY,
+              [0.82, 0.82, 0.79], -(roadWidth / 2 + 1.33), 0.25,
+            );
+          }
         }
         if (roadFlags & (ROAD_FLAG_MEDIAN | ROAD_FLAG_ISLAND)) {
+          const sidewalkY = ys.map((y) => y + 0.14);
           buildRaisedCurb(wAcc, pts, ys, 0, roadFlags & ROAD_FLAG_ISLAND ? 0.18 : 0.12);
           buildRibbon(wAcc, pts, roadFlags & ROAD_FLAG_ISLAND ? 1.8 : 1.1,
             sidewalkY, [0.56, 0.58, 0.53], 0, 0.25);
@@ -1294,7 +1357,10 @@ function buildTile(tile: TileJson, detail: TileBuildDetail, requestId: number): 
       } else if (detail === 2 && (r.c === 'crossing' || (roadFlags & ROAD_FLAG_CROSSING))) {
         // continental crosswalk: thick bars perpendicular to the walking line
         const total = polyLength(pts);
-        for (let d = 0.5; d < total - 0.3; d += 0.95) {
+        // Source ways commonly begin on the sidewalk. Insetting the paint keeps
+        // the first/last bar below the curb face instead of striping the paving.
+        const paintInset = Math.min(1.15, total * 0.18);
+        for (let d = paintInset; d <= total - paintInset; d += 0.95) {
           const [cx, cz, tx, tz, cy] = pointAt(pts, mys, d);
           const bx = -tz, bz = tx; // bar axis = perpendicular to crossing line
           const bw = roadWidth * 0.42; // bar length across the crossing ribbon
