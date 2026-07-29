@@ -58,7 +58,9 @@ export const GOLDEN_ROUTES = {
   'times-square-station': {
     kind: 'station',
     label: 'Times Square–42 St complex',
-    stationSearch: 'Times Square',
+    // Match the checked-in MTA/OSM station spelling exactly. "Times Square"
+    // does not occur in subway.json; the source uses the standard "Sq" label.
+    stationSearch: 'Times Sq-42 St',
     seconds: 14,
   },
 } as const satisfies Record<string, BenchmarkRoute>;

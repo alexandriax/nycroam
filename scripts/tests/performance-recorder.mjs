@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import * as THREE from 'three';
 import {
@@ -76,12 +77,25 @@ test('golden routes cover dense street, park, waterfront and complex station sce
     ['central-park', 'times-square', 'times-square-station', 'waterfront'],
   );
   for (const route of Object.values(GOLDEN_ROUTES)) {
-    if (route.kind !== 'street') continue;
-    assert.ok(route.points.length >= 4);
-    for (const point of route.points) {
-      assert.ok(point.lat > 40.69 && point.lat < 40.89);
-      assert.ok(point.lon > -74.03 && point.lon < -73.90);
-      assert.ok(point.seconds >= 3);
+    if (route.kind === 'street') {
+      assert.ok(route.points.length >= 4);
+      for (const point of route.points) {
+        assert.ok(point.lat > 40.69 && point.lat < 40.89);
+        assert.ok(point.lon > -74.03 && point.lon < -73.90);
+        assert.ok(point.seconds >= 3);
+      }
+    } else {
+      const subway = JSON.parse(readFileSync(
+        new URL('../../public/subway/subway.json', import.meta.url),
+        'utf8',
+      ));
+      const normalize = (value) => value.toLowerCase().replace(/[^a-z0-9]/g, '');
+      assert.ok(
+        subway.stations.some((station) => (
+          normalize(station.name).includes(normalize(route.stationSearch))
+        )),
+        `station route must resolve against subway.json: ${route.stationSearch}`,
+      );
     }
   }
 });
