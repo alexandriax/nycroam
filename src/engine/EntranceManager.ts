@@ -214,9 +214,10 @@ export class EntranceManager {
     if (!template) {
       const q = quality();
       template = mergeByMaterial(buildEntranceKit(routes, kind, name), {
-        // Medium mobile keeps the receiving/contact cue but does not add every
-        // entrance material to the sun's shadow pass.
-        castShadow: q.level === 'high' || q.level === 'ultra',
+        // Entrances are repeated, material-rich street props. They receive the
+        // nearby building/hero map; submitting every railing/sign material as
+        // a caster scales with station density and adds no readable silhouette.
+        castShadow: false,
         receiveShadow: q.shadows,
       });
       // Cloned Mesh objects retain these geometry/material references. Mark

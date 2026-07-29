@@ -329,10 +329,11 @@ export class LandmarkManager {
       const group = HERO_LANDMARK_LOD_IDS.has(lm.id)
         ? await buildHeroLandmarkLod(raw, q.level, q.shadows, () => this.yieldFrame())
         : mergeByMaterial(raw, {
-          // Keep the mobile shadow pass bounded: non-hero landmarks receive
-          // the street map on Medium but join its caster pass only on desktop.
-          // Hero landmarks instead use one shadow-only silhouette mesh.
-          castShadow: q.level === 'high' || q.level === 'ultra',
+          // The 23 visually dominant landmarks own one silhouette proxy each.
+          // Secondary landmarks remain fully shaded receivers; their many
+          // bespoke material batches do not duplicate the generic OSM massing
+          // already casting beneath them.
+          castShadow: false,
           receiveShadow: q.shadows,
         });
       const lodProfile = landmarkLodStats(group);

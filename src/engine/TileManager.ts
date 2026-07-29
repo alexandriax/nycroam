@@ -206,7 +206,14 @@ export class TileManager {
   stats(): TileStats {
     let loaded = 0;
     for (const r of this.records.values()) if (r.group || r.state === 'empty') loaded++;
-    return { loaded, pending: this.queue.length + this.inFlight.size, total: this.known.size };
+    // A worker result is not resident until its geometry has been integrated.
+    // Include that handoff queue so HUD/benchmark readiness cannot report a
+    // false idle window between decode completion and GPU integration.
+    return {
+      loaded,
+      pending: this.queue.length + this.inFlight.size + this.pendingAdd.length,
+      total: this.known.size,
+    };
   }
 
   /** Fixed-window worker/decode/integration and queue-pressure diagnostics. */
@@ -467,6 +474,7 @@ export class TileManager {
       if (!rec.group) continue;
       const cx = (rec.tx + 0.5) * TILE_SIZE, cz = (rec.tz + 0.5) * TILE_SIZE;
       const dSq = (cx - camX) ** 2 + (cz - camZ) ** 2;
+      this.updateShadowPolicy(rec, dSq);
       const grow = dSq > grow3 ? 3 : dSq > grow2 ? 2 : dSq > grow1 ? 1 : 0; // moving away
       const shrink = dSq < shrink1 ? 0 : dSq < shrink2 ? 1 : dSq < shrink3 ? 2 : 3; // approaching
       let lod = rec.lod;
@@ -483,6 +491,41 @@ export class TileManager {
         child.visible = (!tier || tier > lod) && (vegetationLod === undefined || vegetationLod === treeLod);
       });
     }
+  }
+
+  /**
+   * The sun map represents the nearby contact layer, not a second rendering
+   * of the full resident city. Generic building massing already contains the
+   * silhouette of roof/facade deltas, so only its immutable base mesh casts.
+   * Tree crowns keep their highest-cost animated shadow only on Ultra; High
+   * retains the much cheaper trunk cue. Hero landmarks own one explicit proxy.
+   */
+  private updateShadowPolicy(rec: TileRecord, tileDistanceSq: number) {
+    const q = quality();
+    const facadeRadius = q.level === 'ultra' ? 500
+      : q.level === 'high' ? 380
+        : q.level === 'medium' ? 230
+          : 0;
+    if (rec.facade) {
+      rec.facade.castShadow = q.shadows
+        && facadeRadius > 0
+        && tileDistanceSq <= facadeRadius * facadeRadius;
+    }
+    if (!rec.group) return;
+    const trunkRadius = q.level === 'ultra' ? 440 : q.level === 'high' ? 340 : 0;
+    const canopyRadius = q.level === 'ultra' ? 280 : 0;
+    rec.group.traverse((child) => {
+      const role = child.userData.tileShadowRole as string | undefined;
+      if (role === 'tree-trunk') {
+        (child as THREE.Mesh).castShadow = q.shadows
+          && trunkRadius > 0
+          && tileDistanceSq <= trunkRadius * trunkRadius;
+      } else if (role === 'tree-canopy') {
+        (child as THREE.Mesh).castShadow = q.shadows
+          && canopyRadius > 0
+          && tileDistanceSq <= canopyRadius * canopyRadius;
+      }
+    });
   }
 
   /**
@@ -832,7 +875,10 @@ export class TileManager {
     const facade = addMesh(
       res.buildings,
       rec.facadeDetailed ? this.facadeMat : this.facadeSimpleMat,
-      { cast: true, receive: true, bounds: true },
+      // Mid roof equipment and near facade relief are additive overlays on the
+      // same massing. Casting each layer would submit the city to the shadow
+      // pass three times without changing its silhouette.
+      { cast: false, receive: true, bounds: true },
     );
     if (facade) {
       rec.facadeMeshes.push(facade);
@@ -962,15 +1008,17 @@ export class TileManager {
       if (midCanopies.instanceColor) midCanopies.instanceColor.needsUpdate = true;
       if (farCanopies.instanceColor) farCanopies.instanceColor.needsUpdate = true;
       const q = quality();
-      trunks.castShadow = q.level === 'high' || q.level === 'ultra';
+      trunks.castShadow = false;
       trunks.receiveShadow = q.shadows;
+      trunks.userData.tileShadowRole = 'tree-trunk';
       trunks.userData.vegetationLod = 0;
       for (const canopy of nearCanopies) {
         if (!canopy) continue;
         canopy.instanceMatrix.needsUpdate = true;
         if (canopy.instanceColor) canopy.instanceColor.needsUpdate = true;
-        canopy.castShadow = q.shadows && q.level !== 'low';
+        canopy.castShadow = false;
         canopy.receiveShadow = q.shadows;
+        canopy.userData.tileShadowRole = 'tree-canopy';
         canopy.userData.vegetationLod = 0;
         layerGroup.add(canopy);
       }
@@ -985,6 +1033,12 @@ export class TileManager {
     // anchors/furniture. Null delta fields never clear an earlier tier.
     retainTileResponseState(rec, res);
     rec.state = 'ready';
+    const tileCx = (rec.tx + 0.5) * TILE_SIZE;
+    const tileCz = (rec.tz + 0.5) * TILE_SIZE;
+    const tileDistanceSq = Number.isFinite(this.lastSpatialX)
+      ? (tileCx - this.lastSpatialX) ** 2 + (tileCz - this.lastSpatialZ) ** 2
+      : Number.POSITIVE_INFINITY;
+    this.updateShadowPolicy(rec, tileDistanceSq);
     for (const child of layerGroup.children) {
       const tier = child.userData.lodTier as number | undefined;
       const vegetationLod = child.userData.vegetationLod as TreeLod | undefined;

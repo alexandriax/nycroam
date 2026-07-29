@@ -173,7 +173,10 @@ function addDockedBikes(group: THREE.Group, bikeX: number[]) {
     const inst = new THREE.InstancedMesh(part.geometry, part.material as THREE.Material, bikeX.length);
     for (let i = 0; i < bikeX.length; i++) inst.setMatrixAt(i, m.makeTranslation(bikeX[i], 0.14, 0.18));
     inst.instanceMatrix.needsUpdate = true;
-    inst.castShadow = true;
+    // Dense Midtown can hold many racks and each bike has several material
+    // batches. Their small contact silhouette is cheaper and steadier through
+    // the shared ambient/contact treatment than through the city sun map.
+    inst.castShadow = false;
     // the geometry and material belong to the session-wide template; eviction
     // must not free them out from under every other rack
     inst.userData.shared = true;

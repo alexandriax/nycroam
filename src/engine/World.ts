@@ -2679,6 +2679,16 @@ export class World {
         const first = route.points[0];
         this.teleport(first.lat, first.lon);
         await wait(1600);
+        // Additive tiles decode base -> mid -> near and integrate one layer per
+        // frame. Record the traversal only after that starting neighborhood has
+        // been genuinely idle for four consecutive probes; otherwise startup
+        // work is mislabeled as steady-state streaming pressure.
+        const streamDeadline = performance.now() + 6000;
+        let idleProbes = 0;
+        while (performance.now() < streamDeadline && idleProbes < 4) {
+          idleProbes = this.tiles.stats().pending === 0 ? idleProbes + 1 : 0;
+          await wait(100);
+        }
         const [firstX, firstZ] = lonLatToXZ(first.lon, first.lat);
         this.pos.set(firstX, heightAt(firstX, firstZ), firstZ);
         this.spawnResolve = false;
