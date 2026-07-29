@@ -4,8 +4,8 @@ import {
   type LandmarkCtx,
   LIMESTONE, GRANITE, DARKSTONE, MARBLE, BRONZE, GOLD, STEEL_LM, GLASS_LM, WHITE_LM,
   WATER_LM, GREEN_PATINA, BRICK_RED,
-  box, cyl, strut, lathe, figure, twoSidedPanel,
-  canvasTexture, billboardTexture, billboardMaterial,
+  box, cyl, strut, lathe, figure,
+  canvasTexture, billboardTexture,
 } from '../kit';
 
 /**
@@ -86,6 +86,87 @@ const NYPL_LANTERN = new THREE.MeshStandardMaterial({
   color: '#ffe2a6', metalness: 0.04, roughness: 0.28,
   emissive: '#ffad45', emissiveIntensity: 2.1,
 });
+
+// Times Square / Broadway share a deliberately small family of spectaculars.
+// Reusing eight tone-mapped materials lets LandmarkManager merge the many
+// screens back into eight draws instead of shipping one material/draw per ad.
+// The texture is also the emissive mask: graphics glow, while their steel
+// housings and reveals continue to respond to the city lighting.
+const DISPLAY_VARIANTS: THREE.MeshStandardMaterial[] = [];
+function displayMaterial(seed: number): THREE.MeshStandardMaterial {
+  const variant = Math.abs(seed) % 8;
+  let material = DISPLAY_VARIANTS[variant];
+  if (!material) {
+    const texture = billboardTexture(10_000 + variant * 971);
+    material = new THREE.MeshStandardMaterial({
+      color: '#ffffff',
+      map: texture,
+      emissive: '#ffffff',
+      emissiveMap: texture,
+      emissiveIntensity: 0.72,
+      metalness: 0.01,
+      roughness: 0.28,
+      envMapIntensity: 0.35,
+    });
+    DISPLAY_VARIANTS[variant] = material;
+  }
+  return material;
+}
+
+const DISPLAY_STEEL = new THREE.MeshStandardMaterial({
+  color: '#24292f', metalness: 0.58, roughness: 0.42, envMapIntensity: 0.7,
+});
+const DISPLAY_REVEAL = new THREE.MeshStandardMaterial({
+  color: '#090b0d', metalness: 0.2, roughness: 0.64,
+});
+const MARQUEE_GLOW = new THREE.MeshStandardMaterial({
+  color: '#f3d7a0', metalness: 0.02, roughness: 0.34,
+  emissive: '#ffb341', emissiveIntensity: 1.15,
+});
+const MSG_CLADDING = new THREE.MeshStandardMaterial({
+  color: '#d5d5d0', metalness: 0.22, roughness: 0.48, envMapIntensity: 0.65,
+});
+const MSG_GLASS = new THREE.MeshStandardMaterial({
+  color: '#33454c', metalness: 0.02, roughness: 0.18,
+  emissive: '#17303a', emissiveIntensity: 0.34, envMapIntensity: 0.9,
+});
+const MSG_MEDIA_TEXTURE = canvasTexture((c, w, h) => {
+  const gradient = c.createLinearGradient(0, 0, w, h);
+  gradient.addColorStop(0, '#07121e');
+  gradient.addColorStop(0.45, '#16395a');
+  gradient.addColorStop(1, '#100c22');
+  c.fillStyle = gradient;
+  c.fillRect(0, 0, w, h);
+  c.fillStyle = '#5ec5d9';
+  c.fillRect(w * 0.08, h * 0.2, w * 0.5, h * 0.08);
+  c.fillStyle = '#d85c79';
+  c.fillRect(w * 0.44, h * 0.64, w * 0.46, h * 0.11);
+  c.fillStyle = 'rgba(238,244,231,0.78)';
+  c.fillRect(w * 0.17, h * 0.43, w * 0.66, h * 0.12);
+}, 256, 96);
+const MSG_MEDIA = new THREE.MeshStandardMaterial({
+  color: '#ffffff', map: MSG_MEDIA_TEXTURE,
+  emissive: '#d6efff', emissiveMap: MSG_MEDIA_TEXTURE, emissiveIntensity: 0.58,
+  metalness: 0.01, roughness: 0.3, envMapIntensity: 0.32,
+});
+
+function displayPanel(seed: number, w: number, h: number): THREE.Mesh {
+  const panel = new THREE.Mesh(new THREE.PlaneGeometry(w, h), displayMaterial(seed));
+  panel.userData.noCollision = true;
+  return panel;
+}
+
+/** Two independently front-facing display quads, sharing one cached material. */
+function twoSidedDisplay(seed: number, w: number, h: number): THREE.Group {
+  const g = new THREE.Group();
+  const front = displayPanel(seed, w, h);
+  front.position.z = 0.018;
+  const back = displayPanel(seed, w, h);
+  back.position.z = -0.018;
+  back.rotation.y = Math.PI;
+  g.add(front, back);
+  return g;
+}
 
 /** Decorative facade pieces should never become separate collision volumes. */
 function esbDetail<T extends THREE.Mesh>(mesh: T): T {
@@ -1142,18 +1223,64 @@ export const builders: Record<string, (ctx: LandmarkCtx) => THREE.Group> = {
   'msg': () => {
     const g = new THREE.Group();
     const R = 65;
-    // hollow ribbed band from y=20 to y=35 — no cap, so it sleeves whatever OSM has
-    const drum = new THREE.Mesh(new THREE.CylinderGeometry(R, R, 15, 16, 1, true), WHITE_LM);
+    // A recessed glass entrance collar grounds the otherwise top-heavy arena
+    // drum. Both shells remain open so this additive landmark continues to
+    // sleeve the useful OSM massing rather than duplicating its solid volume.
+    const lobby = new THREE.Mesh(new THREE.CylinderGeometry(R - 4.2, R - 4.2, 8.5, 24, 1, true), MSG_GLASS);
+    lobby.position.y = 14.25;
+    g.add(lobby);
+    const lobbyCanopy = new THREE.Mesh(new THREE.TorusGeometry(R - 2.8, 0.72, 5, 24), DISPLAY_STEEL);
+    lobbyCanopy.rotation.x = Math.PI / 2;
+    lobbyCanopy.position.y = 18.8;
+    g.add(lobbyCanopy);
+    // Shallow entrance mullions give the dark collar a believable scale from
+    // street level; one shared material collapses all 24 into a single batch.
+    for (let i = 0; i < 24; i++) {
+      const a = (i / 24) * Math.PI * 2;
+      const mullion = box(
+        0.34, 8.2, 0.55, DISPLAY_STEEL,
+        Math.cos(a) * (R - 3.9), 14.25, Math.sin(a) * (R - 3.9),
+      );
+      mullion.rotation.y = -a;
+      mullion.userData.noCollision = true;
+      g.add(mullion);
+    }
+    // Hollow ribbed band from y=20 to y=35 — no cap, so it sleeves whatever OSM has.
+    const drum = new THREE.Mesh(new THREE.CylinderGeometry(R, R, 15, 24, 1, true), MSG_CLADDING);
     drum.position.y = 27.5;
     g.add(drum);
-    // alternating thin vertical ribs around the facade
+    // Alternating thin vertical ribs around the facade, plus the two deep
+    // horizontal shadow joints that make the precast cladding read as panels.
     const ribs = 36;
     for (let i = 0; i < ribs; i++) {
       const a = (i / ribs) * Math.PI * 2;
-      const rib = box(0.6, 15, 1.0, WHITE_LM, Math.cos(a) * (R + 0.4), 27.5, Math.sin(a) * (R + 0.4));
+      const rib = box(0.52, 15, 0.9, MSG_CLADDING, Math.cos(a) * (R + 0.4), 27.5, Math.sin(a) * (R + 0.4));
       rib.rotation.y = -a;
+      rib.userData.noCollision = true;
       g.add(rib);
     }
+    for (const y of [20.2, 34.8]) {
+      const joint = new THREE.Mesh(new THREE.TorusGeometry(R + 0.35, 0.34, 5, 24), DISPLAY_REVEAL);
+      joint.rotation.x = Math.PI / 2;
+      joint.position.y = y;
+      g.add(joint);
+    }
+    // A restrained, abstract media ribbon on the Seventh Avenue side. It is
+    // tone-mapped with the Times Square display family rather than full-bright
+    // MeshBasic, so it does not wash out the arena in daylight.
+    const mediaBacking = new THREE.Mesh(
+      new THREE.CylinderGeometry(R + 0.47, R + 0.47, 6.8, 12, 1, true, Math.PI * 0.72, Math.PI * 0.56),
+      DISPLAY_REVEAL,
+    );
+    mediaBacking.position.y = 27.2;
+    g.add(mediaBacking);
+    const media = new THREE.Mesh(
+      new THREE.CylinderGeometry(R + 0.62, R + 0.62, 6.2, 12, 1, true, Math.PI * 0.72, Math.PI * 0.56),
+      MSG_MEDIA,
+    );
+    media.position.y = 27.2;
+    media.userData.noCollision = true;
+    g.add(media);
     // roof edge ring + lifted tension ring joined by radial cables (center stays open)
     const outer = new THREE.Mesh(new THREE.TorusGeometry(R, 1.2, 6, 16), STEEL_LM);
     outer.rotation.x = Math.PI / 2;
@@ -1171,34 +1298,57 @@ export const builders: Record<string, (ctx: LandmarkCtx) => THREE.Group> = {
         0.15, STEEL_LM, 4,
       ));
     }
+    // Compact roof plant and exhausts replace the old empty center without
+    // closing the cable ring or materially changing the skyline budget.
+    g.add(box(22, 3.2, 14, DISPLAY_STEEL, 0, 38.1, 0));
+    g.add(box(13, 2.0, 8, MSG_CLADDING, 0, 40.7, 0));
+    for (const x of [-7.5, -2.5, 2.5, 7.5]) {
+      g.add(cyl(0.55, 0.72, 3.4, STEEL_LM, x, 42.0, 0, 8));
+    }
     return g;
   },
 
   // Times Square: billboard-stack canyon, a curved wrap screen, the red TKTS steps
   'times-square': (ctx) => {
     const g = new THREE.Group();
-    const DARK_STEEL = new THREE.MeshStandardMaterial({ color: '#26292d', metalness: 0.6, roughness: 0.5 });
     // near-opaque ruby glass: at 0.55 the steps ghosted against whatever drove
     // past behind them (transparent sorting) — depthWrite keeps them solid
     const TKTS_RED = new THREE.MeshStandardMaterial({
-      color: '#c1121f', roughness: 0.15, emissive: '#6b0000',
+      color: '#bd1522', metalness: 0.02, roughness: 0.2,
+      emissive: '#5d0006', emissiveIntensity: 0.52, envMapIntensity: 0.62,
       transparent: true, opacity: 0.92, depthWrite: true,
     });
     let seed = 1;
-    // a dark-steel frame carrying n stacked abstract billboard panels facing the canyon
+    // A deep display housing carrying n stacked abstract billboard panels
+    // facing the canyon. The black reveal, side rails and service ledge give
+    // every spectacular a physical edge under both daylight and emissive light.
     const signStack = (x: number, z: number, faceX: number, panelW: number, top: number, n: number) => {
       const s = new THREE.Group();
-      s.add(box(1.2, top, 1.2, DARK_STEEL, 0, top / 2, 0)); // mast
-      s.add(box(panelW + 1.5, 1.2, 1.2, DARK_STEEL, 0, top - 1, 0)); // crossbeam
+      s.add(box(1.15, top, 1.15, DISPLAY_STEEL, 0, top / 2, 0)); // mast
       const panelH = (top - 8) / n;
       for (let i = 0; i < n; i++) {
         const py = 8 + panelH * (i + 0.5);
-        const panel = new THREE.Mesh(new THREE.PlaneGeometry(panelW, panelH * 0.9), billboardMaterial(seed++));
-        panel.position.set(faceX * 0.7, py, 0);
+        const visibleH = panelH * 0.84;
+        const housingX = faceX * 0.66;
+        const panel = displayPanel(seed++, panelW, visibleH);
+        panel.position.set(faceX * 0.9, py, 0);
         panel.rotation.y = faceX < 0 ? -Math.PI / 2 : Math.PI / 2; // face inward across the avenue
         panel.rotation.z = Math.sin(seed * 12.9) * 0.05; // slight tilt
         s.add(panel);
-        s.add(box(panelW + 0.4, 0.3, 0.4, DARK_STEEL, faceX * 0.6, py - panelH * 0.46, 0)); // panel ledge
+        s.add(box(0.42, visibleH + 0.62, panelW + 0.72, DISPLAY_REVEAL, housingX, py, 0));
+        s.add(box(0.72, 0.2, panelW + 0.9, DISPLAY_STEEL, faceX * 0.72, py - visibleH / 2 - 0.2, 0));
+        s.add(box(0.72, 0.2, panelW + 0.9, DISPLAY_STEEL, faceX * 0.72, py + visibleH / 2 + 0.2, 0));
+        for (const edge of [-1, 1]) {
+          s.add(box(0.72, visibleH + 0.42, 0.18, DISPLAY_STEEL, faceX * 0.72, py, edge * (panelW / 2 + 0.38)));
+        }
+        // Short outriggers keep the sign visibly mounted to its central mast.
+        for (const edge of [-1, 1]) {
+          s.add(strut(
+            new THREE.Vector3(0, py - visibleH * 0.24, edge * 0.25),
+            new THREE.Vector3(faceX * 0.55, py - visibleH * 0.38, edge * panelW * 0.42),
+            0.08, DISPLAY_STEEL, 5,
+          ));
+        }
       }
       s.position.set(x, 0, z);
       return s;
@@ -1225,19 +1375,42 @@ export const builders: Record<string, (ctx: LandmarkCtx) => THREE.Group> = {
       for (let z = -54; z <= 58; z += 15, k++) {
         const pw = 7 + ((k * 3) % 5);
         const ph = 4 + (k % 3);
-        const panel = new THREE.Mesh(new THREE.PlaneGeometry(pw, ph), billboardMaterial(seed++));
+        const panel = displayPanel(seed++, pw, ph);
         const [px2, pz2] = ctx.clearRoad(wallX, z, 1.2);
         panel.position.set(px2, 4 + (k % 2) * 3.6, pz2);
         panel.rotation.y = side === 1 ? Math.PI / 2 : -Math.PI / 2;
         g.add(panel);
+        // Full-depth casing and a projecting canopy stop the lower displays
+        // reading as decals pasted directly onto the streetwall.
+        g.add(box(0.42, ph + 0.5, pw + 0.5, DISPLAY_REVEAL, px2 - side * 0.18, panel.position.y, pz2));
+        g.add(box(1.4, 0.18, pw + 0.8, DISPLAY_STEEL, px2 - side * 0.15, panel.position.y - ph / 2 - 0.34, pz2));
       }
     }
-    // one giant curved wrap screen at the south point of the bowtie
+    // One Times Square's narrow, mechanical-topped sign tower anchors the
+    // south point of the bowtie. It turns the old floating curved screen into
+    // a recognizable silhouette without copying any commercial artwork.
+    g.add(box(15.6, 34, 8.5, DISPLAY_STEEL, 0, 17, -60.8));
+    g.add(box(12.4, 7.5, 7.2, DISPLAY_REVEAL, 0, 37.75, -60.8));
+    g.add(box(8.4, 4.8, 5.4, DISPLAY_STEEL, 0, 43.9, -60.8));
+    g.add(strut(
+      new THREE.Vector3(0, 46.3, -60.8),
+      new THREE.Vector3(0, 55.0, -60.8),
+      0.34, STEEL_LM, 7,
+    ));
+    // Giant curved wrap screen with a slightly larger dark shell behind it,
+    // leaving a visible reveal at the top, bottom and curved edges.
+    const wrapBacking = new THREE.Mesh(
+      new THREE.CylinderGeometry(11.82, 11.82, 13.0, 12, 1, true, Math.PI / 2 - 0.88, 1.76),
+      DISPLAY_REVEAL,
+    );
+    wrapBacking.position.set(0, 24, -58);
+    g.add(wrapBacking);
     const wrap = new THREE.Mesh(
       new THREE.CylinderGeometry(12, 12, 12, 12, 1, true, Math.PI / 2 - 0.85, 1.7),
-      billboardMaterial(seed++),
+      displayMaterial(seed++),
     );
     wrap.position.set(0, 24, -58);
+    wrap.userData.noCollision = true;
     g.add(wrap);
     // TKTS red glass steps at the north end, with a glass parapet. The whole
     // staircase shifts by ONE road-clearance offset (computed at its center,
@@ -1246,10 +1419,27 @@ export const builders: Record<string, (ctx: LandmarkCtx) => THREE.Group> = {
     {
       const [tx, tz] = ctx.clearRoad(0, 55, 9);
       const dxS = tx - 0, dzS = tz - 55;
+      g.add(box(16.2, 0.35, 12.0, DISPLAY_REVEAL, dxS, 0.18, 55.4 + dzS));
       for (let i = 0; i < 12; i++) {
         g.add(box(15, 0.6, 0.95, TKTS_RED, dxS, 0.3 + i * 0.55, 50 + i * 0.9 + dzS));
+        g.add(box(14.6, 0.48, 0.12, DISPLAY_REVEAL, dxS, 0.25 + i * 0.55, 49.55 + i * 0.9 + dzS));
       }
-      g.add(box(15, 1.1, 0.12, GLASS_LM, dxS, 7.3, 60 + dzS)); // parapet
+      // Steel stringers and glass guardrails follow the stair pitch, providing
+      // thin specular edges that remain legible on mobile without transparency
+      // layering across the whole staircase.
+      for (const x of [-7.25, 7.25]) {
+        g.add(strut(
+          new THREE.Vector3(dxS + x, 0.7, 49.6 + dzS),
+          new THREE.Vector3(dxS + x, 7.1, 60.5 + dzS),
+          0.11, DISPLAY_STEEL, 6,
+        ));
+        g.add(strut(
+          new THREE.Vector3(dxS + x, 1.5, 49.6 + dzS),
+          new THREE.Vector3(dxS + x, 7.9, 60.5 + dzS),
+          0.07, STEEL_LM, 6,
+        ));
+      }
+      g.add(box(15, 1.15, 0.14, GLASS_LM, dxS, 7.45, 60.55 + dzS)); // rear parapet
     }
     return g;
   },
@@ -1257,24 +1447,44 @@ export const builders: Record<string, (ctx: LandmarkCtx) => THREE.Group> = {
   // Broadway theaters: three projecting marquees, blade signs, street-level poster cases
   'broadway-theaters': () => {
     const g = new THREE.Group();
-    const WARM = new THREE.MeshBasicMaterial({ color: '#ffedc2' }); // marquee underside glow
     let seed = 200;
-    // theater block facade + cornice
-    g.add(box(42, 16, 2, LIMESTONE, 0, 8, -1));
-    g.add(box(42, 1.2, 3, DARKSTONE, 0, 15.5, -0.5));
-    // a projecting marquee: dark canopy, warm underside, gold-framed abstract poster fascia
+    // Layered prewar theater frontage: a deliberately shallow additive veneer
+    // over the retained block, with a brick field, limestone base/pilasters,
+    // recessed entrance bays and a deep cornice. A thin brick skin avoids
+    // turning the district marker into a freestanding road block when its
+    // oblique arrival point exposes the side of the additive facade.
+    g.add(box(42, 16, 0.45, BRICK_RED, 0, 8.0, -0.22));
+    g.add(box(42, 4.8, 0.55, LIMESTONE, 0, 2.4, 0.15));
+    for (const x of [-20, -13, -6.5, 0, 6.5, 13, 20]) {
+      g.add(box(0.8, 15.2, 0.7, LIMESTONE, x, 9.2, 0.08));
+    }
+    for (const x of [-13, 0, 13]) {
+      g.add(box(7.1, 4.1, 0.25, DISPLAY_REVEAL, x, 2.45, 0.47));
+      for (const dx of [-2.35, 0, 2.35]) {
+        g.add(box(1.85, 3.65, 0.12, MSG_GLASS, x + dx, 2.3, 0.68));
+      }
+    }
+    g.add(box(43, 1.25, 1.8, LIMESTONE, 0, 15.7, 0.15));
+    g.add(box(41.5, 0.48, 1.45, DISPLAY_REVEAL, 0, 16.55, 0.02));
+    // A projecting marquee: deep canopy, warm reflected underside, restrained
+    // bulb strips and a gold-framed abstract poster fascia.
     const marquee = (x: number) => {
       const m = new THREE.Group();
-      m.add(box(8, 0.9, 3.2, DARKSTONE, 0, 5.8, 1.6)); // canopy box
-      const under = new THREE.Mesh(new THREE.PlaneGeometry(7.6, 2.9), WARM);
+      m.add(box(8.4, 0.95, 3.5, DISPLAY_STEEL, 0, 5.8, 1.75)); // canopy box
+      const under = new THREE.Mesh(new THREE.PlaneGeometry(8.0, 3.1), MARQUEE_GLOW);
       under.rotation.x = Math.PI / 2; // face down
-      under.position.set(0, 5.34, 1.6);
+      under.position.set(0, 5.31, 1.75);
       m.add(under);
-      m.add(strut(new THREE.Vector3(-3, 6.2, 3.0), new THREE.Vector3(-3, 9, 0), 0.06, GOLD, 5)); // tie rods
-      m.add(strut(new THREE.Vector3(3, 6.2, 3.0), new THREE.Vector3(3, 9, 0), 0.06, GOLD, 5));
-      m.add(box(8.2, 1.8, 0.15, GOLD, 0, 6.7, 3.15)); // fascia frame
-      const poster = new THREE.Mesh(new THREE.PlaneGeometry(7.4, 1.3), billboardMaterial(seed++));
-      poster.position.set(0, 6.7, 3.24);
+      for (const sx of [-1, 1]) {
+        m.add(strut(new THREE.Vector3(sx * 3, 6.2, 3.3), new THREE.Vector3(sx * 3, 9, 0), 0.07, GOLD, 5));
+        m.add(box(0.14, 0.14, 3.15, MARQUEE_GLOW, sx * 3.86, 5.28, 1.75));
+      }
+      m.add(box(7.7, 0.14, 0.14, MARQUEE_GLOW, 0, 5.28, 3.25));
+      m.add(box(8.45, 2.0, 0.28, DISPLAY_REVEAL, 0, 6.72, 3.48));
+      m.add(box(8.65, 0.18, 0.42, GOLD, 0, 7.7, 3.52));
+      m.add(box(8.65, 0.18, 0.42, GOLD, 0, 5.74, 3.52));
+      const poster = displayPanel(seed++, 7.9, 1.56);
+      poster.position.set(0, 6.72, 3.64);
       m.add(poster);
       m.position.x = x;
       return m;
@@ -1282,17 +1492,20 @@ export const builders: Record<string, (ctx: LandmarkCtx) => THREE.Group> = {
     for (const mx of [-13, 0, 13]) g.add(marquee(mx));
     // vertical blade signs (two-sided abstract panels) between the marquees
     for (const bx of [-6.5, 6.5]) {
-      g.add(box(0.6, 9, 1.4, DARKSTONE, bx, 10.5, 1.2)); // blade mast
-      const blade = twoSidedPanel(billboardTexture(seed++), 1.3, 6.5);
+      g.add(box(0.65, 9, 1.55, DISPLAY_STEEL, bx, 10.5, 1.2)); // blade mast
+      g.add(box(1.75, 7.0, 0.32, DISPLAY_REVEAL, bx, 11, 2.05));
+      const blade = twoSidedDisplay(seed++, 1.4, 6.5);
       blade.rotation.y = Math.PI / 2; // faces up/down the street
-      blade.position.set(bx, 11, 1.9);
+      blade.position.set(bx, 11, 2.23);
       g.add(blade);
     }
     // row of gold-framed poster cases at street level
     for (const px of [-18, -15, -6, -3, 6, 9, 16, 19]) {
-      g.add(box(1.5, 2.4, 0.12, GOLD, px, 2.6, 0.05));
-      const pc = new THREE.Mesh(new THREE.PlaneGeometry(1.2, 2.0), billboardMaterial(seed++));
-      pc.position.set(px, 2.6, 0.14);
+      g.add(box(1.65, 2.55, 0.22, DISPLAY_REVEAL, px, 2.6, 0.48));
+      g.add(box(1.55, 0.1, 0.3, GOLD, px, 3.85, 0.55));
+      g.add(box(1.55, 0.1, 0.3, GOLD, px, 1.35, 0.55));
+      const pc = displayPanel(seed++, 1.3, 2.15);
+      pc.position.set(px, 2.6, 0.62);
       g.add(pc);
     }
     return g;
