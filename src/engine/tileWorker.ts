@@ -7,7 +7,8 @@ import {
   ROAD_STYLE, AREA_STYLE, CONCRETE_CLASSES, PATH_KIND_ROAD, PATH_KIND_BIKE, PATH_KIND_SERVICE,
   ROAD_FLAG_SIDEWALK_LEFT, ROAD_FLAG_SIDEWALK_RIGHT, ROAD_FLAG_DRIVEWAY, ROAD_FLAG_MEDIAN,
   ROAD_FLAG_ISLAND, ROAD_FLAG_INTERSECTION_START, ROAD_FLAG_INTERSECTION_END,
-  ROAD_FLAG_CROSSING,
+  ROAD_FLAG_CROSSING, buildResponseByteLength, tileDetailIncludesBaseSurfaces,
+  tileRoadSurfaceDetail,
 } from './tileTypes';
 import { buildingColor, hash01, legacyBuildingArchetype, roofColor } from './palette';
 import { packBuildingSemantics, semanticsForBuilding } from './tileSemantics';
@@ -60,10 +61,6 @@ const CURATED_LANES: Record<string, { side: 'w' | 'e' | 'n' | 's'; zMin: number;
 
 // road classes that can carry a curated painted lane
 const LANE_CLASSES = new Set(['primary', 'secondary', 'tertiary', 'unclassified', 'residential']);
-const BASE_ROADS = new Set([
-  'motorway', 'trunk', 'primary', 'secondary',
-  'motorway_link', 'trunk_link', 'primary_link', 'secondary_link',
-]);
 const SURFACE_STREETS = new Set([
   'primary', 'secondary', 'tertiary', 'unclassified', 'residential', 'living_street',
 ]);
@@ -600,42 +597,45 @@ function addRoofDetails(
   const width = bounds.maxX - bounds.minX;
   const depth = bounds.maxZ - bounds.minZ;
   if (width < 4 || depth < 4) return;
-  const parapet = roofFamily === 0 || roofFamily === 6 || roofFamily === 7;
-  if (parapet && ring.length <= 28 && hash01(seed + 201) < 0.78) {
-    const count = ring.length / 2;
-    const stone: [number, number, number] = [0.43, 0.43, 0.4];
-    for (let edge = 0; edge < count; edge++) {
-      const j = (edge + 1) % count;
-      const len = Math.hypot(ring[j * 2] - ring[edge * 2], ring[j * 2 + 1] - ring[edge * 2 + 1]);
-      if (len >= 2.2) facadeBox(acc, ring, edge, Math.max(1.5, len - 0.18), 0.24, roofY, roofY + 0.62, stone);
+  if (detail === 1) {
+    const parapet = roofFamily === 0 || roofFamily === 6 || roofFamily === 7;
+    if (parapet && ring.length <= 28 && hash01(seed + 201) < 0.78) {
+      const count = ring.length / 2;
+      const stone: [number, number, number] = [0.43, 0.43, 0.4];
+      for (let edge = 0; edge < count; edge++) {
+        const j = (edge + 1) % count;
+        const len = Math.hypot(ring[j * 2] - ring[edge * 2], ring[j * 2 + 1] - ring[edge * 2 + 1]);
+        if (len >= 2.2) facadeBox(acc, ring, edge, Math.max(1.5, len - 0.18), 0.24, roofY, roofY + 0.62, stone);
+      }
     }
+
+    // Source-tagged terrace/green roof: one inset planted slab, no new material.
+    if (roofFamily === 6 && width > 8 && depth > 8) {
+      const gx = Math.min(width * 0.58, width - 3);
+      const gz = Math.min(depth * 0.58, depth - 3);
+      extrude(acc, [[
+        bounds.cx - gx / 2, bounds.cz - gz / 2, bounds.cx + gx / 2, bounds.cz - gz / 2,
+        bounds.cx + gx / 2, bounds.cz + gz / 2, bounds.cx - gx / 2, bounds.cz + gz / 2,
+      ]], roofY + 0.05, roofY + 0.2, [0.25, 0.39, 0.23]);
+    }
+
+    if (roofFamily === 7 || (area > 500 && hash01(seed + 207) < 0.18)) {
+      // Industrial skylight monitor: a compact raised strip reads clearly from
+      // above without attempting expensive sawtooth tessellation.
+      const sw = Math.max(2.2, Math.min(width, depth) * 0.18);
+      const sl = Math.max(4, Math.max(width, depth) * 0.48);
+      const alongX = width >= depth;
+      const hw = alongX ? sl / 2 : sw / 2;
+      const hz = alongX ? sw / 2 : sl / 2;
+      extrude(acc, [[
+        bounds.cx - hw, bounds.cz - hz, bounds.cx + hw, bounds.cz - hz,
+        bounds.cx + hw, bounds.cz + hz, bounds.cx - hw, bounds.cz + hz,
+      ]], roofY + 0.08, roofY + 0.72, [0.42, 0.48, 0.5]);
+    }
+    return;
   }
 
-  // Source-tagged terrace/green roof: one inset planted slab, no new material.
-  if (roofFamily === 6 && width > 8 && depth > 8) {
-    const gx = Math.min(width * 0.58, width - 3);
-    const gz = Math.min(depth * 0.58, depth - 3);
-    extrude(acc, [[
-      bounds.cx - gx / 2, bounds.cz - gz / 2, bounds.cx + gx / 2, bounds.cz - gz / 2,
-      bounds.cx + gx / 2, bounds.cz + gz / 2, bounds.cx - gx / 2, bounds.cz + gz / 2,
-    ]], roofY + 0.05, roofY + 0.2, [0.25, 0.39, 0.23]);
-  }
-
-  if (roofFamily === 7 || (area > 500 && hash01(seed + 207) < 0.18)) {
-    // Industrial skylight monitor: a compact raised strip reads clearly from
-    // above without attempting expensive sawtooth tessellation.
-    const sw = Math.max(2.2, Math.min(width, depth) * 0.18);
-    const sl = Math.max(4, Math.max(width, depth) * 0.48);
-    const alongX = width >= depth;
-    const hw = alongX ? sl / 2 : sw / 2;
-    const hz = alongX ? sw / 2 : sl / 2;
-    extrude(acc, [[
-      bounds.cx - hw, bounds.cz - hz, bounds.cx + hw, bounds.cz - hz,
-      bounds.cx + hw, bounds.cz + hz, bounds.cx - hw, bounds.cz + hz,
-    ]], roofY + 0.08, roofY + 0.72, [0.42, 0.48, 0.5]);
-  }
-
-  if (detail < 2 || (roofFamily !== 0 && roofFamily !== 6 && roofFamily !== 7)) return;
+  if (detail !== 2 || (roofFamily !== 0 && roofFamily !== 6 && roofFamily !== 7)) return;
   const units = Math.min(3, Math.max(1, Math.floor(area / 900)));
   for (let i = 0; i < units; i++) {
     if (hash01(seed + 219 + i * 13) > 0.7) continue;
@@ -1061,26 +1061,31 @@ function buildTile(tile: TileJson, detail: TileBuildDetail, requestId: number): 
         ? Math.min(7, solidHeight * 0.35, Math.max(1.2, h * (semantics.roof === 4 ? 0.18 : 0.12)))
         : 0;
       const wallTop = base + h - roofRise;
-      if (detail >= 2 && semantics.storefront > 0 && minH === 0) {
+      if (detail === 2 && semantics.storefront > 0 && minH === 0) {
         const footprint = ringCentroidAndBounds(rings[0]);
         retailAnchorValues.push(footprint.cx, base, footprint.cz, semantics.storefront);
       }
-      // sink foundations 2.5m so sloped ground never shows a gap under walls;
-      // elevated parts get a sealed underside
-      extrude(
-        bAcc,
-        rings,
-        base + minH - (minH > 0 ? 0 : 2.5),
-        wallTop,
-        bc.col,
-        minH > 0,
-        rc,
-      );
-      if (apexRoof) addApexRoof(bAcc, rings[0], wallTop, base + h, rc);
-      else if (gabledRoof) addGabledRoof(bAcc, rings[0], wallTop, base + h, rc);
-      else if (skillionRoof) addSkillionRoof(bAcc, rings[0], wallTop, base + h, rc);
-      addRoofDetails(bAcc, rings[0], base + h, seed, semantics.roof, detail);
-      if (detail >= 2 && minH === 0 && hash01(seed + 297) < 0.42) {
+      if (tileDetailIncludesBaseSurfaces(detail)) {
+        // Stable base massing is uploaded once. Sink foundations 2.5m so
+        // sloped ground never shows a gap; elevated parts get a sealed bottom.
+        extrude(
+          bAcc,
+          rings,
+          base + minH - (minH > 0 ? 0 : 2.5),
+          wallTop,
+          bc.col,
+          minH > 0,
+          rc,
+        );
+        if (apexRoof) addApexRoof(bAcc, rings[0], wallTop, base + h, rc);
+        else if (gabledRoof) addGabledRoof(bAcc, rings[0], wallTop, base + h, rc);
+        else if (skillionRoof) addSkillionRoof(bAcc, rings[0], wallTop, base + h, rc);
+      } else {
+        // Roof furniture and near façade kits are separate immutable deltas;
+        // neither path repeats the base extrusion or the other detail tier.
+        addRoofDetails(bAcc, rings[0], base + h, seed, semantics.roof, detail);
+      }
+      if (detail === 2 && minH === 0 && hash01(seed + 297) < 0.42) {
         addNearFacadeDetails(bAcc, rings[0], base, wallTop, seed, semantics.archetype, semantics.storefront);
       }
 
@@ -1100,7 +1105,7 @@ function buildTile(tile: TileJson, detail: TileBuildDetail, requestId: number): 
       }
 
       // water towers on mid-rise flat roofs
-      if (detail >= 1 && minH === 0 && h > 22 && h < 95 && hash01(seed + 3) < 0.22) {
+      if (detail === 1 && minH === 0 && h > 22 && h < 95 && hash01(seed + 3) < 0.22) {
         const ring = rings[0];
         // centroid
         let cx = 0, cz = 0; const n = ring.length / 2;
@@ -1122,7 +1127,7 @@ function buildTile(tile: TileJson, detail: TileBuildDetail, requestId: number): 
   const WHITE: [number, number, number] = [0.8, 0.81, 0.82];
   const YELLOW: [number, number, number] = [0.82, 0.65, 0.1];
 
-  if (tile.areas) {
+  if (tileDetailIncludesBaseSurfaces(detail) && tile.areas) {
     const stride = v2 ? 3 : 2;
     for (const kind of Object.keys(tile.areas)) {
       const style = AREA_STYLE[kind] ?? AREA_STYLE.grass;
@@ -1193,7 +1198,6 @@ function buildTile(tile: TileJson, detail: TileBuildDetail, requestId: number): 
     for (const r of tile.roads) {
       const roadSeed = seedBase + roadIndex++ * 53;
       const style = ROAD_STYLE[r.c] ?? ROAD_STYLE.residential;
-      if (detail === 0 && !BASE_ROADS.has(r.c)) continue;
       const bike = r.c === 'cycleway';
       const roadWidth = Math.max(1.2, Math.min(45, r.w !== undefined ? r.w / 10 : style.w));
       const legacySidewalks = !r.b && SURFACE_STREETS.has(r.c)
@@ -1213,7 +1217,7 @@ function buildTile(tile: TileJson, detail: TileBuildDetail, requestId: number): 
       if (bike) nudgePolylineOutOfBuildings(pts, ys, colRings, colAabb, colBase, roadWidth / 2 + 0.3);
       if (n >= 2 && (VEHICULAR_ROADS.has(r.c) || bike)) vroads.push({ pts, half: roadWidth / 2 });
       if (bike && n >= 2) bikePaths.push({ pts, half: roadWidth / 2 });
-      if (!MINIMAP_SKIP.has(r.c) && n >= 2) {
+      if (tileDetailIncludesBaseSurfaces(detail) && !MINIMAP_SKIP.has(r.c) && n >= 2) {
         for (const v of pts) mmPts.push(v);
         mmStart.push(mmPts.length / 2);
         mmWidth.push(roadWidth);
@@ -1234,8 +1238,12 @@ function buildTile(tile: TileJson, detail: TileBuildDetail, requestId: number): 
         Math.min(1.15, tint[1] * surfaceVariation),
         Math.min(1.15, tint[2] * surfaceVariation),
       ];
-      buildRibbon(acc, pts, roadWidth, ys, roadColor, 0, 0.25, null, concrete ? 1 : 0.73);
-      if (detail >= 1 && !r.b && !concrete && SURFACE_STREETS.has(r.c)) {
+      // Base carries only the broad road skeleton. Mid adds the missing local
+      // streets/paths plus street-section geometry without repeating any base
+      // road ribbon.
+      const emitSurface = detail === tileRoadSurfaceDetail(r.c);
+      if (emitSurface) buildRibbon(acc, pts, roadWidth, ys, roadColor, 0, 0.25, null, concrete ? 1 : 0.73);
+      if (detail === 1 && !r.b && !concrete && SURFACE_STREETS.has(r.c)) {
         const rememberFan = (pointIndex: number) => {
           const x = pts[pointIndex * 2], z = pts[pointIndex * 2 + 1], y = ys[pointIndex] + 0.002;
           const key = `${Math.round(x * 5)},${Math.round(z * 5)}`;
@@ -1250,7 +1258,7 @@ function buildTile(tile: TileJson, detail: TileBuildDetail, requestId: number): 
       // v3 street section: dark gutter, real 14cm curb reveal, and a merged
       // sidewalk strip where source/inference says the sidewalk is attached.
       // Legacy public tiles retain conservative two-sided sidewalks.
-      if (detail >= 1 && !r.b && SURFACE_STREETS.has(r.c) && !(roadFlags & ROAD_FLAG_DRIVEWAY)) {
+      if (detail === 1 && !r.b && SURFACE_STREETS.has(r.c) && !(roadFlags & ROAD_FLAG_DRIVEWAY)) {
         const curbCuts = drivewayCuts.filter(
           ([x, z]) => pointPolylineDistance(x, z, pts) <= roadWidth / 2 + 4.5,
         );
@@ -1276,14 +1284,14 @@ function buildTile(tile: TileJson, detail: TileBuildDetail, requestId: number): 
 
       // ---- markings ----
       const mys = ys.map((y) => y + 0.02);
-      if (detail >= 2 && bike) {
+      if (detail === 2 && bike) {
         // NYC-style painted lane: solid green fill with white edge stripes,
         // kept just below crosswalk bars so crossings still paint over the lane
         const bys = ys.map((y) => y + 0.016);
         buildRibbon(mAcc, pts, roadWidth - 0.55, bys, BIKE_GREEN, 0, 0);
         buildRibbon(mAcc, pts, 0.1, bys, WHITE, roadWidth / 2 - 0.14);
         buildRibbon(mAcc, pts, 0.1, bys, WHITE, -(roadWidth / 2 - 0.14));
-      } else if (detail >= 2 && (r.c === 'crossing' || (roadFlags & ROAD_FLAG_CROSSING))) {
+      } else if (detail === 2 && (r.c === 'crossing' || (roadFlags & ROAD_FLAG_CROSSING))) {
         // continental crosswalk: thick bars perpendicular to the walking line
         const total = polyLength(pts);
         for (let d = 0.5; d < total - 0.3; d += 0.95) {
@@ -1299,17 +1307,17 @@ function buildTile(tile: TileJson, detail: TileBuildDetail, requestId: number): 
           pushUpTri(mAcc, base, base + 1, base + 2);
           pushUpTri(mAcc, base, base + 2, base + 3);
         }
-      } else if (detail >= 2 && ['motorway', 'trunk', 'primary', 'secondary'].includes(r.c)) {
+      } else if (detail === 2 && ['motorway', 'trunk', 'primary', 'secondary'].includes(r.c)) {
         buildRibbon(mAcc, pts, 0.12, mys, YELLOW, 0.17);
         buildRibbon(mAcc, pts, 0.12, mys, YELLOW, -0.17);
         buildRibbon(mAcc, pts, 0.12, mys, WHITE, roadWidth / 2 - 0.45);
         buildRibbon(mAcc, pts, 0.12, mys, WHITE, -(roadWidth / 2 - 0.45));
-      } else if (detail >= 2 && ['tertiary', 'unclassified'].includes(r.c)) {
+      } else if (detail === 2 && ['tertiary', 'unclassified'].includes(r.c)) {
         buildRibbon(mAcc, pts, 0.12, mys, WHITE, 0, 0, [2.6, 4.2]);
       }
 
       // curated protected lane riding this street? paint it curbside
-      if (detail >= 2 && !r.b && signBlades.length && LANE_CLASSES.has(r.c) && polyLength(pts) > 25) {
+      if (detail === 2 && !r.b && signBlades.length && LANE_CLASSES.has(r.c) && polyLength(pts) > 25) {
         const laneName = matchCuratedLane(pts, signBlades, roadWidth / 2);
         const lane = laneName ? CURATED_LANES[laneName] : null;
         if (lane) {
@@ -1336,14 +1344,14 @@ function buildTile(tile: TileJson, detail: TileBuildDetail, requestId: number): 
 
       // Crosswalks are inferred only at real shared OSM endpoints, never at
       // arbitrary tile clips. Explicit crossing ways above still take priority.
-      if (detail >= 2 && !r.b && SURFACE_STREETS.has(r.c) && r.c !== 'living_street') {
+      if (detail === 2 && !r.b && SURFACE_STREETS.has(r.c) && r.c !== 'living_street') {
         if (roadFlags & ROAD_FLAG_INTERSECTION_START) addTopologyCrosswalk(mAcc, pts, mys, roadWidth, true);
         if (roadFlags & ROAD_FLAG_INTERSECTION_END) addTopologyCrosswalk(mAcc, pts, mys, roadWidth, false);
       }
 
       // Bounded merged road furniture/decal layer: deterministic manholes,
       // curb drains, utility cuts, and patch plates. No per-object meshes.
-      if (detail >= 2 && !r.b && SURFACE_STREETS.has(r.c)) {
+      if (detail === 2 && !r.b && SURFACE_STREETS.has(r.c)) {
         const length = polyLength(pts);
         if (length > 18 && hash01(roadSeed + 401) < 0.62) {
           const d = Math.min(length - 4, 7 + hash01(roadSeed + 409) * Math.max(1, length - 14));
@@ -1422,7 +1430,7 @@ function buildTile(tile: TileJson, detail: TileBuildDetail, requestId: number): 
     return false;
   };
   let trees: Float32Array | null = null;
-  if (detail >= 2 && tile.trees && tile.trees.length >= 2) {
+  if (detail === 2 && tile.trees && tile.trees.length >= 2) {
     const stride = v2 ? 3 : 2;
     const total = Math.floor(tile.trees.length / stride);
     const count = Math.min(1400, total);
@@ -1444,7 +1452,7 @@ function buildTile(tile: TileJson, detail: TileBuildDetail, requestId: number): 
 
   // ---- collision pack ----
   let collision: CollisionData | null = null;
-  if (colRings.length) {
+  if (tileDetailIncludesBaseSurfaces(detail) && colRings.length) {
     const starts = new Uint32Array(colRings.length + 1);
     let total = 0;
     for (let i = 0; i < colRings.length; i++) { starts[i] = total; total += colRings[i].length / 2; }
@@ -1460,7 +1468,7 @@ function buildTile(tile: TileJson, detail: TileBuildDetail, requestId: number): 
 
   // ---- hydrants: world transforms for instancing ----
   let hydrants: Float32Array | null = null;
-  if (detail >= 2 && tile.hyd && tile.hyd.length >= 3) {
+  if (detail === 2 && tile.hyd && tile.hyd.length >= 3) {
     const n = Math.floor(tile.hyd.length / 3);
     hydrants = new Float32Array(n * 4);
     for (let i = 0; i < n; i++) {
@@ -1480,7 +1488,7 @@ function buildTile(tile: TileJson, detail: TileBuildDetail, requestId: number): 
 
   // ---- signs: to world coords (geometry built on the main thread, atlas needs DOM) ----
   // then nudge any that baked into a roadbed out onto the sidewalk.
-  const signs = (detail >= 2 ? tile.signs ?? [] : []).map((s) => {
+  const signs = (detail === 2 ? tile.signs ?? [] : []).map((s) => {
     const [sx, sz] = nudgeSignOutOfRoads(toWorld(s.p[0], ox), toWorld(s.p[1], oz), vroads);
     return { x: sx, y: s.e / 10, z: sz, names: s.n, angles: s.a };
   });
@@ -1501,7 +1509,7 @@ function buildTile(tile: TileJson, detail: TileBuildDetail, requestId: number): 
     hydrants,
     signs: signs.length ? signs : null,
     collision,
-    roadPaths: mmWidth.length
+    roadPaths: tileDetailIncludesBaseSurfaces(detail) && mmWidth.length
       ? {
           start: new Uint32Array(mmStart),
           pts: new Float32Array(mmPts),
@@ -1596,7 +1604,7 @@ self.onmessage = async (ev: MessageEvent<BuildRequest>) => {
       );
       if (out.roadPaths.flags) transfer.push(out.roadPaths.flags.buffer);
     }
-    const transferBytes = transfer.reduce<number>((sum, buffer) => sum + (buffer as ArrayBuffer).byteLength, 0);
+    const transferBytes = buildResponseByteLength(out);
     out.timing = {
       fetchMs,
       decodeMs,

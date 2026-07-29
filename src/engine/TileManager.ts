@@ -2,6 +2,13 @@ import * as THREE from 'three';
 import { dataUrl } from './dataver';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import type { BuildResponse, MeshPayload, CollisionData, RoadPaths, TileBuildDetail } from './tileTypes';
+import {
+  attachCompiledTileDetailLayer,
+  buildResponseByteLength,
+  forEachTileDetailLayer,
+  installTileDetailLayer,
+  retainTileResponseState,
+} from './tileTypes';
 import { TILE_SIZE, tileKey } from './geo';
 import { hash01 } from './palette';
 import {
@@ -35,6 +42,7 @@ interface TileRecord {
   tz: number;
   state: 'queued' | 'building' | 'ready' | 'empty';
   group: THREE.Group | null;
+  layerGroups: [THREE.Group | null, THREE.Group | null, THREE.Group | null];
   collision: CollisionData | null;
   roadPaths: RoadPaths | null;
   trees: Float32Array | null; // [x,y,z,scale,hue] for canopy-safe teleport arrivals
@@ -47,6 +55,7 @@ interface TileRecord {
   lod: number; // current detail bucket (0 = full .. 3 = buildings only)
   treeLod: TreeLod;
   facade: THREE.Mesh | null;
+  facadeMeshes: THREE.Mesh[];
   facadeDetailed: boolean;
   targetDetail: TileBuildDetail;
   builtDetail: TileBuildDetail | -1;
@@ -405,6 +414,7 @@ export class TileManager {
           key, tx, tz, state: 'queued', group: null, collision: null, roadPaths: null,
           trees: null, retailAnchors: null, signs: null, geometries: [], textures: [], lod: 0,
           treeLod: treeLodForDistanceSq((cx - camX) ** 2 + (cz - camZ) ** 2), facade: null,
+          facadeMeshes: [], layerGroups: [null, null, null],
           materials: [], facadeDetailed: true, targetDetail, builtDetail: -1, requestId: 0, workerIndex: -1,
         });
         this.queue.push(key);
@@ -466,11 +476,12 @@ export class TileManager {
       if (lod === rec.lod && treeLod === rec.treeLod) continue;
       rec.lod = lod;
       rec.treeLod = treeLod;
-      for (const child of rec.group.children) {
+      rec.group.traverse((child) => {
+        if (child === rec.group) return;
         const tier = child.userData.lodTier as number | undefined;
         const vegetationLod = child.userData.vegetationLod as TreeLod | undefined;
         child.visible = (!tier || tier > lod) && (vegetationLod === undefined || vegetationLod === treeLod);
-      }
+      });
     }
   }
 
@@ -510,7 +521,8 @@ export class TileManager {
     const detailed = dSq < threshold * threshold;
     if (detailed === rec.facadeDetailed) return;
     rec.facadeDetailed = detailed;
-    if (rec.facade) rec.facade.material = detailed ? this.facadeMat : this.facadeSimpleMat;
+    const material = detailed ? this.facadeMat : this.facadeSimpleMat;
+    for (const facade of rec.facadeMeshes) facade.material = material;
   }
 
   /**
@@ -540,7 +552,9 @@ export class TileManager {
 
   private dispatchBuild(rec: TileRecord, workerIndex: number) {
     const requestId = rec.requestId;
-    const detail = rec.targetDetail;
+    // Additive contract: even a tile requested at near range is built as
+    // base -> mid -> near so every response is one immutable delta.
+    const detail = Math.min(rec.targetDetail, rec.builtDetail + 1) as TileBuildDetail;
     const fallback = () => {
       const current = this.records.get(rec.key);
       if (current !== rec || current.requestId !== requestId || this.destroyed) return;
@@ -740,7 +754,7 @@ export class TileManager {
 
   private onBuilt(res: BuildResponse, _wi: number) {
     this.inFlight.delete(res.key);
-    this.streamTelemetry.workerCompleted(res.timing);
+    this.streamTelemetry.workerCompleted(res.timing, res.detail);
     const rec = this.records.get(res.key);
     if (!rec || (res.requestId ?? 0) !== rec.requestId) {
       this.streamTelemetry.staleResponses++;
@@ -761,19 +775,24 @@ export class TileManager {
       this.streamTelemetry.staleResponses++;
       return;
     }
-    if (rec.group && res.detail <= rec.builtDetail) {
+    if (res.detail <= rec.builtDetail) {
+      rec.state = 'ready';
+      return;
+    }
+    if (res.detail !== rec.builtDetail + 1) {
+      // A tier may never leapfrog another tier: doing so would violate both
+      // collision readiness and the immutable-layer identity contract.
+      this.streamTelemetry.staleResponses++;
       rec.state = 'ready';
       return;
     }
     const integrateStarted = performance.now();
-    const oldGroup = rec.group;
-    const oldGeometries = rec.geometries;
-    const oldTextures = rec.textures;
-    const oldMaterials = rec.materials;
-    rec.geometries = [];
-    rec.textures = [];
-    rec.materials = [];
-    const group = new THREE.Group();
+    const integratedBytes = buildResponseByteLength(res);
+    const rootGroup = rec.group ?? new THREE.Group();
+    const layerGroup = new THREE.Group();
+    layerGroup.userData.tileDetail = res.detail;
+    installTileDetailLayer(rec.layerGroups, res.detail, layerGroup);
+    if (!rec.group) rec.group = rootGroup;
 
     // Distance tiers (userData.lodTier): update() hides a tier once the whole
     // tile is far enough that its content is fog-washed or sub-pixel. Draw
@@ -805,17 +824,23 @@ export class TileManager {
       mesh.receiveShadow = opts?.receive ?? false;
       if (opts?.order !== undefined) mesh.renderOrder = opts.order;
       if (opts?.tier) mesh.userData.lodTier = opts.tier;
-      group.add(mesh);
+      layerGroup.add(mesh);
       rec.geometries.push(geo);
       return mesh;
     };
 
-    rec.facade = addMesh(
+    const facade = addMesh(
       res.buildings,
       rec.facadeDetailed ? this.facadeMat : this.facadeSimpleMat,
       { cast: true, receive: true, bounds: true },
     );
-    if (rec.facade) this.updateFacadeMaterial(rec, this.lastSpatialX, this.lastSpatialY, this.lastSpatialZ);
+    if (facade) {
+      rec.facadeMeshes.push(facade);
+      if (res.detail === 0) rec.facade = facade;
+    }
+    if (res.detail === 0 && rec.facade) {
+      this.updateFacadeMaterial(rec, this.lastSpatialX, this.lastSpatialY, this.lastSpatialZ);
+    }
     addMesh(res.areas, this.flatMat, { receive: true, tier: 3 });
     // Water surface sits ~0.25m above the highest interior terrain (baked), so it draws
     // over the park polygon that covers a reservoir/lake. Shared material, no shadow — mirrors
@@ -828,7 +853,7 @@ export class TileManager {
     if (res.signs && res.signs.length) {
       const { mesh, texture } = buildSignsMesh(res.signs);
       mesh.userData.lodTier = 1;
-      group.add(mesh);
+      layerGroup.add(mesh);
       rec.geometries.push(mesh.geometry);
       rec.textures.push(texture);
       if (Array.isArray(mesh.material)) rec.materials.push(...mesh.material);
@@ -837,7 +862,7 @@ export class TileManager {
     if (res.hydrants && res.hydrants.length >= 4) {
       const hyd = buildHydrants(res.hydrants, this.hydrantMat);
       hyd.userData.lodTier = 1;
-      group.add(hyd);
+      layerGroup.add(hyd);
     }
 
     if (res.trees && res.trees.length >= 5) {
@@ -947,37 +972,30 @@ export class TileManager {
         canopy.castShadow = q.shadows && q.level !== 'low';
         canopy.receiveShadow = q.shadows;
         canopy.userData.vegetationLod = 0;
-        group.add(canopy);
+        layerGroup.add(canopy);
       }
       midCanopies.receiveShadow = q.shadows;
       midCanopies.userData.vegetationLod = 1;
       farCanopies.receiveShadow = q.shadows;
       farCanopies.userData.vegetationLod = 2;
-      group.add(trunks, midCanopies, farCanopies);
+      layerGroup.add(trunks, midCanopies, farCanopies);
     }
 
-    rec.group = group;
-    rec.collision = res.collision;
-    rec.roadPaths = res.roadPaths;
-    rec.trees = res.trees;
-    rec.retailAnchors = res.retailAnchors;
-    rec.signs = res.signs;
-    rec.builtDetail = res.detail;
+    // Base owns immutable collision and road topology. Near owns activity
+    // anchors/furniture. Null delta fields never clear an earlier tier.
+    retainTileResponseState(rec, res);
     rec.state = 'ready';
-    for (const child of group.children) {
+    for (const child of layerGroup.children) {
       const tier = child.userData.lodTier as number | undefined;
       const vegetationLod = child.userData.vegetationLod as TreeLod | undefined;
       child.visible = (!tier || tier > rec.lod)
         && (vegetationLod === undefined || vegetationLod === rec.treeLod);
     }
-    if (oldGroup) {
-      this.scene.remove(oldGroup);
-      disposeOwnedResources(oldGeometries, oldTextures, oldMaterials);
-      oldGroup.traverse((o) => {
-        if (o instanceof THREE.InstancedMesh) o.dispose();
-      });
-    }
-    this.streamTelemetry.integrated(performance.now() - integrateStarted);
+    this.streamTelemetry.integrated(
+      performance.now() - integrateStarted,
+      integratedBytes,
+      res.detail,
+    );
     // Collision / readiness are set above so gameplay never waits on the GPU;
     // only the VISIBLE add is deferred. The first frame a fresh material combo
     // is drawn otherwise compiles its shader programs synchronously inside
@@ -985,13 +1003,29 @@ export class TileManager {
     // programs off the render frame, then reveal. If the tile unloaded while the
     // compile was in flight (the player kept moving), drop it — dispose() has
     // already freed the geometry, so skipping the add leaks nothing.
+    const attachLayer = () => {
+      if (this.records.get(res.key) !== rec || rec.group !== rootGroup) return;
+      attachCompiledTileDetailLayer(
+        rec.layerGroups,
+        res.detail,
+        layerGroup,
+        (layer) => {
+          if (layer.parent !== rootGroup) rootGroup.add(layer);
+        },
+        () => {
+          if (rootGroup.parent !== this.scene) this.scene.add(rootGroup);
+        },
+      );
+    };
     if (this.compile) {
       const key = res.key;
-      void this.compile(group).then(() => {
-        if (this.records.get(key) === rec && rec.group === group) this.scene.add(group);
+      void this.compile(layerGroup).then(attachLayer, () => {
+        // Compilation failure must not strand a collision-ready tile. The
+        // renderer can still compile synchronously on its first visible frame.
+        if (this.records.get(key) === rec) attachLayer();
       });
     } else {
-      this.scene.add(group);
+      attachLayer();
     }
     if (rec.targetDetail > rec.builtDetail) {
       rec.state = 'queued';
@@ -1004,10 +1038,14 @@ export class TileManager {
     if (rec.group) {
       this.scene.remove(rec.group);
       disposeOwnedResources(rec.geometries, rec.textures, rec.materials);
-      rec.group.traverse((o) => {
+    }
+    // A layer may still be compiling and therefore not attached to the root.
+    // The tier registry owns it regardless, so disposal remains complete.
+    forEachTileDetailLayer(rec.layerGroups, (layer) => {
+      layer.traverse((o) => {
         if (o instanceof THREE.InstancedMesh) o.dispose();
       });
-    }
+    });
   }
 
   destroy() {

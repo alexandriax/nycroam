@@ -1,4 +1,9 @@
-import type { TileWorkerTiming } from '../tileTypes';
+import type { TileBuildDetail, TileWorkerTiming } from '../tileTypes';
+
+export interface TileTierBytes {
+  transferred: number;
+  integrated: number;
+}
 
 export interface TimingDistribution {
   samples: number;
@@ -20,8 +25,15 @@ export interface TileStreamingReport {
   bytes: {
     source: number;
     transferred: number;
+    integrated: number;
     sourcePerTile: number;
     transferredPerTile: number;
+    integratedPerTile: number;
+    byDetail: {
+      base: TileTierBytes;
+      mid: TileTierBytes;
+      near: TileTierBytes;
+    };
   };
   pressure: {
     queue: number;
@@ -90,6 +102,11 @@ export class TileStreamingTelemetry {
   private integration = new RollingMetric();
   private sourceBytes = 0;
   private transferBytes = 0;
+  private integrationBytes = 0;
+  private transferBytesByDetail: [number, number, number] = [0, 0, 0];
+  private integrationBytesByDetail: [number, number, number] = [0, 0, 0];
+  private measuredWorkers = 0;
+  private measuredIntegrations = 0;
   private peakQueue = 0;
   private peakInFlight = 0;
   private peakAwaiting = 0;
@@ -109,19 +126,26 @@ export class TileStreamingTelemetry {
     if (upgrade) this.upgrades++;
   }
 
-  workerCompleted(timing?: TileWorkerTiming) {
+  workerCompleted(timing?: TileWorkerTiming, detail: TileBuildDetail = 0) {
     this.completed++;
     if (!timing) return;
+    this.measuredWorkers++;
     this.fetch.add(timing.fetchMs);
     this.decode.add(timing.decodeMs);
     this.build.add(timing.buildMs);
     this.total.add(timing.totalMs);
     this.sourceBytes += timing.sourceBytes;
     this.transferBytes += timing.transferBytes;
+    this.transferBytesByDetail[detail] += timing.transferBytes;
   }
 
-  integrated(durationMs: number) {
+  integrated(durationMs: number, bytes = 0, detail: TileBuildDetail = 0) {
+    if (!Number.isFinite(durationMs) || durationMs < 0) return;
     this.integration.add(durationMs);
+    this.measuredIntegrations++;
+    if (!Number.isFinite(bytes) || bytes < 0) return;
+    this.integrationBytes += bytes;
+    this.integrationBytesByDetail[detail] += bytes;
   }
 
   pressure(queue: number, inFlight: number, awaiting: number, prefetch: number) {
@@ -139,7 +163,10 @@ export class TileStreamingTelemetry {
   }
 
   report(): TileStreamingReport {
-    const measured = this.total.report().samples;
+    const tierBytes = (detail: TileBuildDetail): TileTierBytes => ({
+      transferred: this.transferBytesByDetail[detail],
+      integrated: this.integrationBytesByDetail[detail],
+    });
     return {
       worker: {
         fetch: this.fetch.report(),
@@ -151,8 +178,15 @@ export class TileStreamingTelemetry {
       bytes: {
         source: this.sourceBytes,
         transferred: this.transferBytes,
-        sourcePerTile: measured ? this.sourceBytes / measured : 0,
-        transferredPerTile: measured ? this.transferBytes / measured : 0,
+        integrated: this.integrationBytes,
+        sourcePerTile: this.measuredWorkers ? this.sourceBytes / this.measuredWorkers : 0,
+        transferredPerTile: this.measuredWorkers ? this.transferBytes / this.measuredWorkers : 0,
+        integratedPerTile: this.measuredIntegrations ? this.integrationBytes / this.measuredIntegrations : 0,
+        byDetail: {
+          base: tierBytes(0),
+          mid: tierBytes(1),
+          near: tierBytes(2),
+        },
       },
       pressure: {
         queue: this.queue,

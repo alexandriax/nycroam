@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
 import ts from 'typescript';
+import * as THREE from 'three';
 import { pathToFileURL } from 'node:url';
 
 const ROOT = path.resolve(import.meta.dirname, '../..');
@@ -107,10 +108,212 @@ test('vegetation LOD selects one bounded draw set at every distance', async () =
   assert.equal(vegetation.treeDrawCount(2), vegetation.TREE_LOD_DRAW_CEILINGS.far);
 });
 
+test('tile response byte accounting is exact for transfer and integration telemetry', async () => {
+  const tileTypes = await importTranspiled('src/engine/tileTypes.ts');
+  const mesh = {
+    position: new Float32Array(3), // 12
+    normal: new Int8Array(3), // 3
+    color: new Uint8Array(3), // 3
+    index: new Uint16Array(3), // 6
+    uv: new Float32Array(2), // 8
+    style: new Uint8Array(1), // 1
+    semantic: new Float32Array(1), // 4
+  };
+  const response = {
+    type: 'built',
+    key: '0_0',
+    detail: 2,
+    requestId: 1,
+    buildings: mesh,
+    roads: null,
+    walks: null,
+    areas: null,
+    water: null,
+    markings: null,
+    trees: new Float32Array(5), // 20
+    retailAnchors: new Float32Array(4), // 16
+    hydrants: new Float32Array(4), // 16
+    signs: null,
+    collision: {
+      ringStart: new Uint32Array(2), // 8
+      points: new Float32Array(4), // 16
+      aabb: new Float32Array(4), // 16
+      top: new Float32Array(1), // 4
+      base: new Float32Array(1), // 4
+    },
+    roadPaths: {
+      start: new Uint32Array(2), // 8
+      pts: new Float32Array(4), // 16
+      width: new Float32Array(1), // 4
+      kind: new Uint8Array(1), // 1
+      flags: new Uint16Array(1), // 2
+    },
+  };
+  assert.equal(tileTypes.meshPayloadByteLength(mesh), 37);
+  assert.equal(tileTypes.buildResponseByteLength(response), 168);
+});
+
+test('base, mid, and near integration retains UUID identity and attaches safely out of compile order', async () => {
+  const tileTypes = await importTranspiled('src/engine/tileTypes.ts');
+  const layers = [null, null, null];
+  const root = new THREE.Group();
+  const scene = new THREE.Group();
+  const baseGeometry = new THREE.BufferGeometry();
+  const baseMesh = new THREE.Mesh(baseGeometry);
+  const baseLayer = new THREE.Group();
+  const midLayer = new THREE.Group();
+  const nearLayer = new THREE.Group();
+  baseLayer.add(baseMesh);
+  midLayer.add(new THREE.Mesh(new THREE.BufferGeometry()));
+  nearLayer.add(new THREE.Mesh(new THREE.BufferGeometry()));
+  const rootUuid = root.uuid;
+  const baseGroupUuid = baseLayer.uuid;
+  const baseMeshUuid = baseMesh.uuid;
+  const baseGeometryUuid = baseGeometry.uuid;
+
+  tileTypes.installTileDetailLayer(layers, 0, baseLayer);
+  tileTypes.installTileDetailLayer(layers, 1, midLayer);
+  assert.strictEqual(layers[0], baseLayer);
+  tileTypes.installTileDetailLayer(layers, 2, nearLayer);
+  assert.strictEqual(layers[0], baseLayer);
+  assert.strictEqual(layers[1], midLayer);
+  assert.equal(root.uuid, rootUuid);
+  assert.equal(layers[0].uuid, baseGroupUuid);
+  assert.equal(layers[0].children[0].uuid, baseMeshUuid);
+  assert.equal(layers[0].children[0].geometry.uuid, baseGeometryUuid);
+  assert.throws(() => tileTypes.installTileDetailLayer(layers, 1, {}), /already installed/);
+  assert.throws(
+    () => tileTypes.installTileDetailLayer([null, null, null], 2, {}),
+    /installed before 1/,
+  );
+
+  const deferred = () => {
+    let resolve;
+    const promise = new Promise((done) => { resolve = done; });
+    return { promise, resolve };
+  };
+  const compiles = [deferred(), deferred(), deferred()];
+  const attach = (detail, layer) => compiles[detail].promise.then(() => {
+    tileTypes.attachCompiledTileDetailLayer(
+      layers,
+      detail,
+      layer,
+      (compiled) => root.add(compiled),
+      () => scene.add(root),
+    );
+  });
+  const pending = [
+    attach(0, baseLayer),
+    attach(1, midLayer),
+    attach(2, nearLayer),
+  ];
+
+  compiles[2].resolve();
+  await pending[2];
+  assert.strictEqual(nearLayer.parent, root);
+  assert.equal(root.parent, null, 'near completion must not reveal a root without base');
+  compiles[1].resolve();
+  await pending[1];
+  assert.strictEqual(midLayer.parent, root);
+  assert.equal(root.parent, null, 'mid completion must not reveal a root without base');
+  compiles[0].resolve();
+  await pending[0];
+  assert.strictEqual(baseLayer.parent, root);
+  assert.strictEqual(root.parent, scene);
+  assert.equal(baseLayer.children[0].geometry.uuid, baseGeometryUuid);
+});
+
+test('delta metadata preserves base collision/readiness and near data', async () => {
+  const tileTypes = await importTranspiled('src/engine/tileTypes.ts');
+  const collision = {
+    ringStart: new Uint32Array([0, 2]),
+    points: new Float32Array([0, 0, 1, 1]),
+    aabb: new Float32Array([0, 0, 1, 1]),
+    top: new Float32Array([12]),
+    base: new Float32Array([0]),
+  };
+  const roadPaths = {
+    start: new Uint32Array([0, 2]),
+    pts: new Float32Array([0, 0, 1, 1]),
+    width: new Float32Array([8]),
+    kind: new Uint8Array([0]),
+  };
+  const state = {
+    collision: null,
+    roadPaths: null,
+    trees: null,
+    retailAnchors: null,
+    signs: null,
+    builtDetail: -1,
+  };
+  const response = (detail, extra = {}) => ({
+    type: 'built', key: '0_0', detail, requestId: detail + 1,
+    buildings: null, roads: null, walks: null, areas: null, water: null, markings: null,
+    trees: null, retailAnchors: null, hydrants: null, signs: null,
+    collision: null, roadPaths: null, ...extra,
+  });
+
+  tileTypes.retainTileResponseState(state, response(0, { collision, roadPaths }));
+  assert.equal(state.builtDetail, 0);
+  assert.strictEqual(state.collision, collision);
+  assert.strictEqual(state.roadPaths, roadPaths);
+  assert.equal(state.builtDetail >= 0 && state.collision !== null, true);
+
+  tileTypes.retainTileResponseState(state, response(1));
+  assert.equal(state.builtDetail, 1);
+  assert.strictEqual(state.collision, collision);
+  assert.strictEqual(state.roadPaths, roadPaths);
+
+  const trees = new Float32Array([1, 2, 3, 1, 0.5]);
+  tileTypes.retainTileResponseState(state, response(2, { trees }));
+  assert.equal(state.builtDetail, 2);
+  assert.strictEqual(state.collision, collision);
+  assert.strictEqual(state.roadPaths, roadPaths);
+  assert.strictEqual(state.trees, trees);
+});
+
+test('base surfaces have one owning tier and every installed tier is disposed on unload', async () => {
+  const tileTypes = await importTranspiled('src/engine/tileTypes.ts');
+  const workerSource = fs.readFileSync(path.join(ROOT, 'src/engine/tileWorker.ts'), 'utf8');
+  const managerSource = fs.readFileSync(path.join(ROOT, 'src/engine/TileManager.ts'), 'utf8');
+  assert.deepEqual(
+    [0, 1, 2].filter((detail) => tileTypes.tileDetailIncludesBaseSurfaces(detail)),
+    [0],
+  );
+  for (const roadClass of ['motorway', 'primary', 'residential', 'service', 'footway']) {
+    const owners = [0, 1, 2].filter(
+      (detail) => detail === tileTypes.tileRoadSurfaceDetail(roadClass),
+    );
+    assert.equal(owners.length, 1, `${roadClass} surface must be emitted once`);
+  }
+  assert.equal(tileTypes.tileRoadSurfaceDetail('primary'), 0);
+  assert.equal(tileTypes.tileRoadSurfaceDetail('residential'), 1);
+  assert.match(workerSource, /if \(tileDetailIncludesBaseSurfaces\(detail\)\) \{/);
+  assert.match(workerSource, /if \(tileDetailIncludesBaseSurfaces\(detail\) && tile\.areas\)/);
+  assert.match(workerSource, /const emitSurface = detail === tileRoadSurfaceDetail\(r\.c\)/);
+  assert.match(managerSource, /forEachTileDetailLayer\(rec\.layerGroups/);
+  assert.match(managerSource, /disposeOwnedResources\(rec\.geometries, rec\.textures, rec\.materials\)/);
+
+  const layers = [new THREE.Group(), new THREE.Group(), new THREE.Group()];
+  const resources = layers.map((layer) => {
+    const resource = { disposed: 0 };
+    layer.userData.resource = resource;
+    return resource;
+  });
+  const visited = [];
+  tileTypes.forEachTileDetailLayer(layers, (layer) => {
+    visited.push(layer.uuid);
+    layer.userData.resource.disposed++;
+  });
+  assert.deepEqual(visited, layers.map((layer) => layer.uuid));
+  assert.deepEqual(resources.map((resource) => resource.disposed), [1, 1, 1]);
+});
+
 test('tile telemetry is fixed-window and reports pressure, bytes, and percentiles', async () => {
   const telemetryModule = await importTranspiled('src/engine/performance/TileStreamingTelemetry.ts');
   const telemetry = new telemetryModule.TileStreamingTelemetry();
   for (let i = 1; i <= 120; i++) {
+    const detail = (i - 1) % 3;
     telemetry.requested(i % 3 === 0);
     telemetry.workerCompleted({
       fetchMs: i,
@@ -119,8 +322,8 @@ test('tile telemetry is fixed-window and reports pressure, bytes, and percentile
       totalMs: i * 3,
       sourceBytes: 100,
       transferBytes: 40,
-    });
-    telemetry.integrated(i / 4);
+    }, detail);
+    telemetry.integrated(i / 4, 20, detail);
   }
   telemetry.pressure(7, 3, 4, 2);
   telemetry.setDetailCounts([11, 5, 2]);
@@ -130,6 +333,13 @@ test('tile telemetry is fixed-window and reports pressure, bytes, and percentile
   assert.ok(report.worker.total.p95 >= report.worker.total.p50);
   assert.equal(report.bytes.source, 12_000);
   assert.equal(report.bytes.transferred, 4_800);
+  assert.equal(report.bytes.integrated, 2_400);
+  assert.equal(report.bytes.integratedPerTile, 20);
+  assert.deepEqual(report.bytes.byDetail, {
+    base: { transferred: 1_600, integrated: 800 },
+    mid: { transferred: 1_600, integrated: 800 },
+    near: { transferred: 1_600, integrated: 800 },
+  });
   assert.deepEqual(report.pressure, {
     queue: 7,
     inFlight: 3,

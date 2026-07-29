@@ -110,7 +110,13 @@ export interface BuildRequest {
   requestId: number;
 }
 
-/** 0 = base massing, 1 = mid street/roof, 2 = full near-field detail. */
+/**
+ * 0 = base massing, 1 = mid street/roof delta, 2 = near-field delta.
+ *
+ * Worker responses are deliberately non-cumulative: a response contains only
+ * the layer identified by `detail`. TileManager requests 0 -> 1 -> 2 in order
+ * and retains every previously integrated layer.
+ */
 export type TileBuildDetail = 0 | 1 | 2;
 
 export interface MeshPayload {
@@ -153,6 +159,132 @@ export interface BuildResponse {
   roadPaths: RoadPaths | null; // minimap street lines
   timing?: TileWorkerTiming;
   error?: string;
+}
+
+/** Exact transferable typed-array bytes carried by one worker mesh. */
+export function meshPayloadByteLength(payload: MeshPayload | null): number {
+  if (!payload) return 0;
+  return payload.position.byteLength
+    + payload.normal.byteLength
+    + payload.color.byteLength
+    + payload.index.byteLength
+    + (payload.uv?.byteLength ?? 0)
+    + (payload.style?.byteLength ?? 0)
+    + (payload.semantic?.byteLength ?? 0);
+}
+
+/**
+ * Exact typed-array bytes transferred and integrated for a tier response.
+ * String-only sign metadata is structured-cloned and intentionally excluded.
+ */
+export function buildResponseByteLength(response: BuildResponse): number {
+  let bytes = 0;
+  for (const mesh of [
+    response.buildings,
+    response.roads,
+    response.walks,
+    response.areas,
+    response.water,
+    response.markings,
+  ]) bytes += meshPayloadByteLength(mesh);
+  bytes += response.trees?.byteLength ?? 0;
+  bytes += response.retailAnchors?.byteLength ?? 0;
+  bytes += response.hydrants?.byteLength ?? 0;
+  if (response.collision) {
+    bytes += response.collision.ringStart.byteLength
+      + response.collision.points.byteLength
+      + response.collision.aabb.byteLength
+      + response.collision.top.byteLength
+      + response.collision.base.byteLength;
+  }
+  if (response.roadPaths) {
+    bytes += response.roadPaths.start.byteLength
+      + response.roadPaths.pts.byteLength
+      + response.roadPaths.width.byteLength
+      + response.roadPaths.kind.byteLength
+      + (response.roadPaths.flags?.byteLength ?? 0);
+  }
+  return bytes;
+}
+
+/**
+ * Install one immutable tier layer. Earlier object identities are retained,
+ * and duplicate/out-of-order replacement is rejected instead of silently
+ * disposing geometry that another subsystem may still reference.
+ */
+export function installTileDetailLayer<T>(
+  layers: [T | null, T | null, T | null],
+  detail: TileBuildDetail,
+  layer: T,
+): void {
+  if (layers[detail] !== null) throw new Error(`tile detail layer ${detail} already installed`);
+  if (detail > 0 && layers[detail - 1] === null) {
+    throw new Error(`tile detail layer ${detail} installed before ${detail - 1}`);
+  }
+  layers[detail] = layer;
+}
+
+/** Base-only payloads: massing, land/water, collision, and road topology. */
+export function tileDetailIncludesBaseSurfaces(detail: TileBuildDetail): boolean {
+  return detail === 0;
+}
+
+const BASE_ROAD_SURFACE_CLASSES = new Set([
+  'motorway', 'trunk', 'primary', 'secondary',
+  'motorway_link', 'trunk_link', 'primary_link', 'secondary_link',
+]);
+
+/** The one and only tier that owns a road's full-width surface ribbon. */
+export function tileRoadSurfaceDetail(roadClass: string): TileBuildDetail {
+  return BASE_ROAD_SURFACE_CLASSES.has(roadClass) ? 0 : 1;
+}
+
+/**
+ * Attach a compiled layer only if it is still the registered identity. Detail
+ * callbacks may complete in any order; the root becomes visible only when its
+ * base layer completes.
+ */
+export function attachCompiledTileDetailLayer<T>(
+  layers: [T | null, T | null, T | null],
+  detail: TileBuildDetail,
+  layer: T,
+  attachLayer: (layer: T) => void,
+  attachRoot: () => void,
+): boolean {
+  if (layers[detail] !== layer) return false;
+  attachLayer(layer);
+  if (detail === 0) attachRoot();
+  return true;
+}
+
+/** Visit attached and still-compiling layers exactly once during final unload. */
+export function forEachTileDetailLayer<T>(
+  layers: readonly (T | null)[],
+  visit: (layer: T) => void,
+): void {
+  for (const layer of layers) if (layer !== null) visit(layer);
+}
+
+export interface RetainedTileResponseState {
+  collision: CollisionData | null;
+  roadPaths: RoadPaths | null;
+  trees: Float32Array | null;
+  retailAnchors: Float32Array | null;
+  signs: BuildResponse['signs'];
+  builtDetail: TileBuildDetail | -1;
+}
+
+/** Null delta fields cannot erase base collision/topology or prior near data. */
+export function retainTileResponseState(
+  state: RetainedTileResponseState,
+  response: BuildResponse,
+): void {
+  if (response.collision) state.collision = response.collision;
+  if (response.roadPaths) state.roadPaths = response.roadPaths;
+  if (response.trees) state.trees = response.trees;
+  if (response.retailAnchors) state.retailAnchors = response.retailAnchors;
+  if (response.signs) state.signs = response.signs;
+  state.builtDetail = response.detail;
 }
 
 /** Road classes rendered as poured concrete rather than asphalt. */
