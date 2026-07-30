@@ -36,7 +36,8 @@ export function makeFacadeMaterial(): THREE.MeshLambertMaterial {
     ...(premiumSurfaceNormals ? ['normal'] : []),
     ...(surfaceOrm ? ['orm'] : []),
   ];
-  mat.customProgramCacheKey = () => `nyc-semantic-facade-${premiumSurfaceNormals ? 'n' : 'x'}-${surfaceOrm ? 'o' : 'x'}-v1`;
+  mat.userData.nycSolidReflectiveGlass = true;
+  mat.customProgramCacheKey = () => `nyc-semantic-facade-${premiumSurfaceNormals ? 'n' : 'x'}-${surfaceOrm ? 'o' : 'x'}-v2`;
   mat.onBeforeCompile = (shader) => {
     shader.uniforms.uNycSurfaceColor = materialLibrary.colorUniform;
     if (premiumSurfaceNormals) shader.uniforms.uNycSurfaceNormal = materialLibrary.normalUniform;
@@ -231,9 +232,15 @@ export function makeFacadeMaterial(): THREE.MeshLambertMaterial {
               float mull = mix(0.890, band(f.x, 0.055, 0.945, wx), lod);
               float pane = mix(0.660, band(f.y, 0.06, 0.72, wy), lod);
               float spandrel = mix(0.190, band(f.y, 0.78, 0.97, wy), lod);
-              // sky gradient down the pane + per-pane tint
-              vec3 glass = mix(vec3(0.30, 0.37, 0.46), vec3(0.55, 0.63, 0.72), mix(0.4, f.y * 0.8 + rnd * 0.25, lod));
-              glass = mix(glass, skyGlass, mix(0.18, 0.34 + fresnel * 0.48, lod));
+              // One stable dielectric tint per building. Reflection varies only
+              // with the continuous face/view geometry—not pane id or pane-local
+              // height—so the curtain wall reads as one coherent glass plane.
+              vec3 solidGlassTint = mix(vec3(0.24, 0.34, 0.42), facadeBase, 0.24);
+              vec3 glass = mix(
+                solidGlassTint,
+                skyGlass,
+                mix(0.30, 0.42 + fresnel * 0.42, lod)
+              );
               diffuseColor.rgb = mix(diffuseColor.rgb, glass, mull * pane * 0.94);
               diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * 0.55, spandrel * 0.8);
               diffuseColor.rgb += vec3(1.0, 0.94, 0.80) * glint * pane * 0.22;
@@ -295,8 +302,11 @@ export function makeFacadeMaterial(): THREE.MeshLambertMaterial {
             diffuseColor.rgb = mix(facadeBase, diffuseColor.rgb, detail);
             }
             // grounding gradient: subtle darkening near street
+            float macroStyle = clamp(mod(floor(vSemantic + 0.5), 16.0), 0.0, 15.0);
+            bool solidGlassFacade = abs(macroStyle - 1.0) < 0.5
+              || abs(macroStyle - 6.0) < 0.5;
             diffuseColor.rgb *= (0.86 + 0.14 * clamp(vWPos.y / 7.0, 0.0, 1.0))
-              * nycMacroVariation(vWPos.xz);
+              * (solidGlassFacade ? 1.0 : nycMacroVariation(vWPos.xz));
           } else if (wn.y > 0.55) {
             // roofs: ballast gravel, worldspace projected
             float roofRegion = nycRoofRegion(vSemantic);

@@ -285,3 +285,29 @@ test('shipping facade, road, walk, grass, and bark shaders consume the shared at
     entry.material.dispose();
   }
 });
+
+test('generic curtain walls use one solid tint with continuous sky reflection', () => {
+  const material = makeFacadeMaterial();
+  const shader = compileMaterial(material, 'lambert');
+  const start = shader.fragmentShader.indexOf('if (glassTower && !storefront)');
+  const end = shader.fragmentShader.indexOf('} else {', start);
+  assert.ok(start >= 0 && end > start, 'curtain-wall shader branch exists');
+  const curtainWall = shader.fragmentShader.slice(start, end);
+
+  assert.equal(material.isMeshLambertMaterial, true);
+  assert.equal(material.vertexColors, true);
+  assert.equal(material.side, THREE.DoubleSide);
+  assert.equal(material.transparent, false);
+  assert.equal(material.map, null);
+  assert.equal(material.userData.nycSolidReflectiveGlass, true);
+  assert.ok(curtainWall.includes('solidGlassTint'));
+  assert.ok(curtainWall.includes('skyGlass'));
+  assert.ok(curtainWall.includes('fresnel'));
+  assert.equal(curtainWall.includes('rnd * 0.25'), false);
+  assert.equal(curtainWall.includes('f.y * 0.8'), false);
+  assert.ok(
+    shader.fragmentShader.includes('solidGlassFacade ? 1.0 : nycMacroVariation'),
+    'world-space masonry mottle is suppressed on solid curtain glass',
+  );
+  material.dispose();
+});
