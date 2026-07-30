@@ -611,14 +611,17 @@ export const builders: Record<string, (ctx: LandmarkCtx) => THREE.Group> = {
       const wA = archWall(4.2, 5.0, 0.5, 2.2, 3.8, TERRACOTTA);
       wA.position.set(px, fy, 8.1);
       g.add(wA);
-      g.add(box(2.0, 3.4, 0.2, GLASS_LM, px, fy + 2.0, 7.9));
+      // Body ends at z=8. Keep the recessed pane fully proud of that plane and
+      // behind the arch face (z=8.35); touching z=8 caused visible z-fighting.
+      g.add(box(2.0, 3.4, 0.08, GLASS_LM, px, fy + 2.0, 8.16));
     }
     for (const fy of [7, 13]) for (const pz of [-9, -3, 3]) {
       const wA = archWall(4.2, 5.0, 0.5, 2.2, 3.8, TERRACOTTA);
       wA.rotation.y = Math.PI / 2;
       wA.position.set(15.1, fy, pz);
       g.add(wA);
-      g.add(box(0.2, 3.4, 2.0, GLASS_LM, 15.3, fy + 2.0, pz));
+      // Body ends at x=15. Mirror the same explicit clearance on the side.
+      g.add(box(0.08, 3.4, 2.0, GLASS_LM, 15.16, fy + 2.0, pz));
     }
     // deep bracketed cornice (corbels under a projecting slab)
     g.add(box(33, 1.6, 27, LIMESTONE, 0, 27.6, -4));

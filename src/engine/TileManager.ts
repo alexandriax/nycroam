@@ -12,7 +12,7 @@ import {
 import { TILE_SIZE, tileKey } from './geo';
 import { hash01 } from './palette';
 import {
-  makeFacadeMaterial, makeFlatMaterial, makeRoadMaterial, makeWalkMaterial,
+  makeFacadeLodMaterial, makeFacadeMaterial, makeFlatMaterial, makeRoadMaterial, makeWalkMaterial,
   makeMarkingsMaterial, makeWaterMaterial, treeTrunkMaterial, treeCanopyMaterial,
 } from './materials';
 import { SKY } from './sky';
@@ -88,7 +88,7 @@ export class TileManager {
   private inFlight = new Map<string, number>(); // key -> worker idx
   private queue: string[] = [];
   private facadeMat = makeFacadeMaterial();
-  private facadeSimpleMat = new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.DoubleSide });
+  private facadeSimpleMat = makeFacadeLodMaterial();
   private flatMat = makeFlatMaterial();
   private roadMat = makeRoadMaterial();
   private walkMat = makeWalkMaterial();

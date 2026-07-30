@@ -34,6 +34,7 @@ const {
   validateMaterialManifest,
 } = await import('../../src/engine/materialLibrary.ts');
 const {
+  makeFacadeLodMaterial,
   makeFacadeMaterial,
   makeFlatMaterial,
   makeRoadMaterial,
@@ -286,10 +287,10 @@ test('shipping facade, road, walk, grass, and bark shaders consume the shared at
   }
 });
 
-test('generic curtain walls use one solid tint with continuous sky reflection', () => {
+test('every generic window family uses stable solid glass and filtered detail', () => {
   const material = makeFacadeMaterial();
   const shader = compileMaterial(material, 'lambert');
-  const start = shader.fragmentShader.indexOf('if (glassTower && !storefront)');
+  const start = shader.fragmentShader.indexOf('if (curtainFacade && !storefront)');
   const end = shader.fragmentShader.indexOf('} else {', start);
   assert.ok(start >= 0 && end > start, 'curtain-wall shader branch exists');
   const curtainWall = shader.fragmentShader.slice(start, end);
@@ -300,14 +301,69 @@ test('generic curtain walls use one solid tint with continuous sky reflection', 
   assert.equal(material.transparent, false);
   assert.equal(material.map, null);
   assert.equal(material.userData.nycSolidReflectiveGlass, true);
+  assert.equal(material.userData.nycStableAnalyticReflection, true);
+  assert.ok(shader.fragmentShader.includes('abs(windowFamily - 1.0) < 0.5'));
   assert.ok(curtainWall.includes('solidGlassTint'));
   assert.ok(curtainWall.includes('skyGlass'));
   assert.ok(curtainWall.includes('fresnel'));
-  assert.equal(curtainWall.includes('rnd * 0.25'), false);
+  assert.ok(shader.fragmentShader.includes('solidWindowTint'));
+  assert.ok(shader.fragmentShader.includes('nycFacadeSpecular += skyGlass * win'));
+  assert.ok(shader.fragmentShader.includes('float farGlassCoverage = curtainFacade'));
+  assert.ok(shader.fragmentShader.includes('diffuseColor.rgb = mix(farFacade'));
+  assert.ok(shader.fragmentShader.includes('nycFacadeSpecular = mix(farSpecular'));
+  assert.ok(shader.fragmentShader.includes('architecturalMetal'));
+  assert.ok(shader.fragmentShader.includes('microLod'));
+  assert.ok(shader.fragmentShader.includes('float nCu = uN / winWN'));
+  assert.ok(shader.fragmentShader.includes('float archWidth = max(fwidth(archDistance)'));
+  assert.equal(shader.fragmentShader.includes('bhash'), false);
+  assert.equal(shader.fragmentShader.includes('cellId'), false);
+  assert.equal(shader.fragmentShader.includes('rnd'), false);
+  assert.equal(shader.fragmentShader.includes('fwidth(fN)'), false);
+  assert.equal(shader.fragmentShader.includes('aaRect'), false);
   assert.equal(curtainWall.includes('f.y * 0.8'), false);
   assert.ok(
     shader.fragmentShader.includes('solidGlassFacade ? 1.0 : nycMacroVariation'),
     'world-space masonry mottle is suppressed on solid curtain glass',
   );
   material.dispose();
+});
+
+test('far facades retain stable area-averaged reflections at one cheap draw', () => {
+  const material = makeFacadeLodMaterial();
+  const shader = compileMaterial(material, 'lambert');
+
+  assert.equal(material.isMeshLambertMaterial, true);
+  assert.equal(material.vertexColors, true);
+  assert.equal(material.side, THREE.DoubleSide);
+  assert.equal(material.transparent, false);
+  assert.equal(material.map, null);
+  assert.deepEqual(material.userData.nycMaterialChannels, []);
+  assert.equal(material.userData.nycStableAnalyticReflection, true);
+  assert.ok(shader.vertexShader.includes('attribute float aSemantic'));
+  assert.ok(shader.vertexShader.includes('float glassCoverage = curtain'));
+  assert.ok(shader.vertexShader.includes('? 0.59'));
+  assert.ok(shader.vertexShader.includes('clamp(opening * opening, 0.05, 0.64)'));
+  assert.ok(shader.vertexShader.includes('architecturalMetal'));
+  assert.ok(shader.vertexShader.includes('vNycLodGrounding'));
+  assert.ok(shader.fragmentShader.includes('nycLodGlassTint'));
+  assert.ok(shader.fragmentShader.includes('diffuseColor.rgb *= vNycLodGrounding'));
+  assert.ok(shader.fragmentShader.includes('outgoingLight += nycLodFacadeSpecular'));
+  assert.equal(shader.fragmentShader.includes('texture2D'), false);
+  assert.equal(shader.fragmentShader.includes('reflect('), false);
+  assert.equal(shader.fragmentShader.includes('normalize('), false);
+  assert.equal(shader.fragmentShader.includes('fract('), false);
+  assert.equal(shader.fragmentShader.includes('pow('), false);
+  material.dispose();
+});
+
+test('tile LOD handoff uses the semantic reflective facade fallback', () => {
+  const source = readFileSync(
+    new URL('../../src/engine/TileManager.ts', import.meta.url),
+    'utf8',
+  );
+  assert.match(source, /private facadeSimpleMat = makeFacadeLodMaterial\(\)/);
+  assert.doesNotMatch(
+    source,
+    /private facadeSimpleMat = new THREE\.MeshLambertMaterial/,
+  );
 });
