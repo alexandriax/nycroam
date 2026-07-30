@@ -24,6 +24,7 @@ export interface TrafficEscape {
   shiftX: number;
   shiftZ: number;
   heldRoute: boolean;
+  blockerKey: string;
 }
 
 // Each sampled SAT is inflated by the full maximum point travel to the next
@@ -435,17 +436,22 @@ export function trafficPairMotionsConflict(
  * proposal; the fallback holds route progress and commits lateral-only motion,
  * allowing a bus to work around an outer-corner parked car over several frames.
  */
-export function findTrafficLateralEscape(
+function findTrafficLateralEscapeWithFilter(
   start: TrafficFootprint,
   proposed: TrafficFootprint,
   obstacles: readonly TrafficFootprint[],
   maxShift: number,
-  margin = 0.08,
+  margin: number,
+  blockerEligible: (obstacle: TrafficFootprint) => boolean,
+  preferredSide = 0,
+  holdRouteOnly = false,
+  blockerMargin = margin,
+  preferredSideOnly = false,
 ): TrafficEscape | null {
   if (!(maxShift > 0)) return null;
   const blocker = obstacles.find((obstacle) => (
-    obstacle.immovable
-    && trafficMotionConflicts(start, proposed, obstacle, margin)
+    blockerEligible(obstacle)
+    && trafficMotionConflicts(start, proposed, obstacle, blockerMargin)
   ));
   if (!blocker) return null;
   const clears = (end: TrafficFootprint): boolean => (
@@ -461,9 +467,12 @@ export function findTrafficLateralEscape(
     const sideZ = base.fx;
     const lateral = (blocker.x - base.x) * sideX
       + (blocker.z - base.z) * sideZ;
-    const preferred = lateral >= 0 ? -1 : 1;
+    const preferred = preferredSide || (lateral >= 0 ? -1 : 1);
     const stepSize = Math.min(0.05, maxShift);
-    for (const sign of [preferred, -preferred]) {
+    const signs = preferredSideOnly && preferredSide
+      ? [preferred]
+      : [preferred, -preferred];
+    for (const sign of signs) {
       for (
         let distance = stepSize;
         distance <= maxShift + 1e-9;
@@ -478,14 +487,98 @@ export function findTrafficLateralEscape(
           z: base.z + shiftZ,
         };
         if (clears(end)) {
-          return { end, shiftX, shiftZ, heldRoute };
+          return {
+            end,
+            shiftX,
+            shiftZ,
+            heldRoute,
+            blockerKey: blocker.key,
+          };
         }
         if (boundedDistance >= maxShift) break;
       }
     }
     return null;
   };
-  return attempt(proposed, false) ?? attempt(start, true);
+  return holdRouteOnly
+    ? attempt(start, true)
+    : attempt(proposed, false) ?? attempt(start, true);
+}
+
+export function findTrafficLateralEscape(
+  start: TrafficFootprint,
+  proposed: TrafficFootprint,
+  obstacles: readonly TrafficFootprint[],
+  maxShift: number,
+  margin = 0.08,
+): TrafficEscape | null {
+  return findTrafficLateralEscapeWithFilter(
+    start,
+    proposed,
+    obstacles,
+    maxShift,
+    margin,
+    (obstacle) => obstacle.immovable === true,
+    0,
+    false,
+    margin,
+    false,
+  );
+}
+
+/**
+ * Work a stalled traffic body around a stopped vehicle without ever relaxing
+ * continuous collision checks. Pedestrians are deliberately excluded: a bus
+ * waits for people, while it may change lanes around a stopped car or bus.
+ */
+export function findStalledTrafficEscape(
+  start: TrafficFootprint,
+  proposed: TrafficFootprint,
+  obstacles: readonly TrafficFootprint[],
+  maxShift: number,
+  margin = 0.08,
+  preferredSide = 0,
+  holdRouteOnly = false,
+  blockerMargin = margin,
+  blockerAllowed: (obstacle: TrafficFootprint) => boolean = () => true,
+): TrafficEscape | null {
+  return findTrafficLateralEscapeWithFilter(
+    start,
+    proposed,
+    obstacles,
+    maxShift,
+    margin,
+    (obstacle) => (
+      !obstacle.key.startsWith('ped:')
+      && (obstacle.immovable === true || obstacle.speed <= 0.15)
+      && blockerAllowed(obstacle)
+    ),
+    preferredSide,
+    holdRouteOnly,
+    blockerMargin,
+    true,
+  );
+}
+
+/** Full fixed + synchronized-motion validation for a replacement proposal. */
+export function trafficMotionClearsObstacles(
+  start: TrafficFootprint,
+  end: TrafficFootprint,
+  fixedObstacles: readonly TrafficFootprint[],
+  movingObstacles: readonly TrafficMotion[] = [],
+  margin = 0.08,
+): boolean {
+  return fixedObstacles.every((obstacle) => (
+    !trafficMotionConflicts(start, end, obstacle, margin)
+  )) && movingObstacles.every((motion) => (
+    !trafficPairMotionsConflict(
+      start,
+      end,
+      motion.start,
+      motion.end,
+      margin,
+    )
+  ));
 }
 
 /**

@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
+import { registerHooks } from 'node:module';
 import test from 'node:test';
+import * as THREE from 'three';
 import {
   POPULATION_BUDGETS,
   populationCeiling,
@@ -19,16 +21,31 @@ import {
 } from '../../src/engine/population/densityKernel.ts';
 import {
   findTrafficLateralEscape,
+  findStalledTrafficEscape,
   resolveTrafficMotionTransactions,
   trafficFootprintsOverlap,
   trafficForwardClearance,
   trafficLateralEscape,
   trafficMotionConflicts,
+  trafficMotionClearsObstacles,
   trafficPairMotionsConflict,
   trafficPairKey,
   trafficSweptConflict,
   yieldsTo,
 } from '../../src/engine/population/trafficSafety.ts';
+import {
+  BUS_DEADLOCK_RETIRE_AFTER,
+  BUS_HEADWAY_RANGE,
+  BUS_MAX_SLOTS_PER_DIRECTION,
+  BUS_TERMINAL_LAYOVER,
+  breakBusLeaderCycles,
+  busDeadlockEscapeReady,
+  busHeadwaySeconds,
+  busMeshCap,
+  busRecoveryWins,
+  busScheduleDensity,
+  busYieldsAtConflict,
+} from '../../src/engine/bus/flow.ts';
 import {
   advancePedestrianProgress,
   pedestrianLaneOffset,
@@ -47,6 +64,24 @@ import {
   cyclistCadencePose,
   cyclistLookaheadDistance,
 } from '../../src/engine/population/cyclistMotion.ts';
+
+registerHooks({
+  resolve(specifier, context, nextResolve) {
+    try {
+      return nextResolve(specifier, context);
+    } catch (error) {
+      if (error?.code !== 'ERR_MODULE_NOT_FOUND') throw error;
+      if (specifier.endsWith('.js')) {
+        return nextResolve(`${specifier.slice(0, -3)}.ts`, context);
+      }
+      if (/^\.\.?\//.test(specifier) && !/\.[a-z0-9]+$/i.test(specifier)) {
+        return nextResolve(`${specifier}.ts`, context);
+      }
+      throw error;
+    }
+  },
+});
+const { BusSystem } = await import('../../src/engine/bus/BusSystem.ts');
 
 function path(kind, width, points, flags = 0) {
   return {
@@ -448,6 +483,894 @@ test('committed traffic motion catches endpoint turns and routes around parked b
     false,
     'a blocked tail swing can make a bounded lateral-only escape',
   );
+});
+
+test('bus service headways reduce bunching and crossing priority cannot cycle', () => {
+  for (let route = 0; route < 54; route++) {
+    for (let direction = 0; direction < 2; direction++) {
+      const sbs = route % 5 === 0;
+      const headway = busHeadwaySeconds(route, direction, sbs);
+      const range = sbs ? BUS_HEADWAY_RANGE.sbs : BUS_HEADWAY_RANGE.local;
+      assert.ok(headway >= range.min);
+      assert.ok(headway < range.max);
+    }
+  }
+  assert.ok(BUS_HEADWAY_RANGE.sbs.min > 90);
+  assert.ok(BUS_HEADWAY_RANGE.local.min > BUS_HEADWAY_RANGE.sbs.min);
+  const longest = busScheduleDensity(3600, 4, 1, false);
+  assert.equal(longest.slots, BUS_MAX_SLOTS_PER_DIRECTION);
+  assert.equal(longest.headway, 363);
+  assert.equal(longest.cycle, 3630);
+  assert.ok(longest.cycle - 3600 >= BUS_TERMINAL_LAYOVER);
+  for (let runSeconds = 30; runSeconds <= 5400; runSeconds += 17) {
+    const schedule = busScheduleDensity(
+      runSeconds,
+      runSeconds % 54,
+      runSeconds % 2,
+      runSeconds % 5 === 0,
+    );
+    assert.ok(schedule.slots <= BUS_MAX_SLOTS_PER_DIRECTION);
+    assert.ok(
+      schedule.cycle - runSeconds >= BUS_TERMINAL_LAYOVER - 1e-9,
+      `run ${runSeconds}s retains a terminal recovery window`,
+    );
+  }
+  assert.deepEqual(
+    ['low', 'medium', 'high', 'ultra'].map(busMeshCap),
+    [12, 16, 24, 32],
+  );
+
+  const cluster = [
+    { keyNum: 9, renderSpeed: 0 },
+    { keyNum: 4, renderSpeed: 0 },
+    { keyNum: 7, renderSpeed: 0 },
+    { keyNum: 2, renderSpeed: 0 },
+  ];
+  const winners = cluster.filter((candidate) => (
+    cluster.every((other) => (
+      other === candidate || !busYieldsAtConflict(candidate, other)
+    ))
+  ));
+  assert.deepEqual(winners.map(({ keyNum }) => keyNum), [2]);
+  assert.equal(
+    busYieldsAtConflict(
+      { keyNum: 1, renderSpeed: 0 },
+      { keyNum: 99, renderSpeed: 2 },
+    ),
+    true,
+    'a stopped bus lets one already clearing the junction continue',
+  );
+  assert.equal(busDeadlockEscapeReady(3.99), false);
+  assert.equal(busDeadlockEscapeReady(4), true);
+  assert.ok(BUS_DEADLOCK_RETIRE_AFTER >= 30);
+  const recoverers = cluster.filter((candidate) => (
+    cluster.every((other) => (
+      other === candidate || busRecoveryWins(
+        { ...candidate, ridden: false },
+        { ...other, ridden: false },
+      )
+    ))
+  ));
+  assert.deepEqual(recoverers.map(({ keyNum }) => keyNum), [2]);
+  assert.equal(
+    busRecoveryWins(
+      { keyNum: 99, ridden: true },
+      { keyNum: 1, ridden: false },
+    ),
+    true,
+  );
+  assert.equal(
+    busRecoveryWins(
+      { keyNum: 99, ridden: false },
+      { keyNum: 1, ridden: false },
+    ),
+    false,
+  );
+
+  const leaders = Int32Array.from([1, 2, 0, 2]);
+  breakBusLeaderCycles(leaders, [8, 3, 6, 10]);
+  assert.deepEqual(
+    [...leaders],
+    [1, -1, 0, 2],
+    'the lowest-key member clears a curved-lane cycle first',
+  );
+});
+
+test('a stalled bus can make an exact-sweep lane escape around another bus', () => {
+  const start = {
+    key: 'bus:waiting',
+    x: 0,
+    z: 0,
+    fx: 1,
+    fz: 0,
+    halfLength: 6.1,
+    halfWidth: 1.3,
+    speed: 0,
+    priority: true,
+  };
+  const proposed = { ...start, x: 1, speed: 1 };
+  const blocker = {
+    ...start,
+    key: 'bus:blocker',
+    x: 12.5,
+    z: 0.4,
+  };
+  assert.equal(
+    findTrafficLateralEscape(start, proposed, [blocker], 4, 0.08),
+    null,
+    'normal parked-vehicle escape does not treat transit as static geometry',
+  );
+  const escape = findStalledTrafficEscape(
+    start,
+    proposed,
+    [blocker],
+    4,
+    0.08,
+  );
+  assert.ok(escape);
+  assert.notEqual(escape.shiftZ, 0);
+  assert.equal(
+    trafficMotionConflicts(start, escape.end, blocker, 0.08),
+    false,
+    'the deadlock escape remains continuously collision-free',
+  );
+  assert.equal(
+    findStalledTrafficEscape(
+      start,
+      proposed,
+      [blocker],
+      4,
+      0.08,
+      -1,
+      false,
+      0.08,
+      () => false,
+    ),
+    null,
+    'a non-owner cannot start a competing bus-to-bus recovery',
+  );
+  const crossingStart = {
+    ...start,
+    key: 'bus:crossing',
+    x: 0,
+    z: -15,
+    fx: 0,
+    fz: 1,
+    speed: 4,
+  };
+  const crossingEnd = { ...crossingStart, z: 15 };
+  assert.equal(trafficFootprintsOverlap(start, crossingStart, 0.08), false);
+  assert.equal(trafficFootprintsOverlap(escape.end, crossingEnd, 0.08), false);
+  assert.equal(
+    trafficMotionClearsObstacles(
+      start,
+      escape.end,
+      [],
+      [{ start: crossingStart, end: crossingEnd }],
+      0.08,
+    ),
+    false,
+    'a lateral recovery is rejected when it crosses another accepted bus sweep',
+  );
+});
+
+test('restoring a mid-route bus seeds committed motion without an origin teleport', () => {
+  const scene = new THREE.Scene();
+  const makeModel = () => ({
+    group: new THREE.Group(),
+    setDoors() {},
+    setSpeed() {},
+    setNextStop() {},
+    setStopRequested() {},
+    dispose() {},
+  });
+  const system = new BusSystem(
+    scene,
+    makeModel,
+    () => new THREE.Group(),
+  );
+  system.build({
+    v: 1,
+    routes: [{
+      id: 'T',
+      name: 'Test',
+      color: '#2266aa',
+      sbs: false,
+      dirs: [{
+        dest: 'END',
+        shape: [0, 0, 2000, 0],
+        stops: [{ id: 'a', s: 0 }, { id: 'b', s: 2000 }],
+      }],
+    }],
+    stops: {
+      a: { n: 'A', p: [0, 3], r: ['T'] },
+      b: { n: 'B', p: [2000, 3], r: ['T'] },
+    },
+  });
+  const ride = system.restoreRide('T', 0, 0, 50);
+  assert.ok(ride);
+  const before = { ...ride.pos };
+  assert.ok(before.x > 100, 'fixture restores well beyond the route origin');
+  system.update(before.x, before.z, 0.016);
+  const moved = Math.hypot(
+    ride.pos.x - before.x,
+    ride.pos.z - before.z,
+  );
+  assert.ok(moved <= 20 * 0.016 + 1e-6);
+
+  const laneZ = ride.pos.z;
+  const heldStartX = ride.pos.x;
+  const stoppedCar = {
+    key: 'car:stalled',
+    x: ride.pos.x + 6.1 + 2.3 + 0.35,
+    z: laneZ,
+    fx: 1,
+    fz: 0,
+    halfLength: 2.3,
+    halfWidth: 0.94,
+    speed: 0,
+  };
+  for (let frame = 0; frame < 100; frame++) {
+    system.update(ride.pos.x, ride.pos.z, 0.1, [stoppedCar]);
+  }
+  assert.ok(
+    Math.abs(ride.pos.z - laneZ) > 0.05,
+    'sustained no-progress behind a stopped car enters a lateral escape',
+  );
+  assert.ok(
+    ride.pos.x > heldStartX + 0.5,
+    'the persistent escape clears enough lane width for route progress to resume',
+  );
+  assert.equal(
+    trafficFootprintsOverlap({
+      key: 'bus:test',
+      x: ride.pos.x,
+      z: ride.pos.z,
+      fx: Math.cos(ride.pos.yaw),
+      fz: -Math.sin(ride.pos.yaw),
+      halfLength: 6.1,
+      halfWidth: 1.3,
+      speed: 0,
+    }, stoppedCar, 0.08),
+    false,
+  );
+  for (let frame = 0; frame < 300; frame++) {
+    system.update(ride.pos.x, ride.pos.z, 0.1, [stoppedCar]);
+  }
+  assert.ok(
+    ride.pos.x
+      > stoppedCar.x + 6.1 + Math.hypot(
+        stoppedCar.halfLength,
+        stoppedCar.halfWidth,
+      ) + 0.6,
+    'the bus tail clears the remembered blocker within a bounded recovery',
+  );
+  assert.ok(
+    Math.abs(ride.pos.z - laneZ) < 0.6,
+    'the bus returns to its authored lane after completing the pass',
+  );
+
+  const departingCar = {
+    ...stoppedCar,
+    key: 'car:departing',
+    x: ride.pos.x + 6.1 + 2.3 + 0.35,
+  };
+  for (let frame = 0; frame < 100; frame++) {
+    system.update(ride.pos.x, ride.pos.z, 0.1, [departingCar]);
+  }
+  assert.ok(
+    Math.abs(ride.pos.z - laneZ) > 0.05,
+    'a second stopped blocker establishes a recovery pass',
+  );
+  departingCar.speed = 20;
+  for (let frame = 0; frame < 200; frame++) {
+    departingCar.x += departingCar.speed * 0.1;
+    system.update(ride.pos.x, ride.pos.z, 0.1, [departingCar]);
+  }
+  assert.ok(
+    Math.abs(ride.pos.z - laneZ) < 0.6,
+    'a blocker that pulls safely ahead releases the bus back to lane',
+  );
+
+  ride.end();
+  const stale = system.meshed.values().next().value;
+  stale.finishing = true;
+  system.worldTime = 1 - stale.dir.routePhase + stale.k * stale.dir.H;
+  assert.equal(
+    system.boardable(stale.model.group.position.x, stale.model.group.position.z),
+    null,
+    'a delayed finisher cannot advertise the next schedule generation',
+  );
+  assert.equal(
+    system.board(stale.key),
+    null,
+    'a delayed finisher cannot be re-boarded after its timetable wraps',
+  );
+  stale.finishing = false;
+  stale.init = false;
+  stale.model.group.visible = false;
+  system.worldTime = 1 - stale.dir.routePhase + stale.k * stale.dir.H;
+  system.externalTrafficObstacles = [{
+    key: 'car:occupied-berth',
+    x: 0,
+    z: 0,
+    fx: 1,
+    fz: 0,
+    halfLength: 50,
+    halfWidth: 50,
+    speed: 0,
+    immovable: true,
+  }];
+  assert.equal(
+    system.boardable(0, 0),
+    null,
+    'a hidden, uninitialized bus is never advertised as boardable',
+  );
+  assert.equal(
+    system.board(stale.key),
+    null,
+    'boarding cannot materialize a bus inside an occupied berth',
+  );
+  assert.equal(stale.init, false);
+  assert.equal(stale.model.group.visible, false);
+  system.dispose();
+});
+
+test('a sealed automated recovery retires once and suppresses its timetable slot', () => {
+  const scene = new THREE.Scene();
+  const makeModel = () => ({
+    group: new THREE.Group(),
+    setDoors() {},
+    setSpeed() {},
+    setNextStop() {},
+    setStopRequested() {},
+    dispose() {},
+  });
+  const system = new BusSystem(
+    scene,
+    makeModel,
+    () => new THREE.Group(),
+  );
+  system.build({
+    v: 1,
+    routes: [{
+      id: 'S',
+      name: 'Sealed',
+      color: '#2266aa',
+      sbs: false,
+      dirs: [{
+        dest: 'END',
+        shape: [0, 0, 2000, 0],
+        stops: [{ id: 'a', s: 0 }, { id: 'b', s: 2000 }],
+      }],
+    }],
+    stops: {
+      a: { n: 'A', p: [0, 3], r: ['S'] },
+      b: { n: 'B', p: [2000, 3], r: ['S'] },
+    },
+  });
+  const ride = system.restoreRide('S', 0, 0, 50);
+  assert.ok(ride);
+  const key = system.rideShare
+    ? `0:${system.rideShare.dirIdx}:${system.rideShare.k}`
+    : '';
+  ride.end();
+  system.update(ride.pos.x, ride.pos.z, 0.1);
+  const laneZ = ride.pos.z;
+  const stoppedCar = {
+    key: 'car:sealed-leader',
+    x: ride.pos.x + 6.1 + 2.3 + 0.35,
+    z: laneZ,
+    fx: 1,
+    fz: 0,
+    halfLength: 2.3,
+    halfWidth: 0.94,
+    speed: 0,
+  };
+  for (let frame = 0; frame < 100; frame++) {
+    system.update(ride.pos.x, ride.pos.z, 0.1, [stoppedCar]);
+  }
+  const trapped = system.meshed.get(key);
+  assert.ok(trapped);
+
+  const sealedWall = {
+    key: 'parked:sealed-corridor',
+    x: trapped.model.group.position.x + 8.5,
+    z: laneZ - 2.2,
+    fx: 1,
+    fz: 0,
+    halfLength: 2.3,
+    halfWidth: 8,
+    speed: 0,
+    immovable: true,
+  };
+  for (let frame = 0; frame < 500; frame++) {
+    system.update(
+      trapped.model.group.position.x,
+      trapped.model.group.position.z,
+      0.1,
+      [stoppedCar, sealedWall],
+    );
+  }
+  assert.equal(
+    system.meshed.has(key),
+    false,
+    'the automated loser cannot occupy a sealed junction indefinitely',
+  );
+  assert.ok(
+    (system.suppressedUntil.get(key) ?? 0) > system.worldTime,
+    'the retired timetable slot cannot immediately respawn',
+  );
+  system.dispose();
+});
+
+test('a delayed rider stays pinned and off-lane buses keep their doors closed', () => {
+  const scene = new THREE.Scene();
+  const makeModel = () => ({
+    group: new THREE.Group(),
+    doorValue: 0,
+    nextStop: null,
+    setDoors(value) { this.doorValue = value; },
+    setSpeed() {},
+    setNextStop(value) { this.nextStop = value; },
+    setStopRequested() {},
+    dispose() {},
+  });
+  const system = new BusSystem(
+    scene,
+    makeModel,
+    () => new THREE.Group(),
+  );
+  system.build({
+    v: 1,
+    routes: [{
+      id: 'R',
+      name: 'Rider',
+      color: '#2266aa',
+      sbs: false,
+      dirs: [{
+        dest: 'END',
+        shape: [0, 0, 2000, 0],
+        stops: [{ id: 'a', s: 0 }, { id: 'b', s: 2000 }],
+      }],
+    }],
+    stops: {
+      a: { n: 'A', p: [0, 3], r: ['R'] },
+      b: { n: 'B', p: [2000, 3], r: ['R'] },
+    },
+  });
+  const ride = system.restoreRide('R', 0, 0, 2);
+  assert.ok(ride);
+  const bus = ride.mb;
+  bus.sepX = 2;
+  bus.escapeSide = -1;
+  bus.escapeBlockerKey = 'car:departed';
+  bus.blockedFor = 4;
+  system.update(ride.pos.x, ride.pos.z, 0.01);
+  assert.equal(ride.model.doorValue, 0);
+  assert.equal(ride.canExit, false);
+  assert.equal(
+    system.boardable(ride.pos.x, ride.pos.z),
+    null,
+    'a laterally displaced dwell cannot board from an adjacent lane',
+  );
+
+  bus.sepX = 0;
+  bus.sepZ = 0;
+  for (const other of [...system.meshed.values()]) {
+    if (other !== bus) system.removeMeshed(other);
+  }
+  system.busTimer = Number.POSITIVE_INFINITY;
+  system.worldTime = bus.runDeadline + 0.1;
+  system.update(ride.pos.x, ride.pos.z, 0.1);
+  assert.equal(bus.finishing, true);
+  assert.equal(ride.active, true);
+  assert.equal(
+    ride.canExit,
+    true,
+    'returning to the missed origin berth reopens service before departure',
+  );
+  assert.equal(ride.atEnd, false);
+  assert.ok(
+    bus.rs < bus.dir.segSEnd[bus.dir.nSeg - 1] - 100,
+    'fixture remains physically far from the terminal',
+  );
+  assert.equal(system.meshed.has(bus.key), true);
+  assert.ok(system.rideShare.tau >= bus.dir.T - 2);
+  for (let frame = 0; frame < 1200; frame++) {
+    system.update(ride.pos.x, ride.pos.z, 0.1);
+  }
+  assert.ok(bus.rs >= bus.dir.segSEnd[bus.dir.nSeg - 1] - 2);
+  assert.equal(ride.canExit, true);
+  assert.equal(ride.model.doorValue, 1);
+  const terminalKey = bus.key;
+  ride.end();
+  assert.equal(ride.active, false);
+  system.update(bus.model.group.position.x, bus.model.group.position.z, 0.1);
+  assert.equal(
+    system.meshed.has(terminalKey),
+    false,
+    'unpinning releases the infinite ridden-terminal dwell',
+  );
+  system.dispose();
+});
+
+test('a rejected berth proposal cannot open doors or consume a carried dwell', () => {
+  const scene = new THREE.Scene();
+  const makeModel = () => ({
+    group: new THREE.Group(),
+    doorValue: 0,
+    nextStop: null,
+    setDoors(value) { this.doorValue = value; },
+    setSpeed() {},
+    setNextStop(value) { this.nextStop = value; },
+    setStopRequested() {},
+    dispose() {},
+  });
+  const system = new BusSystem(scene, makeModel, () => new THREE.Group());
+  system.build({
+    v: 1,
+    routes: [{
+      id: 'B',
+      name: 'Berth',
+      color: '#2266aa',
+      sbs: false,
+      dirs: [{
+        dest: 'END',
+        shape: [0, 0, 500, 0],
+        stops: [
+          { id: 'a', s: 0 },
+          { id: 'b', s: 250 },
+          { id: 'c', s: 500 },
+        ],
+      }],
+    }],
+    stops: {
+      a: { n: 'A', p: [0, 3], r: ['B'] },
+      b: { n: 'B', p: [250, 3], r: ['B'] },
+      c: { n: 'C', p: [500, 3], r: ['B'] },
+    },
+  });
+  const ride = system.restoreRide('B', 0, 0, 2);
+  assert.ok(ride);
+  const bus = ride.mb;
+  ride.end();
+  for (const other of [...system.meshed.values()]) {
+    if (other !== bus) system.removeMeshed(other);
+  }
+  system.busTimer = Number.POSITIVE_INFINITY;
+  const berthS = bus.dir.parkS[1];
+  bus.init = true;
+  bus.rs = berthS - 1.9;
+  bus.lastRS = bus.rs;
+  bus.sfx = 1;
+  bus.sfz = 0;
+  bus.yaw = 0;
+  bus.sepX = 0;
+  bus.sepZ = 0;
+  bus.nextPhysicalStopIdx = 1;
+  bus.physicalDwellRemaining = -1;
+  bus.physicalLat = 3;
+  bus.model.group.position.set(bus.rs, 0, 3);
+  bus.model.group.visible = true;
+  bus.runDeadline = system.worldTime;
+  const pedestrian = {
+    key: 'ped:berth-edge',
+    x: bus.rs + 7.1,
+    z: 3,
+    fx: 0,
+    fz: 1,
+    halfLength: 0.31,
+    halfWidth: 0.31,
+    speed: 0,
+    priority: true,
+  };
+  system.update(bus.model.group.position.x, 3, 0.1, [pedestrian]);
+  assert.equal(
+    bus.physicalDwellRemaining,
+    -1,
+    'a rejected body motion rolls back the proposed dwell timer',
+  );
+  assert.equal(bus.serviceDwell, false);
+  assert.equal(bus.serviceStopIdx, -1);
+  assert.equal(bus.model.doorValue, 0);
+
+  let servedIntermediate = false;
+  let openFrames = 0;
+  for (let frame = 0; frame < 250; frame++) {
+    system.update(bus.model.group.position.x, 3, 0.1);
+    if (bus.serviceStopIdx === 1) {
+      servedIntermediate = true;
+      if (bus.serviceDoorT > 0.6) openFrames++;
+      assert.ok(
+        Math.abs(bus.model.group.position.x + 4.1 - 250) < 2.1,
+        'the physical front door serves the authored stop pole',
+      );
+    } else if (servedIntermediate) {
+      break;
+    }
+  }
+  assert.equal(servedIntermediate, true);
+  assert.ok(
+    openFrames >= 80,
+    `the delayed stop retains a real dwell (observed ${openFrames} open frames)`,
+  );
+  system.dispose();
+});
+
+test('streaming just before a berth cannot mark that stop served by proximity', () => {
+  const scene = new THREE.Scene();
+  const makeModel = () => ({
+    group: new THREE.Group(),
+    setDoors() {},
+    setSpeed() {},
+    setNextStop() {},
+    setStopRequested() {},
+    dispose() {},
+  });
+  const system = new BusSystem(scene, makeModel, () => new THREE.Group());
+  system.build({
+    v: 1,
+    routes: [{
+      id: 'P',
+      name: 'Proximity',
+      color: '#2266aa',
+      sbs: false,
+      dirs: [{
+        dest: 'END',
+        shape: [0, 0, 500, 0],
+        stops: [
+          { id: 'a', s: 0 },
+          { id: 'b', s: 250 },
+          { id: 'c', s: 500 },
+        ],
+      }],
+    }],
+    stops: {
+      a: { n: 'A', p: [0, 3], r: ['P'] },
+      b: { n: 'B', p: [250, 3], r: ['P'] },
+      c: { n: 'C', p: [500, 3], r: ['P'] },
+    },
+  });
+  const ride = system.restoreRide('P', 0, 0, 34.4556);
+  assert.ok(ride);
+  const bus = ride.mb;
+  assert.equal(bus.nextPhysicalStopIdx, 1);
+  assert.ok(bus.rs < bus.dir.parkS[1]);
+  ride.end();
+  for (const other of [...system.meshed.values()]) {
+    if (other !== bus) system.removeMeshed(other);
+  }
+  system.busTimer = Number.POSITIVE_INFINITY;
+  const wall = {
+    key: 'parked:berth-hold',
+    x: bus.model.group.position.x + 7.1,
+    z: bus.model.group.position.z,
+    fx: 1,
+    fz: 0,
+    halfLength: 0.31,
+    halfWidth: 8,
+    speed: 0,
+    immovable: true,
+  };
+  for (let frame = 0; frame < 150; frame++) {
+    system.update(bus.model.group.position.x, bus.model.group.position.z, 0.1, [wall]);
+  }
+  let served = false;
+  for (let frame = 0; frame < 250; frame++) {
+    system.update(bus.model.group.position.x, bus.model.group.position.z, 0.1);
+    if (bus.serviceStopIdx === 1) served = true;
+    if (served && bus.nextPhysicalStopIdx > 1) break;
+  }
+  assert.equal(
+    served,
+    true,
+    'the delayed bus carries a full physical service at the nearly-reached stop',
+  );
+  system.dispose();
+});
+
+test('a delayed bus cannot expose a later timetable stop at an earlier berth', () => {
+  const scene = new THREE.Scene();
+  const makeModel = () => ({
+    group: new THREE.Group(),
+    doorValue: 0,
+    nextStop: null,
+    setDoors(value) { this.doorValue = value; },
+    setSpeed() {},
+    setNextStop(value) { this.nextStop = value; },
+    setStopRequested() {},
+    dispose() {},
+  });
+  const system = new BusSystem(scene, makeModel, () => new THREE.Group());
+  system.build({
+    v: 1,
+    routes: [{
+      id: 'D',
+      name: 'Delayed',
+      color: '#2266aa',
+      sbs: false,
+      dirs: [{
+        dest: 'END',
+        shape: [0, 0, 500, 0],
+        stops: [
+          { id: 'a', s: 0 },
+          { id: 'b', s: 250 },
+          { id: 'c', s: 500 },
+        ],
+      }],
+    }],
+    stops: {
+      a: { n: 'A', p: [0, 3], r: ['D'] },
+      b: { n: 'B', p: [250, 3], r: ['D'] },
+      c: { n: 'C', p: [500, 3], r: ['D'] },
+    },
+  });
+  const ride = system.restoreRide('D', 0, 0, Number.POSITIVE_INFINITY);
+  assert.ok(ride);
+  const bus = ride.mb;
+  for (const other of [...system.meshed.values()]) {
+    if (other !== bus) system.removeMeshed(other);
+  }
+  system.busTimer = Number.POSITIVE_INFINITY;
+  const berthS = bus.dir.parkS[1];
+  bus.rs = berthS - 1.9;
+  bus.lastRS = bus.rs;
+  bus.sfx = 1;
+  bus.sfz = 0;
+  bus.yaw = 0;
+  bus.lat = 3;
+  bus.committedLat = 3;
+  bus.sepX = 0;
+  bus.sepZ = 0;
+  bus.nextPhysicalStopIdx = 1;
+  bus.physicalDwellRemaining = -1;
+  bus.physicalLat = 3;
+  bus.model.group.position.set(bus.rs, 0, 3);
+  system.update(bus.model.group.position.x, 3, 0.1);
+  assert.equal(bus.serviceDwell, false);
+  assert.equal(bus.serviceStopIdx, -1);
+  assert.equal(bus.model.doorValue, 0);
+  assert.equal(ride.canExit, false);
+  assert.equal(ride.atEnd, false);
+  assert.equal(ride.hud.state, 'moving');
+  assert.equal(ride.hud.thisStop, 'B');
+  assert.equal(bus.model.nextStop, 'B');
+
+  for (let frame = 0; frame < 30 && bus.serviceStopIdx < 0; frame++) {
+    system.update(bus.model.group.position.x, 3, 0.1);
+  }
+  assert.equal(bus.serviceStopIdx, 1);
+  assert.equal(ride.atEnd, false);
+  ride.end();
+  system.dispose();
+});
+
+test('an overdue automated bus serves every remaining stop before removal', () => {
+  const scene = new THREE.Scene();
+  const makeModel = () => ({
+    group: new THREE.Group(),
+    setDoors() {},
+    setSpeed() {},
+    setNextStop() {},
+    setStopRequested() {},
+    dispose() {},
+  });
+  const system = new BusSystem(scene, makeModel, () => new THREE.Group());
+  system.build({
+    v: 1,
+    routes: [{
+      id: 'F',
+      name: 'Finisher',
+      color: '#2266aa',
+      sbs: false,
+      dirs: [{
+        dest: 'END',
+        shape: [0, 0, 500, 0],
+        stops: [
+          { id: 'a', s: 0 },
+          { id: 'b', s: 250 },
+          { id: 'c', s: 500 },
+        ],
+      }],
+    }],
+    stops: {
+      a: { n: 'A', p: [0, 3], r: ['F'] },
+      b: { n: 'B', p: [250, 3], r: ['F'] },
+      c: { n: 'C', p: [500, 3], r: ['F'] },
+    },
+  });
+  const ride = system.restoreRide('F', 0, 0, 2);
+  assert.ok(ride);
+  const bus = ride.mb;
+  const key = bus.key;
+  ride.end();
+  for (const other of [...system.meshed.values()]) {
+    if (other !== bus) system.removeMeshed(other);
+  }
+  system.busTimer = Number.POSITIVE_INFINITY;
+  bus.runDeadline = system.worldTime;
+  const served = new Set();
+  for (let frame = 0; frame < 900 && system.meshed.has(key); frame++) {
+    system.update(bus.model.group.position.x, bus.model.group.position.z, 0.1);
+    if (bus.serviceStopIdx >= 0) served.add(bus.serviceStopIdx);
+    if (bus.nextPhysicalStopIdx < bus.dir.nStops) {
+      assert.equal(
+        system.meshed.has(key),
+        true,
+        'a capped intermediate target cannot masquerade as the final terminal',
+      );
+    }
+  }
+  assert.equal(served.has(1), true, 'the overdue run serves its intermediate stop');
+  assert.equal(served.has(2), true, 'the overdue run serves its terminal stop');
+  assert.equal(system.meshed.has(key), false);
+  system.dispose();
+});
+
+test('a rider boarding during terminal dwell keeps an exit after timetable expiry', () => {
+  const scene = new THREE.Scene();
+  const makeModel = () => ({
+    group: new THREE.Group(),
+    doorValue: 0,
+    setDoors(value) { this.doorValue = value; },
+    setSpeed() {},
+    setNextStop() {},
+    setStopRequested() {},
+    dispose() {},
+  });
+  const system = new BusSystem(scene, makeModel, () => new THREE.Group());
+  system.build({
+    v: 1,
+    routes: [{
+      id: 'L',
+      name: 'Late boarding',
+      color: '#2266aa',
+      sbs: false,
+      dirs: [{
+        dest: 'END',
+        shape: [0, 0, 500, 0],
+        stops: [{ id: 'a', s: 0 }, { id: 'b', s: 500 }],
+      }],
+    }],
+    stops: {
+      a: { n: 'A', p: [0, 3], r: ['L'] },
+      b: { n: 'B', p: [500, 3], r: ['L'] },
+    },
+  });
+  const ride = system.restoreRide('L', 0, 0, Number.POSITIVE_INFINITY);
+  assert.ok(ride);
+  const bus = ride.mb;
+  for (const other of [...system.meshed.values()]) {
+    if (other !== bus) system.removeMeshed(other);
+  }
+  system.busTimer = Number.POSITIVE_INFINITY;
+  system.update(ride.pos.x, ride.pos.z, 0.1);
+  assert.equal(ride.canExit, true);
+  let previousZ = bus.model.group.position.z;
+  let maxLateralStep = 0;
+  for (let frame = 0; frame < 60; frame++) {
+    system.update(ride.pos.x, ride.pos.z, 0.1);
+    maxLateralStep = Math.max(
+      maxLateralStep,
+      Math.abs(bus.model.group.position.z - previousZ),
+    );
+    previousZ = bus.model.group.position.z;
+  }
+  assert.equal(bus.finishing, true);
+  assert.equal(ride.active, true);
+  assert.equal(ride.atEnd, true);
+  assert.equal(ride.canExit, true);
+  assert.equal(ride.model.doorValue, 1);
+  assert.ok(
+    maxLateralStep <= 0.81,
+    `terminal deadline transition stays rate-bounded (${maxLateralStep}m)`,
+  );
+  const key = bus.key;
+  ride.end();
+  system.update(bus.model.group.position.x, bus.model.group.position.z, 0.1);
+  assert.equal(system.meshed.has(key), false);
+  system.dispose();
 });
 
 test('sequential traffic transactions close rollback chains to a safe fixed state', () => {

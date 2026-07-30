@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { readFileSync } from 'node:fs';
+import { registerHooks } from 'node:module';
 import * as THREE from 'three';
 import ts from 'typescript';
 import {
@@ -37,6 +38,25 @@ import {
   hearstProjectedDiagonalAngle,
   hearstRingPerimeter,
 } from '../../src/engine/landmarks/hearstGeometry.ts';
+
+registerHooks({
+  resolve(specifier, context, nextResolve) {
+    try {
+      return nextResolve(specifier, context);
+    } catch (error) {
+      if (error?.code !== 'ERR_MODULE_NOT_FOUND') throw error;
+      if (/^\.\.?\//.test(specifier) && !/\.[a-z0-9]+$/i.test(specifier)) {
+        return nextResolve(`${specifier}.ts`, context);
+      }
+      throw error;
+    }
+  },
+});
+
+const { builders: midtownCoreBuilders } = await import(
+  '../../src/engine/landmarks/sets/midtown-core.ts'
+);
+const { GLASS_LM } = await import('../../src/engine/landmarks/kit.ts');
 
 test('rendering contracts expose the deliberate per-tier cost ladder', () => {
   const low = renderingTierContract('low');
@@ -271,6 +291,36 @@ test('Hearst upper glazing is one solid reflective material without pane gradien
   );
   assert.match(hearstSource, /hearstSolidReflectiveGlass = true/);
   assert.match(hearstSource, /envMapIntensity:\s*1\.45/);
+});
+
+test('Carnegie Hall glazing clears both masonry planes without leaving its arches', () => {
+  const group = midtownCoreBuilders['carnegie-hall']({
+    groundAt: () => 0,
+    clearRoad: (x, z) => [x, z],
+  });
+  group.updateMatrixWorld(true);
+  const frontPanes = [];
+  const sidePanes = [];
+  group.traverse((object) => {
+    if (!object.isMesh || object.material !== GLASS_LM) return;
+    const bounds = new THREE.Box3().setFromObject(object);
+    const size = bounds.getSize(new THREE.Vector3());
+    (size.x > size.z ? frontPanes : sidePanes).push(bounds);
+  });
+
+  assert.equal(frontPanes.length, 9);
+  assert.equal(sidePanes.length, 6);
+  for (const bounds of frontPanes) {
+    assert.ok(bounds.min.z > 8.1, 'front pane clears the z=8 masonry face by at least 10cm');
+    assert.ok(bounds.max.z < 8.25, 'front pane stays at least 10cm behind the arch face');
+  }
+  for (const bounds of sidePanes) {
+    assert.ok(bounds.min.x > 15.1, 'side pane clears the x=15 masonry face by at least 10cm');
+    assert.ok(bounds.max.x < 15.25, 'side pane stays at least 10cm behind the arch face');
+  }
+  group.traverse((object) => {
+    if (object.isMesh) object.geometry.dispose();
+  });
 });
 
 test('the recognizable hero set is complete, bounded and backed by registry entries', () => {

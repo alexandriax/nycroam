@@ -34,12 +34,15 @@ const {
   validateMaterialManifest,
 } = await import('../../src/engine/materialLibrary.ts');
 const {
+  makeFacadeLodMaterial,
   makeFacadeMaterial,
   makeFlatMaterial,
   makeRoadMaterial,
   makeWalkMaterial,
+  setFacadeDetailFade,
   treeTrunkMaterial,
 } = await import('../../src/engine/materials.ts');
+const { facadeDetailLod } = await import('../../src/engine/facadeLod.ts');
 const { manifestRegions } = await import('../materials/surface-library.mjs');
 
 const materialDirectory = new URL('../../public/materials/', import.meta.url);
@@ -241,28 +244,28 @@ test('shipping facade, road, walk, grass, and bark shaders consume the shared at
       material: makeFacadeMaterial(),
       shader: 'lambert',
       uniform: 'uNycSurfaceColor',
-      sample: 'texture2D(uNycSurfaceColor',
+      sample: 'nycAtlasSample(\n                uNycSurfaceColor',
       surface: 'semantic-facade-roof',
     },
     {
       material: makeRoadMaterial(),
       shader: 'standard',
       uniform: 'uNycMaterialColor',
-      sample: 'texture2D(uNycMaterialColor',
+      sample: 'nycAtlasSample(\n          uNycMaterialColor',
       surface: 'asphalt-worn',
     },
     {
       material: makeWalkMaterial(),
       shader: 'standard',
       uniform: 'uNycMaterialColor',
-      sample: 'texture2D(uNycMaterialColor',
+      sample: 'nycAtlasSample(\n          uNycMaterialColor',
       surface: 'concrete-aged',
     },
     {
       material: makeFlatMaterial(),
       shader: 'lambert',
       uniform: 'uNycGrassColor',
-      sample: 'texture2D(uNycGrassColor',
+      sample: 'nycAtlasSample(\n              uNycGrassColor',
       surface: 'grass-variants',
     },
     {
@@ -284,4 +287,129 @@ test('shipping facade, road, walk, grass, and bark shaders consume the shared at
     assert.ok(shader.fragmentShader.includes('nycMacroVariation'), `${entry.surface} breaks repetition`);
     entry.material.dispose();
   }
+});
+
+test('every generic window family uses stable solid glass and filtered detail', () => {
+  const material = makeFacadeMaterial();
+  const shader = compileMaterial(material, 'lambert');
+  const start = shader.fragmentShader.indexOf('if (curtainFacade && !storefront)');
+  const end = shader.fragmentShader.indexOf('} else {', start);
+  assert.ok(start >= 0 && end > start, 'curtain-wall shader branch exists');
+  const curtainWall = shader.fragmentShader.slice(start, end);
+
+  assert.equal(material.isMeshLambertMaterial, true);
+  assert.equal(material.vertexColors, true);
+  assert.equal(material.side, THREE.DoubleSide);
+  assert.equal(material.transparent, false);
+  assert.equal(material.map, null);
+  assert.equal(material.userData.nycSolidReflectiveGlass, true);
+  assert.equal(material.userData.nycStablePaneReflection, true);
+  assert.ok(shader.fragmentShader.includes('bool semanticCurtain = abs(windowFamily - 1.0) < 0.5'));
+  assert.ok(shader.fragmentShader.includes('bool curtainFacade = glassTower || semanticCurtain'));
+  assert.ok(curtainWall.includes('solidGlassTint'));
+  assert.ok(curtainWall.includes('facadeY * mix(0.82, 1.02, fresnel) / glassY'));
+  assert.ok(curtainWall.includes('skyGlass'));
+  assert.ok(curtainWall.includes('fresnel'));
+  assert.ok(shader.fragmentShader.includes('solidWindowTint'));
+  assert.ok(shader.fragmentShader.includes('float glint = pow('));
+  assert.ok(shader.fragmentShader.includes(', 96.0) * microLod'));
+  assert.ok(shader.fragmentShader.includes('diffuseColor.rgb = mix(facadeBase'));
+  assert.ok(shader.fragmentShader.includes('architecturalMetal'));
+  assert.ok(shader.fragmentShader.includes('microLod'));
+  assert.ok(shader.fragmentShader.includes('float nCu = uN / winWN'));
+  assert.ok(shader.fragmentShader.includes('float archWidth = max(fwidth(archDistance)'));
+  assert.equal(shader.fragmentShader.includes('bhash'), false);
+  assert.equal(shader.fragmentShader.includes('cellId'), false);
+  assert.equal(shader.fragmentShader.includes('rnd'), false);
+  assert.equal(shader.fragmentShader.includes('fwidth(fN)'), false);
+  assert.equal(shader.fragmentShader.includes('aaRect'), false);
+  assert.equal(shader.fragmentShader.includes('nycFacadeSpecular'), false);
+  assert.equal(shader.fragmentShader.includes('outgoingLight +='), false);
+  assert.equal(curtainWall.includes('f.y * 0.8'), false);
+  assert.ok(
+    shader.fragmentShader.includes('solidGlassFacade ? 1.0 : nycMacroVariation'),
+    'world-space masonry mottle is suppressed on solid curtain glass',
+  );
+  assert.ok(shader.fragmentShader.includes('mix(1.0, detailedBaseResponse, detail)'));
+  material.dispose();
+});
+
+test('far facades stay neutral and cheap until pane detail is resolvable', () => {
+  const material = makeFacadeLodMaterial();
+  const shader = compileMaterial(material, 'lambert');
+
+  assert.equal(material.isMeshLambertMaterial, true);
+  assert.equal(material.vertexColors, true);
+  assert.equal(material.side, THREE.DoubleSide);
+  assert.equal(material.transparent, false);
+  assert.equal(material.map, null);
+  assert.deepEqual(material.userData.nycMaterialChannels, []);
+  assert.equal(material.userData.nycNeutralFarMassing, true);
+  assert.equal(material.onBeforeCompile, THREE.Material.prototype.onBeforeCompile);
+  assert.equal(shader.fragmentShader.includes('outgoingLight +='), false);
+  assert.equal(shader.fragmentShader.includes('texture2D'), false);
+  assert.equal(shader.fragmentShader.includes('reflect('), false);
+  assert.equal(shader.fragmentShader.includes('normalize('), false);
+  assert.equal(shader.fragmentShader.includes('fract('), false);
+  assert.equal(shader.fragmentShader.includes('pow('), false);
+  material.dispose();
+});
+
+test('atlas sampling uses continuous gradients and non-periodic ground phases', () => {
+  const road = compileMaterial(makeRoadMaterial(), 'standard').fragmentShader;
+  const walk = compileMaterial(makeWalkMaterial(), 'standard').fragmentShader;
+  const grass = compileMaterial(makeFlatMaterial(), 'lambert').fragmentShader;
+
+  for (const [name, shader] of [['road', road], ['walk', walk], ['grass', grass]]) {
+    assert.ok(shader.includes('vec4 nycAtlasSample('), `${name} has the atlas sampler`);
+    assert.ok(shader.includes('texture2DGradEXT('), `${name} uses explicit gradients`);
+    assert.ok(shader.includes('dFdx(repeatUv)'), `${name} differentiates before fract`);
+    assert.ok(shader.includes('vec2 nycSurfaceWarp('), `${name} has continuous phase warp`);
+  }
+  assert.equal(road.includes('texture2D(uNycMaterial'), false);
+  assert.equal(walk.includes('texture2D(uNycMaterial'), false);
+  assert.equal(grass.includes('texture2D(uNycGrass'), false);
+  assert.equal(grass.match(/nycSurfaceWarp\(vGXZ\)/g)?.length, 1);
+  assert.ok(grass.includes('mat2(0.86, 0.31, -0.24, 1.07) * grassWarp'));
+  assert.equal(grass.match(/nycGrassDry = smoothstep/g)?.length, 1);
+});
+
+test('tile LOD handoff uses the neutral facade fallback', () => {
+  const source = readFileSync(
+    new URL('../../src/engine/TileManager.ts', import.meta.url),
+    'utf8',
+  );
+  assert.match(source, /private facadeSimpleMat = makeFacadeLodMaterial\(\)/);
+  assert.doesNotMatch(
+    source,
+    /private facadeSimpleMat = new THREE\.MeshLambertMaterial/,
+  );
+  assert.match(source, /setFacadeDetailFade\(this\.facadeMat, this\.loadRadius\)/);
+  assert.match(source, /facadeDetailLod\(this\.loadRadius\)/);
+});
+
+test('facade detail is neutral before every quality-scaled material handoff', () => {
+  const smoothstep = (a, b, x) => {
+    const t = Math.max(0, Math.min(1, (x - a) / (b - a)));
+    return t * t * (3 - 2 * t);
+  };
+  for (const loadRadius of [620, 820, 1000, 1200]) {
+    const lod = facadeDetailLod(loadRadius);
+    assert.ok(lod.fadeStart < lod.fadeEnd);
+    assert.ok(lod.fadeEnd <= lod.detailIn - 24);
+    for (const boundary of [lod.detailIn, lod.detailOut]) {
+      const detail = 1 - smoothstep(lod.fadeStart, lod.fadeEnd, boundary);
+      assert.equal(detail, 0, `${loadRadius}m ring is neutral at ${boundary}m`);
+    }
+  }
+
+  const material = makeFacadeMaterial();
+  setFacadeDetailFade(material, 620);
+  const uniforms = material.userData.nycFacadeDetailFade;
+  assert.equal(uniforms.start.value, facadeDetailLod(620).fadeStart);
+  assert.equal(uniforms.end.value, facadeDetailLod(620).fadeEnd);
+  const shader = compileMaterial(material, 'lambert');
+  assert.equal(shader.uniforms.uNycFacadeFadeStart, uniforms.start);
+  assert.equal(shader.uniforms.uNycFacadeFadeEnd, uniforms.end);
+  material.dispose();
 });

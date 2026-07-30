@@ -12,9 +12,10 @@ import {
 import { TILE_SIZE, tileKey } from './geo';
 import { hash01 } from './palette';
 import {
-  makeFacadeMaterial, makeFlatMaterial, makeRoadMaterial, makeWalkMaterial,
-  makeMarkingsMaterial, makeWaterMaterial, treeTrunkMaterial, treeCanopyMaterial,
+  makeFacadeLodMaterial, makeFacadeMaterial, makeFlatMaterial, makeRoadMaterial, makeWalkMaterial,
+  makeMarkingsMaterial, makeWaterMaterial, setFacadeDetailFade, treeTrunkMaterial, treeCanopyMaterial,
 } from './materials';
+import { facadeDetailLod } from './facadeLod';
 import { SKY } from './sky';
 import { buildSignsMesh, buildHydrants, hydrantMaterial } from './streetFurniture';
 import { disposeOwnedResources } from './performance/resourceLifetime';
@@ -88,7 +89,7 @@ export class TileManager {
   private inFlight = new Map<string, number>(); // key -> worker idx
   private queue: string[] = [];
   private facadeMat = makeFacadeMaterial();
-  private facadeSimpleMat = new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.DoubleSide });
+  private facadeSimpleMat = makeFacadeLodMaterial();
   private flatMat = makeFlatMaterial();
   private roadMat = makeRoadMaterial();
   private walkMat = makeWalkMaterial();
@@ -415,6 +416,7 @@ export class TileManager {
 
   /** Refresh work whose result changes only after meaningful camera movement. */
   private refreshSpatial(camX: number, camY: number, camZ: number) {
+    setFacadeDetailFade(this.facadeMat, this.loadRadius);
     const ctx = Math.floor(camX / TILE_SIZE), ctz = Math.floor(camZ / TILE_SIZE);
     const rTiles = Math.ceil(this.loadRadius / TILE_SIZE);
     const loadRadiusSq = this.loadRadius * this.loadRadius;
@@ -570,8 +572,7 @@ export class TileManager {
     // shader on every building tile. Desktop still resolves to its existing
     // ~900/760m pair; mobile uses ~585/445m. The same wide 140m hysteresis
     // prevents material chatter while moving quickly across a boundary.
-    const detailOut = Math.min(900, this.loadRadius * 0.78);
-    const detailIn = detailOut - 140;
+    const { detailOut, detailIn } = facadeDetailLod(this.loadRadius);
     const threshold = rec.facadeDetailed ? detailOut : detailIn;
     const detailed = dSq < threshold * threshold;
     if (detailed === rec.facadeDetailed) return;

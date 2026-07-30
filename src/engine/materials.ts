@@ -6,6 +6,44 @@ import {
   SURFACE_REGION,
   materialLibrary,
 } from './materialLibrary';
+import { facadeDetailLod } from './facadeLod';
+
+interface FacadeDetailFadeUniforms {
+  start: THREE.IUniform<number>;
+  end: THREE.IUniform<number>;
+}
+
+/** Keep the shared facade shader in lockstep with the current streaming ring. */
+export function setFacadeDetailFade(
+  material: THREE.Material,
+  loadRadius: number,
+): void {
+  const uniforms = material.userData.nycFacadeDetailFade as
+    | FacadeDetailFadeUniforms
+    | undefined;
+  if (!uniforms) return;
+  const lod = facadeDetailLod(loadRadius);
+  uniforms.start.value = lod.fadeStart;
+  uniforms.end.value = lod.fadeEnd;
+}
+
+/**
+ * Far facades are intentionally neutral massing. At this angular size windows
+ * are sub-pixel; inventing a reflective whole-building response both washes out
+ * the skyline and creates a visible brightness pop when the detailed tile
+ * arrives. Close/mid tiles supply the real pane response.
+ */
+export function makeFacadeLodMaterial(): THREE.MeshLambertMaterial {
+  const mat = new THREE.MeshLambertMaterial({
+    vertexColors: true,
+    side: THREE.DoubleSide,
+  });
+  mat.dithering = true;
+  mat.userData.nycMaterialSurface = 'semantic-facade-lod';
+  mat.userData.nycMaterialChannels = [];
+  mat.userData.nycNeutralFarMassing = true;
+  return mat;
+}
 
 /**
  * Facade material: Lambert + procedural window grid on vertical faces.
@@ -36,9 +74,19 @@ export function makeFacadeMaterial(): THREE.MeshLambertMaterial {
     ...(premiumSurfaceNormals ? ['normal'] : []),
     ...(surfaceOrm ? ['orm'] : []),
   ];
-  mat.customProgramCacheKey = () => `nyc-semantic-facade-${premiumSurfaceNormals ? 'n' : 'x'}-${surfaceOrm ? 'o' : 'x'}-v1`;
+  mat.userData.nycSolidReflectiveGlass = true;
+  mat.userData.nycStablePaneReflection = true;
+  const authoredLod = facadeDetailLod(q.loadRadius);
+  const detailFade: FacadeDetailFadeUniforms = {
+    start: { value: authoredLod.fadeStart },
+    end: { value: authoredLod.fadeEnd },
+  };
+  mat.userData.nycFacadeDetailFade = detailFade;
+  mat.customProgramCacheKey = () => `nyc-semantic-facade-${premiumSurfaceNormals ? 'n' : 'x'}-${surfaceOrm ? 'o' : 'x'}-v5`;
   mat.onBeforeCompile = (shader) => {
     shader.uniforms.uNycSurfaceColor = materialLibrary.colorUniform;
+    shader.uniforms.uNycFacadeFadeStart = detailFade.start;
+    shader.uniforms.uNycFacadeFadeEnd = detailFade.end;
     if (premiumSurfaceNormals) shader.uniforms.uNycSurfaceNormal = materialLibrary.normalUniform;
     if (surfaceOrm) shader.uniforms.uNycSurfaceOrm = materialLibrary.ormUniform;
     shader.vertexShader = shader.vertexShader
@@ -69,6 +117,8 @@ export function makeFacadeMaterial(): THREE.MeshLambertMaterial {
         varying float vStyle;
         varying float vSemantic;
         uniform sampler2D uNycSurfaceColor;
+        uniform float uNycFacadeFadeStart;
+        uniform float uNycFacadeFadeEnd;
         ${premiumSurfaceNormals ? 'uniform sampler2D uNycSurfaceNormal;' : ''}
         ${surfaceOrm ? 'uniform sampler2D uNycSurfaceOrm;' : ''}
         ${MATERIAL_ATLAS_GLSL}
@@ -85,17 +135,6 @@ export function makeFacadeMaterial(): THREE.MeshLambertMaterial {
           return mod(floor(semantic / 16.0), 2.0) < 0.5
             ? ${SURFACE_REGION.roofGravel.toFixed(1)}
             : ${SURFACE_REGION.roofTar.toFixed(1)};
-        }
-        float bhash(vec2 p) {
-          return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453);
-        }
-        float aaBand(float x, float lo, float hi) {
-          float w = max(fwidth(x) * 1.15, 0.0015);
-          return smoothstep(lo - w, lo + w, x)
-               * (1.0 - smoothstep(hi - w, hi + w, x));
-        }
-        float aaRect(vec2 p, vec2 lo, vec2 hi) {
-          return aaBand(p.x, lo.x, hi.x) * aaBand(p.y, lo.y, hi.y);
         }
         // Analytically filtered [a,b] band: a step() pair widened to the pixel
         // footprint w, so window edges resolve instead of aliasing.
@@ -129,15 +168,28 @@ export function makeFacadeMaterial(): THREE.MeshLambertMaterial {
             float uN = vWPos.x * faceN.z - vWPos.z * faceN.x;
             float floorHN = vWPos.y < 4.6 ? 4.6 : 3.1;
             float winWN = vWPos.y < 4.6 ? 4.2 : 2.5;
-            vec2 fN = vec2(fract(uN / winWN), fract(vWPos.y / floorHN));
+            float nCu = uN / winWN, nCv = vWPos.y / floorHN;
+            vec2 fN = vec2(fract(nCu), fract(nCv));
             vec2 loN = vWPos.y < 4.6 ? vec2(0.08, 0.05) : vec2(0.18, 0.25);
             vec2 hiN = vWPos.y < 4.6 ? vec2(0.92, 0.75) : vec2(0.85, 0.80);
-            float windowN = aaRect(fN, loN, hiN);
+            // Derivatives must come from the unwrapped cell coordinates:
+            // fwidth(fract(...)) spikes at each wrap and makes the normal mask
+            // crawl even when the visible color mask is correctly filtered.
+            float nWx = max(fwidth(nCu), 1e-5) * 0.5;
+            float nWy = max(fwidth(nCv), 1e-5) * 0.5;
+            float normalLod = 1.0 - smoothstep(0.18, 0.45, max(nWx, nWy));
+            float windowArea = (hiN.x - loN.x) * (hiN.y - loN.y);
+            float windowN = mix(
+              windowArea,
+              band(fN.x, loN.x, hiN.x, nWx) * band(fN.y, loN.y, hiN.y, nWy),
+              normalLod
+            );
             float regionN = nycFacadeRegion(styleN);
             float scaleN = (regionN == ${SURFACE_REGION.limestone.toFixed(1)} || regionN == ${SURFACE_REGION.concreteAged.toFixed(1)}) ? 2.4 : 1.2;
-            vec3 mapN = texture2D(
+            vec3 mapN = nycAtlasSample(
               uNycSurfaceNormal,
-              nycAtlasUv(vec2(uN, vWPos.y) / scaleN, regionN)
+              vec2(uN, vWPos.y) / scaleN,
+              regionN
             ).xyz * 2.0 - 1.0;
             mapN.xy *= 0.72;
             vec3 tangentN = normalize(vec3(faceN.z, 0.0, -faceN.x));
@@ -148,9 +200,10 @@ export function makeFacadeMaterial(): THREE.MeshLambertMaterial {
             normal = normalize(mat3(viewMatrix) * worldN);
           } else if (faceN.y > 0.55 && detailN > 0.001) {
             float roofRegionN = nycRoofRegion(vSemantic);
-            vec3 mapN = texture2D(
+            vec3 mapN = nycAtlasSample(
               uNycSurfaceNormal,
-              nycAtlasUv(vWPos.xz / 4.0, roofRegionN)
+              nycSurfaceWarp(vWPos.xz) / 4.0,
+              roofRegionN
             ).xyz * 2.0 - 1.0;
             mapN.xy *= 0.64;
             vec3 worldN = normalize(vec3(mapN.x, max(mapN.z, 0.3), mapN.y));
@@ -168,7 +221,11 @@ export function makeFacadeMaterial(): THREE.MeshLambertMaterial {
           // shows the far wall as a wall instead of a see-through void.
           vec3 wn = normalize(vWNormal) * (gl_FrontFacing ? 1.0 : -1.0);
           float vertical = 1.0 - abs(wn.y);
-          float detail = 1.0 - smoothstep(420.0, 1050.0, distance(cameraPosition, vWPos));
+          float detail = 1.0 - smoothstep(
+            uNycFacadeFadeStart,
+            uNycFacadeFadeEnd,
+            distance(cameraPosition, vWPos)
+          );
           if (vertical > 0.55 && vWPos.y > 0.5) {
             vec3 facadeBase = diffuseColor.rgb;
             if (detail > 0.001) {
@@ -184,6 +241,10 @@ export function makeFacadeMaterial(): THREE.MeshLambertMaterial {
             float opening = 0.22 + openingQ * (0.58 / 15.0);
             float storefrontCategory = mod(floor(semantic / 2048.0), 8.0);
             bool glassTower = abs(styleId - 1.0) < 0.5 || abs(styleId - 6.0) < 0.5;
+            bool semanticCurtain = abs(windowFamily - 1.0) < 0.5;
+            bool curtainFacade = glassTower || semanticCurtain;
+            bool architecturalMetal = abs(styleId - 6.0) < 0.5
+              || abs(styleId - 8.0) < 0.5;
             bool industrial = abs(styleId - 4.0) < 0.5 || abs(styleId - 13.0) < 0.5;
             bool brownstone = abs(styleId - 5.0) < 0.5;
             bool concrete = abs(styleId - 3.0) < 0.5 || abs(styleId - 9.0) < 0.5;
@@ -191,10 +252,10 @@ export function makeFacadeMaterial(): THREE.MeshLambertMaterial {
             bool castIron = abs(styleId - 8.0) < 0.5;
             bool artDeco = abs(styleId - 10.0) < 0.5;
             bool hotel = abs(styleId - 15.0) < 0.5;
-            float floorH = glassTower ? 3.4 : industrial ? 4.15 : brownstone ? 3.25
+            float floorH = curtainFacade ? 3.4 : industrial ? 4.15 : brownstone ? 3.25
               : castIron ? 3.75 : hotel ? 3.45 : 3.1;
             float winW = abs(styleId - 6.0) < 0.5 ? 1.45
-              : glassTower ? 1.7 : industrial ? 3.2 : concrete ? 3.35
+              : curtainFacade ? 1.7 : industrial ? 3.2 : concrete ? 3.35
               : brownstone ? 2.8 : castIron ? 2.25 : stone ? 2.6
               : abs(windowFamily - 4.0) < 0.5 ? 3.6
               : abs(windowFamily - 6.0) < 0.5 ? 2.9 : 2.5;
@@ -204,7 +265,6 @@ export function makeFacadeMaterial(): THREE.MeshLambertMaterial {
             // derivatives are continuous (fwidth of a fract() spikes at every
             // cell seam and would draw a bright line there).
             float cu = u / winW, cv = v / floorH;
-            vec2 cellId = vec2(floor(cu), floor(cv));
             vec2 f = vec2(fract(cu), fract(cv));
             // Half a pixel in cell units, per axis. This is what turns a hard
             // step() into a properly filtered edge -- without it every window
@@ -217,23 +277,44 @@ export function makeFacadeMaterial(): THREE.MeshLambertMaterial {
             // pattern, so cross-fade the whole grid to its own AREA AVERAGE.
             // Same mean tone, zero temporal noise.
             float lod = 1.0 - smoothstep(0.22, 0.62, max(wx, wy));
-            float rnd = mix(0.45, bhash(cellId + floor(diffuseColor.rg * 61.0)), lod);
+            // Sashes, sills and sun pinpricks disappear sooner than the broad
+            // window area. Keeping sub-pixel micro-lines alive is what produces
+            // dotted/crawling window fragments during helicopter motion.
+            float microLod = 1.0 - smoothstep(0.08, 0.24, max(wx, wy));
             vec3 V = normalize(cameraPosition - vWPos);
             float fresnel = pow(1.0 - max(dot(V, wn), 0.0), 3.0);
             vec3 reflected = reflect(-V, wn);
             float skyLift = clamp(reflected.y * 0.55 + 0.55, 0.0, 1.0);
             vec3 skyGlass = mix(vec3(0.20, 0.27, 0.36), vec3(0.67, 0.76, 0.86), skyLift);
             vec3 sunDir = normalize(vec3(-0.48, 0.64, -0.40));
-            float glint = pow(max(dot(reflect(-sunDir, wn), V), 0.0), 96.0) * lod;
+            float glint = pow(max(dot(reflect(-sunDir, wn), V), 0.0), 96.0) * microLod;
 
-            if (glassTower && !storefront) {
+            if (curtainFacade && !storefront) {
               // curtain wall: thin mullions + spandrel band each floor
               float mull = mix(0.890, band(f.x, 0.055, 0.945, wx), lod);
               float pane = mix(0.660, band(f.y, 0.06, 0.72, wy), lod);
               float spandrel = mix(0.190, band(f.y, 0.78, 0.97, wy), lod);
-              // sky gradient down the pane + per-pane tint
-              vec3 glass = mix(vec3(0.30, 0.37, 0.46), vec3(0.55, 0.63, 0.72), mix(0.4, f.y * 0.8 + rnd * 0.25, lod));
-              glass = mix(glass, skyGlass, mix(0.18, 0.34 + fresnel * 0.48, lod));
+              // One stable dielectric tint per building. Reflection varies
+              // continuously with face/view geometry, never by pane id.
+              vec3 solidGlassTint = mix(
+                vec3(0.24, 0.34, 0.42),
+                facadeBase,
+                0.24
+              );
+              vec3 glass = mix(
+                solidGlassTint,
+                skyGlass,
+                mix(0.30, 0.42 + fresnel * 0.42, lod)
+              );
+              if (semanticCurtain && !glassTower) {
+                // The semantic curtain archetype is common across otherwise
+                // bright masonry palettes. Preserve its continuous reflected
+                // chroma without turning those entire blocks into sky emitters.
+                const vec3 curtainLuma = vec3(0.2126, 0.7152, 0.0722);
+                float facadeY = max(dot(facadeBase, curtainLuma), 0.08);
+                float glassY = max(dot(glass, curtainLuma), 0.05);
+                glass *= facadeY * mix(0.82, 1.02, fresnel) / glassY;
+              }
               diffuseColor.rgb = mix(diffuseColor.rgb, glass, mull * pane * 0.94);
               diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * 0.55, spandrel * 0.8);
               diffuseColor.rgb += vec3(1.0, 0.94, 0.80) * glint * pane * 0.22;
@@ -243,8 +324,18 @@ export function makeFacadeMaterial(): THREE.MeshLambertMaterial {
               float inX = mix(opening, band(f.x, sideInset, 1.0 - sideInset, wx), lod);
               float inY = mix(opening, band(f.y, bottomInset, min(0.9, bottomInset + opening), wy), lod);
               if (abs(windowFamily - 5.0) < 0.5) {
-                float arch = 1.0 - smoothstep(0.18, 0.25, length(vec2((f.x - 0.5) * 0.65, f.y - 0.64)));
-                inY *= mix(1.0, max(arch, band(f.y, bottomInset, 0.66, wy)), lod);
+                float archDistance = length(vec2((f.x - 0.5) * 0.65, f.y - 0.64));
+                float archWidth = max(fwidth(archDistance), 0.002);
+                float arch = 1.0 - smoothstep(
+                  0.215 - archWidth,
+                  0.215 + archWidth,
+                  archDistance
+                );
+                inY *= mix(
+                  1.0,
+                  max(arch, band(f.y, bottomInset, 0.66, wy)),
+                  microLod
+                );
               }
               if (storefront) {
                 inX = mix(0.840, band(f.x, 0.08, 0.92, wx), lod);
@@ -255,19 +346,28 @@ export function makeFacadeMaterial(): THREE.MeshLambertMaterial {
               // so each building keeps its palette color)
               float facadeRegion = nycFacadeRegion(styleId);
               float facadeScale = (facadeRegion == ${SURFACE_REGION.limestone.toFixed(1)} || facadeRegion == ${SURFACE_REGION.concreteAged.toFixed(1)}) ? 2.4 : 1.2;
-              vec2 facadeUv = nycAtlasUv(vec2(u, v) / facadeScale, facadeRegion);
-              vec3 bt = texture2D(uNycSurfaceColor, facadeUv).rgb;
+              vec2 facadeRepeat = vec2(u, v) / facadeScale;
+              vec3 bt = nycAtlasSample(
+                uNycSurfaceColor,
+                facadeRepeat,
+                facadeRegion
+              ).rgb;
               ${surfaceOrm
-                ? 'float facadeAo = texture2D(uNycSurfaceOrm, facadeUv).r;'
+                ? 'float facadeAo = nycAtlasSample(uNycSurfaceOrm, facadeRepeat, facadeRegion).r;'
                 : 'float facadeAo = 1.0;'}
               float bl = dot(bt, vec3(0.333)) * 1.75;
               float masonryRelief = industrial ? 0.3 : brownstone ? 0.24
                 : castIron ? 0.12 : (stone || concrete || artDeco) ? 0.08 : 0.34;
               diffuseColor.rgb *= mix(1.0, bl, masonryRelief * (1.0 - win));
               diffuseColor.rgb *= mix(1.0, facadeAo, 0.18 * (1.0 - win));
-              vec3 glass = mix(vec3(0.13, 0.16, 0.2), vec3(0.38, 0.44, 0.52), rnd * rnd);
-              if (storefront) glass = mix(vec3(0.1, 0.11, 0.13), vec3(0.3, 0.28, 0.24), rnd);
-              glass = mix(glass, skyGlass, (storefront ? 0.18 : 0.27) + fresnel * 0.35);
+              vec3 solidWindowTint = storefront
+                ? mix(vec3(0.12, 0.15, 0.17), facadeBase, 0.08)
+                : mix(vec3(0.16, 0.24, 0.31), facadeBase, 0.10);
+              vec3 glass = mix(
+                solidWindowTint,
+                skyGlass,
+                (storefront ? 0.34 : 0.48) + fresnel * 0.30
+              );
               // window inset: lintel shadow at the top of the opening, darker jambs
               float lintel = 1.0 - 0.5 * mix(0.26, smoothstep(0.68, 0.8, f.y), lod) * win;
               float jamb = 1.0 - 0.28 * lod * (band(f.x, 0.18, 0.24, wx) + band(f.x, 0.79, 0.85, wx)) * inY;
@@ -278,32 +378,48 @@ export function makeFacadeMaterial(): THREE.MeshLambertMaterial {
               // transom; upper punched windows get a slim sash. These are only
               // shader masks, so the close-up read improves with no geometry.
               float frame = storefront
-                ? lod * ((band(f.x, 0.335, 0.355, wx) + band(f.x, 0.645, 0.665, wx)) * inY
+                ? microLod * ((band(f.x, 0.335, 0.355, wx) + band(f.x, 0.645, 0.665, wx)) * inY
                   + band(f.y, 0.54, 0.565, wy) * inX)
-                : lod * band(f.y, 0.505, 0.525, wy) * inX;
+                : microLod * band(f.y, 0.505, 0.525, wy) * inX;
               if (abs(windowFamily - 2.0) < 0.5) {
-                frame += lod * ((band(f.x, 0.325, 0.345, wx) + band(f.x, 0.655, 0.675, wx)) * inY
+                frame += microLod * ((band(f.x, 0.325, 0.345, wx) + band(f.x, 0.655, 0.675, wx)) * inY
                   + (band(f.y, 0.42, 0.44, wy) + band(f.y, 0.64, 0.66, wy)) * inX);
               }
               diffuseColor.rgb = mix(diffuseColor.rgb, facadeBase * 0.36, clamp(frame, 0.0, 1.0) * 0.92);
               // sill highlight under the window
-              float sill = lod * band(f.y, 0.225, 0.275, max(wy, 0.025)) * inX;
+              float sill = microLod * band(f.y, 0.225, 0.275, max(wy, 0.025)) * inX;
               diffuseColor.rgb += vec3(0.05) * sill * (storefront ? 0.0 : 1.0);
+              if (architecturalMetal) {
+                float metalMask = 1.0 - win;
+                diffuseColor.rgb = mix(
+                  diffuseColor.rgb,
+                  mix(facadeBase, skyGlass, 0.18 + fresnel * 0.12),
+                  metalMask * 0.035
+                );
+              }
             }
-            // Beyond the useful angular size, blend back to the cheap massing
-            // color. This removes distant grid moiré and avoids visible LOD pops.
+            // At sub-pixel scale reflection detail disappears into neutral
+            // massing. This matches the cheap tile material and prevents a
+            // city-wide exposure jump as streamed LODs exchange.
             diffuseColor.rgb = mix(facadeBase, diffuseColor.rgb, detail);
             }
             // grounding gradient: subtle darkening near street
-            diffuseColor.rgb *= (0.86 + 0.14 * clamp(vWPos.y / 7.0, 0.0, 1.0))
-              * nycMacroVariation(vWPos.xz);
+            float macroStyle = clamp(mod(floor(vSemantic + 0.5), 16.0), 0.0, 15.0);
+            float macroWindow = mod(floor(floor(vSemantic + 0.5) / 16.0), 8.0);
+            bool solidGlassFacade = abs(macroStyle - 1.0) < 0.5
+              || abs(macroStyle - 6.0) < 0.5
+              || abs(macroWindow - 1.0) < 0.5;
+            float detailedBaseResponse =
+              (0.86 + 0.14 * clamp(vWPos.y / 7.0, 0.0, 1.0))
+              * (solidGlassFacade ? 1.0 : nycMacroVariation(vWPos.xz));
+            diffuseColor.rgb *= mix(1.0, detailedBaseResponse, detail);
           } else if (wn.y > 0.55) {
             // roofs: ballast gravel, worldspace projected
             float roofRegion = nycRoofRegion(vSemantic);
-            vec2 roofUv = nycAtlasUv(vWPos.xz / 4.0, roofRegion);
-            vec3 rt = texture2D(uNycSurfaceColor, roofUv).rgb;
+            vec2 roofRepeat = nycSurfaceWarp(vWPos.xz) / 4.0;
+            vec3 rt = nycAtlasSample(uNycSurfaceColor, roofRepeat, roofRegion).rgb;
             ${surfaceOrm
-              ? 'float roofAo = texture2D(uNycSurfaceOrm, roofUv).r;'
+              ? 'float roofAo = nycAtlasSample(uNycSurfaceOrm, roofRepeat, roofRegion).r;'
               : 'float roofAo = 1.0;'}
             diffuseColor.rgb *= mix(vec3(1.0), rt * 1.9, 0.55)
               * mix(1.0, roofAo, 0.2) * nycMacroVariation(vWPos.xz);
@@ -337,7 +453,11 @@ function applyProjectedSurface(
   const normalFragment = normalEnabled
     ? `
       if (abs(vNycMaterialWorldNormal.y) > 0.58) {
-        vec3 nycMapN = texture2D(uNycMaterialNormal, nycSurfaceUv).xyz * 2.0 - 1.0;
+        vec3 nycMapN = nycAtlasSample(
+          uNycMaterialNormal,
+          nycSurfaceRepeat,
+          ${options.region.toFixed(1)}
+        ).xyz * 2.0 - 1.0;
         vec3 nycWorldN = normalize(vec3(
           nycMapN.x * ${options.normalStrength.toFixed(3)},
           max(0.28, nycMapN.z),
@@ -347,7 +467,11 @@ function applyProjectedSurface(
       }`
     : '';
   const ormAssignment = ormEnabled
-    ? 'nycMaterialOrmSample = texture2D(uNycMaterialOrm, nycSurfaceUv);'
+    ? `nycMaterialOrmSample = nycAtlasSample(
+        uNycMaterialOrm,
+        nycSurfaceRepeat,
+        ${options.region.toFixed(1)}
+      );`
     : '';
   const roughnessFragment = ormEnabled
     ? `float roughnessFactor = roughness * nycMaterialOrmSample.g;`
@@ -373,7 +497,7 @@ function applyProjectedSurface(
     ...(normalEnabled ? ['normal'] : []),
     ...(ormEnabled ? ['orm'] : []),
   ];
-  mat.customProgramCacheKey = () => `nyc-material-${options.id}-${normalEnabled ? 'n' : 'x'}-${ormEnabled ? 'o' : 'x'}-v1`;
+  mat.customProgramCacheKey = () => `nyc-material-${options.id}-${normalEnabled ? 'n' : 'x'}-${ormEnabled ? 'o' : 'x'}-v2`;
   mat.onBeforeCompile = (shader) => {
     shader.uniforms.uNycMaterialColor = materialLibrary.colorUniform;
     if (normalEnabled) shader.uniforms.uNycMaterialNormal = materialLibrary.normalUniform;
@@ -417,11 +541,13 @@ function applyProjectedSurface(
       .replace(
         '#include <color_fragment>',
         `#include <color_fragment>
-        vec2 nycSurfaceUv = nycAtlasUv(
-          vNycMaterialWorld.xz / ${options.metersPerRepeat.toFixed(4)},
+        vec2 nycSurfaceRepeat = nycSurfaceWarp(vNycMaterialWorld.xz)
+          / ${options.metersPerRepeat.toFixed(4)};
+        vec3 nycSurfaceColor = nycAtlasSample(
+          uNycMaterialColor,
+          nycSurfaceRepeat,
           ${options.region.toFixed(1)}
-        );
-        vec3 nycSurfaceColor = texture2D(uNycMaterialColor, nycSurfaceUv).rgb;
+        ).rgb;
         diffuseColor.rgb *= nycSurfaceColor * nycMacroVariation(vNycMaterialWorld.xz);
         ${ormAssignment}`
       )
@@ -444,7 +570,7 @@ export function makeFlatMaterial(): THREE.MeshLambertMaterial {
     ...(normalEnabled ? ['normal'] : []),
     ...(ormEnabled ? ['orm'] : []),
   ];
-  mat.customProgramCacheKey = () => `nyc-material-grass-${normalEnabled ? 'n' : 'x'}-${ormEnabled ? 'o' : 'x'}-v1`;
+  mat.customProgramCacheKey = () => `nyc-material-grass-${normalEnabled ? 'n' : 'x'}-${ormEnabled ? 'o' : 'x'}-v2`;
   mat.onBeforeCompile = (shader) => {
     shader.uniforms.uNycGrassColor = materialLibrary.colorUniform;
     if (normalEnabled) shader.uniforms.uNycGrassNormal = materialLibrary.normalUniform;
@@ -464,29 +590,58 @@ export function makeFlatMaterial(): THREE.MeshLambertMaterial {
         uniform sampler2D uNycGrassColor;
         ${normalEnabled ? 'uniform sampler2D uNycGrassNormal;' : ''}
         ${ormEnabled ? 'uniform sampler2D uNycGrassOrm;' : ''}
+        float nycGrassDry;
+        float nycGrassBlend;
+        vec2 nycGrassLushRepeat;
+        vec2 nycGrassDryRepeat;
         ${MATERIAL_ATLAS_GLSL}`
       )
       .replace(
         '#include <color_fragment>',
         `#include <color_fragment>
         {
-          float dry = smoothstep(-0.35, 0.35,
+          nycGrassDry = smoothstep(-0.35, 0.35,
             sin(vGXZ.x * 0.013 - vGXZ.y * 0.019)
             + sin(vGXZ.x * -0.007 + vGXZ.y * 0.011 + 1.8) * 0.6
           );
-          vec2 lushUv = nycAtlasUv(vGXZ / 5.0, ${SURFACE_REGION.grassLush.toFixed(1)});
-          vec2 dryUv = nycAtlasUv(vGXZ / 5.0, ${SURFACE_REGION.grassDry.toFixed(1)});
+          nycGrassBlend = 0.42 + nycGrassDry * 0.18;
+          vec2 grassWarp = nycSurfaceWarp(vGXZ);
+          nycGrassLushRepeat = grassWarp / 5.3;
+          nycGrassDryRepeat = (
+            mat2(0.86, 0.31, -0.24, 1.07) * grassWarp
+            + vec2(19.7, -11.3)
+          ) / 7.1;
           vec3 detail = mix(
-            texture2D(uNycGrassColor, lushUv).rgb,
-            texture2D(uNycGrassColor, dryUv).rgb,
-            dry * 0.42
+            nycAtlasSample(
+              uNycGrassColor,
+              nycGrassLushRepeat,
+              ${SURFACE_REGION.grassLush.toFixed(1)}
+            ).rgb,
+            nycAtlasSample(
+              uNycGrassColor,
+              nycGrassDryRepeat,
+              ${SURFACE_REGION.grassDry.toFixed(1)}
+            ).rgb,
+            nycGrassBlend
           );
-          diffuseColor.rgb *= detail * 2.05 * nycMacroVariation(vGXZ);
+          // The two atlas regions carry useful blade-scale color, but their
+          // full contrast advertises the repeat from a helicopter. Preserve
+          // the hue variation while damping only that high-frequency contrast.
+          vec3 grassDetail = mix(vec3(0.49), detail, 0.58);
+          diffuseColor.rgb *= grassDetail * 2.05 * nycMacroVariation(vGXZ);
           ${ormEnabled ? `
           float grassAo = mix(
-            texture2D(uNycGrassOrm, lushUv).r,
-            texture2D(uNycGrassOrm, dryUv).r,
-            dry * 0.42
+            nycAtlasSample(
+              uNycGrassOrm,
+              nycGrassLushRepeat,
+              ${SURFACE_REGION.grassLush.toFixed(1)}
+            ).r,
+            nycAtlasSample(
+              uNycGrassOrm,
+              nycGrassDryRepeat,
+              ${SURFACE_REGION.grassDry.toFixed(1)}
+            ).r,
+            nycGrassBlend
           );
           diffuseColor.rgb *= mix(1.0, grassAo, 0.18);` : ''}
         }`
@@ -495,21 +650,19 @@ export function makeFlatMaterial(): THREE.MeshLambertMaterial {
         '#include <normal_fragment_maps>',
         normalEnabled
           ? `{
-          float dry = smoothstep(-0.35, 0.35,
-            sin(vGXZ.x * 0.013 - vGXZ.y * 0.019)
-            + sin(vGXZ.x * -0.007 + vGXZ.y * 0.011 + 1.8) * 0.6
-          );
-          vec3 lushN = texture2D(
+          vec3 lushN = nycAtlasSample(
             uNycGrassNormal,
-            nycAtlasUv(vGXZ / 5.0, ${SURFACE_REGION.grassLush.toFixed(1)})
+            nycGrassLushRepeat,
+            ${SURFACE_REGION.grassLush.toFixed(1)}
           ).xyz * 2.0 - 1.0;
-          vec3 dryN = texture2D(
+          vec3 dryN = nycAtlasSample(
             uNycGrassNormal,
-            nycAtlasUv(vGXZ / 5.0, ${SURFACE_REGION.grassDry.toFixed(1)})
+            nycGrassDryRepeat,
+            ${SURFACE_REGION.grassDry.toFixed(1)}
           ).xyz * 2.0 - 1.0;
-          vec3 mapN = normalize(mix(lushN, dryN, dry * 0.42));
-          vec3 worldN = normalize(vec3(mapN.x * 0.48, max(mapN.z, 0.35), mapN.y * 0.48));
-          normal = normalize(mix(normal, mat3(viewMatrix) * worldN, 0.58));
+          vec3 mapN = normalize(mix(lushN, dryN, nycGrassBlend));
+          vec3 worldN = normalize(vec3(mapN.x * 0.38, max(mapN.z, 0.42), mapN.y * 0.38));
+          normal = normalize(mix(normal, mat3(viewMatrix) * worldN, 0.48));
         }`
           : ''
       );

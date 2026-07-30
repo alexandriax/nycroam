@@ -485,13 +485,41 @@ export class MaterialLibrary {
 
 export const materialLibrary = new MaterialLibrary();
 
-/** GLSL helpers shared by all tile materials; 8px wrapped gutters stop bleed. */
+/**
+ * GLSL helpers shared by all tile materials.
+ *
+ * Atlas derivatives must come from the continuous repeat coordinates. Taking
+ * implicit derivatives after fract() makes every wrap look like a huge UV jump,
+ * selecting a coarse mip at the edge and exposing the atlas as a visible grid.
+ * A low-frequency, continuous domain warp breaks the remaining ruler-straight
+ * repetition without another texture lookup.
+ */
 export const MATERIAL_ATLAS_GLSL = `
+const float NYC_ATLAS_CONTENT_SCALE = ${(MATERIAL_ATLAS.contentSize / MATERIAL_ATLAS.width).toFixed(10)};
 vec2 nycAtlasUv(vec2 repeatUv, float region) {
   vec2 cell = vec2(mod(region, 4.0), floor(region / 4.0));
   vec2 inner = vec2(${(MATERIAL_ATLAS.gutter / MATERIAL_ATLAS.width).toFixed(10)})
-    + fract(repeatUv) * ${(MATERIAL_ATLAS.contentSize / MATERIAL_ATLAS.width).toFixed(10)};
+    + fract(repeatUv) * NYC_ATLAS_CONTENT_SCALE;
   return cell * 0.25 + inner;
+}
+vec4 nycAtlasSample(sampler2D atlas, vec2 repeatUv, float region) {
+  return texture2DGradEXT(
+    atlas,
+    nycAtlasUv(repeatUv, region),
+    dFdx(repeatUv) * NYC_ATLAS_CONTENT_SCALE,
+    dFdy(repeatUv) * NYC_ATLAS_CONTENT_SCALE
+  );
+}
+vec2 nycSurfaceWarp(vec2 worldPosition) {
+  // Two low-frequency waves are enough to disturb the grid. Grass derives both
+  // texture phases from this one result, so phones pay exactly two extra trig
+  // operations per visible ground pixel rather than once per atlas channel.
+  float broad = sin(dot(worldPosition, vec2(0.047, 0.071)));
+  float cross = sin(dot(worldPosition, vec2(-0.061, 0.039)) + 1.7);
+  return worldPosition + vec2(
+    broad + cross * 0.34,
+    cross - broad * 0.28
+  ) * 0.74;
 }
 float nycMacroVariation(vec2 worldPosition) {
   float broad = sin(worldPosition.x * 0.017 + worldPosition.y * 0.011);
