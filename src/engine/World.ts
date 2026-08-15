@@ -836,7 +836,8 @@ export class World {
     mat.vertexColors = false;
     mat.color.copy(SKY.ground);
     const mesh = new THREE.Mesh(geo, mat);
-    mesh.renderOrder = -3;
+    // Base terrain must precede tile areas, the road depth mask, and road color.
+    mesh.renderOrder = -4;
     mesh.receiveShadow = true;
     this.streetScene.add(mesh);
   }

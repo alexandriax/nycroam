@@ -37,6 +37,8 @@ const {
   makeFacadeLodMaterial,
   makeFacadeMaterial,
   makeFlatMaterial,
+  makeMarkingsMaterial,
+  makeRoadDepthMaskMaterial,
   makeRoadMaterial,
   makeWalkMaterial,
   setFacadeDetailFade,
@@ -237,6 +239,48 @@ function compileMaterial(material, shaderName) {
   material.onBeforeCompile(shader, {});
   return shader;
 }
+
+test('road compositor masks base-surface depth while preserving semantic foreground order', () => {
+  const mask = makeRoadDepthMaskMaterial();
+  const road = makeRoadMaterial();
+  const walk = makeWalkMaterial();
+  const markings = makeMarkingsMaterial();
+
+  assert.equal(mask.colorWrite, false);
+  assert.equal(mask.depthTest, true);
+  assert.equal(mask.depthWrite, true);
+  assert.equal(mask.depthFunc, THREE.AlwaysDepth);
+  assert.equal(mask.userData.nycRoadDepthMask, true);
+  assert.equal(road.depthFunc, THREE.LessEqualDepth);
+  assert.equal(road.polygonOffset, false);
+  assert.equal(walk.polygonOffset, false, 'raised sidewalks retain geometry-based depth');
+  assert.equal(markings.polygonOffset, true);
+  assert.ok(markings.polygonOffsetFactor < road.polygonOffsetFactor);
+  assert.ok(markings.polygonOffsetUnits < road.polygonOffsetUnits);
+
+  mask.dispose();
+  road.dispose();
+  walk.dispose();
+  markings.dispose();
+});
+
+test('tile integration reuses one road buffer for ordered depth and color passes', () => {
+  const tileManager = readFileSync(
+    new URL('../../src/engine/TileManager.ts', import.meta.url),
+    'utf8',
+  );
+  const world = readFileSync(
+    new URL('../../src/engine/World.ts', import.meta.url),
+    'utf8',
+  );
+
+  assert.match(tileManager, /const BASE_SURFACE_RENDER_ORDER = -3/);
+  assert.match(tileManager, /const ROAD_DEPTH_MASK_RENDER_ORDER = -2/);
+  assert.match(tileManager, /const ROAD_RENDER_ORDER = -1/);
+  assert.match(tileManager, /new THREE\.Mesh\(road\.geometry, this\.roadDepthMaskMat\)/);
+  assert.match(tileManager, /roadDepthMask\.userData\.lodTier = 3/);
+  assert.match(world, /mesh\.renderOrder = -4/);
+});
 
 test('shipping facade, road, walk, grass, and bark shaders consume the shared atlases', () => {
   const cases = [

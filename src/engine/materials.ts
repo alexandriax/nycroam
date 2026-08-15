@@ -670,6 +670,27 @@ export function makeFlatMaterial(): THREE.MeshLambertMaterial {
   return mat;
 }
 
+/**
+ * Depth-only first pass for road geometry.
+ *
+ * The terrain and road ribbons use independent triangulations, so the terrain
+ * can physically cross a road even when the centerline was sampled from the
+ * same elevation grid. This pass replaces base-surface depth under projected
+ * road pixels without touching color. The ordinary road pass immediately
+ * follows it with normal depth testing, restoring the nearest road/bridge at
+ * overlaps; buildings, sidewalks, actors, and markings render afterward.
+ */
+export function makeRoadDepthMaskMaterial(): THREE.MeshBasicMaterial {
+  const mat = new THREE.MeshBasicMaterial({
+    colorWrite: false,
+    depthTest: true,
+    depthWrite: true,
+    depthFunc: THREE.AlwaysDepth,
+  });
+  mat.userData.nycRoadDepthMask = true;
+  return mat;
+}
+
 /** Asphalt roadbed with aggregate normal detail (UVs from the worker). */
 export function makeRoadMaterial(): THREE.MeshLambertMaterial | THREE.MeshStandardMaterial {
   const q = quality();
