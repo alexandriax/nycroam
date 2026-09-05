@@ -1,0 +1,3602 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-09-05T20:06:45.254Z",
+  "gitCommit": "915263fc8c27d636fe40b4a8c4af9e23f075085a",
+  "browserVersion": "151.0.7922.34",
+  "nodeVersion": "v22.23.2",
+  "measurementClass": "automated-production-chromium",
+  "physicalDeviceValidated": false,
+  "limitation": "Mobile profiles are Chromium emulation; physical-phone thermal validation remains required.",
+  "contract": {
+    "passed": true,
+    "violations": []
+  },
+  "command": "npm run benchmark:run -- --profiles mobile-low,mobile-medium,desktop-high",
+  "profiles": [
+    {
+      "profileId": "mobile-low",
+      "platform": "mobile-emulation",
+      "tier": "low",
+      "capabilities": {
+        "deviceMemoryGiB": 32,
+        "devicePixelRatio": 2,
+        "gpuTimerExtension": true,
+        "hardwareConcurrency": 10,
+        "muted": true,
+        "renderer": "ANGLE (Apple, ANGLE Metal Renderer: Apple M1 Max, Unspecified Version)",
+        "routes": [
+          "times-square",
+          "central-park",
+          "waterfront",
+          "times-square-station",
+          "subway-ride"
+        ],
+        "userAgent": "NYCRoamBenchmark/1.0 (Linux; Android 14; Mobile; Chromium emulation)",
+        "vendor": "Google Inc. (Apple)",
+        "webgl2": true
+      },
+      "contract": {
+        "passed": true,
+        "violations": []
+      },
+      "captures": [
+        {
+          "routeId": "times-square",
+          "startedAt": "2026-09-05T20:00:49.597Z",
+          "mode": "street",
+          "quality": "low",
+          "durationSeconds": 13.270699999999255,
+          "samples": 1565,
+          "frameMs": {
+            "p50": 8.300000000745058,
+            "p95": 10,
+            "p99": 11.723999998643905
+          },
+          "fps": {
+            "median": 120.4819277000282,
+            "onePercentLow": 85.29512112893794
+          },
+          "cpuMs": {
+            "p50": 1.400000000372529,
+            "p95": 2.199999999254942,
+            "p99": 4.535999999865879
+          },
+          "cpuBreakdown": {
+            "render": {
+              "p50": 1.1000000014901161,
+              "p95": 1.400000000372529,
+              "p99": 1.5
+            },
+            "update": {
+              "p50": 0.2999999988824129,
+              "p95": 1,
+              "p99": 3
+            }
+          },
+          "gpuMs": {
+            "availableSamples": 1565,
+            "p50": 0.635291,
+            "p95": 1.4226161999999998,
+            "p99": 3.3409349999999525
+          },
+          "drawCalls": {
+            "max": 122,
+            "p50": 97,
+            "p95": 113
+          },
+          "shadowCalls": {
+            "max": 0,
+            "p50": 0,
+            "p95": 0
+          },
+          "triangles": {
+            "max": 685718,
+            "p50": 513304,
+            "p95": 650135
+          },
+          "streamingPressure": {
+            "max": 0.6666666666666666,
+            "p50": 0,
+            "p95": 0.16666666666666666
+          },
+          "jsHeapBytes": 114758619,
+          "sceneResources": {
+            "geometries": 755,
+            "geometryBytes": 56446465,
+            "materials": 309,
+            "textureBytes": 79922576,
+            "textures": 106,
+            "totalBytes": 136369041
+          },
+          "streaming": {
+            "bytes": {
+              "byDetail": {
+                "base": {
+                  "integrated": 15271785,
+                  "transferred": 15271785
+                },
+                "mid": {
+                  "integrated": 7815287,
+                  "transferred": 7815287
+                },
+                "near": {
+                  "integrated": 7246836,
+                  "transferred": 7246836
+                }
+              },
+              "integrated": 30333908,
+              "integratedPerTile": 169463.17318435755,
+              "source": 1433939,
+              "sourcePerTile": 8010.832402234637,
+              "transferred": 30333908,
+              "transferredPerTile": 169463.17318435755
+            },
+            "completed": 179,
+            "detail": {
+              "base": 4,
+              "mid": 12,
+              "near": 12,
+              "upgrades": 97
+            },
+            "errors": 0,
+            "integration": {
+              "mean": 0.22916666666666666,
+              "p50": 0.10000000149011612,
+              "p95": 0.6000000014901161,
+              "p99": 0.7999999988824129,
+              "recentMax": 1.400000000372529,
+              "samples": 96
+            },
+            "pressure": {
+              "awaitingIntegration": 0,
+              "inFlight": 0,
+              "peakAwaitingIntegration": 18,
+              "peakInFlight": 6,
+              "peakQueue": 13,
+              "prefetch": 0,
+              "queue": 0
+            },
+            "requests": 179,
+            "staleResponses": 0,
+            "worker": {
+              "build": {
+                "mean": 1.3489583332945283,
+                "p50": 1.199999999254942,
+                "p95": 2.5,
+                "p99": 2.900000000372529,
+                "recentMax": 5.600000001490116,
+                "samples": 96
+              },
+              "decode": {
+                "mean": 0.07916666666278616,
+                "p50": 0,
+                "p95": 0.3999999985098839,
+                "p99": 0.5,
+                "recentMax": 0.6000000014901161,
+                "samples": 96
+              },
+              "fetch": {
+                "mean": 0.5791666666045785,
+                "p50": 0,
+                "p95": 1.800000000745058,
+                "p99": 2.599999999627471,
+                "recentMax": 4.199999999254942,
+                "samples": 96
+              },
+              "total": {
+                "mean": 1.431249999945673,
+                "p50": 1.300000000745058,
+                "p95": 2.599999999627471,
+                "p99": 2.900000000372529,
+                "recentMax": 5.600000001490116,
+                "samples": 96
+              }
+            }
+          },
+          "updatePhases": {
+            "bikes": {
+              "max": 2.700000001117587,
+              "p50": 0,
+              "p95": 0,
+              "p99": 0.599999999627471,
+              "samples": 1200
+            },
+            "buses": {
+              "max": 11.699999999254942,
+              "p50": 0.09999999962747097,
+              "p95": 0.2000000011175871,
+              "p99": 0.5,
+              "samples": 1200
+            },
+            "entrances": {
+              "max": 12.900000000372529,
+              "p50": 0,
+              "p95": 0.10000000149011612,
+              "p99": 1.099999999627471,
+              "samples": 1200
+            },
+            "landmarks": {
+              "max": 0.6000000014901161,
+              "p50": 0,
+              "p95": 0,
+              "p99": 0,
+              "samples": 1200
+            },
+            "plaques": {
+              "max": 0.30000000074505806,
+              "p50": 0,
+              "p95": 0.09999999962747097,
+              "p99": 0.19999999925494194,
+              "samples": 1200
+            },
+            "retailContext": {
+              "max": 0.19999999925494194,
+              "p50": 0,
+              "p95": 0,
+              "p99": 0.09999999962747097,
+              "samples": 1200
+            },
+            "streetLife": {
+              "max": 3.600000001490116,
+              "p50": 0,
+              "p95": 0.40000000037252903,
+              "p99": 0.5,
+              "samples": 1200
+            },
+            "tiles": {
+              "max": 1.1000000014901161,
+              "p50": 0,
+              "p95": 0.3999999985098839,
+              "p99": 0.8000000007450581,
+              "samples": 1200
+            },
+            "tram": {
+              "max": 0.10000000149011612,
+              "p50": 0,
+              "p95": 0.09999999962747097,
+              "p99": 0.09999999962747097,
+              "samples": 1200
+            }
+          }
+        },
+        {
+          "routeId": "central-park",
+          "startedAt": "2026-09-05T20:01:04.909Z",
+          "mode": "street",
+          "quality": "low",
+          "durationSeconds": 12.274,
+          "samples": 1470,
+          "frameMs": {
+            "p50": 8.300000000745058,
+            "p95": 10.199999999254942,
+            "p99": 10.399999998509884
+          },
+          "fps": {
+            "median": 120.4819277000282,
+            "onePercentLow": 96.15384616762312
+          },
+          "cpuMs": {
+            "p50": 1,
+            "p95": 1.5,
+            "p99": 1.800000000745058
+          },
+          "cpuBreakdown": {
+            "render": {
+              "p50": 0.8000000007450581,
+              "p95": 1.099999999627471,
+              "p99": 1.299999998882413
+            },
+            "update": {
+              "p50": 0.19999999925494194,
+              "p95": 0.5,
+              "p99": 0.900000000372529
+            }
+          },
+          "gpuMs": {
+            "availableSamples": 1470,
+            "p50": 0.617604,
+            "p95": 1.2281642499999998,
+            "p99": 2.596610269999998
+          },
+          "drawCalls": {
+            "max": 95,
+            "p50": 54,
+            "p95": 82
+          },
+          "shadowCalls": {
+            "max": 0,
+            "p50": 0,
+            "p95": 0
+          },
+          "triangles": {
+            "max": 898374,
+            "p50": 674932,
+            "p95": 784212
+          },
+          "streamingPressure": {
+            "max": 0.6666666666666666,
+            "p50": 0,
+            "p95": 0
+          },
+          "jsHeapBytes": 113382872,
+          "sceneResources": {
+            "geometries": 523,
+            "geometryBytes": 45789056,
+            "materials": 231,
+            "textureBytes": 27952298,
+            "textures": 43,
+            "totalBytes": 73741354
+          },
+          "streaming": {
+            "bytes": {
+              "byDetail": {
+                "base": {
+                  "integrated": 18514527,
+                  "transferred": 18514527
+                },
+                "mid": {
+                  "integrated": 9582232,
+                  "transferred": 9582232
+                },
+                "near": {
+                  "integrated": 8484996,
+                  "transferred": 8484996
+                }
+              },
+              "integrated": 36581755,
+              "integratedPerTile": 145165.69444444444,
+              "source": 2187594,
+              "sourcePerTile": 8680.92857142857,
+              "transferred": 36581755,
+              "transferredPerTile": 145165.69444444444
+            },
+            "completed": 252,
+            "detail": {
+              "base": 2,
+              "mid": 11,
+              "near": 11,
+              "upgrades": 142
+            },
+            "errors": 0,
+            "integration": {
+              "mean": 0.20104166655801237,
+              "p50": 0.09999999962747097,
+              "p95": 0.6999999992549419,
+              "p99": 0.8999999985098839,
+              "recentMax": 0.900000000372529,
+              "samples": 96
+            },
+            "pressure": {
+              "awaitingIntegration": 0,
+              "inFlight": 0,
+              "peakAwaitingIntegration": 18,
+              "peakInFlight": 6,
+              "peakQueue": 13,
+              "prefetch": 0,
+              "queue": 0
+            },
+            "requests": 252,
+            "staleResponses": 0,
+            "worker": {
+              "build": {
+                "mean": 0.7916666666860692,
+                "p50": 0.6999999992549419,
+                "p95": 1.599999999627471,
+                "p99": 2.199999999254942,
+                "recentMax": 3.199999999254942,
+                "samples": 96
+              },
+              "decode": {
+                "mean": 0.05833333332945282,
+                "p50": 0,
+                "p95": 0.2000000011175871,
+                "p99": 0.2999999988824129,
+                "recentMax": 0.30000000074505806,
+                "samples": 96
+              },
+              "fetch": {
+                "mean": 0.4343749999728364,
+                "p50": 0,
+                "p95": 1.400000000372529,
+                "p99": 1.900000000372529,
+                "recentMax": 1.900000000372529,
+                "samples": 96
+              },
+              "total": {
+                "mean": 0.8520833333604969,
+                "p50": 0.7999999988824129,
+                "p95": 1.700000001117587,
+                "p99": 2.199999999254942,
+                "recentMax": 3.199999999254942,
+                "samples": 96
+              }
+            }
+          },
+          "updatePhases": {
+            "bikes": {
+              "max": 0.599999999627471,
+              "p50": 0,
+              "p95": 0,
+              "p99": 0.09999999962747097,
+              "samples": 1200
+            },
+            "buses": {
+              "max": 1.699999999254942,
+              "p50": 0,
+              "p95": 0.10000000149011612,
+              "p99": 0.30000000074505806,
+              "samples": 1200
+            },
+            "entrances": {
+              "max": 0.10000000149011612,
+              "p50": 0,
+              "p95": 0,
+              "p99": 0,
+              "samples": 1200
+            },
+            "landmarks": {
+              "max": 0.2000000011175871,
+              "p50": 0,
+              "p95": 0,
+              "p99": 0.09999999962747097,
+              "samples": 1200
+            },
+            "plaques": {
+              "max": 0.2000000011175871,
+              "p50": 0,
+              "p95": 0.09999999962747097,
+              "p99": 0.10000000149011612,
+              "samples": 1200
+            },
+            "retailContext": {
+              "max": 0.10000000149011612,
+              "p50": 0,
+              "p95": 0,
+              "p99": 0.09999999962747097,
+              "samples": 1200
+            },
+            "streetLife": {
+              "max": 1.099999999627471,
+              "p50": 0,
+              "p95": 0.09999999962747097,
+              "p99": 0.2000000011175871,
+              "samples": 1200
+            },
+            "tiles": {
+              "max": 1.400000000372529,
+              "p50": 0,
+              "p95": 0.30000000074505806,
+              "p99": 0.5,
+              "samples": 1200
+            },
+            "tram": {
+              "max": 0.10000000149011612,
+              "p50": 0,
+              "p95": 0.09999999962747097,
+              "p99": 0.10000000149011612,
+              "samples": 1200
+            }
+          }
+        },
+        {
+          "routeId": "waterfront",
+          "startedAt": "2026-09-05T20:01:19.203Z",
+          "mode": "street",
+          "quality": "low",
+          "durationSeconds": 13.2705,
+          "samples": 1589,
+          "frameMs": {
+            "p50": 8.300000000745058,
+            "p95": 10.100000000745059,
+            "p99": 10.400000000372529
+          },
+          "fps": {
+            "median": 120.4819277000282,
+            "onePercentLow": 96.15384615040192
+          },
+          "cpuMs": {
+            "p50": 1.099999999627471,
+            "p95": 1.6000000014901161,
+            "p99": 2.4360000002383857
+          },
+          "cpuBreakdown": {
+            "render": {
+              "p50": 0.8000000007450581,
+              "p95": 1.099999999627471,
+              "p99": 1.200000001117587
+            },
+            "update": {
+              "p50": 0.19999999925494194,
+              "p95": 0.7000000011175871,
+              "p99": 1.3999999987334013
+            }
+          },
+          "gpuMs": {
+            "availableSamples": 1589,
+            "p50": 0.679958,
+            "p95": 1.407007599999998,
+            "p99": 2.7482241199999993
+          },
+          "drawCalls": {
+            "max": 112,
+            "p50": 66,
+            "p95": 86
+          },
+          "shadowCalls": {
+            "max": 0,
+            "p50": 0,
+            "p95": 0
+          },
+          "triangles": {
+            "max": 902946,
+            "p50": 648222,
+            "p95": 860351
+          },
+          "streamingPressure": {
+            "max": 0.6666666666666666,
+            "p50": 0,
+            "p95": 0.16666666666666666
+          },
+          "jsHeapBytes": 124800902,
+          "sceneResources": {
+            "geometries": 443,
+            "geometryBytes": 44606961,
+            "materials": 199,
+            "textureBytes": 31490046,
+            "textures": 44,
+            "totalBytes": 76097007
+          },
+          "streaming": {
+            "bytes": {
+              "byDetail": {
+                "base": {
+                  "integrated": 26008126,
+                  "transferred": 26008126
+                },
+                "mid": {
+                  "integrated": 15088797,
+                  "transferred": 15088797
+                },
+                "near": {
+                  "integrated": 10921804,
+                  "transferred": 10921804
+                }
+              },
+              "integrated": 52018727,
+              "integratedPerTile": 132027.22588832487,
+              "source": 3702236,
+              "sourcePerTile": 9396.53807106599,
+              "transferred": 52018727,
+              "transferredPerTile": 132027.22588832487
+            },
+            "completed": 394,
+            "detail": {
+              "base": 2,
+              "mid": 9,
+              "near": 12,
+              "upgrades": 228
+            },
+            "errors": 0,
+            "integration": {
+              "mean": 0.18750000001940256,
+              "p50": 0.09999999962747097,
+              "p95": 0.7000000011175871,
+              "p99": 0.900000000372529,
+              "recentMax": 1.099999999627471,
+              "samples": 96
+            },
+            "pressure": {
+              "awaitingIntegration": 0,
+              "inFlight": 0,
+              "peakAwaitingIntegration": 18,
+              "peakInFlight": 6,
+              "peakQueue": 13,
+              "prefetch": 0,
+              "queue": 0
+            },
+            "requests": 394,
+            "staleResponses": 0,
+            "worker": {
+              "build": {
+                "mean": 1.3447916665657733,
+                "p50": 1.099999999627471,
+                "p95": 3.599999999627471,
+                "p99": 5.200000001117587,
+                "recentMax": 5.900000000372529,
+                "samples": 96
+              },
+              "decode": {
+                "mean": 0.1052083334652707,
+                "p50": 0,
+                "p95": 0.5,
+                "p99": 0.900000000372529,
+                "recentMax": 0.900000000372529,
+                "samples": 96
+              },
+              "fetch": {
+                "mean": 0.3989583333216918,
+                "p50": 0,
+                "p95": 1.300000000745058,
+                "p99": 1.5,
+                "recentMax": 1.5,
+                "samples": 96
+              },
+              "total": {
+                "mean": 1.4531250000582077,
+                "p50": 1.200000001117587,
+                "p95": 4.099999999627471,
+                "p99": 5.200000001117587,
+                "recentMax": 5.900000000372529,
+                "samples": 96
+              }
+            }
+          },
+          "updatePhases": {
+            "bikes": {
+              "max": 0.900000000372529,
+              "p50": 0,
+              "p95": 0,
+              "p99": 0.09999999962747097,
+              "samples": 1200
+            },
+            "buses": {
+              "max": 20.5,
+              "p50": 0,
+              "p95": 0.10000000149011612,
+              "p99": 0.30000000074505806,
+              "samples": 1200
+            },
+            "entrances": {
+              "max": 0.5,
+              "p50": 0,
+              "p95": 0,
+              "p99": 0.09999999962747097,
+              "samples": 1200
+            },
+            "landmarks": {
+              "max": 0.10000000149011612,
+              "p50": 0,
+              "p95": 0,
+              "p99": 0,
+              "samples": 1200
+            },
+            "plaques": {
+              "max": 0.30000000074505806,
+              "p50": 0,
+              "p95": 0.09999999962747097,
+              "p99": 0.10000000149011612,
+              "samples": 1200
+            },
+            "retailContext": {
+              "max": 0.10000000149011612,
+              "p50": 0,
+              "p95": 0,
+              "p99": 0.09999999962747097,
+              "samples": 1200
+            },
+            "streetLife": {
+              "max": 1.599999999627471,
+              "p50": 0,
+              "p95": 0.19999999925494194,
+              "p99": 0.30000000074505806,
+              "samples": 1200
+            },
+            "tiles": {
+              "max": 1.199999999254942,
+              "p50": 0,
+              "p95": 0.40000000037252903,
+              "p99": 0.6999999992549419,
+              "samples": 1200
+            },
+            "tram": {
+              "max": 0.10000000149011612,
+              "p50": 0,
+              "p95": 0.09999999962747097,
+              "p99": 0.09999999962747097,
+              "samples": 1200
+            }
+          }
+        },
+        {
+          "routeId": "times-square-station",
+          "startedAt": "2026-09-05T20:01:34.495Z",
+          "mode": "station",
+          "quality": "low",
+          "durationSeconds": 36.262,
+          "samples": 4324,
+          "frameMs": {
+            "p50": 8.300000000745058,
+            "p95": 10.100000001490116,
+            "p99": 10.400000000372529
+          },
+          "fps": {
+            "median": 120.4819277000282,
+            "onePercentLow": 96.15384615040192
+          },
+          "cpuMs": {
+            "p50": 1.5,
+            "p95": 2.199999999254942,
+            "p99": 2.400000000372529
+          },
+          "cpuBreakdown": {
+            "render": {
+              "p50": 1.3999999985098839,
+              "p95": 2,
+              "p99": 2.199999999254942
+            },
+            "update": {
+              "p50": 0.10000000149011612,
+              "p95": 0.2999999988824129,
+              "p99": 0.40000000037252903
+            }
+          },
+          "gpuMs": {
+            "availableSamples": 4324,
+            "p50": 0.7795615,
+            "p95": 1.8039803999999997,
+            "p99": 2.1798565899999995
+          },
+          "drawCalls": {
+            "max": 334,
+            "p50": 192,
+            "p95": 331
+          },
+          "shadowCalls": {
+            "max": 0,
+            "p50": 0,
+            "p95": 0
+          },
+          "triangles": {
+            "max": 720408,
+            "p50": 509086,
+            "p95": 720286
+          },
+          "streamingPressure": {
+            "max": 0,
+            "p50": 0,
+            "p95": 0
+          },
+          "jsHeapBytes": 145124598,
+          "sceneResources": {
+            "geometries": 516,
+            "geometryBytes": 15600184,
+            "materials": 170,
+            "textureBytes": 97280343,
+            "textures": 98,
+            "totalBytes": 112880527
+          },
+          "streaming": {
+            "bytes": {
+              "byDetail": {
+                "base": {
+                  "integrated": 26008126,
+                  "transferred": 26008126
+                },
+                "mid": {
+                  "integrated": 15088797,
+                  "transferred": 15088797
+                },
+                "near": {
+                  "integrated": 10921804,
+                  "transferred": 10921804
+                }
+              },
+              "integrated": 52018727,
+              "integratedPerTile": 132027.22588832487,
+              "source": 3702236,
+              "sourcePerTile": 9396.53807106599,
+              "transferred": 52018727,
+              "transferredPerTile": 132027.22588832487
+            },
+            "completed": 394,
+            "detail": {
+              "base": 2,
+              "mid": 9,
+              "near": 12,
+              "upgrades": 228
+            },
+            "errors": 0,
+            "integration": {
+              "mean": 0.18750000001940256,
+              "p50": 0.09999999962747097,
+              "p95": 0.7000000011175871,
+              "p99": 0.900000000372529,
+              "recentMax": 1.099999999627471,
+              "samples": 96
+            },
+            "pressure": {
+              "awaitingIntegration": 0,
+              "inFlight": 0,
+              "peakAwaitingIntegration": 18,
+              "peakInFlight": 6,
+              "peakQueue": 13,
+              "prefetch": 0,
+              "queue": 0
+            },
+            "requests": 394,
+            "staleResponses": 0,
+            "worker": {
+              "build": {
+                "mean": 1.3447916665657733,
+                "p50": 1.099999999627471,
+                "p95": 3.599999999627471,
+                "p99": 5.200000001117587,
+                "recentMax": 5.900000000372529,
+                "samples": 96
+              },
+              "decode": {
+                "mean": 0.1052083334652707,
+                "p50": 0,
+                "p95": 0.5,
+                "p99": 0.900000000372529,
+                "recentMax": 0.900000000372529,
+                "samples": 96
+              },
+              "fetch": {
+                "mean": 0.3989583333216918,
+                "p50": 0,
+                "p95": 1.300000000745058,
+                "p99": 1.5,
+                "recentMax": 1.5,
+                "samples": 96
+              },
+              "total": {
+                "mean": 1.4531250000582077,
+                "p50": 1.200000001117587,
+                "p95": 4.099999999627471,
+                "p99": 5.200000001117587,
+                "recentMax": 5.900000000372529,
+                "samples": 96
+              }
+            }
+          },
+          "updatePhases": {}
+        },
+        {
+          "routeId": "subway-ride",
+          "startedAt": "2026-09-05T20:02:12.406Z",
+          "mode": "ride",
+          "quality": "low",
+          "durationSeconds": 32.25570000000112,
+          "samples": 3869,
+          "frameMs": {
+            "p50": 8.300000000745058,
+            "p95": 10.099999999627471,
+            "p99": 10.399999998509884
+          },
+          "fps": {
+            "median": 120.4819277000282,
+            "onePercentLow": 96.15384616762312
+          },
+          "cpuMs": {
+            "p50": 0.5,
+            "p95": 0.6000000014901161,
+            "p99": 0.7000000011175871
+          },
+          "cpuBreakdown": {
+            "render": {
+              "p50": 0.40000000037252903,
+              "p95": 0.599999999627471,
+              "p99": 0.6000000014901161
+            },
+            "update": {
+              "p50": 0.09999999962747097,
+              "p95": 0.10000000149011612,
+              "p99": 0.2000000011175871
+            }
+          },
+          "gpuMs": {
+            "availableSamples": 3869,
+            "p50": 0.719749,
+            "p95": 1.862149,
+            "p99": 2.1507280000000004
+          },
+          "drawCalls": {
+            "max": 58,
+            "p50": 48,
+            "p95": 55
+          },
+          "shadowCalls": {
+            "max": 0,
+            "p50": 0,
+            "p95": 0
+          },
+          "triangles": {
+            "max": 60210,
+            "p50": 57830,
+            "p95": 60150
+          },
+          "streamingPressure": {
+            "max": 0,
+            "p50": 0,
+            "p95": 0
+          },
+          "jsHeapBytes": 126640813,
+          "sceneResources": {
+            "geometries": 78,
+            "geometryBytes": 2643592,
+            "materials": 36,
+            "textureBytes": 15291732,
+            "textures": 9,
+            "totalBytes": 17935324
+          },
+          "streaming": {
+            "bytes": {
+              "byDetail": {
+                "base": {
+                  "integrated": 29492389,
+                  "transferred": 29492389
+                },
+                "mid": {
+                  "integrated": 16909915,
+                  "transferred": 16909915
+                },
+                "near": {
+                  "integrated": 11502676,
+                  "transferred": 11502676
+                }
+              },
+              "integrated": 57904980,
+              "integratedPerTile": 134039.30555555556,
+              "source": 4026039,
+              "sourcePerTile": 9319.534722222223,
+              "transferred": 57904980,
+              "transferredPerTile": 134039.30555555556
+            },
+            "completed": 432,
+            "detail": {
+              "base": 2,
+              "mid": 12,
+              "near": 4,
+              "upgrades": 248
+            },
+            "errors": 0,
+            "integration": {
+              "mean": 0.16979166669383025,
+              "p50": 0.09999999962747097,
+              "p95": 0.5,
+              "p99": 0.7000000011175871,
+              "recentMax": 1,
+              "samples": 96
+            },
+            "pressure": {
+              "awaitingIntegration": 0,
+              "inFlight": 0,
+              "peakAwaitingIntegration": 18,
+              "peakInFlight": 6,
+              "peakQueue": 13,
+              "prefetch": 0,
+              "queue": 0
+            },
+            "requests": 432,
+            "staleResponses": 0,
+            "worker": {
+              "build": {
+                "mean": 1.5093750000620882,
+                "p50": 1.300000000745058,
+                "p95": 4,
+                "p99": 5.900000000372529,
+                "recentMax": 6.099999999627471,
+                "samples": 96
+              },
+              "decode": {
+                "mean": 0.09791666663174207,
+                "p50": 0,
+                "p95": 0.40000000037252903,
+                "p99": 0.6999999992549419,
+                "recentMax": 0.900000000372529,
+                "samples": 96
+              },
+              "fetch": {
+                "mean": 0.6874999999611949,
+                "p50": 0,
+                "p95": 3.899999998509884,
+                "p99": 4,
+                "recentMax": 4,
+                "samples": 96
+              },
+              "total": {
+                "mean": 1.6104166666821886,
+                "p50": 1.400000000372529,
+                "p95": 4,
+                "p99": 5.900000000372529,
+                "recentMax": 6.5,
+                "samples": 96
+              }
+            }
+          },
+          "updatePhases": {}
+        }
+      ]
+    },
+    {
+      "profileId": "mobile-medium",
+      "platform": "mobile-emulation",
+      "tier": "medium",
+      "capabilities": {
+        "deviceMemoryGiB": 32,
+        "devicePixelRatio": 3,
+        "gpuTimerExtension": true,
+        "hardwareConcurrency": 10,
+        "muted": true,
+        "renderer": "ANGLE (Apple, ANGLE Metal Renderer: Apple M1 Max, Unspecified Version)",
+        "routes": [
+          "times-square",
+          "central-park",
+          "waterfront",
+          "times-square-station",
+          "subway-ride"
+        ],
+        "userAgent": "NYCRoamBenchmark/1.0 (Linux; Android 14; Mobile; Chromium emulation)",
+        "vendor": "Google Inc. (Apple)",
+        "webgl2": true
+      },
+      "contract": {
+        "passed": true,
+        "violations": []
+      },
+      "captures": [
+        {
+          "routeId": "times-square",
+          "startedAt": "2026-09-05T20:02:48.750Z",
+          "mode": "street",
+          "quality": "medium",
+          "durationSeconds": 13.272400000000372,
+          "samples": 1546,
+          "frameMs": {
+            "p50": 8.300000000745058,
+            "p95": 10.174999999813735,
+            "p99": 12.76500000003724
+          },
+          "fps": {
+            "median": 120.4819277000282,
+            "onePercentLow": 78.33920877376283
+          },
+          "cpuMs": {
+            "p50": 1.699999999254942,
+            "p95": 2.700000001117587,
+            "p99": 6.100000000651926
+          },
+          "cpuBreakdown": {
+            "render": {
+              "p50": 1.400000000372529,
+              "p95": 1.699999999254942,
+              "p99": 1.800000000745058
+            },
+            "update": {
+              "p50": 0.30000000074505806,
+              "p95": 1.299999998882413,
+              "p99": 3.9099999994970767
+            }
+          },
+          "gpuMs": {
+            "availableSamples": 1546,
+            "p50": 1.0724580000000001,
+            "p95": 2.2953435,
+            "p99": 5.334655799999997
+          },
+          "drawCalls": {
+            "max": 137,
+            "p50": 109,
+            "p95": 124
+          },
+          "shadowCalls": {
+            "max": 23,
+            "p50": 13,
+            "p95": 22
+          },
+          "triangles": {
+            "max": 770740,
+            "p50": 562739,
+            "p95": 730199.75
+          },
+          "streamingPressure": {
+            "max": 1,
+            "p50": 0,
+            "p95": 0.16666666666666666
+          },
+          "jsHeapBytes": 117514742,
+          "sceneResources": {
+            "geometries": 819,
+            "geometryBytes": 60074764,
+            "materials": 312,
+            "textureBytes": 83290394,
+            "textures": 108,
+            "totalBytes": 143365158
+          },
+          "streaming": {
+            "bytes": {
+              "byDetail": {
+                "base": {
+                  "integrated": 21328806,
+                  "transferred": 21328806
+                },
+                "mid": {
+                  "integrated": 7763923,
+                  "transferred": 7763923
+                },
+                "near": {
+                  "integrated": 7034916,
+                  "transferred": 7034916
+                }
+              },
+              "integrated": 36127645,
+              "integratedPerTile": 170413.41981132075,
+              "source": 2041342,
+              "sourcePerTile": 9628.971698113208,
+              "transferred": 36127645,
+              "transferredPerTile": 170413.41981132075
+            },
+            "completed": 212,
+            "detail": {
+              "base": 16,
+              "mid": 14,
+              "near": 14,
+              "upgrades": 96
+            },
+            "errors": 0,
+            "integration": {
+              "mean": 0.21145833328288668,
+              "p50": 0.10000000149011612,
+              "p95": 0.6000000014901161,
+              "p99": 0.900000000372529,
+              "recentMax": 1.099999999627471,
+              "samples": 96
+            },
+            "pressure": {
+              "awaitingIntegration": 0,
+              "inFlight": 0,
+              "peakAwaitingIntegration": 31,
+              "peakInFlight": 6,
+              "peakQueue": 26,
+              "prefetch": 0,
+              "queue": 0
+            },
+            "requests": 212,
+            "staleResponses": 0,
+            "worker": {
+              "build": {
+                "mean": 1.2593750000814907,
+                "p50": 1.199999999254942,
+                "p95": 2.199999999254942,
+                "p99": 3.5,
+                "recentMax": 6.5,
+                "samples": 96
+              },
+              "decode": {
+                "mean": 0.10208333334109436,
+                "p50": 0,
+                "p95": 0.30000000074505806,
+                "p99": 0.5,
+                "recentMax": 0.6000000014901161,
+                "samples": 96
+              },
+              "fetch": {
+                "mean": 1.0385416666977108,
+                "p50": 0,
+                "p95": 2.900000000372529,
+                "p99": 6.5,
+                "recentMax": 6.599999999627471,
+                "samples": 96
+              },
+              "total": {
+                "mean": 1.36354166676756,
+                "p50": 1.299999998882413,
+                "p95": 2.199999999254942,
+                "p99": 3.5,
+                "recentMax": 6.5,
+                "samples": 96
+              }
+            }
+          },
+          "updatePhases": {
+            "bikes": {
+              "max": 5.400000000372529,
+              "p50": 0,
+              "p95": 0,
+              "p99": 0.7000000011175871,
+              "samples": 1200
+            },
+            "buses": {
+              "max": 12.400000000372529,
+              "p50": 0.09999999962747097,
+              "p95": 0.2000000011175871,
+              "p99": 0.5,
+              "samples": 1200
+            },
+            "entrances": {
+              "max": 12.300000000745058,
+              "p50": 0,
+              "p95": 0.09999999962747097,
+              "p99": 1.299999998882413,
+              "samples": 1200
+            },
+            "landmarks": {
+              "max": 0.5,
+              "p50": 0,
+              "p95": 0,
+              "p99": 0.09999999962747097,
+              "samples": 1200
+            },
+            "plaques": {
+              "max": 0.30000000074505806,
+              "p50": 0,
+              "p95": 0.09999999962747097,
+              "p99": 0.19999999925494194,
+              "samples": 1200
+            },
+            "retailContext": {
+              "max": 0.2000000011175871,
+              "p50": 0,
+              "p95": 0,
+              "p99": 0.09999999962747097,
+              "samples": 1200
+            },
+            "streetLife": {
+              "max": 4.5,
+              "p50": 0,
+              "p95": 0.6999999992549419,
+              "p99": 0.900000000372529,
+              "samples": 1200
+            },
+            "tiles": {
+              "max": 1.700000001117587,
+              "p50": 0,
+              "p95": 0.40000000037252903,
+              "p99": 0.8000000007450581,
+              "samples": 1200
+            },
+            "tram": {
+              "max": 0.10000000149011612,
+              "p50": 0,
+              "p95": 0,
+              "p99": 0.09999999962747097,
+              "samples": 1200
+            }
+          }
+        },
+        {
+          "routeId": "central-park",
+          "startedAt": "2026-09-05T20:03:04.049Z",
+          "mode": "street",
+          "quality": "medium",
+          "durationSeconds": 12.274400000000373,
+          "samples": 1470,
+          "frameMs": {
+            "p50": 8.300000000745058,
+            "p95": 10,
+            "p99": 10.300000000745058
+          },
+          "fps": {
+            "median": 120.4819277000282,
+            "onePercentLow": 97.08737863375381
+          },
+          "cpuMs": {
+            "p50": 1.199999999254942,
+            "p95": 1.800000000745058,
+            "p99": 2.300000000745058
+          },
+          "cpuBreakdown": {
+            "render": {
+              "p50": 1,
+              "p95": 1.300000000745058,
+              "p99": 1.5
+            },
+            "update": {
+              "p50": 0.19999999925494194,
+              "p95": 0.7000000011175871,
+              "p99": 1.099999999627471
+            }
+          },
+          "gpuMs": {
+            "availableSamples": 1470,
+            "p50": 1.0080200000000001,
+            "p95": 1.8625302499999998,
+            "p99": 3.07341323
+          },
+          "drawCalls": {
+            "max": 106,
+            "p50": 61,
+            "p95": 88
+          },
+          "shadowCalls": {
+            "max": 22,
+            "p50": 12,
+            "p95": 13
+          },
+          "triangles": {
+            "max": 941774,
+            "p50": 709839,
+            "p95": 856073.3999999999
+          },
+          "streamingPressure": {
+            "max": 0.6666666666666666,
+            "p50": 0,
+            "p95": 0.16666666666666666
+          },
+          "jsHeapBytes": 132162131,
+          "sceneResources": {
+            "geometries": 583,
+            "geometryBytes": 48524251,
+            "materials": 236,
+            "textureBytes": 31633236,
+            "textures": 47,
+            "totalBytes": 80157487
+          },
+          "streaming": {
+            "bytes": {
+              "byDetail": {
+                "base": {
+                  "integrated": 26264197,
+                  "transferred": 26264197
+                },
+                "mid": {
+                  "integrated": 9530868,
+                  "transferred": 9530868
+                },
+                "near": {
+                  "integrated": 8273076,
+                  "transferred": 8273076
+                }
+              },
+              "integrated": 44068141,
+              "integratedPerTile": 149383.52881355933,
+              "source": 2962401,
+              "sourcePerTile": 10042.037288135592,
+              "transferred": 44068141,
+              "transferredPerTile": 149383.52881355933
+            },
+            "completed": 295,
+            "detail": {
+              "base": 13,
+              "mid": 13,
+              "near": 13,
+              "upgrades": 141
+            },
+            "errors": 0,
+            "integration": {
+              "mean": 0.18749999998059744,
+              "p50": 0.09999999962747097,
+              "p95": 0.6999999992549419,
+              "p99": 0.7999999988824129,
+              "recentMax": 0.900000000372529,
+              "samples": 96
+            },
+            "pressure": {
+              "awaitingIntegration": 0,
+              "inFlight": 0,
+              "peakAwaitingIntegration": 31,
+              "peakInFlight": 6,
+              "peakQueue": 26,
+              "prefetch": 0,
+              "queue": 0
+            },
+            "requests": 295,
+            "staleResponses": 0,
+            "worker": {
+              "build": {
+                "mean": 0.8781249998331381,
+                "p50": 0.7000000011175871,
+                "p95": 2,
+                "p99": 3.599999999627471,
+                "recentMax": 6.5,
+                "samples": 96
+              },
+              "decode": {
+                "mean": 0.0854166666783082,
+                "p50": 0,
+                "p95": 0.2999999988824129,
+                "p99": 0.6999999992549419,
+                "recentMax": 1.099999999627471,
+                "samples": 96
+              },
+              "fetch": {
+                "mean": 0.6114583333449749,
+                "p50": 0,
+                "p95": 1.699999999254942,
+                "p99": 2.199999999254942,
+                "recentMax": 3.300000000745058,
+                "samples": 96
+              },
+              "total": {
+                "mean": 0.9656249998564211,
+                "p50": 0.7999999988824129,
+                "p95": 2,
+                "p99": 3.599999999627471,
+                "recentMax": 6.5,
+                "samples": 96
+              }
+            }
+          },
+          "updatePhases": {
+            "bikes": {
+              "max": 0.7000000011175871,
+              "p50": 0,
+              "p95": 0,
+              "p99": 0,
+              "samples": 1200
+            },
+            "buses": {
+              "max": 1.400000000372529,
+              "p50": 0,
+              "p95": 0.10000000149011612,
+              "p99": 0.30000000074505806,
+              "samples": 1200
+            },
+            "entrances": {
+              "max": 0.10000000149011612,
+              "p50": 0,
+              "p95": 0,
+              "p99": 0.09999999962747097,
+              "samples": 1200
+            },
+            "landmarks": {
+              "max": 0.2000000011175871,
+              "p50": 0,
+              "p95": 0,
+              "p99": 0,
+              "samples": 1200
+            },
+            "plaques": {
+              "max": 0.2000000011175871,
+              "p50": 0,
+              "p95": 0.09999999962747097,
+              "p99": 0.10000000149011612,
+              "samples": 1200
+            },
+            "retailContext": {
+              "max": 0.10000000149011612,
+              "p50": 0,
+              "p95": 0,
+              "p99": 0.09999999962747097,
+              "samples": 1200
+            },
+            "streetLife": {
+              "max": 1.300000000745058,
+              "p50": 0,
+              "p95": 0.19999999925494194,
+              "p99": 0.40000000037252903,
+              "samples": 1200
+            },
+            "tiles": {
+              "max": 1.400000000372529,
+              "p50": 0,
+              "p95": 0.40000000037252903,
+              "p99": 0.599999999627471,
+              "samples": 1200
+            },
+            "tram": {
+              "max": 0.10000000149011612,
+              "p50": 0,
+              "p95": 0.09999999962747097,
+              "p99": 0.10000000149011612,
+              "samples": 1200
+            }
+          }
+        },
+        {
+          "routeId": "waterfront",
+          "startedAt": "2026-09-05T20:03:18.346Z",
+          "mode": "street",
+          "quality": "medium",
+          "durationSeconds": 13.275700000001118,
+          "samples": 1585,
+          "frameMs": {
+            "p50": 8.300000000745058,
+            "p95": 10.099999999627471,
+            "p99": 10.400000000372529
+          },
+          "fps": {
+            "median": 120.4819277000282,
+            "onePercentLow": 96.15384615040192
+          },
+          "cpuMs": {
+            "p50": 1.299999998882413,
+            "p95": 2,
+            "p99": 3.4159999987483105
+          },
+          "cpuBreakdown": {
+            "render": {
+              "p50": 1,
+              "p95": 1.300000000745058,
+              "p99": 1.5
+            },
+            "update": {
+              "p50": 0.2000000011175871,
+              "p95": 0.8999999985098839,
+              "p99": 1.6159999995678747
+            }
+          },
+          "gpuMs": {
+            "availableSamples": 1585,
+            "p50": 1.096166,
+            "p95": 2.2363239999999998,
+            "p99": 4.910989160000004
+          },
+          "drawCalls": {
+            "max": 147,
+            "p50": 80,
+            "p95": 100
+          },
+          "shadowCalls": {
+            "max": 23,
+            "p50": 11,
+            "p95": 18
+          },
+          "triangles": {
+            "max": 1066583,
+            "p50": 721258,
+            "p95": 1027438
+          },
+          "streamingPressure": {
+            "max": 0.6666666666666666,
+            "p50": 0,
+            "p95": 0.16666666666666666
+          },
+          "jsHeapBytes": 131780084,
+          "sceneResources": {
+            "geometries": 492,
+            "geometryBytes": 47610371,
+            "materials": 203,
+            "textureBytes": 34024104,
+            "textures": 46,
+            "totalBytes": 81634475
+          },
+          "streaming": {
+            "bytes": {
+              "byDetail": {
+                "base": {
+                  "integrated": 37491312,
+                  "transferred": 37491312
+                },
+                "mid": {
+                  "integrated": 14875341,
+                  "transferred": 14875341
+                },
+                "near": {
+                  "integrated": 10708804,
+                  "transferred": 10708804
+                }
+              },
+              "integrated": 63075457,
+              "integratedPerTile": 139547.47123893804,
+              "source": 4879588,
+              "sourcePerTile": 10795.548672566372,
+              "transferred": 63075457,
+              "transferredPerTile": 139547.47123893804
+            },
+            "completed": 452,
+            "detail": {
+              "base": 10,
+              "mid": 10,
+              "near": 15,
+              "upgrades": 225
+            },
+            "errors": 0,
+            "integration": {
+              "mean": 0.1635416666783082,
+              "p50": 0.09999999962747097,
+              "p95": 0.599999999627471,
+              "p99": 0.6999999992549419,
+              "recentMax": 0.7000000011175871,
+              "samples": 96
+            },
+            "pressure": {
+              "awaitingIntegration": 0,
+              "inFlight": 0,
+              "peakAwaitingIntegration": 31,
+              "peakInFlight": 6,
+              "peakQueue": 26,
+              "prefetch": 0,
+              "queue": 0
+            },
+            "requests": 452,
+            "staleResponses": 0,
+            "worker": {
+              "build": {
+                "mean": 0.9510416667326353,
+                "p50": 0.900000000372529,
+                "p95": 2,
+                "p99": 3.599999999627471,
+                "recentMax": 5.5,
+                "samples": 96
+              },
+              "decode": {
+                "mean": 0.06874999993791182,
+                "p50": 0,
+                "p95": 0.2000000011175871,
+                "p99": 0.6000000014901161,
+                "recentMax": 1,
+                "samples": 96
+              },
+              "fetch": {
+                "mean": 0.5166666667015912,
+                "p50": 0,
+                "p95": 1.400000000372529,
+                "p99": 1.699999999254942,
+                "recentMax": 1.900000000372529,
+                "samples": 96
+              },
+              "total": {
+                "mean": 1.0270833333100502,
+                "p50": 1,
+                "p95": 2.100000001490116,
+                "p99": 3.599999999627471,
+                "recentMax": 5.5,
+                "samples": 96
+              }
+            }
+          },
+          "updatePhases": {
+            "bikes": {
+              "max": 0.900000000372529,
+              "p50": 0,
+              "p95": 0,
+              "p99": 0.10000000149011612,
+              "samples": 1200
+            },
+            "buses": {
+              "max": 21.5,
+              "p50": 0,
+              "p95": 0.19999999925494194,
+              "p99": 0.40000000037252903,
+              "samples": 1200
+            },
+            "entrances": {
+              "max": 0.5,
+              "p50": 0,
+              "p95": 0,
+              "p99": 0.09999999962747097,
+              "samples": 1200
+            },
+            "landmarks": {
+              "max": 0.10000000149011612,
+              "p50": 0,
+              "p95": 0,
+              "p99": 0,
+              "samples": 1200
+            },
+            "plaques": {
+              "max": 0.30000000074505806,
+              "p50": 0,
+              "p95": 0.09999999962747097,
+              "p99": 0.10000000149011612,
+              "samples": 1200
+            },
+            "retailContext": {
+              "max": 0.19999999925494194,
+              "p50": 0,
+              "p95": 0,
+              "p99": 0.09999999962747097,
+              "samples": 1200
+            },
+            "streetLife": {
+              "max": 2.800000000745058,
+              "p50": 0,
+              "p95": 0.3999999985098839,
+              "p99": 0.599999999627471,
+              "samples": 1200
+            },
+            "tiles": {
+              "max": 1.1000000014901161,
+              "p50": 0,
+              "p95": 0.40000000037252903,
+              "p99": 0.6999999992549419,
+              "samples": 1200
+            },
+            "tram": {
+              "max": 0.10000000149011612,
+              "p50": 0,
+              "p95": 0.09999999962747097,
+              "p99": 0.09999999962747097,
+              "samples": 1200
+            }
+          }
+        },
+        {
+          "routeId": "times-square-station",
+          "startedAt": "2026-09-05T20:03:33.639Z",
+          "mode": "station",
+          "quality": "medium",
+          "durationSeconds": 36.2555,
+          "samples": 4319,
+          "frameMs": {
+            "p50": 8.300000000745058,
+            "p95": 9.900000000372529,
+            "p99": 10.400000000037252
+          },
+          "fps": {
+            "median": 120.4819277000282,
+            "onePercentLow": 96.15384615350173
+          },
+          "cpuMs": {
+            "p50": 1.599999999627471,
+            "p95": 2.200000001117587,
+            "p99": 2.400000000372529
+          },
+          "cpuBreakdown": {
+            "render": {
+              "p50": 1.400000000372529,
+              "p95": 2,
+              "p99": 2.199999999254942
+            },
+            "update": {
+              "p50": 0.19999999925494194,
+              "p95": 0.30000000074505806,
+              "p99": 0.40000000037252903
+            }
+          },
+          "gpuMs": {
+            "availableSamples": 4319,
+            "p50": 1.174333,
+            "p95": 1.7790241,
+            "p99": 4.229337879999653
+          },
+          "drawCalls": {
+            "max": 339,
+            "p50": 215,
+            "p95": 337
+          },
+          "shadowCalls": {
+            "max": 0,
+            "p50": 0,
+            "p95": 0
+          },
+          "triangles": {
+            "max": 796637,
+            "p50": 627547,
+            "p95": 796553
+          },
+          "streamingPressure": {
+            "max": 0,
+            "p50": 0,
+            "p95": 0
+          },
+          "jsHeapBytes": 149404909,
+          "sceneResources": {
+            "geometries": 516,
+            "geometryBytes": 15602488,
+            "materials": 170,
+            "textureBytes": 97280343,
+            "textures": 98,
+            "totalBytes": 112882831
+          },
+          "streaming": {
+            "bytes": {
+              "byDetail": {
+                "base": {
+                  "integrated": 37491312,
+                  "transferred": 37491312
+                },
+                "mid": {
+                  "integrated": 14875341,
+                  "transferred": 14875341
+                },
+                "near": {
+                  "integrated": 10708804,
+                  "transferred": 10708804
+                }
+              },
+              "integrated": 63075457,
+              "integratedPerTile": 139547.47123893804,
+              "source": 4879588,
+              "sourcePerTile": 10795.548672566372,
+              "transferred": 63075457,
+              "transferredPerTile": 139547.47123893804
+            },
+            "completed": 452,
+            "detail": {
+              "base": 10,
+              "mid": 10,
+              "near": 15,
+              "upgrades": 225
+            },
+            "errors": 0,
+            "integration": {
+              "mean": 0.1635416666783082,
+              "p50": 0.09999999962747097,
+              "p95": 0.599999999627471,
+              "p99": 0.6999999992549419,
+              "recentMax": 0.7000000011175871,
+              "samples": 96
+            },
+            "pressure": {
+              "awaitingIntegration": 0,
+              "inFlight": 0,
+              "peakAwaitingIntegration": 31,
+              "peakInFlight": 6,
+              "peakQueue": 26,
+              "prefetch": 0,
+              "queue": 0
+            },
+            "requests": 452,
+            "staleResponses": 0,
+            "worker": {
+              "build": {
+                "mean": 0.9510416667326353,
+                "p50": 0.900000000372529,
+                "p95": 2,
+                "p99": 3.599999999627471,
+                "recentMax": 5.5,
+                "samples": 96
+              },
+              "decode": {
+                "mean": 0.06874999993791182,
+                "p50": 0,
+                "p95": 0.2000000011175871,
+                "p99": 0.6000000014901161,
+                "recentMax": 1,
+                "samples": 96
+              },
+              "fetch": {
+                "mean": 0.5166666667015912,
+                "p50": 0,
+                "p95": 1.400000000372529,
+                "p99": 1.699999999254942,
+                "recentMax": 1.900000000372529,
+                "samples": 96
+              },
+              "total": {
+                "mean": 1.0270833333100502,
+                "p50": 1,
+                "p95": 2.100000001490116,
+                "p99": 3.599999999627471,
+                "recentMax": 5.5,
+                "samples": 96
+              }
+            }
+          },
+          "updatePhases": {}
+        },
+        {
+          "routeId": "subway-ride",
+          "startedAt": "2026-09-05T20:04:11.531Z",
+          "mode": "ride",
+          "quality": "medium",
+          "durationSeconds": 32.26059999999963,
+          "samples": 3872,
+          "frameMs": {
+            "p50": 8.300000000745058,
+            "p95": 9.700000001117587,
+            "p99": 10.300000000745058
+          },
+          "fps": {
+            "median": 120.4819277000282,
+            "onePercentLow": 97.08737863375381
+          },
+          "cpuMs": {
+            "p50": 0.5,
+            "p95": 0.6999999992549419,
+            "p99": 0.7000000011175871
+          },
+          "cpuBreakdown": {
+            "render": {
+              "p50": 0.5,
+              "p95": 0.599999999627471,
+              "p99": 0.6999999992549419
+            },
+            "update": {
+              "p50": 0.09999999962747097,
+              "p95": 0.19999999925494194,
+              "p99": 0.2000000011175871
+            }
+          },
+          "gpuMs": {
+            "availableSamples": 3872,
+            "p50": 1.1672495,
+            "p95": 1.7662265999999998,
+            "p99": 5.502209069999998
+          },
+          "drawCalls": {
+            "max": 61,
+            "p50": 51,
+            "p95": 58
+          },
+          "shadowCalls": {
+            "max": 0,
+            "p50": 0,
+            "p95": 0
+          },
+          "triangles": {
+            "max": 70809,
+            "p50": 68429,
+            "p95": 70749
+          },
+          "streamingPressure": {
+            "max": 0,
+            "p50": 0,
+            "p95": 0
+          },
+          "jsHeapBytes": 142087832,
+          "sceneResources": {
+            "geometries": 78,
+            "geometryBytes": 2643912,
+            "materials": 36,
+            "textureBytes": 15291732,
+            "textures": 9,
+            "totalBytes": 17935644
+          },
+          "streaming": {
+            "bytes": {
+              "byDetail": {
+                "base": {
+                  "integrated": 43385869,
+                  "transferred": 43917200
+                },
+                "mid": {
+                  "integrated": 16696459,
+                  "transferred": 16696459
+                },
+                "near": {
+                  "integrated": 11289676,
+                  "transferred": 11289676
+                }
+              },
+              "integrated": 71372004,
+              "integratedPerTile": 142459.08982035928,
+              "source": 5425444,
+              "sourcePerTile": 10764.769841269841,
+              "transferred": 71903335,
+              "transferredPerTile": 142665.34722222222
+            },
+            "completed": 504,
+            "detail": {
+              "base": 13,
+              "mid": 12,
+              "near": 4,
+              "upgrades": 245
+            },
+            "errors": 0,
+            "integration": {
+              "mean": 0.16770833329064772,
+              "p50": 0.09999999962747097,
+              "p95": 0.5,
+              "p99": 0.6000000014901161,
+              "recentMax": 1,
+              "samples": 96
+            },
+            "pressure": {
+              "awaitingIntegration": 3,
+              "inFlight": 0,
+              "peakAwaitingIntegration": 31,
+              "peakInFlight": 6,
+              "peakQueue": 26,
+              "prefetch": 0,
+              "queue": 0
+            },
+            "requests": 504,
+            "staleResponses": 0,
+            "worker": {
+              "build": {
+                "mean": 1.4968750000698492,
+                "p50": 1.299999998882413,
+                "p95": 3.599999999627471,
+                "p99": 5.100000001490116,
+                "recentMax": 5.300000000745058,
+                "samples": 96
+              },
+              "decode": {
+                "mean": 0.14479166661233953,
+                "p50": 0,
+                "p95": 0.5,
+                "p99": 1.099999999627471,
+                "recentMax": 2.399999998509884,
+                "samples": 96
+              },
+              "fetch": {
+                "mean": 1.272916666639503,
+                "p50": 0.900000000372529,
+                "p95": 6.900000000372529,
+                "p99": 10.5,
+                "recentMax": 10.900000000372529,
+                "samples": 96
+              },
+              "total": {
+                "mean": 1.6479166666589056,
+                "p50": 1.400000000372529,
+                "p95": 3.599999999627471,
+                "p99": 5.900000000372529,
+                "recentMax": 7.699999999254942,
+                "samples": 96
+              }
+            }
+          },
+          "updatePhases": {}
+        }
+      ]
+    },
+    {
+      "profileId": "desktop-high",
+      "platform": "desktop-browser",
+      "tier": "high",
+      "capabilities": {
+        "deviceMemoryGiB": 32,
+        "devicePixelRatio": 1.5,
+        "gpuTimerExtension": true,
+        "hardwareConcurrency": 10,
+        "muted": true,
+        "renderer": "ANGLE (Apple, ANGLE Metal Renderer: Apple M1 Max, Unspecified Version)",
+        "routes": [
+          "times-square",
+          "central-park",
+          "waterfront",
+          "times-square-station",
+          "subway-ride"
+        ],
+        "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/151.0.0.0 Safari/537.36",
+        "vendor": "Google Inc. (Apple)",
+        "webgl2": true
+      },
+      "contract": {
+        "passed": true,
+        "violations": []
+      },
+      "captures": [
+        {
+          "routeId": "times-square",
+          "startedAt": "2026-09-05T20:04:47.957Z",
+          "mode": "street",
+          "quality": "high",
+          "durationSeconds": 13.296900000000372,
+          "samples": 1258,
+          "frameMs": {
+            "p50": 11.199999999254942,
+            "p95": 14.399999998509884,
+            "p99": 16.244000000692953
+          },
+          "fps": {
+            "median": 89.28571429165385,
+            "onePercentLow": 61.56119182204758
+          },
+          "cpuMs": {
+            "p50": 2.300000000745058,
+            "p95": 3.800000000745058,
+            "p99": 8.085999999679638
+          },
+          "cpuBreakdown": {
+            "render": {
+              "p50": 1.800000000745058,
+              "p95": 2.300000000745058,
+              "p99": 2.542999999839819
+            },
+            "update": {
+              "p50": 0.40000000037252903,
+              "p95": 1.7150000007822972,
+              "p99": 5.215000000000032
+            }
+          },
+          "gpuMs": {
+            "availableSamples": 1258,
+            "p50": 4.7531035,
+            "p95": 10.629415999999997,
+            "p99": 12.595350870000038
+          },
+          "drawCalls": {
+            "max": 267,
+            "p50": 191,
+            "p95": 233
+          },
+          "shadowCalls": {
+            "max": 34,
+            "p50": 23,
+            "p95": 32
+          },
+          "triangles": {
+            "max": 1028043,
+            "p50": 732533,
+            "p95": 960526
+          },
+          "streamingPressure": {
+            "max": 0.4444444444444444,
+            "p50": 0,
+            "p95": 0.1111111111111111
+          },
+          "jsHeapBytes": 143031900,
+          "sceneResources": {
+            "geometries": 911,
+            "geometryBytes": 65260499,
+            "materials": 316,
+            "textureBytes": 87659460,
+            "textures": 110,
+            "totalBytes": 152919959
+          },
+          "streaming": {
+            "bytes": {
+              "byDetail": {
+                "base": {
+                  "integrated": 26894261,
+                  "transferred": 26894261
+                },
+                "mid": {
+                  "integrated": 9916397,
+                  "transferred": 9916397
+                },
+                "near": {
+                  "integrated": 7246836,
+                  "transferred": 7246836
+                }
+              },
+              "integrated": 44057494,
+              "integratedPerTile": 163175.9037037037,
+              "source": 2840723,
+              "sourcePerTile": 10521.196296296297,
+              "transferred": 44057494,
+              "transferredPerTile": 163175.9037037037
+            },
+            "completed": 270,
+            "detail": {
+              "base": 22,
+              "mid": 24,
+              "near": 16,
+              "upgrades": 116
+            },
+            "errors": 0,
+            "integration": {
+              "mean": 0.18020833343810713,
+              "p50": 0.09999999962747097,
+              "p95": 0.599999999627471,
+              "p99": 0.8000000007450581,
+              "recentMax": 0.900000000372529,
+              "samples": 96
+            },
+            "pressure": {
+              "awaitingIntegration": 0,
+              "inFlight": 0,
+              "peakAwaitingIntegration": 47,
+              "peakInFlight": 9,
+              "peakQueue": 40,
+              "prefetch": 0,
+              "queue": 0
+            },
+            "requests": 270,
+            "staleResponses": 0,
+            "worker": {
+              "build": {
+                "mean": 1.1458333333139308,
+                "p50": 1,
+                "p95": 2.199999999254942,
+                "p99": 2.899999998509884,
+                "recentMax": 3.5,
+                "samples": 96
+              },
+              "decode": {
+                "mean": 0.1010416667171133,
+                "p50": 0.09999999962747097,
+                "p95": 0.30000000074505806,
+                "p99": 0.5,
+                "recentMax": 0.6000000014901161,
+                "samples": 96
+              },
+              "fetch": {
+                "mean": 1.7499999999417923,
+                "p50": 1.799999998882413,
+                "p95": 3.5,
+                "p99": 7.400000000372529,
+                "recentMax": 30.199999999254942,
+                "samples": 96
+              },
+              "total": {
+                "mean": 1.2489583333566163,
+                "p50": 1.199999999254942,
+                "p95": 2.399999998509884,
+                "p99": 3.200000001117587,
+                "recentMax": 3.5,
+                "samples": 96
+              }
+            }
+          },
+          "updatePhases": {
+            "bikes": {
+              "max": 6,
+              "p50": 0,
+              "p95": 0,
+              "p99": 0.7000000011175871,
+              "samples": 1200
+            },
+            "buses": {
+              "max": 12.599999999627471,
+              "p50": 0.09999999962747097,
+              "p95": 0.3999999985098839,
+              "p99": 0.7000000011175871,
+              "samples": 1200
+            },
+            "entrances": {
+              "max": 12.400000000372529,
+              "p50": 0,
+              "p95": 0.40000000037252903,
+              "p99": 1.5,
+              "samples": 1200
+            },
+            "landmarks": {
+              "max": 0.599999999627471,
+              "p50": 0,
+              "p95": 0,
+              "p99": 0,
+              "samples": 1200
+            },
+            "plaques": {
+              "max": 0.30000000074505806,
+              "p50": 0,
+              "p95": 0.09999999962747097,
+              "p99": 0.19999999925494194,
+              "samples": 1200
+            },
+            "retailContext": {
+              "max": 0.30000000074505806,
+              "p50": 0,
+              "p95": 0,
+              "p99": 0.09999999962747097,
+              "samples": 1200
+            },
+            "streetLife": {
+              "max": 13.099999999627471,
+              "p50": 0,
+              "p95": 1,
+              "p99": 1.599999999627471,
+              "samples": 1200
+            },
+            "tiles": {
+              "max": 1.699999999254942,
+              "p50": 0,
+              "p95": 0.40000000037252903,
+              "p99": 0.900000000372529,
+              "samples": 1200
+            },
+            "tram": {
+              "max": 0.10000000149011612,
+              "p50": 0,
+              "p95": 0,
+              "p99": 0.09999999962747097,
+              "samples": 1200
+            }
+          }
+        },
+        {
+          "routeId": "central-park",
+          "startedAt": "2026-09-05T20:05:03.303Z",
+          "mode": "street",
+          "quality": "high",
+          "durationSeconds": 12.280400000000373,
+          "samples": 1253,
+          "frameMs": {
+            "p50": 11.099999999627471,
+            "p95": 13.900000000372529,
+            "p99": 15.148000000417234
+          },
+          "fps": {
+            "median": 90.09009009311362,
+            "onePercentLow": 66.01531555139003
+          },
+          "cpuMs": {
+            "p50": 1.599999999627471,
+            "p95": 2.400000000372529,
+            "p99": 3.199999999254942
+          },
+          "cpuBreakdown": {
+            "render": {
+              "p50": 1.300000000745058,
+              "p95": 1.699999999254942,
+              "p99": 1.900000000372529
+            },
+            "update": {
+              "p50": 0.2000000011175871,
+              "p95": 1,
+              "p99": 1.5
+            }
+          },
+          "gpuMs": {
+            "availableSamples": 1253,
+            "p50": 3.814124,
+            "p95": 9.0676664,
+            "p99": 10.227953
+          },
+          "drawCalls": {
+            "max": 214,
+            "p50": 126,
+            "p95": 152.39999999999986
+          },
+          "shadowCalls": {
+            "max": 35,
+            "p50": 20,
+            "p95": 24
+          },
+          "triangles": {
+            "max": 1425306,
+            "p50": 1043563,
+            "p95": 1349310.2
+          },
+          "streamingPressure": {
+            "max": 0.3333333333333333,
+            "p50": 0,
+            "p95": 0.1111111111111111
+          },
+          "jsHeapBytes": 138828499,
+          "sceneResources": {
+            "geometries": 677,
+            "geometryBytes": 52970348,
+            "materials": 239,
+            "textureBytes": 33817769,
+            "textures": 48,
+            "totalBytes": 86788117
+          },
+          "streaming": {
+            "bytes": {
+              "byDetail": {
+                "base": {
+                  "integrated": 34123896,
+                  "transferred": 34123896
+                },
+                "mid": {
+                  "integrated": 11478859,
+                  "transferred": 11478859
+                },
+                "near": {
+                  "integrated": 8484996,
+                  "transferred": 8484996
+                }
+              },
+              "integrated": 54087751,
+              "integratedPerTile": 146977.58423913043,
+              "source": 4105993,
+              "sourcePerTile": 11157.589673913044,
+              "transferred": 54087751,
+              "transferredPerTile": 146977.58423913043
+            },
+            "completed": 368,
+            "detail": {
+              "base": 24,
+              "mid": 23,
+              "near": 14,
+              "upgrades": 164
+            },
+            "errors": 0,
+            "integration": {
+              "mean": 0.1781250000349246,
+              "p50": 0.09999999962747097,
+              "p95": 0.599999999627471,
+              "p99": 0.8000000007450581,
+              "recentMax": 1,
+              "samples": 96
+            },
+            "pressure": {
+              "awaitingIntegration": 0,
+              "inFlight": 0,
+              "peakAwaitingIntegration": 47,
+              "peakInFlight": 9,
+              "peakQueue": 40,
+              "prefetch": 0,
+              "queue": 0
+            },
+            "requests": 368,
+            "staleResponses": 0,
+            "worker": {
+              "build": {
+                "mean": 0.8135416666433836,
+                "p50": 0.6999999992549419,
+                "p95": 1.700000001117587,
+                "p99": 3.599999999627471,
+                "recentMax": 4.100000001490116,
+                "samples": 96
+              },
+              "decode": {
+                "mean": 0.11249999998835847,
+                "p50": 0.09999999962747097,
+                "p95": 0.40000000037252903,
+                "p99": 0.599999999627471,
+                "recentMax": 0.599999999627471,
+                "samples": 96
+              },
+              "fetch": {
+                "mean": 0.9291666666201005,
+                "p50": 1.199999999254942,
+                "p95": 2.099999999627471,
+                "p99": 3,
+                "recentMax": 4.199999999254942,
+                "samples": 96
+              },
+              "total": {
+                "mean": 0.9322916666278616,
+                "p50": 0.8999999985098839,
+                "p95": 1.700000001117587,
+                "p99": 3.599999999627471,
+                "recentMax": 4.100000001490116,
+                "samples": 96
+              }
+            }
+          },
+          "updatePhases": {
+            "bikes": {
+              "max": 0.6999999992549419,
+              "p50": 0,
+              "p95": 0,
+              "p99": 0.09999999962747097,
+              "samples": 1200
+            },
+            "buses": {
+              "max": 1.800000000745058,
+              "p50": 0,
+              "p95": 0.2000000011175871,
+              "p99": 0.40000000037252903,
+              "samples": 1200
+            },
+            "entrances": {
+              "max": 0.10000000149011612,
+              "p50": 0,
+              "p95": 0,
+              "p99": 0.09999999962747097,
+              "samples": 1200
+            },
+            "landmarks": {
+              "max": 0.10000000149011612,
+              "p50": 0,
+              "p95": 0,
+              "p99": 0.09999999962747097,
+              "samples": 1200
+            },
+            "plaques": {
+              "max": 0.2000000011175871,
+              "p50": 0,
+              "p95": 0.09999999962747097,
+              "p99": 0.10000000149011612,
+              "samples": 1200
+            },
+            "retailContext": {
+              "max": 0.10000000149011612,
+              "p50": 0,
+              "p95": 0,
+              "p99": 0.09999999962747097,
+              "samples": 1200
+            },
+            "streetLife": {
+              "max": 5.099999999627471,
+              "p50": 0,
+              "p95": 0.5,
+              "p99": 0.8000000007450581,
+              "samples": 1200
+            },
+            "tiles": {
+              "max": 1.400000000372529,
+              "p50": 0,
+              "p95": 0.5,
+              "p99": 0.6999999992549419,
+              "samples": 1200
+            },
+            "tram": {
+              "max": 0.10000000149011612,
+              "p50": 0,
+              "p95": 0.09999999962747097,
+              "p99": 0.09999999962747097,
+              "samples": 1200
+            }
+          }
+        },
+        {
+          "routeId": "waterfront",
+          "startedAt": "2026-09-05T20:05:17.603Z",
+          "mode": "street",
+          "quality": "high",
+          "durationSeconds": 13.291599999999628,
+          "samples": 1320,
+          "frameMs": {
+            "p50": 10.599999999627471,
+            "p95": 14.199999999254942,
+            "p99": 15.100000001490116
+          },
+          "fps": {
+            "median": 94.33962264482493,
+            "onePercentLow": 66.2251655563786
+          },
+          "cpuMs": {
+            "p50": 2,
+            "p95": 3.099999999720603,
+            "p99": 4.762000000532706
+          },
+          "cpuBreakdown": {
+            "render": {
+              "p50": 1.6000000014901161,
+              "p95": 2.099999999627471,
+              "p99": 2.400000000372529
+            },
+            "update": {
+              "p50": 0.40000000037252903,
+              "p95": 1.299999998882413,
+              "p99": 2.2809999989531877
+            }
+          },
+          "gpuMs": {
+            "availableSamples": 1320,
+            "p50": 3.9061244999999998,
+            "p95": 9.35997195,
+            "p99": 12.523425019999989
+          },
+          "drawCalls": {
+            "max": 282,
+            "p50": 173,
+            "p95": 208
+          },
+          "shadowCalls": {
+            "max": 32,
+            "p50": 21,
+            "p95": 24
+          },
+          "triangles": {
+            "max": 1655814,
+            "p50": 1168425,
+            "p95": 1542680.95
+          },
+          "streamingPressure": {
+            "max": 0.3333333333333333,
+            "p50": 0,
+            "p95": 0.1111111111111111
+          },
+          "jsHeapBytes": 124565870,
+          "sceneResources": {
+            "geometries": 543,
+            "geometryBytes": 50610468,
+            "materials": 206,
+            "textureBytes": 36208637,
+            "textures": 47,
+            "totalBytes": 86819105
+          },
+          "streaming": {
+            "bytes": {
+              "byDetail": {
+                "base": {
+                  "integrated": 48087871,
+                  "transferred": 48087871
+                },
+                "mid": {
+                  "integrated": 17381266,
+                  "transferred": 17381266
+                },
+                "near": {
+                  "integrated": 10921804,
+                  "transferred": 10921804
+                }
+              },
+              "integrated": 76390941,
+              "integratedPerTile": 140166.8642201835,
+              "source": 6378576,
+              "sourcePerTile": 11703.809174311926,
+              "transferred": 76390941,
+              "transferredPerTile": 140166.8642201835
+            },
+            "completed": 545,
+            "detail": {
+              "base": 17,
+              "mid": 14,
+              "near": 16,
+              "upgrades": 254
+            },
+            "errors": 0,
+            "integration": {
+              "mean": 0.171875,
+              "p50": 0.09999999962747097,
+              "p95": 0.6000000014901161,
+              "p99": 0.7999999988824129,
+              "recentMax": 0.7999999988824129,
+              "samples": 96
+            },
+            "pressure": {
+              "awaitingIntegration": 0,
+              "inFlight": 0,
+              "peakAwaitingIntegration": 47,
+              "peakInFlight": 9,
+              "peakQueue": 40,
+              "prefetch": 0,
+              "queue": 0
+            },
+            "requests": 545,
+            "staleResponses": 0,
+            "worker": {
+              "build": {
+                "mean": 1.2364583333449748,
+                "p50": 1,
+                "p95": 3.099999999627471,
+                "p99": 4.899999998509884,
+                "recentMax": 6.099999999627471,
+                "samples": 96
+              },
+              "decode": {
+                "mean": 0.14791666658129543,
+                "p50": 0,
+                "p95": 0.6999999992549419,
+                "p99": 0.900000000372529,
+                "recentMax": 1,
+                "samples": 96
+              },
+              "fetch": {
+                "mean": 0.8843749999262703,
+                "p50": 0,
+                "p95": 2.299999998882413,
+                "p99": 2.799999998882413,
+                "recentMax": 2.800000000745058,
+                "samples": 96
+              },
+              "total": {
+                "mean": 1.3895833332596037,
+                "p50": 1.200000001117587,
+                "p95": 3.099999999627471,
+                "p99": 4.899999998509884,
+                "recentMax": 6.399999998509884,
+                "samples": 96
+              }
+            }
+          },
+          "updatePhases": {
+            "bikes": {
+              "max": 3.300000000745058,
+              "p50": 0,
+              "p95": 0,
+              "p99": 0.6000000014901161,
+              "samples": 1200
+            },
+            "buses": {
+              "max": 21.200000001117587,
+              "p50": 0,
+              "p95": 0.2000000011175871,
+              "p99": 0.40000000037252903,
+              "samples": 1200
+            },
+            "entrances": {
+              "max": 0.599999999627471,
+              "p50": 0,
+              "p95": 0,
+              "p99": 0.09999999962747097,
+              "samples": 1200
+            },
+            "landmarks": {
+              "max": 0.10000000149011612,
+              "p50": 0,
+              "p95": 0,
+              "p99": 0.09999999962747097,
+              "samples": 1200
+            },
+            "plaques": {
+              "max": 0.6999999992549419,
+              "p50": 0,
+              "p95": 0.09999999962747097,
+              "p99": 0.19999999925494194,
+              "samples": 1200
+            },
+            "retailContext": {
+              "max": 0.10000000149011612,
+              "p50": 0,
+              "p95": 0,
+              "p99": 0.09999999962747097,
+              "samples": 1200
+            },
+            "streetLife": {
+              "max": 6.799999998882413,
+              "p50": 0,
+              "p95": 0.6999999992549419,
+              "p99": 1.300000000745058,
+              "samples": 1200
+            },
+            "tiles": {
+              "max": 1.6000000014901161,
+              "p50": 0,
+              "p95": 0.5,
+              "p99": 0.900000000372529,
+              "samples": 1200
+            },
+            "tram": {
+              "max": 0.10000000149011612,
+              "p50": 0,
+              "p95": 0.09999999962747097,
+              "p99": 0.10000000149011612,
+              "samples": 1200
+            }
+          }
+        },
+        {
+          "routeId": "times-square-station",
+          "startedAt": "2026-09-05T20:05:32.915Z",
+          "mode": "station",
+          "quality": "high",
+          "durationSeconds": 36.25719999999926,
+          "samples": 4314,
+          "frameMs": {
+            "p50": 8.300000000745058,
+            "p95": 9.800000000745058,
+            "p99": 10.400000000372529
+          },
+          "fps": {
+            "median": 120.4819277000282,
+            "onePercentLow": 96.15384615040192
+          },
+          "cpuMs": {
+            "p50": 2.199999999254942,
+            "p95": 3,
+            "p99": 3.400000000372529
+          },
+          "cpuBreakdown": {
+            "render": {
+              "p50": 1.900000000372529,
+              "p95": 2.700000001117587,
+              "p99": 3
+            },
+            "update": {
+              "p50": 0.19999999925494194,
+              "p95": 0.30000000074505806,
+              "p99": 0.5
+            }
+          },
+          "gpuMs": {
+            "availableSamples": 4314,
+            "p50": 1.9174785,
+            "p95": 3.2722454999999933,
+            "p99": 5.573431169999987
+          },
+          "drawCalls": {
+            "max": 361,
+            "p50": 249.5,
+            "p95": 358
+          },
+          "shadowCalls": {
+            "max": 27,
+            "p50": 25,
+            "p95": 27
+          },
+          "triangles": {
+            "max": 928067,
+            "p50": 751039,
+            "p95": 927945
+          },
+          "streamingPressure": {
+            "max": 0,
+            "p50": 0,
+            "p95": 0
+          },
+          "jsHeapBytes": 180689567,
+          "sceneResources": {
+            "geometries": 505,
+            "geometryBytes": 15582780,
+            "materials": 157,
+            "textureBytes": 97280343,
+            "textures": 98,
+            "totalBytes": 112863123
+          },
+          "streaming": {
+            "bytes": {
+              "byDetail": {
+                "base": {
+                  "integrated": 48087871,
+                  "transferred": 48087871
+                },
+                "mid": {
+                  "integrated": 17381266,
+                  "transferred": 17381266
+                },
+                "near": {
+                  "integrated": 10921804,
+                  "transferred": 10921804
+                }
+              },
+              "integrated": 76390941,
+              "integratedPerTile": 140166.8642201835,
+              "source": 6378576,
+              "sourcePerTile": 11703.809174311926,
+              "transferred": 76390941,
+              "transferredPerTile": 140166.8642201835
+            },
+            "completed": 545,
+            "detail": {
+              "base": 17,
+              "mid": 14,
+              "near": 16,
+              "upgrades": 254
+            },
+            "errors": 0,
+            "integration": {
+              "mean": 0.171875,
+              "p50": 0.09999999962747097,
+              "p95": 0.6000000014901161,
+              "p99": 0.7999999988824129,
+              "recentMax": 0.7999999988824129,
+              "samples": 96
+            },
+            "pressure": {
+              "awaitingIntegration": 0,
+              "inFlight": 0,
+              "peakAwaitingIntegration": 47,
+              "peakInFlight": 9,
+              "peakQueue": 40,
+              "prefetch": 0,
+              "queue": 0
+            },
+            "requests": 545,
+            "staleResponses": 0,
+            "worker": {
+              "build": {
+                "mean": 1.2364583333449748,
+                "p50": 1,
+                "p95": 3.099999999627471,
+                "p99": 4.899999998509884,
+                "recentMax": 6.099999999627471,
+                "samples": 96
+              },
+              "decode": {
+                "mean": 0.14791666658129543,
+                "p50": 0,
+                "p95": 0.6999999992549419,
+                "p99": 0.900000000372529,
+                "recentMax": 1,
+                "samples": 96
+              },
+              "fetch": {
+                "mean": 0.8843749999262703,
+                "p50": 0,
+                "p95": 2.299999998882413,
+                "p99": 2.799999998882413,
+                "recentMax": 2.800000000745058,
+                "samples": 96
+              },
+              "total": {
+                "mean": 1.3895833332596037,
+                "p50": 1.200000001117587,
+                "p95": 3.099999999627471,
+                "p99": 4.899999998509884,
+                "recentMax": 6.399999998509884,
+                "samples": 96
+              }
+            }
+          },
+          "updatePhases": {}
+        },
+        {
+          "routeId": "subway-ride",
+          "startedAt": "2026-09-05T20:06:10.847Z",
+          "mode": "ride",
+          "quality": "high",
+          "durationSeconds": 32.261900000000374,
+          "samples": 3870,
+          "frameMs": {
+            "p50": 8.300000000745058,
+            "p95": 9.900000000372529,
+            "p99": 10.300000000745058
+          },
+          "fps": {
+            "median": 120.4819277000282,
+            "onePercentLow": 97.08737863375381
+          },
+          "cpuMs": {
+            "p50": 0.599999999627471,
+            "p95": 0.7999999988824129,
+            "p99": 0.900000000372529
+          },
+          "cpuBreakdown": {
+            "render": {
+              "p50": 0.5,
+              "p95": 0.7000000011175871,
+              "p99": 0.7999999988824129
+            },
+            "update": {
+              "p50": 0.09999999962747097,
+              "p95": 0.19999999925494194,
+              "p99": 0.2000000011175871
+            }
+          },
+          "gpuMs": {
+            "availableSamples": 3870,
+            "p50": 1.3575625,
+            "p95": 2.5783557,
+            "p99": 3.0106607699999994
+          },
+          "drawCalls": {
+            "max": 67,
+            "p50": 56,
+            "p95": 65
+          },
+          "shadowCalls": {
+            "max": 0,
+            "p50": 0,
+            "p95": 0
+          },
+          "triangles": {
+            "max": 70953,
+            "p50": 70605,
+            "p95": 70929
+          },
+          "streamingPressure": {
+            "max": 0,
+            "p50": 0,
+            "p95": 0
+          },
+          "jsHeapBytes": 127721353,
+          "sceneResources": {
+            "geometries": 78,
+            "geometryBytes": 2643912,
+            "materials": 36,
+            "textureBytes": 15291732,
+            "textures": 9,
+            "totalBytes": 17935644
+          },
+          "streaming": {
+            "bytes": {
+              "byDetail": {
+                "base": {
+                  "integrated": 52052277,
+                  "transferred": 58051380
+                },
+                "mid": {
+                  "integrated": 19770158,
+                  "transferred": 19982816
+                },
+                "near": {
+                  "integrated": 11502676,
+                  "transferred": 11502676
+                }
+              },
+              "integrated": 83325111,
+              "integratedPerTile": 141229.00169491526,
+              "source": 7168541,
+              "sourcePerTile": 11580.84168012924,
+              "transferred": 89536872,
+              "transferredPerTile": 144647.61227786753
+            },
+            "completed": 619,
+            "detail": {
+              "base": 1,
+              "mid": 16,
+              "near": 4,
+              "upgrades": 279
+            },
+            "errors": 0,
+            "integration": {
+              "mean": 0.15624999998059744,
+              "p50": 0.09999999962747097,
+              "p95": 0.5,
+              "p99": 0.6000000014901161,
+              "recentMax": 0.6999999992549419,
+              "samples": 96
+            },
+            "pressure": {
+              "awaitingIntegration": 29,
+              "inFlight": 0,
+              "peakAwaitingIntegration": 48,
+              "peakInFlight": 9,
+              "peakQueue": 40,
+              "prefetch": 0,
+              "queue": 0
+            },
+            "requests": 619,
+            "staleResponses": 0,
+            "worker": {
+              "build": {
+                "mean": 1.9510416666356225,
+                "p50": 1.700000001117587,
+                "p95": 4.400000000372529,
+                "p99": 4.699999999254942,
+                "recentMax": 7.100000001490116,
+                "samples": 96
+              },
+              "decode": {
+                "mean": 0.17187500001940256,
+                "p50": 0.09999999962747097,
+                "p95": 0.5,
+                "p99": 1,
+                "recentMax": 1.300000000745058,
+                "samples": 96
+              },
+              "fetch": {
+                "mean": 2.827083333317811,
+                "p50": 1.599999999627471,
+                "p95": 17.799999998882413,
+                "p99": 17.800000000745058,
+                "recentMax": 17.800000000745058,
+                "samples": 96
+              },
+              "total": {
+                "mean": 2.126041666682189,
+                "p50": 1.800000000745058,
+                "p95": 4.5,
+                "p99": 6,
+                "recentMax": 7.100000001490116,
+                "samples": 96
+              }
+            }
+          },
+          "updatePhases": {}
+        }
+      ]
+    }
+  ],
+  "diagnosticRuns": [
+    {
+      "artifact": "living-transit-diagnostic.json",
+      "gitCommit": "6fed441d177d6ccf0a30ba8b3e125cfce8e092ed",
+      "generatedAt": "2026-09-05T19:56:59.374Z",
+      "contract": {
+        "passed": false,
+        "violations": [
+          {
+            "actual": 32.228954493443794,
+            "comparator": ">=",
+            "iteration": 1,
+            "limit": 45,
+            "message": "fps.onePercentLow: expected >= 45, received 32.23",
+            "metric": "fps.onePercentLow",
+            "profileId": "desktop-high",
+            "routeId": "times-square"
+          },
+          {
+            "actual": 20.90000000037253,
+            "comparator": "<=",
+            "iteration": 1,
+            "limit": 20,
+            "message": "frameMs.p95: expected <= 20, received 20.90",
+            "metric": "frameMs.p95",
+            "profileId": "desktop-high",
+            "routeId": "waterfront"
+          },
+          {
+            "actual": 41.7902962927388,
+            "comparator": ">=",
+            "iteration": 1,
+            "limit": 45,
+            "message": "fps.onePercentLow: expected >= 45, received 41.79",
+            "metric": "fps.onePercentLow",
+            "profileId": "desktop-high",
+            "routeId": "waterfront"
+          },
+          {
+            "actual": 15.68877225,
+            "comparator": "<=",
+            "iteration": 1,
+            "limit": 14,
+            "message": "gpuMs.p95: expected <= 14, received 15.69",
+            "metric": "gpuMs.p95",
+            "profileId": "desktop-high",
+            "routeId": "waterfront"
+          },
+          {
+            "actual": 1,
+            "comparator": "<=",
+            "iteration": 1,
+            "limit": 0.75,
+            "message": "streamingPressure.p95: expected <= 0.75, received 1",
+            "metric": "streamingPressure.p95",
+            "profileId": "desktop-high",
+            "routeId": "subway-ride"
+          }
+        ]
+      },
+      "captures": [
+        {
+          "profileId": "mobile-low",
+          "routeId": "times-square",
+          "frameMs": {
+            "p50": 8.300000000745058,
+            "p95": 9.199999999254942,
+            "p99": 10.692999999858422
+          },
+          "fps": {
+            "median": 120.4819277000282,
+            "onePercentLow": 93.51912466223139
+          },
+          "cpuMs": {
+            "p50": 1.5,
+            "p95": 2.199999999254942,
+            "p99": 4.530999999884511
+          },
+          "gpuMs": {
+            "availableSamples": 1570,
+            "p50": 0.8112075000000001,
+            "p95": 1.5584346,
+            "p99": 2.53485719
+          },
+          "streamingPressure": {
+            "max": 0.6666666666666666,
+            "p50": 0,
+            "p95": 0.16666666666666666
+          }
+        },
+        {
+          "profileId": "mobile-low",
+          "routeId": "central-park",
+          "frameMs": {
+            "p50": 8.300000000745058,
+            "p95": 9.199999999254942,
+            "p99": 9.300000000745058
+          },
+          "fps": {
+            "median": 120.4819277000282,
+            "onePercentLow": 107.52688171181572
+          },
+          "cpuMs": {
+            "p50": 1.099999999627471,
+            "p95": 1.699999999254942,
+            "p99": 2
+          },
+          "gpuMs": {
+            "availableSamples": 1470,
+            "p50": 0.8197285,
+            "p95": 1.3345615,
+            "p99": 2.3827987499999996
+          },
+          "streamingPressure": {
+            "max": 0.6666666666666666,
+            "p50": 0,
+            "p95": 0
+          }
+        },
+        {
+          "profileId": "mobile-low",
+          "routeId": "waterfront",
+          "frameMs": {
+            "p50": 8.300000000745058,
+            "p95": 9.199999999254942,
+            "p99": 9.300000000745058
+          },
+          "fps": {
+            "median": 120.4819277000282,
+            "onePercentLow": 107.52688171181572
+          },
+          "cpuMs": {
+            "p50": 1.199999999254942,
+            "p95": 1.700000001117587,
+            "p99": 2.5999999998509886
+          },
+          "gpuMs": {
+            "availableSamples": 1589,
+            "p50": 0.828708,
+            "p95": 1.8792242,
+            "p99": 2.65169408
+          },
+          "streamingPressure": {
+            "max": 0.6666666666666666,
+            "p50": 0,
+            "p95": 0.16666666666666666
+          }
+        },
+        {
+          "profileId": "mobile-low",
+          "routeId": "times-square-station",
+          "frameMs": {
+            "p50": 8.300000000745058,
+            "p95": 9.199999999254942,
+            "p99": 9.799999998919667
+          },
+          "fps": {
+            "median": 120.4819277000282,
+            "onePercentLow": 102.0408163377794
+          },
+          "cpuMs": {
+            "p50": 2.099999999627471,
+            "p95": 2.800000000745058,
+            "p99": 3.199999999254942
+          },
+          "gpuMs": {
+            "availableSamples": 4299,
+            "p50": 0.910791,
+            "p95": 2.1209409999999997,
+            "p99": 2.800485159999978
+          },
+          "streamingPressure": {
+            "max": 0,
+            "p50": 0,
+            "p95": 0
+          }
+        },
+        {
+          "profileId": "mobile-low",
+          "routeId": "subway-ride",
+          "frameMs": {
+            "p50": 8.300000000745058,
+            "p95": 9.099999999627471,
+            "p99": 10.150999999437456
+          },
+          "fps": {
+            "median": 120.4819277000282,
+            "onePercentLow": 98.51246183188037
+          },
+          "cpuMs": {
+            "p50": 0.599999999627471,
+            "p95": 0.8000000007450581,
+            "p99": 0.900000000372529
+          },
+          "gpuMs": {
+            "availableSamples": 3850,
+            "p50": 0.4523745,
+            "p95": 1.5111310999999998,
+            "p99": 1.9350669899999953
+          },
+          "streamingPressure": {
+            "max": 0,
+            "p50": 0,
+            "p95": 0
+          }
+        },
+        {
+          "profileId": "mobile-medium",
+          "routeId": "times-square",
+          "frameMs": {
+            "p50": 8.300000000745058,
+            "p95": 9.400000000372529,
+            "p99": 14.259999999776428
+          },
+          "fps": {
+            "median": 120.4819277000282,
+            "onePercentLow": 70.12622721007561
+          },
+          "cpuMs": {
+            "p50": 2.200000001117587,
+            "p95": 3.5,
+            "p99": 7.459999999776473
+          },
+          "gpuMs": {
+            "availableSamples": 1521,
+            "p50": 1.162708,
+            "p95": 4.249208,
+            "p99": 5.459574799999996
+          },
+          "streamingPressure": {
+            "max": 1,
+            "p50": 0,
+            "p95": 0.16666666666666666
+          }
+        },
+        {
+          "profileId": "mobile-medium",
+          "routeId": "central-park",
+          "frameMs": {
+            "p50": 8.300000000745058,
+            "p95": 10.700000000651926,
+            "p99": 12.355000000540162
+          },
+          "fps": {
+            "median": 120.4819277000282,
+            "onePercentLow": 80.93889113365276
+          },
+          "cpuMs": {
+            "p50": 1.299999998882413,
+            "p95": 2.300000000745058,
+            "p99": 2.900000000372529
+          },
+          "gpuMs": {
+            "availableSamples": 1446,
+            "p50": 1.1371660000000001,
+            "p95": 3.2977075,
+            "p99": 6.119593299999998
+          },
+          "streamingPressure": {
+            "max": 0.6666666666666666,
+            "p50": 0,
+            "p95": 0.16666666666666666
+          }
+        },
+        {
+          "profileId": "mobile-medium",
+          "routeId": "waterfront",
+          "frameMs": {
+            "p50": 8.400000000372529,
+            "p95": 10.400000000372529,
+            "p99": 12.325999999958999
+          },
+          "fps": {
+            "median": 119.04761904233943,
+            "onePercentLow": 81.12932013656713
+          },
+          "cpuMs": {
+            "p50": 1.599999999627471,
+            "p95": 2.599999999627471,
+            "p99": 4.30000000005588
+          },
+          "gpuMs": {
+            "availableSamples": 1538,
+            "p50": 1.2517705000000001,
+            "p95": 3.9390187499999985,
+            "p99": 6.765553289999982
+          },
+          "streamingPressure": {
+            "max": 0.6666666666666666,
+            "p50": 0,
+            "p95": 0.16666666666666666
+          }
+        },
+        {
+          "profileId": "mobile-medium",
+          "routeId": "times-square-station",
+          "frameMs": {
+            "p50": 8.400000000372529,
+            "p95": 9.900000000372529,
+            "p99": 11.818999999314414
+          },
+          "fps": {
+            "median": 119.04761904233943,
+            "onePercentLow": 84.60952703765184
+          },
+          "cpuMs": {
+            "p50": 2.299999998882413,
+            "p95": 3.299999998882413,
+            "p99": 3.599999999627471
+          },
+          "gpuMs": {
+            "availableSamples": 4228,
+            "p50": 0.7852705,
+            "p95": 2.23503485,
+            "p99": 4.209851749999986
+          },
+          "streamingPressure": {
+            "max": 0,
+            "p50": 0,
+            "p95": 0
+          }
+        },
+        {
+          "profileId": "mobile-medium",
+          "routeId": "subway-ride",
+          "frameMs": {
+            "p50": 8.300000000745058,
+            "p95": 9.100000000093132,
+            "p99": 9.845000000577402
+          },
+          "fps": {
+            "median": 120.4819277000282,
+            "onePercentLow": 101.57440324442364
+          },
+          "cpuMs": {
+            "p50": 0.599999999627471,
+            "p95": 0.8000000007450581,
+            "p99": 0.900000000372529
+          },
+          "gpuMs": {
+            "availableSamples": 3856,
+            "p50": 1.6318115,
+            "p95": 2.57081175,
+            "p99": 3.0206722499999996
+          },
+          "streamingPressure": {
+            "max": 0.6666666666666666,
+            "p50": 0.6666666666666666,
+            "p95": 0.6666666666666666
+          }
+        },
+        {
+          "profileId": "desktop-high",
+          "routeId": "times-square",
+          "frameMs": {
+            "p50": 13.400000000372529,
+            "p95": 18.17999999970197,
+            "p99": 31.02799999929957
+          },
+          "fps": {
+            "median": 74.62686566956711,
+            "onePercentLow": 32.228954493443794
+          },
+          "cpuMs": {
+            "p50": 2.700000001117587,
+            "p95": 4.679999999701972,
+            "p99": 14.235999999344315
+          },
+          "gpuMs": {
+            "availableSamples": 945,
+            "p50": 7.254958,
+            "p95": 13.344041599999999,
+            "p99": 20.01639647999987
+          },
+          "streamingPressure": {
+            "max": 0.4444444444444444,
+            "p50": 0,
+            "p95": 0.1111111111111111
+          }
+        },
+        {
+          "profileId": "desktop-high",
+          "routeId": "central-park",
+          "frameMs": {
+            "p50": 13.299999998882413,
+            "p95": 17.5,
+            "p99": 21.784000000506644
+          },
+          "fps": {
+            "median": 75.18796993113001,
+            "onePercentLow": 45.905251559710905
+          },
+          "cpuMs": {
+            "p50": 1.900000000372529,
+            "p95": 3.099999999627471,
+            "p99": 3.6679999993741577
+          },
+          "gpuMs": {
+            "availableSamples": 917,
+            "p50": 6.765208,
+            "p95": 12.1650996,
+            "p99": 14.995715720000005
+          },
+          "streamingPressure": {
+            "max": 0.3333333333333333,
+            "p50": 0,
+            "p95": 0.1111111111111111
+          }
+        },
+        {
+          "profileId": "desktop-high",
+          "routeId": "waterfront",
+          "frameMs": {
+            "p50": 16.199999999254942,
+            "p95": 20.90000000037253,
+            "p99": 23.92900000026449
+          },
+          "fps": {
+            "median": 61.72839506456736,
+            "onePercentLow": 41.7902962927388
+          },
+          "cpuMs": {
+            "p50": 2.299999998882413,
+            "p95": 3.5,
+            "p99": 6.419000000841876
+          },
+          "gpuMs": {
+            "availableSamples": 872,
+            "p50": 10.0158955,
+            "p95": 15.68877225,
+            "p99": 18.984411499999972
+          },
+          "streamingPressure": {
+            "max": 0.3333333333333333,
+            "p50": 0,
+            "p95": 0.1111111111111111
+          }
+        },
+        {
+          "profileId": "desktop-high",
+          "routeId": "times-square-station",
+          "frameMs": {
+            "p50": 8.300000000745058,
+            "p95": 14.400000000372529,
+            "p99": 16.300000000745058
+          },
+          "fps": {
+            "median": 120.4819277000282,
+            "onePercentLow": 61.3496932487295
+          },
+          "cpuMs": {
+            "p50": 2,
+            "p95": 3.100000001490116,
+            "p99": 3.900000000372529
+          },
+          "gpuMs": {
+            "availableSamples": 4073,
+            "p50": 2.979374,
+            "p95": 6.434124799999995,
+            "p99": 7.695270999999993
+          },
+          "streamingPressure": {
+            "max": 0,
+            "p50": 0,
+            "p95": 0
+          }
+        },
+        {
+          "profileId": "desktop-high",
+          "routeId": "subway-ride",
+          "frameMs": {
+            "p50": 8.300000000745058,
+            "p95": 9.200000001117587,
+            "p99": 10.599999999627471
+          },
+          "fps": {
+            "median": 120.4819277000282,
+            "onePercentLow": 94.33962264482493
+          },
+          "cpuMs": {
+            "p50": 0.6000000014901161,
+            "p95": 0.900000000372529,
+            "p99": 1
+          },
+          "gpuMs": {
+            "availableSamples": 3810,
+            "p50": 1.675958,
+            "p95": 3.312995649999999,
+            "p99": 4.6059872199999985
+          },
+          "streamingPressure": {
+            "max": 1,
+            "p50": 1,
+            "p95": 1
+          }
+        }
+      ]
+    },
+    {
+      "artifact": "living-transit-high-recheck.json",
+      "gitCommit": "6fed441d177d6ccf0a30ba8b3e125cfce8e092ed",
+      "generatedAt": "2026-09-05T19:59:40.238Z",
+      "contract": {
+        "passed": true,
+        "violations": []
+      },
+      "captures": [
+        {
+          "profileId": "desktop-high",
+          "routeId": "times-square",
+          "frameMs": {
+            "p50": 10.900000000372529,
+            "p95": 14.699999999254942,
+            "p99": 18.300000000745058
+          },
+          "fps": {
+            "median": 91.74311926291955,
+            "onePercentLow": 54.64480874094461
+          },
+          "cpuMs": {
+            "p50": 2.5,
+            "p95": 4.599999999627471,
+            "p99": 8.099999999627471
+          },
+          "gpuMs": {
+            "availableSamples": 1226,
+            "p50": 4.406166499999999,
+            "p95": 9.483562249999999,
+            "p99": 11.6606765
+          },
+          "streamingPressure": {
+            "max": 0.3333333333333333,
+            "p50": 0,
+            "p95": 0.1111111111111111
+          }
+        },
+        {
+          "profileId": "desktop-high",
+          "routeId": "central-park",
+          "frameMs": {
+            "p50": 10.700000000186265,
+            "p95": 13.900000000372529,
+            "p99": 15.190000001061717
+          },
+          "fps": {
+            "median": 93.45794392360673,
+            "onePercentLow": 65.83278472219251
+          },
+          "cpuMs": {
+            "p50": 1.599999999627471,
+            "p95": 2.5,
+            "p99": 3.200000001117587
+          },
+          "gpuMs": {
+            "availableSamples": 1206,
+            "p50": 3.5787495,
+            "p95": 7.375791250000001,
+            "p99": 9.475005250000006
+          },
+          "streamingPressure": {
+            "max": 0.5555555555555556,
+            "p50": 0,
+            "p95": 0.1111111111111111
+          }
+        },
+        {
+          "profileId": "desktop-high",
+          "routeId": "waterfront",
+          "frameMs": {
+            "p50": 11,
+            "p95": 13.799999998882413,
+            "p99": 15.099999999627471
+          },
+          "fps": {
+            "median": 90.9090909090909,
+            "onePercentLow": 66.22516556454774
+          },
+          "cpuMs": {
+            "p50": 1.800000000745058,
+            "p95": 2.900000000372529,
+            "p99": 4.541999999843568
+          },
+          "gpuMs": {
+            "availableSamples": 1287,
+            "p50": 4.069208,
+            "p95": 8.282087300000004,
+            "p99": 10.674895260000017
+          },
+          "streamingPressure": {
+            "max": 0.3333333333333333,
+            "p50": 0,
+            "p95": 0.1111111111111111
+          }
+        }
+      ]
+    }
+  ]
+}

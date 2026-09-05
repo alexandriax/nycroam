@@ -71,7 +71,35 @@ diagnostics but no longer drive active underground streaming pressure or the
 quality governor. The existing draw, triangle, frame-time,
 memory and streaming limits are unchanged; rides use station limits.
 
-Final measured results will be recorded in `living-transit-performance.json`.
+The production build and **148 engine tests** pass. All **15 final route/profile
+checks** pass for implementation commit `915263fc`. Full metrics and diagnostic
+runs are recorded in [living-transit-performance.json](living-transit-performance.json).
 Mobile profiles are Chromium emulation on the measured desktop host, not physical
 phone or thermal measurements. Browser visual checks are performed with sound
 muted.
+
+### Final capture
+
+Measured on Apple M1 Max / ANGLE Metal. No performance limits or visual presets
+were lowered. An earlier run missed High street GPU/frame limits; an isolated
+recheck with unchanged rendering passed, as did the final complete run below.
+The report retains both earlier captures. This variability is one reason these
+measurements do not establish physical-phone or sustained thermal performance.
+
+| Profile | Route | 1% low FPS | CPU p95 (ms) | GPU p95 (ms) | Draws p95 |
+| --- | --- | ---: | ---: | ---: | ---: |
+| mobile-low | times-square | 85.3 | 2.20 | 1.42 | 113 |
+| mobile-low | central-park | 96.2 | 1.50 | 1.23 | 82 |
+| mobile-low | waterfront | 96.2 | 1.60 | 1.41 | 86 |
+| mobile-low | times-square-station | 96.2 | 2.20 | 1.80 | 331 |
+| mobile-low | subway-ride | 96.2 | 0.60 | 1.86 | 55 |
+| mobile-medium | times-square | 78.3 | 2.70 | 2.30 | 124 |
+| mobile-medium | central-park | 97.1 | 1.80 | 1.86 | 88 |
+| mobile-medium | waterfront | 96.2 | 2.00 | 2.24 | 100 |
+| mobile-medium | times-square-station | 96.2 | 2.20 | 1.78 | 337 |
+| mobile-medium | subway-ride | 97.1 | 0.70 | 1.77 | 58 |
+| desktop-high | times-square | 61.6 | 3.80 | 10.63 | 233 |
+| desktop-high | central-park | 66.0 | 2.40 | 9.07 | 152 |
+| desktop-high | waterfront | 66.2 | 3.10 | 9.36 | 208 |
+| desktop-high | times-square-station | 96.2 | 3.00 | 3.27 | 358 |
+| desktop-high | subway-ride | 97.1 | 0.80 | 2.58 | 65 |
