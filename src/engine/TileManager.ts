@@ -1,5 +1,6 @@
 import * as THREE from 'three';
-import { buildFoliageGeometry } from './foliageGeometry';
+import { buildFoliageGeometry, buildTreeTrunkGeometry, withFoliageColors } from './foliageGeometry';
+import { VegetationBatch } from './VegetationBatch';
 import { dataUrl } from './dataver';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import type { BuildResponse, MeshPayload, CollisionData, RoadPaths, TileBuildDetail } from './tileTypes';
@@ -63,6 +64,7 @@ interface TileRecord {
   materials: THREE.Material[];
   lod: number; // current detail bucket (0 = full .. 3 = buildings only)
   treeLod: TreeLod;
+  vegetation?: VegetationBatch;
   facade: THREE.Mesh | null;
   facadeMeshes: THREE.Mesh[];
   facadeDetailed: boolean;
@@ -113,7 +115,7 @@ export class TileManager {
   private trunkMat = treeTrunkMaterial();
   private canopyKit = treeCanopyMaterial();
   private canopyMat = this.canopyKit.mat;
-  private trunkGeo = new THREE.CylinderGeometry(0.11, 0.16, 2.4, 5);
+  private trunkGeo = buildTreeTrunkGeometry();
   private canopyGeos: THREE.BufferGeometry[] = [];
   private midCanopyGeo: THREE.BufferGeometry;
   private farCanopyGeo: THREE.BufferGeometry;
@@ -150,29 +152,8 @@ export class TileManager {
     this.compile = compile;
     // Four genuinely different near silhouettes, all shared across tiles.
     const makeOrganic = (parts: { x: number; y: number; z: number; sx: number; sy: number; sz: number }[], seed: number) => {
-      if (quality().level !== 'low') {
-        const sprays = quality().level === 'medium' ? 16 : quality().level === 'ultra' ? 40 : 24;
-        return buildFoliageGeometry(parts, seed, sprays);
-      }
-      const pieces = parts.map((part) => {
-        const geo = new THREE.IcosahedronGeometry(1, 1);
-        geo.scale(part.sx, part.sy, part.sz);
-        geo.translate(part.x, part.y, part.z);
-        return geo;
-      });
-      const merged = mergeGeometries(pieces, false)!;
-      for (const piece of pieces) piece.dispose();
-      const pos = merged.getAttribute('position') as THREE.BufferAttribute;
-      const v = new THREE.Vector3();
-      for (let i = 0; i < pos.count; i++) {
-        v.fromBufferAttribute(pos, i);
-        const noise = hash01(seed + Math.round(v.x * 37.1) + Math.round(v.y * 17.7) * 131 + Math.round(v.z * 23.3) * 977);
-        const scale = 1 + (noise - 0.5) * 0.34;
-        pos.setXYZ(i, v.x * scale, v.y * scale, v.z * scale);
-      }
-      merged.computeVertexNormals();
-      merged.translate(0, 3.15, 0);
-      return merged;
+      const sprays = { low: 24, medium: 48, high: 64, ultra: 80 }[quality().level];
+      return buildFoliageGeometry(parts, seed, sprays);
     };
     this.canopyGeos = [
       makeOrganic([{ x: 0, y: 0, z: 0, sx: 1.5, sy: 1.8, sz: 1.5 }, { x: 0.82, y: -0.42, z: 0.35, sx: 0.9, sy: 0.9, sz: 0.85 }], 11),
@@ -180,14 +161,14 @@ export class TileManager {
       makeOrganic([{ x: 0, y: -0.15, z: 0, sx: 1.75, sy: 1.3, sz: 1.55 }, { x: 1.05, y: -0.42, z: 0.2, sx: 1.05, sy: 0.8, sz: 0.9 }, { x: -0.9, y: -0.35, z: -0.25, sx: 0.95, sy: 0.75, sz: 0.85 }], 47),
       makeOrganic([{ x: 0, y: 0, z: 0, sx: 1.3, sy: 1.85, sz: 1.5 }, { x: 0.35, y: 0.75, z: -0.25, sx: 0.8, sy: 0.95, sz: 0.9 }], 71),
     ];
-    this.midCanopyGeo = new THREE.IcosahedronGeometry(1.45, 0);
+    this.midCanopyGeo = withFoliageColors(new THREE.IcosahedronGeometry(1.45, 1));
     this.midCanopyGeo.scale(1, 1.18, 1);
     this.midCanopyGeo.translate(0, 3.15, 0);
-    // Solid octahedral impostor equivalent: six triangles, no alpha overdraw.
-    this.farCanopyGeo = new THREE.OctahedronGeometry(1.35, 0);
+    // Solid octahedral impostor equivalent: eight triangles, no alpha overdraw.
+    this.farCanopyGeo = withFoliageColors(new THREE.OctahedronGeometry(1.35, 0));
     this.farCanopyGeo.scale(1, 1.35, 1);
     this.farCanopyGeo.translate(0, 3.15, 0);
-    this.trunkGeo.translate(0, 1.2, 0);
+
     for (let i = 0; i < workerCount; i++) {
       const w = new Worker(new URL('./tileWorker.ts', import.meta.url));
       w.onmessage = (ev: MessageEvent<BuildResponse>) => this.onBuilt(ev.data, i);
@@ -507,12 +488,13 @@ export class TileManager {
       let lod = rec.lod;
       if (grow > lod) lod = grow;
       else if (shrink < lod) lod = shrink;
+      rec.vegetation?.update(camX, camY, camZ);
       const treeLod = treeLodForDistanceSq(dSq);
       if (lod === rec.lod && treeLod === rec.treeLod) continue;
       rec.lod = lod;
       rec.treeLod = treeLod;
       rec.group.traverse((child) => {
-        if (child === rec.group) return;
+        if (child === rec.group || child.userData.dynamicVegetation) return;
         const tier = child.userData.lodTier as number | undefined;
         const vegetationLod = child.userData.vegetationLod as TreeLod | undefined;
         child.visible = (!tier || tier > lod) && (vegetationLod === undefined || vegetationLod === treeLod);
@@ -1028,7 +1010,7 @@ export class TileManager {
         nearCanopy.setMatrixAt(nearIndex, canopyMatrix);
 
         // Mid and far tiers preserve each source tree's height/spread and
-        // stable orientation, but use 20- and 6-triangle solid crowns. These
+        // stable orientation, but use 80- and 8-triangle solid crowns. These
         // stay one draw each per tile and avoid billboard alpha overdraw.
         scale.set(
           s * profile.x * spread * 1.08,
@@ -1082,6 +1064,8 @@ export class TileManager {
       farCanopies.receiveShadow = q.shadows;
       farCanopies.userData.vegetationLod = 2;
       layerGroup.add(trunks, midCanopies, farCanopies);
+      rec.vegetation = new VegetationBatch(res.trees, speciesForTree, trunks, nearCanopies, midCanopies, farCanopies);
+      rec.vegetation.update(this.lastSpatialX, this.lastSpatialY, this.lastSpatialZ);
     }
 
     // Base owns immutable collision and road topology. Near owns activity
@@ -1097,6 +1081,7 @@ export class TileManager {
       : Number.POSITIVE_INFINITY;
     this.updateShadowPolicy(rec, tileDistanceSq);
     for (const child of layerGroup.children) {
+      if (child.userData.dynamicVegetation) continue;
       const tier = child.userData.lodTier as number | undefined;
       const vegetationLod = child.userData.vegetationLod as TreeLod | undefined;
       child.visible = (!tier || tier > rec.lod)

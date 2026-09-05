@@ -12,6 +12,8 @@
 // a group live under its rotated node in group-local frame (trains included:
 // each group gets its own TrainScheduler attached to its node).
 import * as THREE from 'three';
+import { makeTactileMaterial } from '../transitMaterials';
+import { trackDetail } from './trackDetail';
 import type { StationSpec, TrackInfo, NetworkData, Arrival } from './types';
 import {
   makeNameMosaicTexture, makeHangingSignTexture, makeColumnSignTexture,
@@ -316,14 +318,14 @@ export class ComplexStationWorld {
 
   private build() {
     const terrazzo = makeTerrazzoTexture();
-    this.platMat = this.track(makeWorldDetailMaterial(0xa8a49a, terrazzo.map, 2, 0.85));
+    this.platMat = this.track(makeWorldDetailMaterial(0x9fa3a1, terrazzo.map, 1.2, 0.95));
     this.platSideMat = this.track(new THREE.MeshLambertMaterial({ color: 0x5c5c58 }));
     this.ceilMat = this.track(new THREE.MeshLambertMaterial({ color: 0xb8b6ae }));
     this.beamMat = this.track(new THREE.MeshLambertMaterial({ color: 0x4a5548 }));
     this.troughMat = this.track(new THREE.MeshLambertMaterial({ color: 0x1c1d1f }));
     this.railMat = this.track(new THREE.MeshStandardMaterial({ color: 0x9aa0a4, metalness: 0.85, roughness: 0.3 }));
     this.thirdRailMat = this.track(new THREE.MeshLambertMaterial({ color: 0x3a3630 }));
-    this.yellowMat = this.track(new THREE.MeshLambertMaterial({ color: 0xf2c53d }));
+    this.yellowMat = this.track(makeTactileMaterial());
     this.darkMat = this.track(new THREE.MeshBasicMaterial({ color: 0x020304 }));
     this.lightMat = this.track(new THREE.MeshBasicMaterial({ color: 0xfff6e0 }));
     this.lightGeo = this.track(new THREE.BoxGeometry(3.4, 0.08, 0.24));
@@ -552,6 +554,7 @@ export class ComplexStationWorld {
       const x0 = stub === -1 ? bumperX : -(L / 2 + 90);
       const x1 = stub === 1 ? bumperX : L / 2 + 90;
       const cxx = (x0 + x1) / 2, len = x1 - x0;
+      node.add(trackDetail(len, cxx, -1.1, t.z, resource => { this.track(resource); }));
       this.box(len, 0.3, TRACK_W - 0.2, this.troughMat, cxx, -1.65, t.z, node);
       for (const off of [-0.72, 0.72]) {
         this.box(len, 0.16, 0.12, this.railMat, cxx, -1.2, t.z + off, node);
@@ -576,8 +579,10 @@ export class ComplexStationWorld {
       this.box(L, 1.5, pw, this.platMat, 0, -0.75, pc, node);
       this.box(L, 1.5, 0.08, this.platSideMat, 0, -0.75, p.zMin - 0.04, node);
       this.box(L, 1.5, 0.08, this.platSideMat, 0, -0.75, p.zMax + 0.04, node);
-      this.box(L, 0.03, 0.55, this.yellowMat, 0, 0.015, p.zMin + 0.3, node);
-      this.box(L, 0.03, 0.55, this.yellowMat, 0, 0.015, p.zMax - 0.3, node);
+      if (cs.tracks.some(t => Math.abs(t.z - (p.zMin - TRACK_W/2)) < .1))
+        this.box(L, 0.03, 0.55, this.yellowMat, 0, 0.015, p.zMin + 0.3, node);
+      if (cs.tracks.some(t => Math.abs(t.z - (p.zMax + TRACK_W/2)) < .1))
+        this.box(L, 0.03, 0.55, this.yellowMat, 0, 0.015, p.zMax - 0.3, node);
     }
 
     // ---- side walls + mosaics ----
@@ -1698,7 +1703,8 @@ export class ComplexStationWorld {
     this.architecture.dispose();
     for (const g of this.groups) g.scheduler?.dispose();
     this.scene.traverse((o) => {
-      if (o instanceof THREE.Mesh || o instanceof THREE.InstancedMesh) o.geometry.dispose();
+      if (o instanceof THREE.Mesh) o.geometry.dispose();
+      if (o instanceof THREE.InstancedMesh) o.dispose();
     });
     for (const d of this.disposables) d.dispose();
     this.scene.clear();

@@ -1,0 +1,1781 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-09-05T19:13:44.110Z",
+  "gitCommit": "fdc96cafbc035faf8daf76db4629abf7fb239614",
+  "browserVersion": "151.0.7922.34",
+  "nodeVersion": "v22.23.2",
+  "measurementClass": "automated-production-chromium",
+  "physicalDeviceValidated": false,
+  "limitation": "Mobile profiles are Chromium emulation; physical-phone thermal validation remains required.",
+  "contract": {
+    "passed": true,
+    "violations": []
+  },
+  "command": "npm run benchmark:run -- --profiles mobile-low,mobile-medium,desktop-high",
+  "profiles": [
+    {
+      "profileId": "mobile-low",
+      "platform": "mobile-emulation",
+      "tier": "low",
+      "capabilities": {
+        "deviceMemoryGiB": 32,
+        "devicePixelRatio": 2,
+        "gpuTimerExtension": true,
+        "hardwareConcurrency": 10,
+        "muted": true,
+        "renderer": "ANGLE (Apple, ANGLE Metal Renderer: Apple M1 Max, Unspecified Version)",
+        "routes": [
+          "times-square",
+          "central-park",
+          "waterfront",
+          "times-square-station"
+        ],
+        "userAgent": "NYCRoamBenchmark/1.0 (Linux; Android 14; Mobile; Chromium emulation)",
+        "vendor": "Google Inc. (Apple)",
+        "webgl2": true
+      },
+      "contract": {
+        "passed": true,
+        "violations": []
+      },
+      "captures": [
+        {
+          "routeId": "times-square",
+          "startedAt": "2026-09-05T19:10:37.805Z",
+          "samples": 1200,
+          "durationSeconds": 10.059700000000186,
+          "fps": {
+            "median": 120.4819277000282,
+            "onePercentLow": 93.27488108096033
+          },
+          "frameMs": {
+            "p50": 8.300000000745058,
+            "p95": 9,
+            "p99": 10.720999999260512
+          },
+          "cpuMs": {
+            "p50": 1.400000000372529,
+            "p95": 2.099999999627471,
+            "p99": 4.600999999623745
+          },
+          "gpuMs": {
+            "availableSamples": 1200,
+            "p50": 0.677354,
+            "p95": 1.6145219499999999,
+            "p99": 2.7380064199999987
+          },
+          "drawCalls": {
+            "max": 123,
+            "p50": 96,
+            "p95": 117
+          },
+          "shadowCalls": {
+            "max": 0,
+            "p50": 0,
+            "p95": 0
+          },
+          "triangles": {
+            "max": 682445,
+            "p50": 515960,
+            "p95": 648859
+          },
+          "sceneResources": {
+            "geometries": 734,
+            "geometryBytes": 55923835,
+            "materials": 297,
+            "textureBytes": 78571803,
+            "textures": 105,
+            "totalBytes": 134495638
+          },
+          "jsHeapBytes": 126215181,
+          "streaming": {
+            "bytes": {
+              "byDetail": {
+                "base": {
+                  "integrated": 15223474,
+                  "transferred": 15223474
+                },
+                "mid": {
+                  "integrated": 7815287,
+                  "transferred": 7815287
+                },
+                "near": {
+                  "integrated": 7246836,
+                  "transferred": 7246836
+                }
+              },
+              "integrated": 30285597,
+              "integratedPerTile": 170143.8033707865,
+              "source": 1453791,
+              "sourcePerTile": 8167.365168539326,
+              "transferred": 30285597,
+              "transferredPerTile": 170143.8033707865
+            },
+            "completed": 178,
+            "detail": {
+              "base": 3,
+              "mid": 13,
+              "near": 12,
+              "upgrades": 97
+            },
+            "errors": 0,
+            "integration": {
+              "mean": 0.2385416666608459,
+              "p50": 0.19999999925494194,
+              "p95": 0.7000000001862645,
+              "p99": 0.8999999994412065,
+              "recentMax": 1.2000000001862645,
+              "samples": 96
+            },
+            "pressure": {
+              "awaitingIntegration": 0,
+              "inFlight": 0,
+              "peakAwaitingIntegration": 18,
+              "peakInFlight": 6,
+              "peakQueue": 13,
+              "prefetch": 0,
+              "queue": 0
+            },
+            "requests": 178,
+            "staleResponses": 0,
+            "worker": {
+              "build": {
+                "mean": 1.4010416666181602,
+                "p50": 1.2000000001862645,
+                "p95": 2.599999999627471,
+                "p99": 4.900000000372529,
+                "recentMax": 5.7999999998137355,
+                "samples": 96
+              },
+              "decode": {
+                "mean": 0.08854166667636794,
+                "p50": 0,
+                "p95": 0.30000000074505806,
+                "p99": 0.6000000005587935,
+                "recentMax": 0.7999999998137355,
+                "samples": 96
+              },
+              "fetch": {
+                "mean": 0.6145833333430346,
+                "p50": 0,
+                "p95": 2,
+                "p99": 2.3999999994412065,
+                "recentMax": 6.2000000001862645,
+                "samples": 96
+              },
+              "total": {
+                "mean": 1.4927083333022892,
+                "p50": 1.2999999998137355,
+                "p95": 2.599999999627471,
+                "p99": 4.900000000372529,
+                "recentMax": 5.7999999998137355,
+                "samples": 96
+              }
+            }
+          },
+          "streamingPressure": {
+            "max": 0.6666666666666666,
+            "p50": 0,
+            "p95": 0.16666666666666666
+          }
+        },
+        {
+          "routeId": "central-park",
+          "startedAt": "2026-09-05T19:10:53.100Z",
+          "samples": 1200,
+          "durationSeconds": 10.010299999999814,
+          "fps": {
+            "median": 120.48192771354717,
+            "onePercentLow": 107.52688172247602
+          },
+          "frameMs": {
+            "p50": 8.299999999813735,
+            "p95": 8.905000000353898,
+            "p99": 9.299999999823049
+          },
+          "cpuMs": {
+            "p50": 0.900000000372529,
+            "p95": 1.2999999998603016,
+            "p99": 1.6010000005550673
+          },
+          "gpuMs": {
+            "availableSamples": 1200,
+            "p50": 0.680208,
+            "p95": 1.3589594499999997,
+            "p99": 3.0421220799999995
+          },
+          "drawCalls": {
+            "max": 64,
+            "p50": 50,
+            "p95": 59
+          },
+          "shadowCalls": {
+            "max": 0,
+            "p50": 0,
+            "p95": 0
+          },
+          "triangles": {
+            "max": 901174,
+            "p50": 657041,
+            "p95": 788683.5999999999
+          },
+          "sceneResources": {
+            "geometries": 520,
+            "geometryBytes": 45669512,
+            "materials": 228,
+            "textureBytes": 27952298,
+            "textures": 43,
+            "totalBytes": 73621810
+          },
+          "jsHeapBytes": 114500760,
+          "streaming": {
+            "bytes": {
+              "byDetail": {
+                "base": {
+                  "integrated": 18514527,
+                  "transferred": 18514527
+                },
+                "mid": {
+                  "integrated": 9582232,
+                  "transferred": 9582232
+                },
+                "near": {
+                  "integrated": 8484996,
+                  "transferred": 8484996
+                }
+              },
+              "integrated": 36581755,
+              "integratedPerTile": 145165.69444444444,
+              "source": 2219835,
+              "sourcePerTile": 8808.869047619048,
+              "transferred": 36581755,
+              "transferredPerTile": 145165.69444444444
+            },
+            "completed": 252,
+            "detail": {
+              "base": 2,
+              "mid": 11,
+              "near": 11,
+              "upgrades": 142
+            },
+            "errors": 0,
+            "integration": {
+              "mean": 0.20520833325766338,
+              "p50": 0.09999999962747097,
+              "p95": 0.7000000001862645,
+              "p99": 0.7999999998137355,
+              "recentMax": 1.5,
+              "samples": 96
+            },
+            "pressure": {
+              "awaitingIntegration": 0,
+              "inFlight": 0,
+              "peakAwaitingIntegration": 18,
+              "peakInFlight": 6,
+              "peakQueue": 13,
+              "prefetch": 0,
+              "queue": 0
+            },
+            "requests": 252,
+            "staleResponses": 0,
+            "worker": {
+              "build": {
+                "mean": 0.9125000000252234,
+                "p50": 0.7000000001862645,
+                "p95": 2.099999999627471,
+                "p99": 3,
+                "recentMax": 4.099999999627471,
+                "samples": 96
+              },
+              "decode": {
+                "mean": 0.078125,
+                "p50": 0,
+                "p95": 0.2999999998137355,
+                "p99": 0.40000000037252903,
+                "recentMax": 0.5,
+                "samples": 96
+              },
+              "fetch": {
+                "mean": 0.4520833333566164,
+                "p50": 0,
+                "p95": 1.400000000372529,
+                "p99": 1.6000000005587935,
+                "recentMax": 2.2000000001862645,
+                "samples": 96
+              },
+              "total": {
+                "mean": 0.9958333333488554,
+                "p50": 0.8999999994412065,
+                "p95": 2.099999999627471,
+                "p99": 3.099999999627471,
+                "recentMax": 4.099999999627471,
+                "samples": 96
+              }
+            }
+          },
+          "streamingPressure": {
+            "max": 0.5,
+            "p50": 0,
+            "p95": 0
+          }
+        },
+        {
+          "routeId": "waterfront",
+          "startedAt": "2026-09-05T19:11:07.399Z",
+          "samples": 1200,
+          "durationSeconds": 10.018200000000187,
+          "fps": {
+            "median": 120.4819277000282,
+            "onePercentLow": 107.52688172258371
+          },
+          "frameMs": {
+            "p50": 8.300000000745058,
+            "p95": 8.799999999813735,
+            "p99": 9.299999999813735
+          },
+          "cpuMs": {
+            "p50": 1,
+            "p95": 1.5,
+            "p99": 2.099999999627471
+          },
+          "gpuMs": {
+            "availableSamples": 1200,
+            "p50": 0.6974785,
+            "p95": 2.1478389,
+            "p99": 2.89688433
+          },
+          "drawCalls": {
+            "max": 111,
+            "p50": 61,
+            "p95": 82.04999999999995
+          },
+          "shadowCalls": {
+            "max": 0,
+            "p50": 0,
+            "p95": 0
+          },
+          "triangles": {
+            "max": 884871,
+            "p50": 626258.5,
+            "p95": 767364
+          },
+          "sceneResources": {
+            "geometries": 443,
+            "geometryBytes": 44601613,
+            "materials": 199,
+            "textureBytes": 31490046,
+            "textures": 44,
+            "totalBytes": 76091659
+          },
+          "jsHeapBytes": 121306648,
+          "streaming": {
+            "bytes": {
+              "byDetail": {
+                "base": {
+                  "integrated": 26008126,
+                  "transferred": 26008126
+                },
+                "mid": {
+                  "integrated": 15088797,
+                  "transferred": 15088797
+                },
+                "near": {
+                  "integrated": 10921804,
+                  "transferred": 10921804
+                }
+              },
+              "integrated": 52018727,
+              "integratedPerTile": 132027.22588832487,
+              "source": 3734477,
+              "sourcePerTile": 9478.368020304568,
+              "transferred": 52018727,
+              "transferredPerTile": 132027.22588832487
+            },
+            "completed": 394,
+            "detail": {
+              "base": 2,
+              "mid": 9,
+              "near": 12,
+              "upgrades": 228
+            },
+            "errors": 0,
+            "integration": {
+              "mean": 0.20937500004462586,
+              "p50": 0.10000000055879354,
+              "p95": 0.7000000001862645,
+              "p99": 0.8999999994412065,
+              "recentMax": 1,
+              "samples": 96
+            },
+            "pressure": {
+              "awaitingIntegration": 0,
+              "inFlight": 0,
+              "peakAwaitingIntegration": 18,
+              "peakInFlight": 6,
+              "peakQueue": 13,
+              "prefetch": 0,
+              "queue": 0
+            },
+            "requests": 394,
+            "staleResponses": 0,
+            "worker": {
+              "build": {
+                "mean": 0.9760416666977108,
+                "p50": 0.8000000007450581,
+                "p95": 2.2000000001862645,
+                "p99": 2.5,
+                "recentMax": 4.2999999998137355,
+                "samples": 96
+              },
+              "decode": {
+                "mean": 0.08645833333139308,
+                "p50": 0,
+                "p95": 0.30000000074505806,
+                "p99": 0.7000000001862645,
+                "recentMax": 0.7999999998137355,
+                "samples": 96
+              },
+              "fetch": {
+                "mean": 0.3791666666511446,
+                "p50": 0,
+                "p95": 1.2000000001862645,
+                "p99": 1.2999999998137355,
+                "recentMax": 1.7999999998137355,
+                "samples": 96
+              },
+              "total": {
+                "mean": 1.0645833333643775,
+                "p50": 1,
+                "p95": 2.2000000001862645,
+                "p99": 2.5,
+                "recentMax": 4.2999999998137355,
+                "samples": 96
+              }
+            }
+          },
+          "streamingPressure": {
+            "max": 0.6666666666666666,
+            "p50": 0,
+            "p95": 0.16666666666666666
+          }
+        },
+        {
+          "routeId": "times-square-station",
+          "startedAt": "2026-09-05T19:11:22.688Z",
+          "samples": 1200,
+          "durationSeconds": 10.084,
+          "fps": {
+            "median": 120.48192771354717,
+            "onePercentLow": 107.5153209247712
+          },
+          "frameMs": {
+            "p50": 8.299999999813735,
+            "p95": 9.19999999930151,
+            "p99": 9.301000000732017
+          },
+          "cpuMs": {
+            "p50": 0.8999999994412065,
+            "p95": 1.2999999998137355,
+            "p99": 1.4020000003650765
+          },
+          "gpuMs": {
+            "availableSamples": 1200,
+            "p50": 1.553083,
+            "p95": 2.23533715,
+            "p99": 3.2529706699999994
+          },
+          "drawCalls": {
+            "max": 122,
+            "p50": 65,
+            "p95": 117
+          },
+          "shadowCalls": {
+            "max": 0,
+            "p50": 0,
+            "p95": 0
+          },
+          "triangles": {
+            "max": 262112,
+            "p50": 199310,
+            "p95": 262100
+          },
+          "sceneResources": {
+            "geometries": 413,
+            "geometryBytes": 9257080,
+            "materials": 142,
+            "textureBytes": 92190382,
+            "textures": 83,
+            "totalBytes": 101447462
+          },
+          "jsHeapBytes": 131742467,
+          "streaming": {
+            "bytes": {
+              "byDetail": {
+                "base": {
+                  "integrated": 26008126,
+                  "transferred": 26008126
+                },
+                "mid": {
+                  "integrated": 15088797,
+                  "transferred": 15088797
+                },
+                "near": {
+                  "integrated": 10921804,
+                  "transferred": 10921804
+                }
+              },
+              "integrated": 52018727,
+              "integratedPerTile": 132027.22588832487,
+              "source": 3734477,
+              "sourcePerTile": 9478.368020304568,
+              "transferred": 52018727,
+              "transferredPerTile": 132027.22588832487
+            },
+            "completed": 394,
+            "detail": {
+              "base": 2,
+              "mid": 9,
+              "near": 12,
+              "upgrades": 228
+            },
+            "errors": 0,
+            "integration": {
+              "mean": 0.20937500004462586,
+              "p50": 0.10000000055879354,
+              "p95": 0.7000000001862645,
+              "p99": 0.8999999994412065,
+              "recentMax": 1,
+              "samples": 96
+            },
+            "pressure": {
+              "awaitingIntegration": 0,
+              "inFlight": 0,
+              "peakAwaitingIntegration": 18,
+              "peakInFlight": 6,
+              "peakQueue": 13,
+              "prefetch": 0,
+              "queue": 0
+            },
+            "requests": 394,
+            "staleResponses": 0,
+            "worker": {
+              "build": {
+                "mean": 0.9760416666977108,
+                "p50": 0.8000000007450581,
+                "p95": 2.2000000001862645,
+                "p99": 2.5,
+                "recentMax": 4.2999999998137355,
+                "samples": 96
+              },
+              "decode": {
+                "mean": 0.08645833333139308,
+                "p50": 0,
+                "p95": 0.30000000074505806,
+                "p99": 0.7000000001862645,
+                "recentMax": 0.7999999998137355,
+                "samples": 96
+              },
+              "fetch": {
+                "mean": 0.3791666666511446,
+                "p50": 0,
+                "p95": 1.2000000001862645,
+                "p99": 1.2999999998137355,
+                "recentMax": 1.7999999998137355,
+                "samples": 96
+              },
+              "total": {
+                "mean": 1.0645833333643775,
+                "p50": 1,
+                "p95": 2.2000000001862645,
+                "p99": 2.5,
+                "recentMax": 4.2999999998137355,
+                "samples": 96
+              }
+            }
+          },
+          "streamingPressure": {
+            "max": 0,
+            "p50": 0,
+            "p95": 0
+          }
+        }
+      ]
+    },
+    {
+      "profileId": "mobile-medium",
+      "platform": "mobile-emulation",
+      "tier": "medium",
+      "capabilities": {
+        "deviceMemoryGiB": 32,
+        "devicePixelRatio": 3,
+        "gpuTimerExtension": true,
+        "hardwareConcurrency": 10,
+        "muted": true,
+        "renderer": "ANGLE (Apple, ANGLE Metal Renderer: Apple M1 Max, Unspecified Version)",
+        "routes": [
+          "times-square",
+          "central-park",
+          "waterfront",
+          "times-square-station"
+        ],
+        "userAgent": "NYCRoamBenchmark/1.0 (Linux; Android 14; Mobile; Chromium emulation)",
+        "vendor": "Google Inc. (Apple)",
+        "webgl2": true
+      },
+      "contract": {
+        "passed": true,
+        "violations": []
+      },
+      "captures": [
+        {
+          "routeId": "times-square",
+          "startedAt": "2026-09-05T19:11:40.546Z",
+          "samples": 1200,
+          "durationSeconds": 10.055699999999256,
+          "fps": {
+            "median": 120.4819277000282,
+            "onePercentLow": 106.31511800561249
+          },
+          "frameMs": {
+            "p50": 8.300000000745058,
+            "p95": 9.100000000558794,
+            "p99": 9.406000000368799
+          },
+          "cpuMs": {
+            "p50": 1.7999999998137355,
+            "p95": 2.705000000167633,
+            "p99": 5.701000000182539
+          },
+          "gpuMs": {
+            "availableSamples": 1200,
+            "p50": 1.2522285000000002,
+            "p95": 2.4806308999999986,
+            "p99": 3.7257568399999994
+          },
+          "drawCalls": {
+            "max": 140,
+            "p50": 111,
+            "p95": 123
+          },
+          "shadowCalls": {
+            "max": 22,
+            "p50": 13,
+            "p95": 22
+          },
+          "triangles": {
+            "max": 763209,
+            "p50": 564062,
+            "p95": 695194
+          },
+          "sceneResources": {
+            "geometries": 816,
+            "geometryBytes": 59614416,
+            "materials": 302,
+            "textureBytes": 84641167,
+            "textures": 109,
+            "totalBytes": 144255583
+          },
+          "jsHeapBytes": 119209152,
+          "streaming": {
+            "bytes": {
+              "byDetail": {
+                "base": {
+                  "integrated": 21328806,
+                  "transferred": 21328806
+                },
+                "mid": {
+                  "integrated": 7815287,
+                  "transferred": 7815287
+                },
+                "near": {
+                  "integrated": 7246836,
+                  "transferred": 7246836
+                }
+              },
+              "integrated": 36390929,
+              "integratedPerTile": 170849.43192488264,
+              "source": 2028337,
+              "sourcePerTile": 9522.708920187793,
+              "transferred": 36390929,
+              "transferredPerTile": 170849.43192488264
+            },
+            "completed": 213,
+            "detail": {
+              "base": 15,
+              "mid": 15,
+              "near": 14,
+              "upgrades": 97
+            },
+            "errors": 0,
+            "integration": {
+              "mean": 0.22395833331393078,
+              "p50": 0.10000000055879354,
+              "p95": 0.6999999992549419,
+              "p99": 0.8999999994412065,
+              "recentMax": 1.099999999627471,
+              "samples": 96
+            },
+            "pressure": {
+              "awaitingIntegration": 0,
+              "inFlight": 0,
+              "peakAwaitingIntegration": 31,
+              "peakInFlight": 6,
+              "peakQueue": 26,
+              "prefetch": 0,
+              "queue": 0
+            },
+            "requests": 213,
+            "staleResponses": 0,
+            "worker": {
+              "build": {
+                "mean": 1.2583333332343802,
+                "p50": 1.099999999627471,
+                "p95": 2.300000000745058,
+                "p99": 3.400000000372529,
+                "recentMax": 4.2999999998137355,
+                "samples": 96
+              },
+              "decode": {
+                "mean": 0.09687500004656613,
+                "p50": 0,
+                "p95": 0.40000000037252903,
+                "p99": 0.5,
+                "recentMax": 0.6000000005587935,
+                "samples": 96
+              },
+              "fetch": {
+                "mean": 0.9260416667190535,
+                "p50": 0,
+                "p95": 2.3999999994412065,
+                "p99": 2.7999999998137355,
+                "recentMax": 4.800000000745058,
+                "samples": 96
+              },
+              "total": {
+                "mean": 1.3614583332964685,
+                "p50": 1.2000000001862645,
+                "p95": 2.400000000372529,
+                "p99": 3.400000000372529,
+                "recentMax": 4.2999999998137355,
+                "samples": 96
+              }
+            }
+          },
+          "streamingPressure": {
+            "max": 1,
+            "p50": 0,
+            "p95": 0.16666666666666666
+          }
+        },
+        {
+          "routeId": "central-park",
+          "startedAt": "2026-09-05T19:11:55.855Z",
+          "samples": 1200,
+          "durationSeconds": 10.009,
+          "fps": {
+            "median": 120.4819277000282,
+            "onePercentLow": 106.38297872972831
+          },
+          "frameMs": {
+            "p50": 8.300000000745058,
+            "p95": 9.200000000186265,
+            "p99": 9.399999999441206
+          },
+          "cpuMs": {
+            "p50": 1.1000000005587935,
+            "p95": 1.599999999627471,
+            "p99": 2
+          },
+          "gpuMs": {
+            "availableSamples": 1200,
+            "p50": 1.1190829999999998,
+            "p95": 2.05704165,
+            "p99": 3.16249008
+          },
+          "drawCalls": {
+            "max": 74,
+            "p50": 59,
+            "p95": 69
+          },
+          "shadowCalls": {
+            "max": 13,
+            "p50": 11,
+            "p95": 13
+          },
+          "triangles": {
+            "max": 935238,
+            "p50": 694217,
+            "p95": 831131.4999999993
+          },
+          "sceneResources": {
+            "geometries": 580,
+            "geometryBytes": 48404707,
+            "materials": 233,
+            "textureBytes": 31633236,
+            "textures": 47,
+            "totalBytes": 80037943
+          },
+          "jsHeapBytes": 120309231,
+          "streaming": {
+            "bytes": {
+              "byDetail": {
+                "base": {
+                  "integrated": 26264197,
+                  "transferred": 26264197
+                },
+                "mid": {
+                  "integrated": 9582232,
+                  "transferred": 9582232
+                },
+                "near": {
+                  "integrated": 8484996,
+                  "transferred": 8484996
+                }
+              },
+              "integrated": 44331425,
+              "integratedPerTile": 149768.3277027027,
+              "source": 2949396,
+              "sourcePerTile": 9964.175675675675,
+              "transferred": 44331425,
+              "transferredPerTile": 149768.3277027027
+            },
+            "completed": 296,
+            "detail": {
+              "base": 13,
+              "mid": 13,
+              "near": 13,
+              "upgrades": 142
+            },
+            "errors": 0,
+            "integration": {
+              "mean": 0.21249999993597157,
+              "p50": 0.10000000055879354,
+              "p95": 0.7000000001862645,
+              "p99": 0.900000000372529,
+              "recentMax": 1,
+              "samples": 96
+            },
+            "pressure": {
+              "awaitingIntegration": 0,
+              "inFlight": 0,
+              "peakAwaitingIntegration": 31,
+              "peakInFlight": 6,
+              "peakQueue": 26,
+              "prefetch": 0,
+              "queue": 0
+            },
+            "requests": 296,
+            "staleResponses": 0,
+            "worker": {
+              "build": {
+                "mean": 0.7333333332984088,
+                "p50": 0.5,
+                "p95": 2.099999999627471,
+                "p99": 3,
+                "recentMax": 3.900000000372529,
+                "samples": 96
+              },
+              "decode": {
+                "mean": 0.09062500003104408,
+                "p50": 0,
+                "p95": 0.40000000037252903,
+                "p99": 0.7000000001862645,
+                "recentMax": 0.7999999998137355,
+                "samples": 96
+              },
+              "fetch": {
+                "mean": 0.6322916666977108,
+                "p50": 0,
+                "p95": 2.2000000001862645,
+                "p99": 2.400000000372529,
+                "recentMax": 2.7999999998137355,
+                "samples": 96
+              },
+              "total": {
+                "mean": 0.828125,
+                "p50": 0.7000000001862645,
+                "p95": 2.099999999627471,
+                "p99": 3,
+                "recentMax": 3.900000000372529,
+                "samples": 96
+              }
+            }
+          },
+          "streamingPressure": {
+            "max": 0.5,
+            "p50": 0,
+            "p95": 0
+          }
+        },
+        {
+          "routeId": "waterfront",
+          "startedAt": "2026-09-05T19:12:10.142Z",
+          "samples": 1200,
+          "durationSeconds": 10.027,
+          "fps": {
+            "median": 120.48192771354717,
+            "onePercentLow": 107.52688171181572
+          },
+          "frameMs": {
+            "p50": 8.299999999813735,
+            "p95": 9.099999999627471,
+            "p99": 9.300000000745058
+          },
+          "cpuMs": {
+            "p50": 1.3000000002793968,
+            "p95": 2,
+            "p99": 2.701000000182538
+          },
+          "gpuMs": {
+            "availableSamples": 1200,
+            "p50": 1.108791,
+            "p95": 2.5844868499999984,
+            "p99": 3.37311184
+          },
+          "drawCalls": {
+            "max": 143,
+            "p50": 79,
+            "p95": 101
+          },
+          "shadowCalls": {
+            "max": 22,
+            "p50": 11,
+            "p95": 13
+          },
+          "triangles": {
+            "max": 1049420,
+            "p50": 682901,
+            "p95": 880640.25
+          },
+          "sceneResources": {
+            "geometries": 492,
+            "geometryBytes": 47605023,
+            "materials": 203,
+            "textureBytes": 34024104,
+            "textures": 46,
+            "totalBytes": 81629127
+          },
+          "jsHeapBytes": 125019140,
+          "streaming": {
+            "bytes": {
+              "byDetail": {
+                "base": {
+                  "integrated": 37491312,
+                  "transferred": 37491312
+                },
+                "mid": {
+                  "integrated": 15088797,
+                  "transferred": 15088797
+                },
+                "near": {
+                  "integrated": 10920724,
+                  "transferred": 10920724
+                }
+              },
+              "integrated": 63500833,
+              "integratedPerTile": 139869.67621145374,
+              "source": 4866583,
+              "sourcePerTile": 10719.345814977974,
+              "transferred": 63500833,
+              "transferredPerTile": 139869.67621145374
+            },
+            "completed": 454,
+            "detail": {
+              "base": 10,
+              "mid": 10,
+              "near": 15,
+              "upgrades": 227
+            },
+            "errors": 0,
+            "integration": {
+              "mean": 0.18958333342258507,
+              "p50": 0.10000000055879354,
+              "p95": 0.7000000001862645,
+              "p99": 0.7999999998137355,
+              "recentMax": 0.900000000372529,
+              "samples": 96
+            },
+            "pressure": {
+              "awaitingIntegration": 0,
+              "inFlight": 0,
+              "peakAwaitingIntegration": 31,
+              "peakInFlight": 6,
+              "peakQueue": 26,
+              "prefetch": 0,
+              "queue": 0
+            },
+            "requests": 454,
+            "staleResponses": 0,
+            "worker": {
+              "build": {
+                "mean": 1.1468750000252232,
+                "p50": 0.8999999994412065,
+                "p95": 2.400000000372529,
+                "p99": 6.5,
+                "recentMax": 10,
+                "samples": 96
+              },
+              "decode": {
+                "mean": 0.1010416666783082,
+                "p50": 0,
+                "p95": 0.40000000037252903,
+                "p99": 0.7000000001862645,
+                "recentMax": 1.1000000005587935,
+                "samples": 96
+              },
+              "fetch": {
+                "mean": 0.5687499999767169,
+                "p50": 0,
+                "p95": 1.5,
+                "p99": 1.6000000005587935,
+                "recentMax": 2,
+                "samples": 96
+              },
+              "total": {
+                "mean": 1.2510416667015913,
+                "p50": 1,
+                "p95": 2.699999999254942,
+                "p99": 6.5,
+                "recentMax": 10,
+                "samples": 96
+              }
+            }
+          },
+          "streamingPressure": {
+            "max": 0.6666666666666666,
+            "p50": 0,
+            "p95": 0.16666666666666666
+          }
+        },
+        {
+          "routeId": "times-square-station",
+          "startedAt": "2026-09-05T19:12:25.441Z",
+          "samples": 1200,
+          "durationSeconds": 10.0985,
+          "fps": {
+            "median": 120.48192771354717,
+            "onePercentLow": 106.38297871918822
+          },
+          "frameMs": {
+            "p50": 8.299999999813735,
+            "p95": 9.299999999813735,
+            "p99": 9.400000000372529
+          },
+          "cpuMs": {
+            "p50": 0.7999999998137355,
+            "p95": 1.099999999627471,
+            "p99": 1.3999999994505197
+          },
+          "gpuMs": {
+            "availableSamples": 1200,
+            "p50": 1.5946455,
+            "p95": 2.5814433999999995,
+            "p99": 3.0923204099999997
+          },
+          "drawCalls": {
+            "max": 97,
+            "p50": 68,
+            "p95": 79
+          },
+          "shadowCalls": {
+            "max": 0,
+            "p50": 0,
+            "p95": 0
+          },
+          "triangles": {
+            "max": 229907,
+            "p50": 198941,
+            "p95": 199531
+          },
+          "sceneResources": {
+            "geometries": 413,
+            "geometryBytes": 9257080,
+            "materials": 142,
+            "textureBytes": 92190382,
+            "textures": 83,
+            "totalBytes": 101447462
+          },
+          "jsHeapBytes": 133613713,
+          "streaming": {
+            "bytes": {
+              "byDetail": {
+                "base": {
+                  "integrated": 37491312,
+                  "transferred": 37491312
+                },
+                "mid": {
+                  "integrated": 15088797,
+                  "transferred": 15088797
+                },
+                "near": {
+                  "integrated": 10920724,
+                  "transferred": 10920724
+                }
+              },
+              "integrated": 63500833,
+              "integratedPerTile": 139869.67621145374,
+              "source": 4866583,
+              "sourcePerTile": 10719.345814977974,
+              "transferred": 63500833,
+              "transferredPerTile": 139869.67621145374
+            },
+            "completed": 454,
+            "detail": {
+              "base": 10,
+              "mid": 10,
+              "near": 15,
+              "upgrades": 227
+            },
+            "errors": 0,
+            "integration": {
+              "mean": 0.18958333342258507,
+              "p50": 0.10000000055879354,
+              "p95": 0.7000000001862645,
+              "p99": 0.7999999998137355,
+              "recentMax": 0.900000000372529,
+              "samples": 96
+            },
+            "pressure": {
+              "awaitingIntegration": 0,
+              "inFlight": 0,
+              "peakAwaitingIntegration": 31,
+              "peakInFlight": 6,
+              "peakQueue": 26,
+              "prefetch": 0,
+              "queue": 0
+            },
+            "requests": 454,
+            "staleResponses": 0,
+            "worker": {
+              "build": {
+                "mean": 1.1468750000252232,
+                "p50": 0.8999999994412065,
+                "p95": 2.400000000372529,
+                "p99": 6.5,
+                "recentMax": 10,
+                "samples": 96
+              },
+              "decode": {
+                "mean": 0.1010416666783082,
+                "p50": 0,
+                "p95": 0.40000000037252903,
+                "p99": 0.7000000001862645,
+                "recentMax": 1.1000000005587935,
+                "samples": 96
+              },
+              "fetch": {
+                "mean": 0.5687499999767169,
+                "p50": 0,
+                "p95": 1.5,
+                "p99": 1.6000000005587935,
+                "recentMax": 2,
+                "samples": 96
+              },
+              "total": {
+                "mean": 1.2510416667015913,
+                "p50": 1,
+                "p95": 2.699999999254942,
+                "p99": 6.5,
+                "recentMax": 10,
+                "samples": 96
+              }
+            }
+          },
+          "streamingPressure": {
+            "max": 0,
+            "p50": 0,
+            "p95": 0
+          }
+        }
+      ]
+    },
+    {
+      "profileId": "desktop-high",
+      "platform": "desktop-browser",
+      "tier": "high",
+      "capabilities": {
+        "deviceMemoryGiB": 32,
+        "devicePixelRatio": 1.5,
+        "gpuTimerExtension": true,
+        "hardwareConcurrency": 10,
+        "muted": true,
+        "renderer": "ANGLE (Apple, ANGLE Metal Renderer: Apple M1 Max, Unspecified Version)",
+        "routes": [
+          "times-square",
+          "central-park",
+          "waterfront",
+          "times-square-station"
+        ],
+        "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/151.0.0.0 Safari/537.36",
+        "vendor": "Google Inc. (Apple)",
+        "webgl2": true
+      },
+      "contract": {
+        "passed": true,
+        "violations": []
+      },
+      "captures": [
+        {
+          "routeId": "times-square",
+          "startedAt": "2026-09-05T19:12:43.332Z",
+          "samples": 1200,
+          "durationSeconds": 10.094200000000185,
+          "fps": {
+            "median": 120.48192771354717,
+            "onePercentLow": 106.34903753701799
+          },
+          "frameMs": {
+            "p50": 8.299999999813735,
+            "p95": 9,
+            "p99": 9.403000000370664
+          },
+          "cpuMs": {
+            "p50": 2.400000000372529,
+            "p95": 3.7000000001862645,
+            "p99": 7.1020000005513415
+          },
+          "gpuMs": {
+            "availableSamples": 1200,
+            "p50": 3.5566035,
+            "p95": 4.97784935,
+            "p99": 6.7924681699999985
+          },
+          "drawCalls": {
+            "max": 288,
+            "p50": 196,
+            "p95": 233
+          },
+          "shadowCalls": {
+            "max": 34,
+            "p50": 24,
+            "p95": 33.049999999999955
+          },
+          "triangles": {
+            "max": 1025585,
+            "p50": 731500,
+            "p95": 997326.5999999995
+          },
+          "sceneResources": {
+            "geometries": 906,
+            "geometryBytes": 64847872,
+            "materials": 305,
+            "textureBytes": 87659460,
+            "textures": 110,
+            "totalBytes": 152507332
+          },
+          "jsHeapBytes": 143253969,
+          "streaming": {
+            "bytes": {
+              "byDetail": {
+                "base": {
+                  "integrated": 27027940,
+                  "transferred": 27027940
+                },
+                "mid": {
+                  "integrated": 9952952,
+                  "transferred": 9952952
+                },
+                "near": {
+                  "integrated": 7246836,
+                  "transferred": 7246836
+                }
+              },
+              "integrated": 44227728,
+              "integratedPerTile": 162006.32967032967,
+              "source": 2866424,
+              "sourcePerTile": 10499.721611721612,
+              "transferred": 44227728,
+              "transferredPerTile": 162006.32967032967
+            },
+            "completed": 273,
+            "detail": {
+              "base": 23,
+              "mid": 25,
+              "near": 16,
+              "upgrades": 117
+            },
+            "errors": 0,
+            "integration": {
+              "mean": 0.20000000001164153,
+              "p50": 0.10000000055879354,
+              "p95": 0.7000000001862645,
+              "p99": 0.8000000007450581,
+              "recentMax": 0.900000000372529,
+              "samples": 96
+            },
+            "pressure": {
+              "awaitingIntegration": 0,
+              "inFlight": 0,
+              "peakAwaitingIntegration": 47,
+              "peakInFlight": 9,
+              "peakQueue": 40,
+              "prefetch": 0,
+              "queue": 0
+            },
+            "requests": 273,
+            "staleResponses": 0,
+            "worker": {
+              "build": {
+                "mean": 1.332291666670547,
+                "p50": 1.2000000001862645,
+                "p95": 2.7000000001862645,
+                "p99": 3.2000000001862645,
+                "recentMax": 6.400000000372529,
+                "samples": 96
+              },
+              "decode": {
+                "mean": 0.14166666671129255,
+                "p50": 0.09999999962747097,
+                "p95": 0.5,
+                "p99": 0.7000000001862645,
+                "recentMax": 0.900000000372529,
+                "samples": 96
+              },
+              "fetch": {
+                "mean": 1.464583333339154,
+                "p50": 1.8999999994412065,
+                "p95": 3.5,
+                "p99": 4,
+                "recentMax": 5.1000000005587935,
+                "samples": 96
+              },
+              "total": {
+                "mean": 1.4770833333798994,
+                "p50": 1.400000000372529,
+                "p95": 2.7000000001862645,
+                "p99": 3.2000000001862645,
+                "recentMax": 6.400000000372529,
+                "samples": 96
+              }
+            }
+          },
+          "streamingPressure": {
+            "max": 0.3333333333333333,
+            "p50": 0,
+            "p95": 0.1111111111111111
+          }
+        },
+        {
+          "routeId": "central-park",
+          "startedAt": "2026-09-05T19:12:58.630Z",
+          "samples": 1200,
+          "durationSeconds": 10.009099999999627,
+          "fps": {
+            "median": 120.4819277000282,
+            "onePercentLow": 106.38297871918822
+          },
+          "frameMs": {
+            "p50": 8.300000000745058,
+            "p95": 9.299999999813735,
+            "p99": 9.400000000372529
+          },
+          "cpuMs": {
+            "p50": 1.7000000001862645,
+            "p95": 2.5,
+            "p99": 3.000999999996274
+          },
+          "gpuMs": {
+            "availableSamples": 1200,
+            "p50": 3.5878535,
+            "p95": 5.92291425,
+            "p99": 6.67824184
+          },
+          "drawCalls": {
+            "max": 155,
+            "p50": 126,
+            "p95": 141
+          },
+          "shadowCalls": {
+            "max": 23,
+            "p50": 20,
+            "p95": 23
+          },
+          "triangles": {
+            "max": 1439596,
+            "p50": 1015072,
+            "p95": 1386192
+          },
+          "sceneResources": {
+            "geometries": 674,
+            "geometryBytes": 52850804,
+            "materials": 236,
+            "textureBytes": 33817769,
+            "textures": 48,
+            "totalBytes": 86668573
+          },
+          "jsHeapBytes": 123206140,
+          "streaming": {
+            "bytes": {
+              "byDetail": {
+                "base": {
+                  "integrated": 34210328,
+                  "transferred": 34210328
+                },
+                "mid": {
+                  "integrated": 11515414,
+                  "transferred": 11515414
+                },
+                "near": {
+                  "integrated": 8484996,
+                  "transferred": 8484996
+                }
+              },
+              "integrated": 54210738,
+              "integratedPerTile": 146515.5081081081,
+              "source": 4278487,
+              "sourcePerTile": 11563.478378378379,
+              "transferred": 54210738,
+              "transferredPerTile": 146515.5081081081
+            },
+            "completed": 370,
+            "detail": {
+              "base": 24,
+              "mid": 23,
+              "near": 14,
+              "upgrades": 165
+            },
+            "errors": 0,
+            "integration": {
+              "mean": 0.21041666677532098,
+              "p50": 0.10000000055879354,
+              "p95": 0.7000000001862645,
+              "p99": 0.900000000372529,
+              "recentMax": 1.2000000001862645,
+              "samples": 96
+            },
+            "pressure": {
+              "awaitingIntegration": 0,
+              "inFlight": 0,
+              "peakAwaitingIntegration": 47,
+              "peakInFlight": 9,
+              "peakQueue": 40,
+              "prefetch": 0,
+              "queue": 0
+            },
+            "requests": 370,
+            "staleResponses": 0,
+            "worker": {
+              "build": {
+                "mean": 1.0427083333973617,
+                "p50": 1,
+                "p95": 1.800000000745058,
+                "p99": 4.2000000001862645,
+                "recentMax": 5.2000000001862645,
+                "samples": 96
+              },
+              "decode": {
+                "mean": 0.15416666659681746,
+                "p50": 0.09999999962747097,
+                "p95": 0.5,
+                "p99": 1.2999999998137355,
+                "recentMax": 1.7999999998137355,
+                "samples": 96
+              },
+              "fetch": {
+                "mean": 1.169791666684129,
+                "p50": 1.400000000372529,
+                "p95": 2.5,
+                "p99": 2.900000000372529,
+                "recentMax": 3.7000000001862645,
+                "samples": 96
+              },
+              "total": {
+                "mean": 1.2020833333372138,
+                "p50": 1.1000000005587935,
+                "p95": 2.2999999998137355,
+                "p99": 4.2000000001862645,
+                "recentMax": 5.2000000001862645,
+                "samples": 96
+              }
+            }
+          },
+          "streamingPressure": {
+            "max": 0.3333333333333333,
+            "p50": 0,
+            "p95": 0.1111111111111111
+          }
+        },
+        {
+          "routeId": "waterfront",
+          "startedAt": "2026-09-05T19:13:12.923Z",
+          "samples": 1200,
+          "durationSeconds": 10.085400000000373,
+          "fps": {
+            "median": 120.48192771354717,
+            "onePercentLow": 106.28122010426208
+          },
+          "frameMs": {
+            "p50": 8.299999999813735,
+            "p95": 9.199999999254942,
+            "p99": 9.409000000366934
+          },
+          "cpuMs": {
+            "p50": 2,
+            "p95": 2.7999999998137355,
+            "p99": 3.8999999994505195
+          },
+          "gpuMs": {
+            "availableSamples": 1200,
+            "p50": 3.3581035,
+            "p95": 4.716208,
+            "p99": 5.63075675
+          },
+          "drawCalls": {
+            "max": 275,
+            "p50": 172,
+            "p95": 194
+          },
+          "shadowCalls": {
+            "max": 33,
+            "p50": 21,
+            "p95": 24.44999999999959
+          },
+          "triangles": {
+            "max": 1584999,
+            "p50": 1085955.5,
+            "p95": 1397217.15
+          },
+          "sceneResources": {
+            "geometries": 546,
+            "geometryBytes": 50732560,
+            "materials": 206,
+            "textureBytes": 36208637,
+            "textures": 47,
+            "totalBytes": 86941197
+          },
+          "jsHeapBytes": 145532533,
+          "streaming": {
+            "bytes": {
+              "byDetail": {
+                "base": {
+                  "integrated": 48174303,
+                  "transferred": 48174303
+                },
+                "mid": {
+                  "integrated": 17417821,
+                  "transferred": 17417821
+                },
+                "near": {
+                  "integrated": 10920724,
+                  "transferred": 10920724
+                }
+              },
+              "integrated": 76512848,
+              "integratedPerTile": 140133.42124542125,
+              "source": 6523053,
+              "sourcePerTile": 11946.983516483517,
+              "transferred": 76512848,
+              "transferredPerTile": 140133.42124542125
+            },
+            "completed": 546,
+            "detail": {
+              "base": 18,
+              "mid": 14,
+              "near": 16,
+              "upgrades": 254
+            },
+            "errors": 0,
+            "integration": {
+              "mean": 0.1937499999864182,
+              "p50": 0.10000000055879354,
+              "p95": 0.6000000005587935,
+              "p99": 0.8999999994412065,
+              "recentMax": 1,
+              "samples": 96
+            },
+            "pressure": {
+              "awaitingIntegration": 0,
+              "inFlight": 0,
+              "peakAwaitingIntegration": 47,
+              "peakInFlight": 9,
+              "peakQueue": 40,
+              "prefetch": 0,
+              "queue": 0
+            },
+            "requests": 546,
+            "staleResponses": 0,
+            "worker": {
+              "build": {
+                "mean": 1.176041666660846,
+                "p50": 1,
+                "p95": 2.7000000001862645,
+                "p99": 3.300000000745058,
+                "recentMax": 6.400000000372529,
+                "samples": 96
+              },
+              "decode": {
+                "mean": 0.1500000000135818,
+                "p50": 0,
+                "p95": 0.7999999998137355,
+                "p99": 1.1000000005587935,
+                "recentMax": 1.6000000005587935,
+                "samples": 96
+              },
+              "fetch": {
+                "mean": 0.8947916667190535,
+                "p50": 0,
+                "p95": 2.300000000745058,
+                "p99": 2.6000000005587935,
+                "recentMax": 3.1000000005587935,
+                "samples": 96
+              },
+              "total": {
+                "mean": 1.332291666660846,
+                "p50": 1.2000000001862645,
+                "p95": 2.7000000001862645,
+                "p99": 3.300000000745058,
+                "recentMax": 6.400000000372529,
+                "samples": 96
+              }
+            }
+          },
+          "streamingPressure": {
+            "max": 0.3333333333333333,
+            "p50": 0,
+            "p95": 0.1111111111111111
+          }
+        },
+        {
+          "routeId": "times-square-station",
+          "startedAt": "2026-09-05T19:13:28.213Z",
+          "samples": 1200,
+          "durationSeconds": 10.084300000000745,
+          "fps": {
+            "median": 120.48192771354717,
+            "onePercentLow": 106.38297871918822
+          },
+          "frameMs": {
+            "p50": 8.299999999813735,
+            "p95": 9.299999999813735,
+            "p99": 9.400000000372529
+          },
+          "cpuMs": {
+            "p50": 1.199999999254942,
+            "p95": 1.7000000001862645,
+            "p99": 1.900000000372529
+          },
+          "gpuMs": {
+            "availableSamples": 1200,
+            "p50": 2.2622705,
+            "p95": 3.24645205,
+            "p99": 4.578017749999999
+          },
+          "drawCalls": {
+            "max": 176,
+            "p50": 97,
+            "p95": 172
+          },
+          "shadowCalls": {
+            "max": 20,
+            "p50": 18,
+            "p95": 20
+          },
+          "triangles": {
+            "max": 314767,
+            "p50": 215559,
+            "p95": 314579
+          },
+          "sceneResources": {
+            "geometries": 407,
+            "geometryBytes": 9305896,
+            "materials": 134,
+            "textureBytes": 92321454,
+            "textures": 83,
+            "totalBytes": 101627350
+          },
+          "jsHeapBytes": 140406545,
+          "streaming": {
+            "bytes": {
+              "byDetail": {
+                "base": {
+                  "integrated": 48174303,
+                  "transferred": 48174303
+                },
+                "mid": {
+                  "integrated": 17417821,
+                  "transferred": 17417821
+                },
+                "near": {
+                  "integrated": 10920724,
+                  "transferred": 10920724
+                }
+              },
+              "integrated": 76512848,
+              "integratedPerTile": 140133.42124542125,
+              "source": 6523053,
+              "sourcePerTile": 11946.983516483517,
+              "transferred": 76512848,
+              "transferredPerTile": 140133.42124542125
+            },
+            "completed": 546,
+            "detail": {
+              "base": 18,
+              "mid": 14,
+              "near": 16,
+              "upgrades": 254
+            },
+            "errors": 0,
+            "integration": {
+              "mean": 0.1937499999864182,
+              "p50": 0.10000000055879354,
+              "p95": 0.6000000005587935,
+              "p99": 0.8999999994412065,
+              "recentMax": 1,
+              "samples": 96
+            },
+            "pressure": {
+              "awaitingIntegration": 0,
+              "inFlight": 0,
+              "peakAwaitingIntegration": 47,
+              "peakInFlight": 9,
+              "peakQueue": 40,
+              "prefetch": 0,
+              "queue": 0
+            },
+            "requests": 546,
+            "staleResponses": 0,
+            "worker": {
+              "build": {
+                "mean": 1.176041666660846,
+                "p50": 1,
+                "p95": 2.7000000001862645,
+                "p99": 3.300000000745058,
+                "recentMax": 6.400000000372529,
+                "samples": 96
+              },
+              "decode": {
+                "mean": 0.1500000000135818,
+                "p50": 0,
+                "p95": 0.7999999998137355,
+                "p99": 1.1000000005587935,
+                "recentMax": 1.6000000005587935,
+                "samples": 96
+              },
+              "fetch": {
+                "mean": 0.8947916667190535,
+                "p50": 0,
+                "p95": 2.300000000745058,
+                "p99": 2.6000000005587935,
+                "recentMax": 3.1000000005587935,
+                "samples": 96
+              },
+              "total": {
+                "mean": 1.332291666660846,
+                "p50": 1.2000000001862645,
+                "p95": 2.7000000001862645,
+                "p99": 3.300000000745058,
+                "recentMax": 6.400000000372529,
+                "samples": 96
+              }
+            }
+          },
+          "streamingPressure": {
+            "max": 0,
+            "p50": 0,
+            "p95": 0
+          }
+        }
+      ]
+    }
+  ]
+}

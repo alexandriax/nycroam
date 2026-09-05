@@ -45,7 +45,7 @@ test('facade coordinates follow the footprint and stay at street datum on elevat
 test('near foliage has actual leaf gaps with fixed geometry cost and no alpha atlas', () => {
   const lobes = [{x:0,y:0,z:0,sx:1.5,sy:1.8,sz:1.5}];
   const g = buildFoliageGeometry(lobes, 11), repeated = buildFoliageGeometry(lobes, 11);
-  assert.equal(g.index.count/3, 532);
+  assert.equal(g.index.count/3, 48 * 6 * 4);
   assert.deepEqual(g.attributes.position.array, repeated.attributes.position.array);
   for (const name of ['position','normal','color','uv']) assert.ok([...g.attributes[name].array].every(Number.isFinite));
   g.computeBoundingBox();

@@ -1,4 +1,7 @@
 import * as THREE from 'three';
+import { transitFinish, transitGlass } from '../transitMaterials';
+import { mergeByMaterial } from '../EntranceManager';
+import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
 import type { NetworkData, StationSpec } from './types';
 import { routeColor, bulletTextColor } from './types';
 import { makeWallTexture, makeNameMosaicTexture } from './signage';
@@ -226,13 +229,14 @@ export class RideWorld {
     const hw = w / 2;
     // interior steel: shifted a touch darker/cooler than the old 0xc9ccd0 so the
     // car reads as an interior, not an exterior panel, seen under the cabin lights.
-    const steel = this.track(new THREE.MeshStandardMaterial({ color: 0xb4b7ba, metalness: 0.55, roughness: 0.45 }));
-    const floorM = this.track(new THREE.MeshLambertMaterial({ color: 0x9a8f7c }));
-    const benchM = this.track(new THREE.MeshLambertMaterial({ color: 0x2b4d8c }));
+    const steel = this.track(transitFinish(new THREE.MeshStandardMaterial({ color: 0xb4b7ba, metalness: .55, roughness: .45 }), 'steel'));
+    const floorM = this.track(transitFinish(new THREE.MeshStandardMaterial({ color: '#424649', roughness: .88 }), 'rubber'));
+    const windowGlass = this.track(transitGlass());
+    const benchM = this.track(new THREE.MeshStandardMaterial({ color: '#3976a3', roughness: .38, metalness: .05 }));
     const cabWinM = this.track(new THREE.MeshLambertMaterial({ color: 0x0d1116 }));
     const lightM = this.track(new THREE.MeshBasicMaterial({ color: 0xfff7e4 }));
     const poleM = this.track(new THREE.MeshStandardMaterial({ color: 0xb9bdc2, metalness: 0.8, roughness: 0.25 }));
-    const doorM = this.track(new THREE.MeshStandardMaterial({ color: 0xb4b8bd, metalness: 0.5, roughness: 0.5 }));
+    const doorM = this.track(transitFinish(new THREE.MeshStandardMaterial({ color: 0xb4b8bd, metalness: .5, roughness: .5 }), 'steel'));
     // storm-door steel: a shade darker than the wall so the end-of-car door reads
     // as its own fixture, not a continuation of the wall plane.
     const stormDoorM = this.track(new THREE.MeshStandardMaterial({ color: 0x9a9ea3, metalness: 0.55, roughness: 0.4 }));
@@ -248,8 +252,8 @@ export class RideWorld {
     this.box(len, 0.12, w, floorM, 0, -0.06, 0);
     this.box(len, 0.1, w, steel, 0, CAR_INTERIOR_H + 0.05, 0);
     for (let x = -len / 2 + 1.4; x < len / 2; x += 2.6) {
-      this.box(1.7, 0.05, 0.3, lightM, x, CAR_INTERIOR_H - 0.03, -0.5);
-      this.box(1.7, 0.05, 0.3, lightM, x, CAR_INTERIOR_H - 0.03, 0.5);
+      this.box(2.3, 0.025, 0.13, lightM, x, CAR_INTERIOR_H - 0.03, -0.5);
+      this.box(2.3, 0.025, 0.13, lightM, x, CAR_INTERIOR_H - 0.03, 0.5);
     }
     // end walls: a storm door (with a real window into the next car) flanked by
     // two small dark windows. The flush end-wall skin has a genuine rectangular
@@ -309,8 +313,8 @@ export class RideWorld {
       }
     }
 
-    // side walls with 3 door bays; door bay centers at -len/3, 0, +len/3
-    const bays = [-len / 3, 0, len / 3];
+    // Three IRT or four B-division door bays, matching the platform train.
+    const bays = (len < 17 ? [-.27, 0, .27] : [-.34, -.34/3, .34/3, .34]).map(x => x*len);
     const doorW = 1.3;
     for (const side of [-1, 1] as const) {
       const z = side * hw;
@@ -321,13 +325,14 @@ export class RideWorld {
         if (b - a < 0.05) continue;
         const seg = b - a;
         // lower wall + upper band are solid steel; the window row (y 1.1..1.82) is
-        // left as a real OPENING so you see straight out with zero transparency sort.
+        // glazed to preserve the view through the car.
         this.box(seg, 1.1, 0.06, steel, (a + b) / 2, 0.55, z);
         this.box(seg, CAR_INTERIOR_H - 1.82, 0.06, steel, (a + b) / 2, (1.82 + CAR_INTERIOR_H) / 2, z);
         // thin opaque frame around the opening: sill lip, header lip, vertical mullions
         this.box(seg, 0.06, 0.09, steel, (a + b) / 2, 1.11, z);
         this.box(seg, 0.06, 0.09, steel, (a + b) / 2, 1.81, z);
         const panes = Math.max(1, Math.round(seg / 1.5));
+        this.box(seg-.05, .65, .012, windowGlass, (a+b)/2, 1.46, z);
         for (let k = 1; k < panes; k++) {
           this.box(0.05, 0.7, 0.09, steel, a + (seg * k) / panes, 1.46, z);
         }
@@ -336,14 +341,28 @@ export class RideWorld {
       for (let i = 2; i < cuts.length - 2; i += 2) {
         const a = cuts[i] + 0.15, b = cuts[i + 1] - 0.15;
         if (b - a < 1) continue;
-        this.box(b - a, 0.1, 0.55, benchM, (a + b) / 2, 0.46, side * (hw - 0.33));
-        this.box(b - a, 0.5, 0.08, benchM, (a + b) / 2, 0.75, side * (hw - 0.08));
+        this.box(b-a-.12, .24, .28, steel, (a+b)/2, .25, side*(hw-.20));
+        const seats = Math.max(2, Math.floor((b-a)/.46));
+        const pitch = (b-a)/seats;
+        for (let seat=0; seat<seats; seat++) {
+          const x = a+(seat+.5)*pitch;
+          const cushion = new THREE.Mesh(this.track(new RoundedBoxGeometry(pitch-.018,.105,.49,2,.04)), benchM);
+          cushion.position.set(x,.46,side*(hw-.31)); this.scene.add(cushion);
+          const back = new THREE.Mesh(this.track(new RoundedBoxGeometry(pitch-.018,.42,.09,2,.035)), benchM);
+          back.position.set(x,.71,side*(hw-.105)); back.rotation.x = -side*.10; this.scene.add(back);
+        }
+        for (const end of [a,b]) {
+          this.box(.032,.035,.49,poleM,end,.69,side*(hw-.30));
+          this.box(.032,.53,.032,poleM,end,.74,side*(hw-.53));
+        }
       }
       // doors (two panels per bay, slide along x). Each panel is an opaque frame
       // built around a real window OPENING so the outside shows through cleanly.
       const pw = doorW / 2;
       const H = CAR_INTERIOR_H - 0.1;
       for (const b of bays) {
+        this.box(doorW+.16,.028,.20,poleM,b,.014,z-side*.045);
+        for (const edge of [-1,1]) this.box(.045,1.94,.10,poleM,b+edge*(doorW/2+.03),.97,z-side*.05);
         for (const d of [-1, 1] as const) {
           const homeX = b + (d * doorW) / 4;
           const panel = new THREE.Group();
@@ -354,10 +373,9 @@ export class RideWorld {
           const stile = 0.09;
           this.box(stile, 0.77, 0.06, doorM, -pw / 2 + stile / 2, 1.435, 0, panel);
           this.box(stile, 0.77, 0.06, doorM, pw / 2 - stile / 2, 1.435, 0, panel);
-          // opaque near-black "dark glass" pane filling the window opening so a
-          // shut door reads as shut (no see-through hole). Slightly inset toward
-          // the interior; it slides away with the panel when the door opens.
-          this.box(pw - 2 * stile, 0.77, 0.04, cabWinM, 0, 1.435, -side * 0.012, panel);
+          // Glazing and the edge seal travel with the steel leaf.
+          this.box(pw - 2 * stile, 0.77, 0.015, windowGlass, 0, 1.435, -side * 0.012, panel);
+          this.box(.015,H,.07,cabWinM,-d*(pw/2-.009),H/2,0,panel);
           this.doorPanels.push({ mesh: panel, home: homeX, dir: d, side });
         }
       }
@@ -371,6 +389,26 @@ export class RideWorld {
         p.position.set(x, CAR_INTERIOR_H / 2, z);
         this.scene.add(p);
       }
+    }
+
+    // Continuous grab rails, mounting collars, ceiling joints and HVAC grilles.
+    const railGeo = this.track(new THREE.CylinderGeometry(.023,.023,len-.8,10).rotateZ(Math.PI/2));
+    for (const side of [-1,1]) {
+      const rail = new THREE.Mesh(railGeo,poleM); rail.position.set(0,1.96,side*.57); this.scene.add(rail);
+      this.box(len-.3,.025,.18,steel,0,CAR_INTERIOR_H-.014,side*.5);
+      for (let x=-len/2+.7;x<len/2;x+=1.3) {
+        this.box(.035,.16,.035,poleM,x,2.035,side*.57);
+        this.box(.014,.014,w*.90,stormDoorM,x,CAR_INTERIOR_H-.014,0);
+      }
+      for (let x=-len/2+.8;x<len/2-.5;x+=2.6) {
+        this.box(.85,.018,.18,cabWinM,x,CAR_INTERIOR_H-.014,side*.95);
+        for(let rib=0;rib<12;rib++) this.box(.018,.026,.18,steel,x-.40+rib*.07,CAR_INTERIOR_H-.03,side*.95);
+      }
+      this.box(len,.07,.025,stormDoorM,0,.035,side*(hw-.04));
+    }
+    for(const end of [-1,1]) {
+      this.box(.07,.035,.18,poleM,end*(len/2-.095),.98,.28);
+      this.box(.05,.17,.035,poleM,end*(len/2-.095),1.035,.35);
     }
 
     // strip maps above the windows (both sides)
@@ -399,6 +437,18 @@ export class RideWorld {
     this.nextSign.position.set(0, CAR_INTERIOR_H - 0.20, 0); // just under the ceiling
     this.scene.add(this.nextSign);
     this.box(0.06, 0.12, 0.06, steel, 0, CAR_INTERIOR_H - 0.05, 0); // mount bracket to ceiling
+
+    // Hundreds of cabin fittings become one static mesh per material. Doors
+    // retain independent movement, with one frame and one glazing batch each.
+    const statics = new THREE.Group();
+    for (const child of [...this.scene.children]) if (child instanceof THREE.Mesh) statics.add(child);
+    this.scene.add(mergeByMaterial(statics));
+    for (const {mesh} of this.doorPanels) {
+      const position=mesh.position.clone(); mesh.position.set(0,0,0);
+      const merged=mergeByMaterial(mesh as THREE.Group);
+      mesh.clear(); mesh.add(merged); mesh.position.copy(position);
+    }
+    this.disposables = this.disposables.filter(d => !(d instanceof THREE.BufferGeometry));
   }
 
   private buildOutside() {
@@ -840,7 +890,7 @@ export class RideWorld {
     }
 
     // door panel animation — only the +z (platform) side opens; -z stays shut
-    const slide = 0.62 * this.doorOpenAmt;
+    const slide = 0.67 * this.doorOpenAmt;
     for (const d of this.doorPanels) {
       d.mesh.position.x = d.side === 1 ? d.home + d.dir * slide : d.home;
     }
@@ -850,6 +900,7 @@ export class RideWorld {
     this.scene.traverse((o) => {
       if (o instanceof THREE.Mesh || o instanceof THREE.InstancedMesh) {
         o.geometry.dispose();
+        if (o instanceof THREE.InstancedMesh) o.dispose();
         const mats = Array.isArray(o.material) ? o.material : [o.material];
         for (const mt of mats) {
           const lm = mt as THREE.MeshLambertMaterial;

@@ -215,6 +215,10 @@ function bakeVertexOcclusion(
     let material = materialClones.get(mesh.material);
     if (!material) {
       material = mesh.material.clone();
+      // Material.clone() omits compile hooks: keep physical tile grain and
+      // tactile domes when adding baked station occlusion.
+      material.onBeforeCompile = mesh.material.onBeforeCompile;
+      material.customProgramCacheKey = mesh.material.customProgramCacheKey;
       (material as THREE.Material & { vertexColors: boolean }).vertexColors = true;
       material.name = `${mesh.material.name || mesh.material.type}:station-vertex-ao`;
       materialClones.set(mesh.material, material);
