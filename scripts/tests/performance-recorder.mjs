@@ -47,6 +47,46 @@ test('performance recorder reports frame, GPU, draw and one-percent-low percenti
   assert.ok(report.cpuBreakdown.update.p95 < report.cpuBreakdown.render.p95);
 });
 
+test('temporary benchmark capacity retains a complete 36 second arrival capture at 120 and 240Hz', t => {
+  let now = 0;
+  t.mock.method(performance, 'now', () => now);
+  for (const hz of [120, 240]) {
+    const recorder = new PerformanceRecorder();
+    recorder.setCapacity(12_000);
+    recorder.reset(`station at ${hz}Hz`);
+    for (let i = 0; i < 36 * hz; i++) {
+      now += 1000 / hz;
+      recorder.sample(rendererWith({ calls: i === 9 * hz ? 1500 : 200, triangles: 500_000 }), 1000 / hz, 5, 2, 3, null, 0, 0);
+    }
+    const complete = recorder.report();
+    assert.equal(complete.samples, 36 * hz);
+    assert.ok(Math.abs(complete.durationSeconds - 36) < 1e-7);
+    assert.equal(complete.drawCalls.max, 1500, 'the early arrival cannot fall out of the captured report');
+
+    recorder.setCapacity(1200);
+    const rolling = recorder.report();
+    assert.equal(rolling.samples, 1200);
+    assert.ok(Math.abs(rolling.durationSeconds - 1200 / hz) < 1e-7);
+    assert.equal(rolling.drawCalls.max, 200, 'lowering capacity retains only the newest frames');
+    now += 1000 / hz;
+    recorder.sample(rendererWith({ calls: 210, triangles: 500_000 }), 1000 / hz, 5, 2, 3, null, 0, 0);
+    assert.equal(recorder.report().samples, 1200, 'normal runtime recording remains bounded after the benchmark');
+    assert.ok(Math.abs(recorder.report().durationSeconds - 1200 / hz) < 1e-7);
+  }
+});
+
+test('capture capacity restores the constructor bound and rejects unbounded or invalid requests', () => {
+  const recorder = new PerformanceRecorder(100);
+  recorder.setCapacity(300);
+  for (let i = 0; i < 200; i++) recorder.sample(rendererWith({ calls: 1, triangles: 1 }), 10, 1, 1, 0, null, 0, 0);
+  assert.equal(recorder.report().samples, 200);
+  recorder.setCapacity();
+  assert.equal(recorder.report().samples, 100);
+  for (const capacity of [0, -1, 1.5, NaN, Infinity, 12_001]) assert.throws(() => recorder.setCapacity(capacity), RangeError);
+  recorder.sample(rendererWith({ calls: 2, triangles: 1 }), 10, 1, 1, 0, null, 0, 0);
+  assert.equal(recorder.report().samples, 100);
+});
+
 test('resource and shadow estimates deduplicate shared GPU resources', () => {
   const scene = new THREE.Scene();
   const geometry = new THREE.BoxGeometry(1, 1, 1);

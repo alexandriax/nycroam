@@ -13,6 +13,7 @@ function healthyReport(profileId, routeKind = 'street') {
     quality: profile.tier,
     mode: routeKind,
     samples: 600,
+    durationSeconds: 36,
     frameMs: { p50: 12, p95: 15, p99: 18 },
     fps: { median: 83.3, onePercentLow: 55.5 },
     cpuMs: { p50: 3, p95: 5, p99: 6 },
@@ -73,6 +74,8 @@ test('moving train captures retain station guardrails and verify ride mode', () 
   assert.ok(evaluateCapture(capture, 'mobile-low').violations.some(v => v.metric === 'drawCalls.p95'));
   capture.report.mode = 'station';
   assert.ok(evaluateCapture(capture, 'mobile-low').violations.some(v => v.metric === 'mode'));
+  capture.report.durationSeconds = 10;
+  assert.ok(evaluateCapture(capture, 'mobile-low').violations.some(v => v.metric === 'durationSeconds'));
 });
 
 test('missing timer-query samples, heap, resources, and telemetry fail clearly', () => {

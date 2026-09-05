@@ -63,7 +63,10 @@ navigation, exchange order, unique seats, joint metadata and resource reuse.
 The benchmark suite now includes a 32-second moving-train capture. The station
 capture moves to the platform and lasts 36 seconds, covering an arrival and
 passenger exchange instead of only an empty mezzanine. It is therefore a stricter
-scene than the prior station baseline. The existing draw, triangle, frame-time,
+scene than the prior station baseline. Benchmark captures retain up to 12,000
+frames and require at least 30 seconds of transit history, so a fast display
+cannot roll the arrival out of the normal 1,200-frame window. The normal runtime
+capacity is restored after capture. The existing draw, triangle, frame-time,
 memory and streaming limits are unchanged; rides use station limits.
 
 Final measured results will be recorded in `living-transit-performance.json`.

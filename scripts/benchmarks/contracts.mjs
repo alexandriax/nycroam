@@ -206,6 +206,9 @@ export function evaluateCapture(capture, profileId) {
   }
 
   atLeast(violations, report, 'samples', 240, 'capture is too short for stable percentiles');
+  if (routeKind === 'station' || routeKind === 'ride') {
+    atLeast(violations, report, 'durationSeconds', 30, 'retain the full arrival and passenger exchange');
+  }
   atLeast(
     violations,
     report,

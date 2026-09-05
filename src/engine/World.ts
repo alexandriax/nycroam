@@ -2756,6 +2756,9 @@ export class World {
     while (this.hud.loading && performance.now() < readyDeadline) await wait(50);
     if (this.hud.loading) throw new Error('Benchmark world initialization timed out');
     this.benchmarkActive = true;
+    // Keep the complete 32–36s transit capture even on high-refresh displays;
+    // the normal 1200-frame rolling audit would discard the first arrival.
+    this.performanceRecorder.setCapacity(12_000);
     this.applyRuntimeSettings(this.qualityGovernor.restore({
       effectsLevel: this.authoredEffectsLevel,
       shadowLevel: this.authoredShadowLevel,
@@ -2825,6 +2828,7 @@ export class World {
       return this.performanceReport();
     } finally {
       this.benchmarkActive = false;
+      this.performanceRecorder.setCapacity(1200);
       this.audio.setMuted(wasMuted);
     }
   }
