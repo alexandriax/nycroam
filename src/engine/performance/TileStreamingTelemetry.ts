@@ -1,5 +1,13 @@
 import type { TileBuildDetail, TileWorkerTiming } from '../tileTypes';
 
+/** Surface tiles stop integrating in the separate station/ride worlds. Their
+ * retained backlog is still exposed in the raw report, but cannot exert scene
+ * streaming pressure or drive the underground quality governor downward. */
+export function activeStreamingPressure(mode: 'street' | 'bus' | 'station' | 'ride', pending: number, workers: number): number {
+  if (mode === 'station' || mode === 'ride') return 0;
+  return Math.min(1, Math.max(0, pending) / Math.max(4, workers * 3));
+}
+
 export interface TileTierBytes {
   transferred: number;
   integrated: number;

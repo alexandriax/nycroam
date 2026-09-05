@@ -147,3 +147,13 @@ test('golden routes cover dense street, park, waterfront, occupied station and m
     }
   }
 });
+
+test('paused surface queues do not drive underground quality pressure and resume on the street', async () => {
+  const { activeStreamingPressure } = await import('../../src/engine/performance/TileStreamingTelemetry.ts');
+  for (const mode of ['station', 'ride']) assert.equal(activeStreamingPressure(mode, 33, 3), 0);
+  for (const mode of ['street', 'bus']) {
+    assert.equal(activeStreamingPressure(mode, 33, 3), 1);
+    assert.equal(activeStreamingPressure(mode, 3, 3), 1 / 3);
+    assert.equal(activeStreamingPressure(mode, 0, 3), 0);
+  }
+});

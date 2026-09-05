@@ -48,6 +48,7 @@ import {
   type RuntimeQualitySettings,
 } from './performance/QualityGovernor';
 import { WebGLGpuTimer } from './performance/WebGLGpuTimer';
+import { activeStreamingPressure } from './performance/TileStreamingTelemetry';
 import { RenderingPipeline } from './rendering/RenderingPipeline';
 import {
   PerformanceRecorder,
@@ -2379,10 +2380,7 @@ export class World {
     // Sample the live queue, not the 2Hz HUD cache. A short completed burst
     // previously remained reported as full pressure for another half-second,
     // corrupting p95 and teaching the governor from stale state.
-    const streamingPressure = Math.min(
-      1,
-      this.tiles.pendingCount() / Math.max(4, this.tileWorkerCount * 3),
-    );
+    const streamingPressure = activeStreamingPressure(this.mode, this.tiles.pendingCount(), this.tileWorkerCount);
     this.performanceRecorder.sample(
       this.renderer,
       rawDt * 1000,
