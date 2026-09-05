@@ -25,3 +25,9 @@ Other sources baked into these files:
     geo/OLDNYC_NOTICE.txt
 
 Full inventory and license texts: ../NOTICE.md and ../licenses/
+
+Photographic material textures in materials/:
+  Six Poly Haven CC0 1.0 scans, normalized and packed into the city PBR atlas.
+  https://polyhaven.com/license
+  Source inventory, URLs, checksums and rebuilding instructions:
+  ../assets/materials/scans/README.md and ../assets/materials/scans/manifest.json

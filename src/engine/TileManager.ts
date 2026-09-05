@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { buildFoliageGeometry } from './foliageGeometry';
 import { dataUrl } from './dataver';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import type { BuildResponse, MeshPayload, CollisionData, RoadPaths, TileBuildDetail } from './tileTypes';
@@ -12,8 +13,9 @@ import {
 import { TILE_SIZE, tileKey } from './geo';
 import { hash01 } from './palette';
 import {
-  makeFacadeLodMaterial, makeFacadeMaterial, makeFlatMaterial, makeRoadMaterial, makeWalkMaterial,
-  makeMarkingsMaterial, makeWaterMaterial, setFacadeDetailFade, treeTrunkMaterial, treeCanopyMaterial,
+  makeFacadeLodMaterial, makeFacadeMaterial, makeFlatMaterial, makeRoadDepthMaskMaterial,
+  makeRoadMaterial, makeWalkMaterial, makeMarkingsMaterial, makeWaterMaterial, setFacadeDetailFade,
+  treeTrunkMaterial, treeCanopyMaterial,
 } from './materials';
 import { facadeDetailLod } from './facadeLod';
 import { SKY } from './sky';
@@ -29,6 +31,12 @@ import { treeLodForDistanceSq, type TreeLod } from './vegetationLod';
 
 /** Conservative footprint of the widest deterministic canopy profile. */
 const TREE_CANOPY_RADIUS = 3.4;
+// Opaque surface compositor. Global ground is -4 in World; base tile surfaces
+// follow, then the road depth mask and road color. Buildings/walks remain at 0
+// and markings at 1, so semantic foreground geometry still occludes asphalt.
+const BASE_SURFACE_RENDER_ORDER = -3;
+const ROAD_DEPTH_MASK_RENDER_ORDER = -2;
+const ROAD_RENDER_ORDER = -1;
 /** Scale/color families; one asymmetric shared geometry still means one draw. */
 const TREE_PROFILES = [
   { x: 1.12, y: 0.94, z: 1.02, hue: 0.29, sat: 0.34, light: 0.215 }, // broad street tree
@@ -91,6 +99,7 @@ export class TileManager {
   private facadeMat = makeFacadeMaterial();
   private facadeSimpleMat = makeFacadeLodMaterial();
   private flatMat = makeFlatMaterial();
+  private roadDepthMaskMat = makeRoadDepthMaskMaterial();
   private roadMat = makeRoadMaterial();
   private walkMat = makeWalkMaterial();
   private markingsMat = makeMarkingsMaterial();
@@ -141,6 +150,10 @@ export class TileManager {
     this.compile = compile;
     // Four genuinely different near silhouettes, all shared across tiles.
     const makeOrganic = (parts: { x: number; y: number; z: number; sx: number; sy: number; sz: number }[], seed: number) => {
+      if (quality().level !== 'low') {
+        const sprays = quality().level === 'medium' ? 16 : quality().level === 'ultra' ? 40 : 24;
+        return buildFoliageGeometry(parts, seed, sprays);
+      }
       const pieces = parts.map((part) => {
         const geo = new THREE.IcosahedronGeometry(1, 1);
         geo.scale(part.sx, part.sy, part.sz);
@@ -870,6 +883,7 @@ export class TileManager {
       geo.setAttribute('color', new THREE.BufferAttribute(payload.color, 3, true));
       if (payload.uv) geo.setAttribute('uv', new THREE.BufferAttribute(payload.uv, 2));
       if (payload.style) geo.setAttribute('aStyle', new THREE.BufferAttribute(payload.style, 1));
+      if (payload.facade) geo.setAttribute('aFacade', new THREE.BufferAttribute(payload.facade, 4));
       if (payload.semantic) geo.setAttribute('aSemantic', new THREE.BufferAttribute(payload.semantic, 1));
       geo.setIndex(new THREE.BufferAttribute(payload.index, 1));
       geo.computeBoundingSphere();
@@ -907,12 +921,33 @@ export class TileManager {
     if (res.detail === 0 && rec.facade) {
       this.updateFacadeMaterial(rec, this.lastSpatialX, this.lastSpatialY, this.lastSpatialZ);
     }
-    addMesh(res.areas, this.flatMat, { receive: true, tier: 3 });
+    addMesh(res.areas, this.flatMat, {
+      receive: true,
+      order: BASE_SURFACE_RENDER_ORDER,
+      tier: 3,
+    });
     // Water surface sits ~0.25m above the highest interior terrain (baked), so it draws
     // over the park polygon that covers a reservoir/lake. Shared material, no shadow — mirrors
     // the ocean plane. The BufferGeometry is per-tile and disposed on unload; the material isn't.
-    addMesh(res.water, this.waterKit.mat, { tier: 3 });
-    addMesh(res.roads, this.roadMat, { receive: true, tier: 3 });
+    addMesh(res.water, this.waterKit.mat, {
+      order: BASE_SURFACE_RENDER_ORDER,
+      tier: 3,
+    });
+    const road = addMesh(res.roads, this.roadMat, {
+      receive: true,
+      order: ROAD_RENDER_ORDER,
+      tier: 3,
+    });
+    if (road) {
+      // Reuse the uploaded road geometry: this adds one cheap depth-only draw
+      // per road layer, not another vertex buffer or transfer payload.
+      const roadDepthMask = new THREE.Mesh(road.geometry, this.roadDepthMaskMat);
+      roadDepthMask.matrixAutoUpdate = false;
+      roadDepthMask.matrix.copy(road.matrix);
+      roadDepthMask.renderOrder = ROAD_DEPTH_MASK_RENDER_ORDER;
+      roadDepthMask.userData.lodTier = 3;
+      layerGroup.add(roadDepthMask);
+    }
     addMesh(res.walks, this.walkMat, { receive: true, tier: 2 });
     addMesh(res.markings, this.markingsMat, { receive: true, order: 1, tier: 1 });
 
@@ -1141,6 +1176,7 @@ export class TileManager {
     this.facadeMat.dispose();
     this.facadeSimpleMat.dispose();
     this.flatMat.dispose();
+    this.roadDepthMaskMat.dispose();
     this.roadMat.dispose();
     this.walkMat.dispose();
     this.markingsMat.dispose();

@@ -37,6 +37,8 @@ const {
   makeFacadeLodMaterial,
   makeFacadeMaterial,
   makeFlatMaterial,
+  makeMarkingsMaterial,
+  makeRoadDepthMaskMaterial,
   makeRoadMaterial,
   makeWalkMaterial,
   setFacadeDetailFade,
@@ -53,18 +55,18 @@ const sha256 = (bytes) => createHash('sha256').update(bytes).digest('hex');
 
 const exactChannels = {
   color: {
-    bytes: 410967,
-    sha256: 'fa1a60ac011675f2b655b408d986f6189ffe7fbaffaa0a0af54aab61f1ed0f93',
+    bytes: 624955,
+    sha256: '97c9d617da04fdbd1e5f91128b54f118d2f43ab8857a21e1e1f6dc40e09460f6',
     supercompression: 1, // KTX_SS_BASIS_LZ / ETC1S
   },
   normal: {
-    bytes: 2752606,
-    sha256: 'd2a836317b45f992271c989695a316abfeaab1818315150f1e88a21b0d50ec5f',
+    bytes: 3422097,
+    sha256: 'b8869a9f4643d56c8b8c7e911c6232c2aed06c2946d589075f3ec4559a8f9038',
     supercompression: 2, // KTX_SS_ZSTANDARD / UASTC
   },
   orm: {
-    bytes: 1057127,
-    sha256: '50a3ca7e38517fc6404fd0fa9e7be2807e6ac92d5eb3875247a4b303f719fd41',
+    bytes: 2369071,
+    sha256: 'ff6b2b845bc371df188c7957e8d73e760ba0ba67d1e5fdd838c0b3ae37f2fa31',
     supercompression: 2,
   },
 };
@@ -238,6 +240,48 @@ function compileMaterial(material, shaderName) {
   return shader;
 }
 
+test('road compositor masks base-surface depth while preserving semantic foreground order', () => {
+  const mask = makeRoadDepthMaskMaterial();
+  const road = makeRoadMaterial();
+  const walk = makeWalkMaterial();
+  const markings = makeMarkingsMaterial();
+
+  assert.equal(mask.colorWrite, false);
+  assert.equal(mask.depthTest, true);
+  assert.equal(mask.depthWrite, true);
+  assert.equal(mask.depthFunc, THREE.AlwaysDepth);
+  assert.equal(mask.userData.nycRoadDepthMask, true);
+  assert.equal(road.depthFunc, THREE.LessEqualDepth);
+  assert.equal(road.polygonOffset, false);
+  assert.equal(walk.polygonOffset, false, 'raised sidewalks retain geometry-based depth');
+  assert.equal(markings.polygonOffset, true);
+  assert.ok(markings.polygonOffsetFactor < road.polygonOffsetFactor);
+  assert.ok(markings.polygonOffsetUnits < road.polygonOffsetUnits);
+
+  mask.dispose();
+  road.dispose();
+  walk.dispose();
+  markings.dispose();
+});
+
+test('tile integration reuses one road buffer for ordered depth and color passes', () => {
+  const tileManager = readFileSync(
+    new URL('../../src/engine/TileManager.ts', import.meta.url),
+    'utf8',
+  );
+  const world = readFileSync(
+    new URL('../../src/engine/World.ts', import.meta.url),
+    'utf8',
+  );
+
+  assert.match(tileManager, /const BASE_SURFACE_RENDER_ORDER = -3/);
+  assert.match(tileManager, /const ROAD_DEPTH_MASK_RENDER_ORDER = -2/);
+  assert.match(tileManager, /const ROAD_RENDER_ORDER = -1/);
+  assert.match(tileManager, /new THREE\.Mesh\(road\.geometry, this\.roadDepthMaskMat\)/);
+  assert.match(tileManager, /roadDepthMask\.userData\.lodTier = 3/);
+  assert.match(world, /mesh\.renderOrder = -4/);
+});
+
 test('shipping facade, road, walk, grass, and bark shaders consume the shared atlases', () => {
   const cases = [
     {
@@ -316,7 +360,10 @@ test('every generic window family uses stable solid glass and filtered detail', 
   assert.ok(shader.fragmentShader.includes('diffuseColor.rgb = mix(facadeBase'));
   assert.ok(shader.fragmentShader.includes('architecturalMetal'));
   assert.ok(shader.fragmentShader.includes('microLod'));
-  assert.ok(shader.fragmentShader.includes('float nCu = uN / winWN'));
+  assert.ok(shader.fragmentShader.includes('nycMasonryWeight = (1.0 - win) * detail * microLod'));
+  assert.ok(shader.fragmentShader.includes('float v = vFacade.y;'));
+  assert.ok(shader.fragmentShader.includes('vFacade.z / bayCount'));
+  assert.ok(shader.vertexShader.includes('vFacade = aFacade;'));
   assert.ok(shader.fragmentShader.includes('float archWidth = max(fwidth(archDistance)'));
   assert.equal(shader.fragmentShader.includes('bhash'), false);
   assert.equal(shader.fragmentShader.includes('cellId'), false);

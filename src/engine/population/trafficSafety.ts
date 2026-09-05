@@ -27,9 +27,9 @@ export interface TrafficEscape {
   blockerKey: string;
 }
 
-// Each sampled SAT is inflated by the full maximum point travel to the next
-// sample. Ten centimetres is tight enough that this conservative inflation
-// does not turn valid bend-away clearance into a permanent rollback.
+// Adaptive interval midpoints are inflated by the maximum travel to either
+// endpoint. Stop subdivision at five centimetres of conservative inflation
+// so valid bend-away clearance does not become a permanent rollback.
 const ROTATING_SWEEP_SAMPLE_DISTANCE = 0.1;
 
 interface TrafficMotionBucket {
@@ -127,6 +127,8 @@ export function trafficFootprintsOverlap(
 ): boolean {
   const tx = b.x - a.x;
   const tz = b.z - a.z;
+  const reach = a.halfLength + a.halfWidth + b.halfLength + b.halfWidth + margin;
+  if (Math.abs(tx) > reach || Math.abs(tz) > reach) return false;
   for (let axisIndex = 0; axisIndex < 4; axisIndex++) {
     let axisX: number;
     let axisZ: number;
@@ -220,7 +222,8 @@ function trafficMotionBound(
     Math.hypot(end.halfLength, end.halfWidth),
   );
   return Math.hypot(end.x - start.x, end.z - start.z)
-    + Math.abs(angleDelta) * radius;
+    + Math.abs(angleDelta) * radius
+    + Math.hypot(end.halfLength - start.halfLength, end.halfWidth - start.halfWidth);
 }
 
 function interpolateTrafficFootprint(
@@ -298,11 +301,49 @@ function footprintShapeIsConstant(
     && Math.abs(start.halfWidth - end.halfWidth) < 1e-9;
 }
 
+/** Reject a whole time interval when its midpoint shapes, inflated by
+ * their maximum travel to either endpoint, are separated. Subdivide only
+ * ambiguous intervals. This preserves the continuous collision guarantee
+ * without marching through hundreds of samples for a clear rotating turn. */
+function rotatingIntervalsConflict(
+  motionBound: number,
+  overlapAt: (time: number, inflation: number) => boolean,
+): boolean {
+  const visit = (lo: number, hi: number, depth: number): boolean => {
+    const inflation = motionBound * (hi - lo) * 0.5 + 1e-6;
+    const mid = (lo + hi) * .5;
+    if (!overlapAt(mid, inflation)) return false;
+    // Conservatively hold an unresolved contact. Depth bounds also protect
+    // a malformed long route from unbounded work on the render thread.
+    if (inflation <= ROTATING_SWEEP_SAMPLE_DISTANCE * .5 || depth >= 16) return true;
+    return visit(lo, mid, depth + 1) || visit(mid, hi, depth + 1);
+  };
+  return visit(0, 1, 0);
+}
+
+/** Cheap conservative swept bounds before the exact SAT/rotation guards.
+ * The L1 half-extent contains every rotated corner; linear interpolation of
+ * centers and dimensions stays inside these endpoint bounds. Distant city
+ * buses can therefore be rejected without five hypots and two heading angles
+ * for every pedestrian, while nearby interactions retain the exact guards. */
+export function trafficSweptBoundsOverlap(
+  aStart: TrafficFootprint, aEnd: TrafficFootprint,
+  bStart: TrafficFootprint, bEnd: TrafficFootprint, margin = 0,
+): boolean {
+  const aRadius = Math.max(aStart.halfLength + aStart.halfWidth, aEnd.halfLength + aEnd.halfWidth);
+  const bRadius = Math.max(bStart.halfLength + bStart.halfWidth, bEnd.halfLength + bEnd.halfWidth);
+  const reach = aRadius + bRadius + margin;
+  return Math.min(aStart.x, aEnd.x) - Math.max(bStart.x, bEnd.x) <= reach
+    && Math.min(bStart.x, bEnd.x) - Math.max(aStart.x, aEnd.x) <= reach
+    && Math.min(aStart.z, aEnd.z) - Math.max(bStart.z, bEnd.z) <= reach
+    && Math.min(bStart.z, bEnd.z) - Math.max(aStart.z, aEnd.z) <= reach;
+}
+
 /**
  * Conservative committed-motion guard for route turns and endpoint U-turns.
- * The SAT margin at each sample is inflated by the proven maximum motion of
- * any footprint point until the next sample. Therefore a contact between
- * samples is still detected at an adjacent sample, including rotating corners.
+ * The SAT margin at each interval midpoint bounds the maximum motion of any
+ * footprint point to either endpoint, including rotating corners. Clear
+ * intervals are pruned; ambiguous intervals are subdivided conservatively.
  */
 export function trafficMotionConflicts(
   start: TrafficFootprint,
@@ -310,6 +351,7 @@ export function trafficMotionConflicts(
   obstacle: TrafficFootprint,
   margin = 0,
 ): boolean {
+  if (!trafficSweptBoundsOverlap(start, end, obstacle, obstacle, margin)) return false;
   const distance = Math.hypot(end.x - start.x, end.z - start.z);
   const midX = (start.x + end.x) * 0.5;
   const midZ = (start.z + end.z) * 0.5;
@@ -336,33 +378,17 @@ export function trafficMotionConflicts(
     );
   }
   const motionBound = trafficMotionBound(start, end, angleDelta);
-  const steps = Math.max(
-    1,
-    Math.ceil(motionBound / ROTATING_SWEEP_SAMPLE_DISTANCE),
-  );
-  const sampleInflation = motionBound / steps + 1e-6;
-  const probe: TrafficFootprint = {
-    ...start,
-    speed: 0,
-  };
-  for (let step = 0; step <= steps; step++) {
-    const t = step / steps;
+  const probe: TrafficFootprint = { ...start, speed: 0 };
+  return rotatingIntervalsConflict(motionBound, (t, inflation) => {
     interpolateTrafficFootprint(start, end, angleDelta, t, probe);
-    if (
-      trafficFootprintsOverlap(
-        probe,
-        obstacle,
-        margin + sampleInflation,
-      )
-    ) return true;
-  }
-  return false;
+    return trafficFootprintsOverlap(probe, obstacle, margin + inflation);
+  });
 }
 
 /**
  * Synchronized motion guard for two translating/rotating OBBs. Static endpoint
  * checks miss two actors that enter the same space midway through a frame; the
- * combined per-sample inflation bounds both bodies' motion and closes that gap.
+ * combined interval inflation bounds both bodies' motion and closes that gap.
  */
 export function trafficPairMotionsConflict(
   aStart: TrafficFootprint,
@@ -371,6 +397,7 @@ export function trafficPairMotionsConflict(
   bEnd: TrafficFootprint,
   margin = 0,
 ): boolean {
+  if (!trafficSweptBoundsOverlap(aStart, aEnd, bStart, bEnd, margin)) return false;
   const aMidX = (aStart.x + aEnd.x) * 0.5;
   const aMidZ = (aStart.z + aEnd.z) * 0.5;
   const bMidX = (bStart.x + bEnd.x) * 0.5;
@@ -408,26 +435,13 @@ export function trafficPairMotionsConflict(
   }
   const motionBound = trafficMotionBound(aStart, aEnd, aAngleDelta)
     + trafficMotionBound(bStart, bEnd, bAngleDelta);
-  const steps = Math.max(
-    1,
-    Math.ceil(motionBound / ROTATING_SWEEP_SAMPLE_DISTANCE),
-  );
-  const sampleInflation = motionBound / steps + 1e-6;
   const aProbe: TrafficFootprint = { ...aStart };
   const bProbe: TrafficFootprint = { ...bStart };
-  for (let step = 0; step <= steps; step++) {
-    const t = step / steps;
+  return rotatingIntervalsConflict(motionBound, (t, inflation) => {
     interpolateTrafficFootprint(aStart, aEnd, aAngleDelta, t, aProbe);
     interpolateTrafficFootprint(bStart, bEnd, bAngleDelta, t, bProbe);
-    if (
-      trafficFootprintsOverlap(
-        aProbe,
-        bProbe,
-        margin + sampleInflation,
-      )
-    ) return true;
-  }
-  return false;
+    return trafficFootprintsOverlap(aProbe, bProbe, margin + inflation);
+  });
 }
 
 /**

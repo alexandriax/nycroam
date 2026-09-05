@@ -223,11 +223,16 @@ class MeshAcc {
   uvs: number[] | null = null;
   styles: number[] | null = null;
   semantics: number[] | null = null;
+  facades: number[] | null = null;
+  facadeBase = 0;
+  facadeSeed = 0;
+  facadeOrigin = 0;
+  facadeWidth = 1;
 
   constructor(withUv = false, withStyle = false, withSemantic = false) {
     if (withUv) this.uvs = [];
     if (withStyle) this.styles = [];
-    if (withSemantic) this.semantics = [];
+    if (withSemantic) { this.semantics = []; this.facades = []; }
   }
 
   get vcount() { return this.pos.length / 3; }
@@ -239,6 +244,7 @@ class MeshAcc {
     if (this.uvs) this.uvs.push(u, v);
     if (this.styles) this.styles.push(this.styleCursor);
     if (this.semantics) this.semantics.push(this.semanticCursor);
+    if (this.facades) this.facades.push(x * nz - z * nx - this.facadeOrigin, y - this.facadeBase, this.facadeWidth, this.facadeSeed);
   }
 
   styleCursor = 0;
@@ -259,6 +265,7 @@ class MeshAcc {
       index: this.vcount <= 65535 ? new Uint16Array(this.idx) : new Uint32Array(this.idx),
       ...(this.uvs ? { uv: new Float32Array(this.uvs) } : {}),
       ...(this.styles ? { style: new Uint8Array(this.styles) } : {}),
+      ...(this.facades ? { facade: new Float32Array(this.facades) } : {}),
       ...(this.semantics ? { semantic: new Float32Array(this.semantics) } : {}),
     };
   }
@@ -327,6 +334,8 @@ function extrude(
       const len = Math.hypot(dx, dz);
       if (len < 0.01) continue;
       const nx = -dz / len, nz = dx / len;
+      acc.facadeOrigin = x1 * nz - z1 * nx;
+      acc.facadeWidth = len;
       const base = acc.vcount;
       acc.vertex(x1, y0, z1, nx, 0, nz, cr * wallShade, cg * wallShade, cb * wallShade);
       acc.vertex(x2, y0, z2, nx, 0, nz, cr * wallShade, cg * wallShade, cb * wallShade);
@@ -663,6 +672,7 @@ function addNearFacadeDetails(
   seed: number,
   archetype: BuildingArchetype,
   storefront: number,
+  era: number,
 ) {
   if (ring.length < 8 || ring.length > 28 || topY - baseY < 6) return;
   const count = ring.length / 2;
@@ -671,6 +681,45 @@ function addNearFacadeDetails(
     const j = (i + 1) % count;
     const len = Math.hypot(ring[j * 2] - ring[i * 2], ring[j * 2 + 1] - ring[i * 2 + 1]);
     if (len > longest) { longest = len; edge = i; }
+  }
+  // Near-only prewar silhouette kit. At most four platforms per building;
+  // all beams merge into the existing detail delta, never per-prop draws.
+  const prewar = era <= 3 && [0, 4, 5, 7, 8, 10].includes(archetype);
+  if (prewar && longest > 4) {
+    const trim: [number, number, number] = archetype === 5 ? [0.32, 0.25, 0.21] : [0.53, 0.49, 0.41];
+    facadeBox(acc, ring, edge, longest - 0.3, 0.48, topY - 0.44, topY - 0.18, trim);
+    facadeBox(acc, ring, edge, longest - 0.2, 0.66, topY - 0.18, topY + 0.04, trim);
+    if (topY - baseY > 12) facadeBox(acc, ring, edge, longest - 0.3, 0.26, baseY + 4.2, baseY + 4.4, trim);
+  }
+  const next = (edge + 1) % count;
+  const ax = ring[edge * 2], az = ring[edge * 2 + 1];
+  const tx = (ring[next * 2] - ax) / longest, tz = (ring[next * 2 + 1] - az) / longest;
+  const orientation = ringArea(ring) <= 0 ? 1 : -1;
+  const nx = -tz * orientation, nz = tx * orientation;
+  const cx = ax + tx * longest * .5, cz = az + tz * longest * .5;
+  const beam = (along: number, out: number, w: number, d: number, y: number, h: number, color: [number, number, number]) => {
+    const x = cx + tx * along + nx * out, z = cz + tz * along + nz * out;
+    extrude(acc, [[x - tx*w/2 - nx*d/2, z - tz*w/2 - nz*d/2,
+      x + tx*w/2 - nx*d/2, z + tz*w/2 - nz*d/2,
+      x + tx*w/2 + nx*d/2, z + tz*w/2 + nz*d/2,
+      x - tx*w/2 + nx*d/2, z - tz*w/2 + nz*d/2]], y, y+h, color);
+  };
+  if (archetype === 5 && longest < 19) {
+    const stone: [number, number, number] = [.32, .24, .19];
+    for (let step = 0; step < 5; step++) beam(longest * .23, 1.9 - step*.28, 1.55, .34, baseY, .19*(step+1), stone);
+  }
+  if (prewar && [0, 4, 7].includes(archetype) && longest > 7 && topY-baseY < 42 && hash01(seed + 331) < .44) {
+    const iron: [number, number, number] = [.10, .105, .10];
+    const pitch = 3.1 * (0.94 + .14 * hash01(seed + 113));
+    const floors = Math.min(4, Math.floor((topY-baseY-4.5)/pitch));
+    for (let f = 0; f < floors; f++) {
+      const y = baseY + 3.65 + .85 * hash01(seed + 113) + .8 + f*pitch;
+      beam(0, .73, 2.65, 1.28, y, .09, iron);
+      beam(0, 1.34, 2.65, .045, y+.95, .055, iron);
+      for (const along of [-1.28, -.65, 0, .65, 1.28]) beam(along, 1.34, .035, .035, y+.09, .9, iron);
+      // Open treads connect successive platforms without opaque stair blocks.
+      if (f > 0) for (let step = 0; step < 9; step++) beam(-1.05+step*.25, .8, .29, .57, y-pitch+step*pitch/9, .045, iron);
+    }
   }
   if (storefront > 0 && longest > 6 && hash01(seed + 301) < 0.62) {
     facadeBox(acc, ring, edge, Math.min(longest * 0.62, 9), 1.15, baseY + 3.05, baseY + 3.22,
@@ -1116,6 +1165,8 @@ function buildTile(tile: TileJson, detail: TileBuildDetail, requestId: number): 
       const semantics = semanticsForBuilding(b, archetype);
       const bc = buildingColor(seed, h, semantics.archetype, b.c);
       const rc = roofColor(seed, b.q, b.o, bc.col);
+      bAcc.facadeBase = base;
+      bAcc.facadeSeed = hash01(seed + 113);
       bAcc.styleCursor = bc.archetype;
       bAcc.semanticCursor = b.s ?? packBuildingSemantics(semantics);
       const solidHeight = h - minH;
@@ -1155,10 +1206,12 @@ function buildTile(tile: TileJson, detail: TileBuildDetail, requestId: number): 
       } else {
         // Roof furniture and near façade kits are separate immutable deltas;
         // neither path repeats the base extrusion or the other detail tier.
+        bAcc.facadeSeed = -1;
         addRoofDetails(bAcc, rings[0], base + h, seed, semantics.roof, detail);
       }
       if (detail === 2 && minH === 0 && hash01(seed + 297) < 0.42) {
-        addNearFacadeDetails(bAcc, rings[0], base, wallTop, seed, semantics.archetype, semantics.storefront);
+        bAcc.facadeSeed = -1;
+        addNearFacadeDetails(bAcc, rings[0], base, wallTop, seed, semantics.archetype, semantics.storefront, semantics.era);
       }
 
       // collision for every solid part: ground-level buildings push the player
@@ -1865,6 +1918,7 @@ self.onmessage = async (ev: MessageEvent<BuildRequest>) => {
         if (m.uv) transfer.push(m.uv.buffer);
         if (m.style) transfer.push(m.style.buffer);
         if (m.semantic) transfer.push(m.semantic.buffer);
+        if (m.facade) transfer.push(m.facade.buffer);
       }
     }
     if (out.trees) transfer.push(out.trees.buffer);

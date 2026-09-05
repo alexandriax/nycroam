@@ -48,6 +48,7 @@ import {
   pedestrianStepHitsTraffic,
   pedestrianSweepsOverlap,
 } from './population/pedestrianSafety';
+import { buildPedestrianGeometry, buildPedestrianSkinGeometry } from './population/pedestrianGeometry';
 import { buildVehicleBodyGeometry } from './population/vehicleGeometry';
 import { buildCyclistGeometry } from './population/cyclistGeometry';
 import {
@@ -302,45 +303,6 @@ function placedSphere(
   return geometry;
 }
 
-function setPart(geometry: THREE.BufferGeometry, id: number): THREE.BufferGeometry {
-  geometry.setAttribute(
-    'skinPart',
-    new THREE.BufferAttribute(
-      new Float32Array(geometry.getAttribute('position').count).fill(id),
-      1,
-    ),
-  );
-  return geometry;
-}
-
-function buildPedestrianGeometry(): THREE.BufferGeometry {
-  // +x is travel-forward, +z spans the shoulders. Rounded six/eight-sided
-  // limbs preserve a human silhouette without turning the pooled crowd into a
-  // draw-call or triangle problem.
-  const parts = [
-    { geometry: placedCylinder(0.24, 0.31, 0.72, 8, 0, 1.18, 0), id: 0 },
-    { geometry: placedBox(0.28, 0.18, 0.46, 0, 0.84, 0), id: 0 },
-    { geometry: placedCylinder(0.075, 0.09, 0.64, 6, 0, 0.5, -0.13), id: 1 },
-    { geometry: placedCylinder(0.075, 0.09, 0.64, 6, 0, 0.5, 0.13), id: 2 },
-    { geometry: placedCylinder(0.06, 0.075, 0.58, 6, 0, 1.16, -0.3, -0.08), id: 3 },
-    { geometry: placedCylinder(0.06, 0.075, 0.58, 6, 0, 1.16, 0.3, 0.08), id: 4 },
-    { geometry: placedBox(0.28, 0.12, 0.17, 0.08, 0.13, -0.13), id: 1 },
-    { geometry: placedBox(0.28, 0.12, 0.17, 0.08, 0.13, 0.13), id: 2 },
-  ];
-  for (const part of parts) {
-    setPart(part.geometry, part.id);
-  }
-  return mergePlaced(parts.map((part) => part.geometry));
-}
-
-function buildPedestrianSkinGeometry(): THREE.BufferGeometry {
-  return mergePlaced([
-    setPart(placedSphere(0.18, 8, 6, 0, 1.72, 0), 0),
-    setPart(placedSphere(0.072, 6, 4, 0, 0.86, -0.325), 3),
-    setPart(placedSphere(0.072, 6, 4, 0, 0.86, 0.325), 4),
-  ]);
-}
-
 function buildFarPedestrianGeometry(): THREE.BufferGeometry {
   return mergePlaced([
     placedCylinder(0.23, 0.29, 0.76, 6, 0, 1.14, 0),
@@ -368,8 +330,10 @@ function buildVehicleCabinGeometry(): THREE.BufferGeometry {
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
   geometry.setIndex(indices);
-  geometry.computeVertexNormals();
-  return geometry;
+  const flat = geometry.toNonIndexed();
+  geometry.dispose();
+  flat.computeVertexNormals();
+  return flat;
 }
 
 function colorGeometry(geometry: THREE.BufferGeometry, color: number): THREE.BufferGeometry {
@@ -394,6 +358,19 @@ function buildVehicleDetailGeometry(): THREE.BufferGeometry {
     colorGeometry(placedBox(0.08, 0.12, 1.5, -2.3, 0.39, 0), 0x2b3035),
     colorGeometry(placedBox(0.06, 0.62, 1.27, -0.06, 1.16, 0), 0x1c252b),
   ];
+  for (const side of [-1, 1]) {
+    parts.push(
+      colorGeometry(placedBox(.25, .12, .18, .64, 1.08, side * .86), 0x343b42),
+      colorGeometry(placedBox(.19, .04, .035, .38, .78, side * .89), 0xc1c6c8),
+      colorGeometry(placedBox(.19, .04, .035, -.86, .78, side * .89), 0xc1c6c8),
+      colorGeometry(placedBox(1.95, .025, .028, -.17, .90, side * .77), 0x9fa7ab),
+    );
+  }
+  // White NY-style plate with a dark upper band, recessed in each bumper.
+  for (const end of [-1, 1]) {
+    parts.push(colorGeometry(placedBox(.035, .14, .30, end * 2.335, .46, 0), 0xdedbd0));
+    parts.push(colorGeometry(placedBox(.038, .022, .30, end * 2.338, .516, 0), 0x253849));
+  }
   for (const [x, z] of WHEEL_OFFSETS) {
     const hub = new THREE.CylinderGeometry(0.17, 0.17, 0.235, 10);
     hub.rotateX(Math.PI / 2);
@@ -584,13 +561,56 @@ export class StreetLife {
       side: THREE.FrontSide,
     });
     const cabinMat = new THREE.MeshStandardMaterial({
-      color: 0x7895a2,
+      color: 0xffffff,
       roughness: 0.16,
       metalness: 0.38,
       transparent: false,
       depthWrite: true,
       side: THREE.FrontSide,
     });
+    // Body and cabin share a shape profile, preserving instancing while
+    // vans/SUVs receive upright rear glass and a longer, higher roofline.
+    for (const [material, cabin] of [[bodyMat, false], [cabinMat, true]] as const) {
+      material.onBeforeCompile = shader => {
+        shader.vertexShader = shader.vertexShader
+          .replace('#include <common>', `#include <common>
+            attribute float vehicleProfile;
+            varying vec3 vVehiclePosition;
+            varying vec3 vVehicleNormal;
+            varying vec3 vVehiclePaint;`)
+          .replace('#include <begin_vertex>', `#include <begin_vertex>
+            float roof = smoothstep(0.82, 1.48, position.y);
+            transformed.x -= vehicleProfile * roof * 0.32 * (1.0 - step(0.0, position.x));
+            transformed.y += vehicleProfile * roof * 0.15;
+            vVehiclePosition = position;
+            vVehicleNormal = normal;
+            vVehiclePaint = vec3(1.0);
+            #ifdef USE_INSTANCING_COLOR
+              vVehiclePaint = instanceColor;
+            #endif`);
+        shader.fragmentShader = shader.fragmentShader
+          .replace('#include <common>', `#include <common>
+            varying vec3 vVehiclePosition;
+            varying vec3 vVehicleNormal;
+            varying vec3 vVehiclePaint;`)
+          .replace('#include <color_fragment>', `#include <color_fragment>
+            ${cabin ? `
+              float roofPanel = step(0.9, vVehicleNormal.y);
+              vec3 glass = vec3(0.105, 0.16, 0.19);
+              float edge = 1.0 - smoothstep(0.015, 0.04, abs(vVehiclePosition.x + 0.07));
+              glass = mix(glass, vec3(0.027, 0.033, 0.038), edge);
+              diffuseColor.rgb = mix(glass, vVehiclePaint, roofPanel);
+            ` : `
+              float side = smoothstep(0.72, 0.88, abs(vVehiclePosition.z));
+              float seamWidth = max(fwidth(vVehiclePosition.x), 0.004);
+              float seam = 1.0 - smoothstep(0.003, seamWidth + 0.004, abs(vVehiclePosition.x + 0.10));
+              float skirt = 1.0 - smoothstep(0.35, 0.44, vVehiclePosition.y);
+              diffuseColor.rgb *= 1.0 - side * (seam * 0.55 + skirt * 0.25);
+            `}
+          `);
+      };
+      material.customProgramCacheKey = () => `street-vehicle-${cabin ? 'glass' : 'paint'}-v3`;
+    }
     const tyreMat = new THREE.MeshStandardMaterial({ color: 0x111214, roughness: 0.88 });
     const vehicleDetailMat = new THREE.MeshStandardMaterial({
       color: 0xffffff,
@@ -642,11 +662,28 @@ export class StreetLife {
         shader.vertexShader = shader.vertexShader
           .replace(
             '#include <common>',
-            '#include <common>\nattribute float skinPart;\nattribute float instancePhase;\nuniform float populationTime;',
+            `#include <common>
+attribute float skinPart;
+attribute float instancePhase;
+attribute vec3 crowdColor;
+attribute float crowdTint;
+varying vec3 vCrowdColor;
+varying vec3 vCrowdPosition;
+uniform float populationTime;
+float crowdAngle() {
+  if (skinPart < 0.5) return 0.0;
+  float pairSide = (skinPart < 1.5 || skinPart > 3.5) ? 1.0 : -1.0;
+  return sin(populationTime * 7.4 + instancePhase) * (skinPart > 2.5 ? -0.31 : 0.38) * pairSide;
+}`,
           )
           .replace(
             '#include <begin_vertex>',
             `#include <begin_vertex>
+            vCrowdColor = crowdColor;
+            #ifdef USE_INSTANCING_COLOR
+              vCrowdColor *= mix(vec3(1.0), instanceColor, crowdTint);
+            #endif
+            vCrowdPosition = position;
             float stride = sin(populationTime * 7.4 + instancePhase);
             transformed.y += stride * 0.012;
             if (skinPart > 0.5) {
@@ -661,12 +698,24 @@ export class StreetLife {
               transformed.y = limb.x * s + limb.y * c + pivotY;
             }`,
           );
+        shader.vertexShader = shader.vertexShader.replace('#include <beginnormal_vertex>', `#include <beginnormal_vertex>
+          float normalAngle = crowdAngle();
+          objectNormal.xy = mat2(cos(normalAngle), sin(normalAngle), -sin(normalAngle), cos(normalAngle)) * objectNormal.xy;`);
+        shader.fragmentShader = shader.fragmentShader
+          .replace('#include <common>', '#include <common>\nvarying vec3 vCrowdColor;\nvarying vec3 vCrowdPosition;')
+          .replace('#include <color_fragment>', `#include <color_fragment>
+            diffuseColor.rgb = vCrowdColor;
+            // Broad folds and seams remain visible; subpixel fabric fades out.
+            float fabricLod = 1.0 - smoothstep(0.012, 0.04, length(fwidth(vCrowdPosition)));
+            float weave = sin(vCrowdPosition.y * 850.0) * sin(vCrowdPosition.z * 850.0);
+            diffuseColor.rgb *= 1.0 + weave * fabricLod * 0.025;
+          `);
         this.pedestrianShaders.push(shader);
       };
       material.customProgramCacheKey = () => cacheKey;
     };
-    animatePersonMaterial(personMat, 'street-life-pedestrian-clothing-v2');
-    animatePersonMaterial(skinMat, 'street-life-pedestrian-skin-v2');
+    animatePersonMaterial(personMat, 'street-life-pedestrian-clothing-v3');
+    animatePersonMaterial(skinMat, 'street-life-pedestrian-skin-v3');
     const farPersonMat = new THREE.MeshLambertMaterial({
       color: 0x667080,
     });
@@ -728,6 +777,9 @@ export class StreetLife {
 
     const vehicleCapacity = this.budget.parkedVehicles + this.budget.movingVehicles;
     const shadowCapacity = vehicleCapacity + this.budget.pedestriansNear + this.budget.cyclists;
+    const profiles = new THREE.InstancedBufferAttribute(new Float32Array(vehicleCapacity), 1);
+    bodyGeo.setAttribute('vehicleProfile', profiles);
+    cabinGeo.setAttribute('vehicleProfile', profiles);
     this.body = new THREE.InstancedMesh(bodyGeo, bodyMat, vehicleCapacity);
     this.cabin = new THREE.InstancedMesh(cabinGeo, cabinMat, vehicleCapacity);
     this.wheels = new THREE.InstancedMesh(wheelGeo, tyreMat, vehicleCapacity * 4);
@@ -1732,7 +1784,10 @@ export class StreetLife {
     this.cabin.setMatrixAt(index, this.matrix);
     this.vehicleDetails.setMatrixAt(index, this.matrix);
     this.body.setColorAt(index, vehicle.color);
-    this.cabin.setColorAt(index, this.glassTint);
+    this.cabin.setColorAt(index, vehicle.color);
+    const profiles = this.body.geometry.getAttribute('vehicleProfile');
+    profiles.setX(index, vehicle.kind === 'van' ? 1.4 : vehicle.kind === 'suv' ? 1 : 0);
+    profiles.needsUpdate = true;
     this.matrixWrites += 3;
 
     this.wheelQ.copy(this.yawQ).multiply(this.wheelTurn);

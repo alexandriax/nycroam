@@ -3,6 +3,7 @@ import { mkdtemp, mkdir, copyFile, readFile, rm, writeFile } from 'node:fs/promi
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import process from 'node:process';
+import { applyScannedSurfaces } from './scanned-surfaces.mjs';
 import {
   ATLAS_GRID,
   ATLAS_SIZE,
@@ -59,6 +60,7 @@ async function main() {
     const wasmPath = resolve(work, 'basisu_st.wasm');
     console.log(`[materials] generating ${ATLAS_SIZE}×${ATLAS_SIZE} deterministic source atlases`);
     const atlases = generateSurfaceAtlases();
+    const scans = await applyScannedSurfaces(atlases);
     for (const channel of channels) {
       await writeFile(resolve(work, channel.source), encodePng(atlases[channel.id]));
     }
@@ -117,6 +119,7 @@ async function main() {
     const blockCompressedUpperBytes = Math.round(ATLAS_SIZE * ATLAS_SIZE * mipFactor);
     const manifest = {
       schemaVersion: 1,
+      scans,
       generator: 'scripts/materials/build-material-library.mjs',
       encoder: {
         project: 'BinomialLLC/basis_universal',

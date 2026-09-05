@@ -82,7 +82,7 @@ export function makeFacadeMaterial(): THREE.MeshLambertMaterial {
     end: { value: authoredLod.fadeEnd },
   };
   mat.userData.nycFacadeDetailFade = detailFade;
-  mat.customProgramCacheKey = () => `nyc-semantic-facade-${premiumSurfaceNormals ? 'n' : 'x'}-${surfaceOrm ? 'o' : 'x'}-v5`;
+  mat.customProgramCacheKey = () => `nyc-semantic-facade-${premiumSurfaceNormals ? 'n' : 'x'}-${surfaceOrm ? 'o' : 'x'}-v6`;
   mat.onBeforeCompile = (shader) => {
     shader.uniforms.uNycSurfaceColor = materialLibrary.colorUniform;
     shader.uniforms.uNycFacadeFadeStart = detailFade.start;
@@ -95,10 +95,12 @@ export function makeFacadeMaterial(): THREE.MeshLambertMaterial {
         `#include <common>
         attribute float aStyle;
         attribute float aSemantic;
+        attribute vec4 aFacade;
         varying vec3 vWPos;
         varying vec3 vWNormal;
         varying float vStyle;
-        varying float vSemantic;`
+        varying float vSemantic;
+        varying vec4 vFacade;`
       )
       .replace(
         '#include <worldpos_vertex>',
@@ -106,7 +108,8 @@ export function makeFacadeMaterial(): THREE.MeshLambertMaterial {
         vWPos = (modelMatrix * vec4(transformed, 1.0)).xyz;
         vWNormal = normalize(mat3(modelMatrix) * objectNormal);
         vStyle = aStyle;
-        vSemantic = aSemantic;`
+        vSemantic = aSemantic;
+        vFacade = aFacade;`
       );
     shader.fragmentShader = shader.fragmentShader
       .replace(
@@ -116,6 +119,9 @@ export function makeFacadeMaterial(): THREE.MeshLambertMaterial {
         varying vec3 vWNormal;
         varying float vStyle;
         varying float vSemantic;
+        varying vec4 vFacade;
+        vec3 nycMasonryNormal = vec3(0.0, 1.0, 0.0);
+        float nycMasonryWeight = 0.0;
         uniform sampler2D uNycSurfaceColor;
         uniform float uNycFacadeFadeStart;
         uniform float uNycFacadeFadeEnd;
@@ -164,40 +170,8 @@ export function makeFacadeMaterial(): THREE.MeshLambertMaterial {
             || abs(styleN - 11.0) < 0.5
             || abs(styleN - 13.0) < 0.5
             || abs(styleN - 14.0) < 0.5;
-          if (verticalN > 0.55 && vWPos.y > 0.5 && texturedMasonry && detailN > 0.001) {
-            float uN = vWPos.x * faceN.z - vWPos.z * faceN.x;
-            float floorHN = vWPos.y < 4.6 ? 4.6 : 3.1;
-            float winWN = vWPos.y < 4.6 ? 4.2 : 2.5;
-            float nCu = uN / winWN, nCv = vWPos.y / floorHN;
-            vec2 fN = vec2(fract(nCu), fract(nCv));
-            vec2 loN = vWPos.y < 4.6 ? vec2(0.08, 0.05) : vec2(0.18, 0.25);
-            vec2 hiN = vWPos.y < 4.6 ? vec2(0.92, 0.75) : vec2(0.85, 0.80);
-            // Derivatives must come from the unwrapped cell coordinates:
-            // fwidth(fract(...)) spikes at each wrap and makes the normal mask
-            // crawl even when the visible color mask is correctly filtered.
-            float nWx = max(fwidth(nCu), 1e-5) * 0.5;
-            float nWy = max(fwidth(nCv), 1e-5) * 0.5;
-            float normalLod = 1.0 - smoothstep(0.18, 0.45, max(nWx, nWy));
-            float windowArea = (hiN.x - loN.x) * (hiN.y - loN.y);
-            float windowN = mix(
-              windowArea,
-              band(fN.x, loN.x, hiN.x, nWx) * band(fN.y, loN.y, hiN.y, nWy),
-              normalLod
-            );
-            float regionN = nycFacadeRegion(styleN);
-            float scaleN = (regionN == ${SURFACE_REGION.limestone.toFixed(1)} || regionN == ${SURFACE_REGION.concreteAged.toFixed(1)}) ? 2.4 : 1.2;
-            vec3 mapN = nycAtlasSample(
-              uNycSurfaceNormal,
-              vec2(uN, vWPos.y) / scaleN,
-              regionN
-            ).xyz * 2.0 - 1.0;
-            mapN.xy *= 0.72;
-            vec3 tangentN = normalize(vec3(faceN.z, 0.0, -faceN.x));
-            vec3 reliefN = normalize(
-              tangentN * mapN.x + vec3(0.0, 1.0, 0.0) * mapN.y + faceN * max(mapN.z, 0.25)
-            );
-            vec3 worldN = normalize(mix(faceN, reliefN, (1.0 - windowN) * detailN * 0.58));
-            normal = normalize(mat3(viewMatrix) * worldN);
+          if (verticalN > 0.55 && texturedMasonry && detailN > 0.001) {
+            normal = normalize(mix(normal, mat3(viewMatrix) * nycMasonryNormal, nycMasonryWeight));
           } else if (faceN.y > 0.55 && detailN > 0.001) {
             float roofRegionN = nycRoofRegion(vSemantic);
             vec3 mapN = nycAtlasSample(
@@ -228,9 +202,10 @@ export function makeFacadeMaterial(): THREE.MeshLambertMaterial {
           );
           if (vertical > 0.55 && vWPos.y > 0.5) {
             vec3 facadeBase = diffuseColor.rgb;
-            if (detail > 0.001) {
-            float u = vWPos.x * wn.z - vWPos.z * wn.x;
-            float v = vWPos.y;
+            if (detail > 0.001 && vFacade.w >= 0.0) {
+            float u = vFacade.x;
+            float v = vFacade.y;
+            float buildingSeed = vFacade.w;
             // Sixteen stable archetypes. Styles 0/1 intentionally retain the old
             // masonry/glass behavior, so tiles produced before the semantic
             // pipeline upgrade render identically.
@@ -259,12 +234,21 @@ export function makeFacadeMaterial(): THREE.MeshLambertMaterial {
               : brownstone ? 2.8 : castIron ? 2.25 : stone ? 2.6
               : abs(windowFamily - 4.0) < 0.5 ? 3.6
               : abs(windowFamily - 6.0) < 0.5 ? 2.9 : 2.5;
-            bool storefront = storefrontCategory > 0.5 && v < 4.6;
-            if (storefront) { floorH = 4.6; winW = 4.2; }
+            // Center whole bays on each actual footprint edge. Stable seed
+            // varies proportions by building, never individual glass panes.
+            floorH *= mix(0.94, 1.08, buildingSeed);
+            winW *= mix(0.87, 1.16, fract(buildingSeed * 7.31));
+            float groundH = mix(3.65, 4.5, buildingSeed);
+            bool hasStorefront = storefrontCategory > 0.5;
+            bool storefront = hasStorefront && v >= 0.0 && v < groundH;
+            float upperV = hasStorefront ? v - groundH : v;
+            if (storefront) { floorH = groundH; winW = 3.6; upperV = v; }
+            float bayCount = max(1.0, floor(vFacade.z / winW + 0.5));
+            winW = max(0.5, vFacade.z / bayCount);
             // Cell coordinates BEFORE the fract(), so their screen-space
             // derivatives are continuous (fwidth of a fract() spikes at every
             // cell seam and would draw a bright line there).
-            float cu = u / winW, cv = v / floorH;
+            float cu = u / winW, cv = upperV / floorH;
             vec2 f = vec2(fract(cu), fract(cv));
             // Half a pixel in cell units, per axis. This is what turns a hard
             // step() into a properly filtered edge -- without it every window
@@ -346,7 +330,7 @@ export function makeFacadeMaterial(): THREE.MeshLambertMaterial {
               // so each building keeps its palette color)
               float facadeRegion = nycFacadeRegion(styleId);
               float facadeScale = (facadeRegion == ${SURFACE_REGION.limestone.toFixed(1)} || facadeRegion == ${SURFACE_REGION.concreteAged.toFixed(1)}) ? 2.4 : 1.2;
-              vec2 facadeRepeat = vec2(u, v) / facadeScale;
+              vec2 facadeRepeat = vec2(u, v) / facadeScale + vec2(buildingSeed * 11.0, 0.0);
               vec3 bt = nycAtlasSample(
                 uNycSurfaceColor,
                 facadeRepeat,
@@ -355,9 +339,16 @@ export function makeFacadeMaterial(): THREE.MeshLambertMaterial {
               ${surfaceOrm
                 ? 'float facadeAo = nycAtlasSample(uNycSurfaceOrm, facadeRepeat, facadeRegion).r;'
                 : 'float facadeAo = 1.0;'}
-              float bl = dot(bt, vec3(0.333)) * 1.75;
-              float masonryRelief = industrial ? 0.3 : brownstone ? 0.24
-                : castIron ? 0.12 : (stone || concrete || artDeco) ? 0.08 : 0.34;
+              ${premiumSurfaceNormals ? `
+              vec3 masonryN = nycAtlasSample(uNycSurfaceNormal, facadeRepeat, facadeRegion).xyz * 2.0 - 1.0;
+              vec3 tangent = normalize(vec3(wn.z, 0.0, -wn.x));
+              vec3 relief = normalize(tangent * masonryN.x * 0.65 + vec3(0.0, 1.0, 0.0) * masonryN.y * 0.65 + wn * max(masonryN.z, 0.3));
+              nycMasonryNormal = relief;
+              nycMasonryWeight = (1.0 - win) * detail * microLod * 0.65;
+              ` : ''}
+              float bl = dot(bt, vec3(0.333)) * 2.4;
+              float masonryRelief = industrial ? 0.82 : brownstone ? 0.72
+                : castIron ? 0.16 : (stone || concrete || artDeco) ? 0.44 : 0.86;
               diffuseColor.rgb *= mix(1.0, bl, masonryRelief * (1.0 - win));
               diffuseColor.rgb *= mix(1.0, facadeAo, 0.18 * (1.0 - win));
               vec3 solidWindowTint = storefront
@@ -366,12 +357,21 @@ export function makeFacadeMaterial(): THREE.MeshLambertMaterial {
               vec3 glass = mix(
                 solidWindowTint,
                 skyGlass,
-                (storefront ? 0.34 : 0.48) + fresnel * 0.30
+                (storefront ? 0.15 : 0.24) + fresnel * 0.50
               );
+              // Apartment shades, recessed rooms and curtains sit behind the
+              // same continuous reflection; no random luminous pane checkerboard.
+              float roomId = fract(sin(dot(floor(vec2(cu, cv)), vec2(17.13, 91.7)) + buildingSeed * 37.0) * 43758.5453);
+              float shadeEnd = mix(0.4, 0.88, roomId);
+              float blind = band(f.y, shadeEnd, 0.91, wy) * step(0.42, roomId);
+              float curtain = (band(f.x, sideInset, sideInset + 0.10, wx)
+                + band(f.x, 0.90 - sideInset, 1.0 - sideInset, wx)) * step(roomId, 0.3);
+              vec3 interior = mix(vec3(0.045, 0.055, 0.063), vec3(0.34, 0.30, 0.24), clamp(blind + curtain, 0.0, 1.0));
+              if (!storefront) glass = mix(glass, interior, (1.0 - fresnel) * microLod * 0.38);
               // window inset: lintel shadow at the top of the opening, darker jambs
               float lintel = 1.0 - 0.5 * mix(0.26, smoothstep(0.68, 0.8, f.y), lod) * win;
               float jamb = 1.0 - 0.28 * lod * (band(f.x, 0.18, 0.24, wx) + band(f.x, 0.79, 0.85, wx)) * inY;
-              diffuseColor.rgb = mix(diffuseColor.rgb, glass, win * 0.88);
+              diffuseColor.rgb = mix(diffuseColor.rgb, glass, win * 0.98);
               diffuseColor.rgb *= lintel * jamb;
               diffuseColor.rgb += vec3(1.0, 0.94, 0.82) * glint * win * (storefront ? 0.07 : 0.11);
               // Real storefronts are divided into narrow display bays and a
@@ -386,8 +386,11 @@ export function makeFacadeMaterial(): THREE.MeshLambertMaterial {
                   + (band(f.y, 0.42, 0.44, wy) + band(f.y, 0.64, 0.66, wy)) * inX);
               }
               diffuseColor.rgb = mix(diffuseColor.rgb, facadeBase * 0.36, clamp(frame, 0.0, 1.0) * 0.92);
-              // sill highlight under the window
-              float sill = microLod * band(f.y, 0.225, 0.275, max(wy, 0.025)) * inX;
+              // Limestone lintels, projecting sills and a darker reveal give
+              // prewar masonry its depth; widths track the opening family.
+              float lintelTrim = band(f.y, min(0.9, bottomInset + opening), min(0.96, bottomInset + opening + 0.045), wy) * inX * microLod;
+              if (!storefront && !concrete) diffuseColor.rgb = mix(diffuseColor.rgb, facadeBase * 1.3, lintelTrim * 0.6);
+              float sill = microLod * band(f.y, bottomInset - 0.035, bottomInset, wy) * inX;
               diffuseColor.rgb += vec3(0.05) * sill * (storefront ? 0.0 : 1.0);
               if (architecturalMetal) {
                 float metalMask = 1.0 - win;
@@ -410,7 +413,7 @@ export function makeFacadeMaterial(): THREE.MeshLambertMaterial {
               || abs(macroStyle - 6.0) < 0.5
               || abs(macroWindow - 1.0) < 0.5;
             float detailedBaseResponse =
-              (0.86 + 0.14 * clamp(vWPos.y / 7.0, 0.0, 1.0))
+              (0.86 + 0.14 * clamp(vFacade.y / 7.0, 0.0, 1.0))
               * (solidGlassFacade ? 1.0 : nycMacroVariation(vWPos.xz));
             diffuseColor.rgb *= mix(1.0, detailedBaseResponse, detail);
           } else if (wn.y > 0.55) {
@@ -670,6 +673,27 @@ export function makeFlatMaterial(): THREE.MeshLambertMaterial {
   return mat;
 }
 
+/**
+ * Depth-only first pass for road geometry.
+ *
+ * The terrain and road ribbons use independent triangulations, so the terrain
+ * can physically cross a road even when the centerline was sampled from the
+ * same elevation grid. This pass replaces base-surface depth under projected
+ * road pixels without touching color. The ordinary road pass immediately
+ * follows it with normal depth testing, restoring the nearest road/bridge at
+ * overlaps; buildings, sidewalks, actors, and markings render afterward.
+ */
+export function makeRoadDepthMaskMaterial(): THREE.MeshBasicMaterial {
+  const mat = new THREE.MeshBasicMaterial({
+    colorWrite: false,
+    depthTest: true,
+    depthWrite: true,
+    depthFunc: THREE.AlwaysDepth,
+  });
+  mat.userData.nycRoadDepthMask = true;
+  return mat;
+}
+
 /** Asphalt roadbed with aggregate normal detail (UVs from the worker). */
 export function makeRoadMaterial(): THREE.MeshLambertMaterial | THREE.MeshStandardMaterial {
   const q = quality();
@@ -866,20 +890,20 @@ export interface TreeCanopyMaterialKit {
 /**
  * Opaque instanced foliage with a cheap shared wind/translucency cue.
  *
- * The canopy remains a closed low-poly mesh: no alpha cards, sorting or
- * overdraw. Wind runs in the shared vertex program and uses each instance's
+ * Near crowns use opaque leaf sprays; distant crowns use closed meshes.
+ * Neither needs alpha cards, blending or sorting. Wind runs in the shared vertex program and uses each instance's
  * world translation as its phase, so an entire tile is still one draw.
  */
 export function treeCanopyMaterial(): TreeCanopyMaterialKit {
   const q = quality();
   const premium = q.level === 'high' || q.level === 'ultra';
   const animated = q.level !== 'low';
-  const mat = premium
-    ? new THREE.MeshStandardMaterial({
-      color: 0xffffff, roughness: 0.9, metalness: 0,
-    })
-    : new THREE.MeshLambertMaterial({ color: 0xffffff });
+  // Leaf geometry, diffuse color and backlighting carry the foliage detail.
+  // Avoid a GGX specular BRDF on thousands of rough, overlapping leaves.
+  const mat = new THREE.MeshLambertMaterial({ color: 0xffffff });
   mat.dithering = true;
+  mat.vertexColors = true;
+  mat.side = THREE.DoubleSide;
   const uTime = { value: 0 };
 
   if (animated) {
@@ -938,7 +962,7 @@ export function treeCanopyMaterial(): TreeCanopyMaterialKit {
  * grazing angles, and a tight sun glint. Call the returned update(dt) per frame.
  */
 export function makeWaterMaterial(skyColor: THREE.Color): { mat: THREE.MeshLambertMaterial; update: (dt: number) => void } {
-  const mat = new THREE.MeshLambertMaterial({ color: 0x1d3542 });
+  const mat = new THREE.MeshLambertMaterial({ color: 0x243f3d });
   const uTime = { value: 0 };
   mat.onBeforeCompile = (shader) => {
     shader.uniforms.uTime = uTime;
@@ -973,6 +997,14 @@ export function makeWaterMaterial(skyColor: THREE.Color): { mat: THREE.MeshLambe
           float nz = cos(p.y * 0.31 + t * 0.9) * 0.10 * f1
                    + cos((p.y - p.x) * 0.075 + t * 0.35) * 0.14 * f2
                    + cos(p.y * 0.05 + t * 0.18) * 0.20 * f3;
+          // Sub-metre wind chop is visible beside the seawall, but filtered
+          // away before it becomes distant sparkle. Advect through the swell.
+          float chop = 1.0 - smoothstep(0.06, 0.38, px);
+          vec2 drift = p + vec2(t * .31, -t * .17);
+          nx += (sin(dot(drift, vec2(5.1, 2.7))) * .07
+            + sin(dot(drift, vec2(-3.3, 7.2)) + t*.6) * .04) * chop;
+          nz += (cos(dot(drift, vec2(4.2, -3.8))) * .07
+            + cos(dot(drift, vec2(6.7, 2.3)) - t*.5) * .04) * chop;
           return normalize(vec3(nx, 1.0, nz));
         }
         float waterPixelSpan() {
@@ -983,7 +1015,7 @@ export function makeWaterMaterial(skyColor: THREE.Color): { mat: THREE.MeshLambe
       .replace(
         '#include <normal_fragment_begin>',
         `#include <normal_fragment_begin>
-        normal = waveNormal(vWaterPos.xz, uTime, waterPixelSpan());`
+        normal = normalize(mat3(viewMatrix) * waveNormal(vWaterPos.xz, uTime, waterPixelSpan()));`
       )
       // Ahead of the fog, not after it: fresnel and glint are surface response,
       // so the haze has to sit on top of them. Injected at <dithering_fragment>
@@ -995,7 +1027,7 @@ export function makeWaterMaterial(skyColor: THREE.Color): { mat: THREE.MeshLambe
           float px = waterPixelSpan();
           vec3 V = normalize(cameraPosition - vWaterPos);
           vec3 N = waveNormal(vWaterPos.xz, uTime, px);
-          float fres = pow(1.0 - max(dot(V, N), 0.0), 3.0);
+          float fres = 0.02 + 0.98 * pow(1.0 - max(dot(V, N), 0.0), 5.0);
           gl_FragColor.rgb = mix(gl_FragColor.rgb, uSky, clamp(fres * 0.7, 0.0, 0.7));
           // A pow(.,120) lobe is a sub-pixel feature almost everywhere on a
           // 60 km plane; keep it only where the surface is actually resolved.
@@ -1008,4 +1040,44 @@ export function makeWaterMaterial(skyColor: THREE.Color): { mat: THREE.MeshLambe
       );
   };
   return { mat, update: (dt: number) => { uTime.value += dt; } };
+}
+
+/** Authored landmarks share the city atlas but retain their surveyed shapes
+ * and palettes. One dominant-axis projection avoids per-landmark texture loads. */
+export function applyLandmarkSurface<T extends THREE.MeshLambertMaterial | THREE.MeshStandardMaterial>(
+  material: T, region: number, meters = 2.4, strength = 0.38,
+): T {
+  const normalEnabled = MATERIAL_TIER_CONTRACTS[quality().level].normalAtlas;
+  material.onBeforeCompile = shader => {
+    shader.uniforms.uLandmarkColor = materialLibrary.colorUniform;
+    if (normalEnabled) shader.uniforms.uLandmarkNormal = materialLibrary.normalUniform;
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', '#include <common>\nvarying vec3 vLmPos;\nvarying vec3 vLmNormal;')
+      .replace('#include <worldpos_vertex>', `#include <worldpos_vertex>
+        vLmPos = (modelMatrix * vec4(transformed, 1.0)).xyz;
+        vLmNormal = normalize(mat3(modelMatrix) * objectNormal);`);
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <common>', `#include <common>
+        varying vec3 vLmPos; varying vec3 vLmNormal;
+        uniform sampler2D uLandmarkColor;
+        ${normalEnabled ? 'uniform sampler2D uLandmarkNormal;' : ''}
+        ${MATERIAL_ATLAS_GLSL}
+        vec2 lmUV() {
+          vec3 n = normalize(vLmNormal);
+          return (abs(n.y) > 0.65 ? vLmPos.xz : vec2(vLmPos.x * n.z - vLmPos.z * n.x, vLmPos.y)) / ${meters.toFixed(3)};
+        }`)
+      .replace('#include <color_fragment>', `#include <color_fragment>
+        float lmLuma = dot(nycAtlasSample(uLandmarkColor, lmUV(), ${region.toFixed(1)}).rgb, vec3(0.333));
+        float lmFade = 1.0 - smoothstep(100.0, 350.0, distance(cameraPosition, vLmPos));
+        diffuseColor.rgb *= mix(1.0, clamp(lmLuma * 2.5, 0.52, 1.45), ${strength.toFixed(3)} * lmFade);`);
+    if (normalEnabled) shader.fragmentShader = shader.fragmentShader.replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>
+      vec3 lmN = normalize(vLmNormal);
+      vec3 lmT = abs(lmN.y) > .65 ? vec3(1.0, 0.0, 0.0) : normalize(vec3(lmN.z, 0.0, -lmN.x));
+      vec3 lmB = normalize(cross(lmN, lmT));
+      vec3 lmMap = nycAtlasSample(uLandmarkNormal, lmUV(), ${region.toFixed(1)}).xyz * 2.0 - 1.0;
+      vec3 lmRelief = normalize(lmT * lmMap.x * .4 + lmB * lmMap.y * .4 + lmN * max(.4, lmMap.z));
+      normal = normalize(mix(normal, mat3(viewMatrix) * lmRelief, lmFade * .42));`);
+  };
+  material.customProgramCacheKey = () => `landmark-scan-${region}-${meters}-${strength}-${normalEnabled}-v1`;
+  return material;
 }
