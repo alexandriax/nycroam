@@ -46,6 +46,7 @@ export interface SceneResourceEstimate {
 const finite = (n: number) => Number.isFinite(n) ? n : 0;
 const max = (values: number[]) => values.length ? Math.max(...values) : 0;
 const fpsForMs = (ms: number) => ms > 0 ? 1000 / ms : 0;
+export const MAX_PERFORMANCE_CAPTURE_FRAMES = 12_000;
 const percentile = (values: number[], p: number) => {
   if (!values.length) return 0;
   const sorted = [...values].sort((a, b) => a - b);
@@ -74,10 +75,31 @@ export class PerformanceRecorder {
   private frames: PerformanceFrame[] = [];
   private label = 'rolling';
   private startedAt = performance.now();
-  private readonly maxFrames: number;
+  private maxFrames: number;
+  private readonly rollingCapacity: number;
 
   constructor(maxFrames = 1200) {
     this.maxFrames = maxFrames;
+    this.rollingCapacity = maxFrames;
+    this.setCapacity(maxFrames);
+  }
+
+  /** Temporarily retain a complete benchmark, including early arrivals on
+   * high-refresh screens. Omitting the argument restores the constructor's
+   * rolling capacity. Lowering the bound keeps the newest samples and updates
+   * the report's start time to cover only those retained frames. */
+  setCapacity(maxFrames = this.rollingCapacity): void {
+    if (!Number.isSafeInteger(maxFrames) || maxFrames < 1 || maxFrames > MAX_PERFORMANCE_CAPTURE_FRAMES) {
+      throw new RangeError(`Performance capture capacity must be 1–${MAX_PERFORMANCE_CAPTURE_FRAMES} frames`);
+    }
+    this.maxFrames = maxFrames;
+    this.trimToCapacity();
+  }
+
+  private trimToCapacity(): void {
+    if (this.frames.length <= this.maxFrames) return;
+    this.frames.splice(0, this.frames.length - this.maxFrames);
+    this.startedAt = performance.now() - this.frames.reduce((sum, frame) => sum + frame.frameMs, 0);
   }
 
   reset(label = 'capture'): void {
@@ -111,10 +133,7 @@ export class PerformanceRecorder {
       streamingPressure: Math.max(0, Math.min(1, finite(streamingPressure))),
       jsHeapBytes: heapBytes(),
     });
-    if (this.frames.length > this.maxFrames) {
-      this.frames.splice(0, this.frames.length - this.maxFrames);
-      this.startedAt = performance.now() - this.frames.reduce((sum, f) => sum + f.frameMs, 0);
-    }
+    this.trimToCapacity();
   }
 
   report(): PerformanceReport {

@@ -129,6 +129,7 @@ export const REQUIRED_ROUTE_IDS = Object.freeze([
   'central-park',
   'waterfront',
   'times-square-station',
+  'subway-ride',
 ]);
 
 export const SOAK_CONTRACT = Object.freeze({
@@ -192,7 +193,7 @@ export function evaluateCapture(capture, profileId) {
   if (!profile) throw new Error(`Unknown benchmark profile: ${profileId}`);
   const report = capture.report;
   const routeKind = capture.routeKind;
-  if (routeKind !== 'street' && routeKind !== 'station') {
+  if (routeKind !== 'street' && routeKind !== 'station' && routeKind !== 'ride') {
     throw new Error(`Unknown route kind: ${routeKind}`);
   }
 
@@ -205,6 +206,9 @@ export function evaluateCapture(capture, profileId) {
   }
 
   atLeast(violations, report, 'samples', 240, 'capture is too short for stable percentiles');
+  if (routeKind === 'station' || routeKind === 'ride') {
+    atLeast(violations, report, 'durationSeconds', 30, 'retain the full arrival and passenger exchange');
+  }
   atLeast(
     violations,
     report,
@@ -224,7 +228,7 @@ export function evaluateCapture(capture, profileId) {
     profile.budgets.streamingPressureP95,
   );
 
-  const sceneBudget = profile.budgets[routeKind];
+  const sceneBudget = profile.budgets[routeKind === 'ride' ? 'station' : routeKind];
   atMost(violations, report, 'drawCalls.p95', sceneBudget.drawCallsP95);
   atMost(violations, report, 'shadowCalls.p95', sceneBudget.shadowCallsP95);
   atMost(violations, report, 'triangles.p95', sceneBudget.trianglesP95);

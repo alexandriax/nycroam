@@ -1,8 +1,12 @@
+import { StationPassengers, collectPassengerObstacles } from './StationPassengers';
+import type { PassengerPlatform } from './passengerNavigation';
+import type { PassengerTrain } from './scheduler';
 import * as THREE from 'three';
 import { makeTactileMaterial } from '../transitMaterials';
 import { makeTerrazzoTexture } from '../textures';
 import { makeWorldDetailMaterial } from '../materials';
 import { trackDetail } from './trackDetail';
+import { trackBesidePlatformEdge } from './platformEdges';
 import type { StationSpec, TrackInfo, Arrival } from './types';
 import { crossSection, rectSubtract, TRACK_W, PlatformCountdown, pickBoardPositions } from './StationWorld';
 import type { ExitZone } from './StationWorld';
@@ -37,6 +41,9 @@ export class ElevatedStationWorld {
   /** Set by the orchestrator (same field the underground world exposes): returns
    *  the next arrivals so the platform countdown boards can tick. */
   arrivalsFn?: () => Arrival[];
+  trainsFn?: () => readonly PassengerTrain[];
+  private passengers!: StationPassengers;
+  private passengerPlatforms: PassengerPlatform[] = [];
   private disposables: (THREE.BufferGeometry | THREE.Material | THREE.Texture)[] = [];
   // Several MTA-style countdown boards per platform sharing ONE canvas/texture,
   // hung under the canopy; redrawn from arrivalsFn() on a timer in update().
@@ -55,6 +62,11 @@ export class ElevatedStationWorld {
     sun.position.set(-140, 220, -95);
     this.scene.add(hemi, sun, sun.target);
     this.build(spec);
+    const passengerObstacles = collectPassengerObstacles(this.scene, this.trackInfo.railY + 1.1);
+    for (const platform of this.passengerPlatforms) platform.holes.push(...passengerObstacles);
+    this.passengerPlatforms.push({ minX: -12, maxX: 12, minZ: -5.8, maxZ: 5.8, y: 0, boarding: false,
+      holes: collectPassengerObstacles(this.scene, 0),
+    });
     if (q.stationShadows) {
       // outdoor scene: real sun shadows on everything (viaduct onto street,
       // canopy onto platform, trains onto the deck)
@@ -80,6 +92,7 @@ export class ElevatedStationWorld {
       this.scene,
       (geometry) => this.track(geometry),
     );
+    this.passengers = new StationPassengers(this.scene, this.passengerPlatforms, spec.id, this.trackInfo.trackZs.length);
   }
 
   private track<T extends THREE.BufferGeometry | THREE.Material | THREE.Texture>(t: T): T {
@@ -205,9 +218,9 @@ export class ElevatedStationWorld {
     for (const p of cs.platforms) {
       const pw = p.zMax - p.zMin, pc = (p.zMin + p.zMax) / 2;
       this.box(L, 0.7, pw, platMat, 0, PLAT_Y - 0.35, pc);
-      if (cs.tracks.some(z => Math.abs(z - (p.zMin - TRACK_W/2)) < .1))
+      if (cs.tracks.some(z => trackBesidePlatformEdge(z, p.zMin, -1)))
         this.box(L, 0.03, 0.5, yellowMat, 0, PLAT_Y + 0.015, p.zMin + 0.28);
-      if (cs.tracks.some(z => Math.abs(z - (p.zMax + TRACK_W/2)) < .1))
+      if (cs.tracks.some(z => trackBesidePlatformEdge(z, p.zMax, 1)))
         this.box(L, 0.03, 0.5, yellowMat, 0, PLAT_Y + 0.015, p.zMax - 0.28);
 
       // canopy over the middle: posts + gabled roof + under-lights
@@ -298,6 +311,8 @@ export class ElevatedStationWorld {
       // platform walkboxes minus stair openings
       const rect = { minX: -half + 0.4, maxX: half - 0.4, minZ: p.zMin + 0.3, maxZ: p.zMax - 0.3 };
       const feet = stairFeet.filter((f) => f.minZ < p.zMax && f.maxZ > p.zMin);
+      this.passengerPlatforms.push({ minX: -half, maxX: half, minZ: p.zMin, maxZ: p.zMax, y: PLAT_Y, holes: [...feet] });
+      for (let x = -canLen / 2; x <= canLen / 2; x += 4.6) this.passengerPlatforms.at(-1)!.holes.push({ minX: x - .08, maxX: x + .08, minZ: pc - .08, maxZ: pc + .08 });
       for (const r of rectSubtract(rect, feet)) {
         if (r.maxX - r.minX < 0.05 || r.maxZ - r.minZ < 0.05) continue;
         this.walkBoxes.push({ ...r, y: PLAT_Y });
@@ -401,6 +416,7 @@ export class ElevatedStationWorld {
   }
 
   update(dt: number) {
+    this.passengers.update(dt, this.trainsFn?.() ?? []);
     // Structure is static; only the countdown boards are live. Forward the
     // orchestrator-set arrivalsFn and let the shared board manager tick/page.
     this.countdown.arrivalsFn = this.arrivalsFn;
@@ -408,6 +424,7 @@ export class ElevatedStationWorld {
   }
 
   dispose() {
+    this.passengers.dispose();
     this.scene.traverse((o) => {
       if (o instanceof THREE.Mesh) o.geometry.dispose();
       if (o instanceof THREE.InstancedMesh) o.dispose();

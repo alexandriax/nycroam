@@ -18,7 +18,15 @@ export interface StationBenchmarkRoute {
   seconds: number;
 }
 
-export type BenchmarkRoute = StreetBenchmarkRoute | StationBenchmarkRoute;
+export interface RideBenchmarkRoute {
+  kind: 'ride';
+  label: string;
+  stationSearch: string;
+  route: string;
+  seconds: number;
+}
+
+export type BenchmarkRoute = StreetBenchmarkRoute | StationBenchmarkRoute | RideBenchmarkRoute;
 
 /**
  * Stable, OSM-aligned captures for before/after comparisons. They intentionally
@@ -61,7 +69,14 @@ export const GOLDEN_ROUTES = {
     // Match the checked-in MTA/OSM station spelling exactly. "Times Square"
     // does not occur in subway.json; the source uses the standard "Sq" label.
     stationSearch: 'Times Sq-42 St',
-    seconds: 14,
+    seconds: 36,
+  },
+  'subway-ride': {
+    kind: 'ride',
+    label: 'Occupied 1 train / Times Square to 50 St',
+    stationSearch: 'Times Sq-42 St',
+    route: '1',
+    seconds: 32,
   },
 } as const satisfies Record<string, BenchmarkRoute>;
 

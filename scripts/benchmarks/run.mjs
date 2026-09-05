@@ -29,7 +29,7 @@ Usage:
 
 Options:
   --profiles <ids>      Comma-separated profiles (default: mobile-medium,desktop-high)
-  --routes <ids>        Comma-separated golden routes (default: all four)
+  --routes <ids>        Comma-separated golden routes (default: all five)
   --url <url>           Use an already-running production deployment
   --port <number>       Local next start port (default: available ephemeral port)
   --output <path>       JSON artifact path
@@ -190,7 +190,7 @@ function gitCommit() {
 }
 
 function routeKind(routeId) {
-  return routeId === 'times-square-station' ? 'station' : 'street';
+  return routeId === 'subway-ride' ? 'ride' : routeId === 'times-square-station' ? 'station' : 'street';
 }
 
 async function launchBrowser(headed) {
@@ -252,10 +252,10 @@ async function preparePage(browser, serverUrl, profileId) {
   if (profile.platform === 'mobile-emulation') url.searchParams.set('touch', '1');
   await page.goto(url.toString(), { waitUntil: 'domcontentloaded', timeout: 60_000 });
   await page.waitForFunction(
-    () => window.__nyc
+    (requiredCount) => window.__nyc
       && typeof window.__nyc.runBenchmarkRoute === 'function'
-      && window.__nyc.benchmarkRoutes().length === 4,
-    null,
+      && window.__nyc.benchmarkRoutes().length >= requiredCount,
+    REQUIRED_ROUTE_IDS.length,
     { timeout: 60_000 },
   );
   await page.evaluate(() => window.__nyc.audio.setMuted(true));

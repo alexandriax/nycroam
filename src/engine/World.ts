@@ -27,6 +27,7 @@ import { TramSystem, type TramRideHandle } from './tram';
 import { BusModel } from './bus/model';
 import { buildBusStop } from './bus/stops';
 import { BUS, type BusHud, type BusRouteBadge } from './bus/types';
+import { clampBusCabinPosition, atOpenBusDoor } from './bus/cabinNavigation';
 import { loadSans } from './fonts';
 import { StationWorld } from './subway/StationWorld';
 import { ElevatedStationWorld } from './subway/ElevatedStationWorld';
@@ -47,6 +48,7 @@ import {
   type RuntimeQualitySettings,
 } from './performance/QualityGovernor';
 import { WebGLGpuTimer } from './performance/WebGLGpuTimer';
+import { activeStreamingPressure } from './performance/TileStreamingTelemetry';
 import { RenderingPipeline } from './rendering/RenderingPipeline';
 import {
   PerformanceRecorder,
@@ -1694,6 +1696,7 @@ export class World {
     // feed the platform countdown clocks: the station redraws them from this on
     // its own timer (reads the live scheduler each call, so it survives rebuilds).
     (this.station as { arrivalsFn?: () => Arrival[] }).arrivalsFn = () => this.scheduler?.arrivals() ?? [];
+    this.station.trainsFn = () => this.scheduler?.passengerTrains() ?? [];
     this.currentStationSpec = spec;
   }
 
@@ -2131,13 +2134,13 @@ export class World {
           : null;
       }
     } else if (this.mode === 'ride' && this.ride) {
-      // constrained walking inside the car
-      this.pos.x = Math.max(-6.8, Math.min(6.8, this.pos.x + dx));
-      this.pos.z = Math.max(-1.05, Math.min(1.05, this.pos.z + dz));
+      // Use the rendered car and actual door bays for cabin movement. B-division
+      // cars are wider/longer, and the served platform can be on either side.
+      const cabinPosition = this.ride.clampPosition(this.pos.x + dx, this.pos.z + dz);
+      this.pos.x = cabinPosition.x;
+      this.pos.z = cabinPosition.z;
       this.pos.y = 0;
-      // walk-off: while dwelling, stepping into the open platform-side (+z)
-      // doors steps you off — same affordance as walking in (E still works).
-      if (this.ride.canExit && this.pos.z > 0.92
+      if (this.ride.isAtOpenDoor(this.pos.x, this.pos.z)
         && performance.now() - this.lastEnterGuard > 2500 && !this.transitioning) {
         this.exitRide();
       }
@@ -2177,8 +2180,14 @@ export class World {
         const box = rideInterior(h);
         const lx = dx * Math.cos(th) - dz * Math.sin(th);
         const lz = dx * Math.sin(th) + dz * Math.cos(th);
-        this.busLocal.x = Math.max(box.minX, Math.min(box.maxX, this.busLocal.x + lx));
-        this.busLocal.z = Math.max(box.minZ, Math.min(box.maxZ, this.busLocal.z + lz));
+        if (this.ridingTram) {
+          this.busLocal.x = Math.max(box.minX, Math.min(box.maxX, this.busLocal.x + lx));
+          this.busLocal.z = Math.max(box.minZ, Math.min(box.maxZ, this.busLocal.z + lz));
+        } else {
+          const cabin = clampBusCabinPosition(this.busLocal.x + lx, this.busLocal.z + lz, h.canExit);
+          this.busLocal.x = cabin.x;
+          this.busLocal.z = cabin.z;
+        }
         // keep the player anchored to the vehicle for tiles/minimap/save
         this.pos.set(h.pos.x, heightAt(h.pos.x, h.pos.z), h.pos.z);
         if (this.sun) followSun(this.sun, this.pos.x, this.pos.z, this.pos.y, fwd.x, fwd.z);
@@ -2215,9 +2224,7 @@ export class World {
         // doors span the cabin on BOTH sides; the bus has curb-side bays.
         const walkOff = this.ridingTram
           ? Math.abs(this.busLocal.z) > box.maxZ - 0.08
-          : (Math.abs(this.busLocal.x - BUS.doorX.front) < 1.1
-            || Math.abs(this.busLocal.x - BUS.doorX.rear) < 1.2)
-            && this.busLocal.z > box.maxZ - 0.08;
+          : atOpenBusDoor(this.busLocal.x, this.busLocal.z, h.canExit);
         if (h.canExit && walkOff
           && performance.now() - this.lastEnterGuard > 2500 && !this.transitioning) {
           this.exitBus();
@@ -2373,10 +2380,7 @@ export class World {
     // Sample the live queue, not the 2Hz HUD cache. A short completed burst
     // previously remained reported as full pressure for another half-second,
     // corrupting p95 and teaching the governor from stale state.
-    const streamingPressure = Math.min(
-      1,
-      this.tiles.pendingCount() / Math.max(4, this.tileWorkerCount * 3),
-    );
+    const streamingPressure = activeStreamingPressure(this.mode, this.tiles.pendingCount(), this.tileWorkerCount);
     this.performanceRecorder.sample(
       this.renderer,
       rawDt * 1000,
@@ -2750,6 +2754,9 @@ export class World {
     while (this.hud.loading && performance.now() < readyDeadline) await wait(50);
     if (this.hud.loading) throw new Error('Benchmark world initialization timed out');
     this.benchmarkActive = true;
+    // Keep the complete 32–36s transit capture even on high-refresh displays;
+    // the normal 1200-frame rolling audit would discard the first arrival.
+    this.performanceRecorder.setCapacity(12_000);
     this.applyRuntimeSettings(this.qualityGovernor.restore({
       effectsLevel: this.authoredEffectsLevel,
       shadowLevel: this.authoredShadowLevel,
@@ -2759,11 +2766,19 @@ export class World {
     try {
       this.leaveTransit();
       await wait(0);
-      if (route.kind === 'station') {
+      if (route.kind === 'station' || route.kind === 'ride') {
         const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '');
         const spec = this.entrances.findStation((s) => norm(s.name).includes(norm(route.stationSearch)));
         if (!spec) throw new Error(`Benchmark station not found: ${route.stationSearch}`);
         await this.enterStation(spec, spec.pos);
+        if (route.kind === 'ride') {
+          await this.beginRide(route.route, 1, spec.id);
+        } else if (this.station) {
+          // Capture the occupied platform and arriving trains, not only the
+          // upper mezzanine. The 36-second window includes a full exchange.
+          this.pos.copy(this.station instanceof ComplexStationWorld
+            ? this.station.platformSpawnFor(spec.id) : this.station.platformSpawn);
+        }
         await wait(900);
         this.resetPerformanceCapture(route.label);
         const initialYaw = this.controls.yaw;
@@ -2811,6 +2826,7 @@ export class World {
       return this.performanceReport();
     } finally {
       this.benchmarkActive = false;
+      this.performanceRecorder.setCapacity(1200);
       this.audio.setMuted(wasMuted);
     }
   }

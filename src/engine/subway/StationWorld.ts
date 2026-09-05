@@ -1,7 +1,11 @@
 import * as THREE from 'three';
 import { makeTactileMaterial } from '../transitMaterials';
 import { trackDetail } from './trackDetail';
+import { fitPlatformEdges, trackBesidePlatformEdge } from './platformEdges';
 import { arrivalReadout } from './trainTiming';
+import { StationPassengers, collectPassengerObstacles } from './StationPassengers';
+import type { PassengerPlatform } from './passengerNavigation';
+import type { PassengerTrain } from './scheduler';
 import type { StationSpec, TrackInfo, Arrival } from './types';
 import {
   makeNameMosaicTexture, makeHangingSignTexture,
@@ -65,6 +69,7 @@ export function crossSection(spec: StationSpec): CrossSection {
     else cs.platforms.push({ zMin: z, zMax: z + s.w });
     z += s.w;
   }
+  cs.platforms = fitPlatformEdges(cs.platforms, cs.tracks, spec.division);
   return cs;
 }
 
@@ -224,7 +229,7 @@ export class PlatformCountdown {
     }
   }
 
-  /** One displayed service minute is one gameplay second; Now means boardable. */
+  /** Compressed service minutes stay readable; Now means boardable. */
   private minsInfo(seconds: number): { big: string; unit: string } {
     return arrivalReadout(seconds);
   }
@@ -408,6 +413,9 @@ export class StationWorld {
   /** Set by the orchestrator: returns the soonest arrival per direction so the
    *  platform countdown clocks can tick. Consumed in update(); never set here. */
   arrivalsFn?: () => Arrival[];
+  trainsFn?: () => readonly PassengerTrain[];
+  private passengers!: StationPassengers;
+  private passengerPlatforms: PassengerPlatform[] = [];
   private disposables: (THREE.BufferGeometry | THREE.Material | THREE.Texture)[] = [];
   // Several MTA-style countdown boards per PLATFORM sharing ONE canvas/texture.
   // Each lists the next trains for the directions that platform serves as
@@ -431,6 +439,14 @@ export class StationWorld {
     }
     setupStationLights(this.scene, spec.layout.platformLength / 2 + 25);
     this.build(spec);
+    const passengerObstacles = collectPassengerObstacles(this.scene, 0);
+    for (const platform of this.passengerPlatforms) platform.holes.push(...passengerObstacles);
+    for (const cell of this.stationCells) if (cell.kind === 'mezzanine') {
+      const y = cell.floorY;
+      this.passengerPlatforms.push({ ...cell.bounds, y, boarding: false,
+        holes: [...collectPassengerObstacles(this.scene, y), ...this.walkBoxes.filter(b => b.ramp && Math.max(b.ramp.y0, b.ramp.y1) >= y - .1)],
+      });
+    }
     // Selective shadows: small furniture + columns cast; floors/walls receive.
     // Ceilings must not cast (the light sits above them) — they're excluded
     // by only enabling casting on the prop groups below.
@@ -463,6 +479,7 @@ export class StationWorld {
     this.batchStats = this.architecture.batchStats;
     this.architectureStats = this.architecture.stats;
     this.shadowCasters.length = 0;
+    this.passengers = new StationPassengers(this.scene, this.passengerPlatforms, spec.id, this.trackInfo.trackZs.length);
   }
 
   private shadowCasters: THREE.Object3D[] = [];
@@ -541,12 +558,12 @@ export class StationWorld {
       const pw = p.zMax - p.zMin, pc = (p.zMin + p.zMax) / 2;
       this.box(L, 1.5, pw, platMat, 0, -0.75, pc, root);
       // vertical faces toward tracks
-      this.box(L, 1.5, 0.08, platSideMat, 0, -0.75, p.zMin - 0.04, root);
-      this.box(L, 1.5, 0.08, platSideMat, 0, -0.75, p.zMax + 0.04, root);
+      this.box(L, 1.5, 0.08, platSideMat, 0, -0.75, p.zMin + 0.04, root);
+      this.box(L, 1.5, 0.08, platSideMat, 0, -0.75, p.zMax - 0.04, root);
       // yellow tactile edge strips
-      if (cs.tracks.some(z => Math.abs(z - (p.zMin - TRACK_W/2)) < .1))
+      if (cs.tracks.some(z => trackBesidePlatformEdge(z, p.zMin, -1)))
         this.box(L, 0.03, 0.55, yellowMat, 0, 0.015, p.zMin + 0.3, root);
-      if (cs.tracks.some(z => Math.abs(z - (p.zMax + TRACK_W/2)) < .1))
+      if (cs.tracks.some(z => trackBesidePlatformEdge(z, p.zMax, 1)))
         this.box(L, 0.03, 0.55, yellowMat, 0, 0.015, p.zMax - 0.3, root);
     }
 
@@ -654,6 +671,7 @@ export class StationWorld {
       const feet = stairDefs
         .filter((s) => s.z === cz)
         .map((s) => ({ minX: s.x - 0.45, maxX: s.x + stairRun, minZ: cz - stairW / 2, maxZ: cz + stairW / 2 }));
+      this.passengerPlatforms.push({ minX: -half, maxX: half, minZ: p.zMin, maxZ: p.zMax, y: 0, holes: [...feet] });
       const rect = { minX: -half + 0.4, maxX: half - 0.4, minZ: p.zMin + 0.35, maxZ: p.zMax - 0.35 };
       for (const r of rectSubtract(rect, feet)) {
         if (r.maxX - r.minX < 0.05 || r.maxZ - r.minZ < 0.05) continue;
@@ -1202,13 +1220,14 @@ export class StationWorld {
   }
 
   update(dt: number) {
-    // Structure is static; the only live thing is the countdown boards. Forward
-    // the orchestrator-set arrivalsFn and let the shared board manager tick/page.
+    this.passengers.update(dt, this.trainsFn?.() ?? []);
+    // Shared board textures redraw only when displayed arrivals change.
     this.countdown.arrivalsFn = this.arrivalsFn;
     this.countdown.update(dt);
   }
 
   dispose() {
+    this.passengers.dispose();
     this.architecture.dispose();
     // prop groups create their own geometries; free everything in the scene
     this.scene.traverse((o) => {
