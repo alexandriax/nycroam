@@ -1,4 +1,7 @@
 import * as THREE from 'three';
+import { makeTactileMaterial } from '../transitMaterials';
+import { trackDetail } from './trackDetail';
+import { arrivalReadout } from './trainTiming';
 import type { StationSpec, TrackInfo, Arrival } from './types';
 import {
   makeNameMosaicTexture, makeHangingSignTexture,
@@ -208,7 +211,7 @@ export class PlatformCountdown {
     for (const panel of this.panels) {
       // one row per upcoming TRAIN for this platform's directions, soonest first,
       // capped at 6 (3 pages of 2). No trains -> a "—" placeholder per direction.
-      let rows = arrivals.filter((a) => panel.dirs.includes(a.dirSign));
+      let rows = arrivals.filter((a) => panel.dirs.includes(a.dirSign) && a.routes.some(route => panel.routes.includes(route)));
       rows.sort((a, b) => a.seconds - b.seconds);
       rows = rows.slice(0, 6);
       if (rows.length === 0) {
@@ -221,16 +224,9 @@ export class PlatformCountdown {
     }
   }
 
-  /** Minutes readout for a row: "—" (no train), "Now", else whole minutes as a
-   *  big number with a "MIN" unit. The scheduler now feeds phase-accurate ETAs,
-   *  so "Now" is gated tight (≈ the approach + dwell window, ~7s) — a row reads
-   *  "Now" only while a train is genuinely pulling in or dwelling, never while
-   *  one is still hidden in the tunnel a minute out. Minutes floor at 1 so a
-   *  ~20s ETA never renders the nonsensical "0 MIN". */
+  /** One displayed service minute is one gameplay second; Now means boardable. */
   private minsInfo(seconds: number): { big: string; unit: string } {
-    if (!Number.isFinite(seconds)) return { big: '–', unit: '' };
-    if (seconds < 7) return { big: 'Now', unit: '' };
-    return { big: String(Math.max(1, Math.round(seconds / 60))), unit: 'MIN' };
+    return arrivalReadout(seconds);
   }
 
   private roundRectPath(
@@ -518,20 +514,21 @@ export class StationWorld {
       map: wallEndTex, roughness: 0.36, metalness: 0.03,
     }));
     const terrazzo = makeTerrazzoTexture();
-    const platMat = this.track(makeWorldDetailMaterial(0xa8a49a, terrazzo.map, 2, 0.85));
+    const platMat = this.track(makeWorldDetailMaterial(0x9fa3a1, terrazzo.map, 1.2, 0.95));
     const platSideMat = this.track(new THREE.MeshLambertMaterial({ color: 0x5c5c58 }));
     const ceilMat = this.track(new THREE.MeshLambertMaterial({ color: 0xb8b6ae }));
     const beamMat = this.track(new THREE.MeshLambertMaterial({ color: 0x4a5548 }));
     const troughMat = this.track(new THREE.MeshLambertMaterial({ color: 0x1c1d1f }));
     const railMat = this.track(new THREE.MeshStandardMaterial({ color: 0x9aa0a4, metalness: 0.85, roughness: 0.3 }));
     const thirdRailMat = this.track(new THREE.MeshLambertMaterial({ color: 0x3a3630 }));
-    const yellowMat = this.track(new THREE.MeshLambertMaterial({ color: 0xf2c53d }));
+    const yellowMat = this.track(makeTactileMaterial());
     const darkMat = this.track(new THREE.MeshBasicMaterial({ color: 0x020304 }));
     const lightMat = this.track(new THREE.MeshBasicMaterial({ color: 0xfff6e0 }));
-    const mezzFloorMat = this.track(makeWorldDetailMaterial(0xaaa69b, terrazzo.map, 2, 0.85));
+    const mezzFloorMat = this.track(makeWorldDetailMaterial(0x9fa3a1, terrazzo.map, 1.2, 0.95));
 
     // ---- track troughs + rails ----
     for (const tz of cs.tracks) {
+      root.add(trackDetail(L + 90, 0, -1.1, tz, resource => { this.track(resource); }));
       this.box(L + 90, 0.3, TRACK_W - 0.2, troughMat, 0, -1.65, tz, root);
       for (const off of [-0.72, 0.72]) {
         this.box(L + 90, 0.16, 0.12, railMat, 0, -1.2, tz + off, root);
@@ -547,8 +544,10 @@ export class StationWorld {
       this.box(L, 1.5, 0.08, platSideMat, 0, -0.75, p.zMin - 0.04, root);
       this.box(L, 1.5, 0.08, platSideMat, 0, -0.75, p.zMax + 0.04, root);
       // yellow tactile edge strips
-      this.box(L, 0.03, 0.55, yellowMat, 0, 0.015, p.zMin + 0.3, root);
-      this.box(L, 0.03, 0.55, yellowMat, 0, 0.015, p.zMax - 0.3, root);
+      if (cs.tracks.some(z => Math.abs(z - (p.zMin - TRACK_W/2)) < .1))
+        this.box(L, 0.03, 0.55, yellowMat, 0, 0.015, p.zMin + 0.3, root);
+      if (cs.tracks.some(z => Math.abs(z - (p.zMax + TRACK_W/2)) < .1))
+        this.box(L, 0.03, 0.55, yellowMat, 0, 0.015, p.zMax - 0.3, root);
     }
 
     // ---- side walls (tiled) with mosaics ----
@@ -1213,7 +1212,8 @@ export class StationWorld {
     this.architecture.dispose();
     // prop groups create their own geometries; free everything in the scene
     this.scene.traverse((o) => {
-      if (o instanceof THREE.Mesh || o instanceof THREE.InstancedMesh) o.geometry.dispose();
+      if (o instanceof THREE.Mesh) o.geometry.dispose();
+      if (o instanceof THREE.InstancedMesh) o.dispose();
     });
     for (const d of this.disposables) d.dispose();
     this.scene.clear();

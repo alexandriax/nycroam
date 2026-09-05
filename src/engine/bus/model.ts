@@ -1,9 +1,7 @@
 // MTA New York City Bus vehicle (New Flyer Xcelsior XD40-style), built with the
 // subway-train conventions (see subway/train.ts):
-// - windows are real OPENINGS between opaque wall segments (NO transparent
-//   glass anywhere: transparent panes mis-sort against the street and glitch
-//   black). The rider sees the streets through the openings; passers-by see
-//   the lit interior.
+// - glazed window openings preserve street and cabin views; thin panes share
+//   one material batch with single-pass, low-opacity rendering.
 // - canvas-texture signage; STATIC sign textures are cached module-level by
 //   content key and shared across instances (never disposed); the dynamic
 //   interior next-stop LED is per-instance and disposed with the bus.
@@ -24,6 +22,9 @@ import { mergeByMaterial } from '../EntranceManager';
 import { BLACK, LED, SANS } from '../fonts';
 import { BUS, type BusModelLike, type BusModelOpts } from './types';
 import { canvas2d } from '../canvas2d';
+import { transitFinish, transitGlass } from '../transitMaterials';
+import { busSidePanel } from './geometry';
+import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
 
 // ---------------------------------------------------------------------------
 // Layout constants (absolute y from ground; x/z in the bus local frame)
@@ -74,12 +75,13 @@ const CEIL_Y = 2.555; // interior ceiling panel center (clear of floorY + 2.0)
 // Shared materials (module scope; every BusModel reuses these). Interior mats
 // carry a small emissive floor so the cabin never renders pitch black.
 // ---------------------------------------------------------------------------
-const WHITE = new THREE.MeshLambertMaterial({ color: '#e9ebed', emissive: '#232425' });
-const BLUE = new THREE.MeshLambertMaterial({ color: '#1740a6', emissive: '#060f28' });
+const WHITE = transitFinish(new THREE.MeshStandardMaterial({ color: '#e3e7e8', roughness: .36, metalness: .12 }), 'paint');
+const BLUE = transitFinish(new THREE.MeshStandardMaterial({ color: '#184092', roughness: .38, metalness: .12 }), 'paint');
+const GLASS = transitGlass();
 const BAND = new THREE.MeshLambertMaterial({ color: '#101214', emissive: '#050606' });
 const SKIRT = new THREE.MeshLambertMaterial({ color: '#26292c', emissive: '#0e0f10' });
 const ROOF = new THREE.MeshLambertMaterial({ color: '#cdd1d4' });
-const SEAT = new THREE.MeshLambertMaterial({ color: '#1c4f9c', emissive: '#16336b' });
+const SEAT = new THREE.MeshStandardMaterial({ color: '#3b6482', roughness: .62, emissive: '#172936', emissiveIntensity: .35 });
 // lit interior lining: the hull shadows all direct sun, so cabin surfaces need
 // a real emissive floor to read as a lit bus (same trick as the train interior)
 const PANEL = new THREE.MeshLambertMaterial({ color: '#c6cacd', emissive: '#585b5e' });
@@ -91,7 +93,7 @@ const TAIL_RED = new THREE.MeshLambertMaterial({ color: '#3a0d0d', emissive: '#f
 const AMBER = new THREE.MeshLambertMaterial({ color: '#4a2c08', emissive: '#ffa22e', emissiveIntensity: 1.0 });
 const TIRE_MAT = new THREE.MeshLambertMaterial({ color: '#17181a' });
 const HUB_MAT = new THREE.MeshLambertMaterial({ color: '#9aa0a5' });
-const DOOR_MAT = new THREE.MeshLambertMaterial({ color: '#d9dcdf', emissive: '#1d1e1f' });
+const DOOR_MAT = transitFinish(new THREE.MeshStandardMaterial({ color: '#a8afb3', roughness: .42, metalness: .48 }), 'steel');
 const TEAL = new THREE.MeshLambertMaterial({ color: '#00a6ce' }); // SBS accent
 
 // merged-hull buckets that cast/receive shadows
@@ -166,8 +168,8 @@ function axleGeometry(): THREE.BufferGeometry {
     const tires: THREE.BufferGeometry[] = [];
     const hubs: THREE.BufferGeometry[] = [];
     for (const s of [-1, 1]) {
-      tires.push(new THREE.CylinderGeometry(TIRE_R, TIRE_R, TIRE_W, 12).rotateX(Math.PI / 2).translate(0, 0, s * WHEEL_Z));
-      hubs.push(new THREE.CylinderGeometry(0.2, 0.2, TIRE_W + 0.05, 8).rotateX(Math.PI / 2).translate(0, 0, s * WHEEL_Z));
+      tires.push(new THREE.CylinderGeometry(TIRE_R, TIRE_R, TIRE_W, 20).rotateX(Math.PI / 2).translate(0, 0, s * WHEEL_Z));
+      hubs.push(new THREE.CylinderGeometry(0.2, 0.2, TIRE_W + 0.05, 16).rotateX(Math.PI / 2).translate(0, 0, s * WHEEL_Z));
     }
     const t = mergeGeometries(tires, false)!;
     const h = mergeGeometries(hubs, false)!;
@@ -372,7 +374,10 @@ function grilleMat(): THREE.Material {
 // Small builder helpers (fresh geometry per call: mergeByMaterial disposes it)
 // ---------------------------------------------------------------------------
 function addBox(g: THREE.Group, mat: THREE.Material, w: number, h: number, d: number, x: number, y: number, z: number): THREE.Mesh {
-  const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
+  const geometry = mat === SEAT
+    ? new RoundedBoxGeometry(w,h,d,1,Math.min(.035,w*.35,h*.35,d*.35))
+    : new THREE.BoxGeometry(w,h,d);
+  const m = new THREE.Mesh(geometry, mat);
   m.position.set(x, y, z);
   g.add(m);
   return m;
@@ -389,7 +394,10 @@ function addCyl(g: THREE.Group, mat: THREE.Material, r: number, len: number, x: 
 
 /** One horizontal paint band of a side-wall segment. */
 function addBandBox(g: THREE.Group, mat: THREE.Material, a: number, b: number, y0: number, y1: number, z: number): void {
-  addBox(g, mat, b - a, y1 - y0, WALL_T, (a + b) / 2, (y0 + y1) / 2, z);
+  if (y0 < 1.04) {
+    const mesh = new THREE.Mesh(busSidePanel(a, b, y0, y1, WALL_T), mat);
+    mesh.position.z = z; g.add(mesh);
+  } else addBox(g, mat, b - a, y1 - y0, WALL_T, (a + b) / 2, (y0 + y1) / 2, z);
 }
 
 // ---------------------------------------------------------------------------
@@ -417,6 +425,10 @@ function buildExterior(g: THREE.Group, sbs: boolean): void {
       addBox(g, BAND, 0.07, HEAD - SILL, WALL_T + 0.02, a + 0.035, midY, z);
       addBox(g, BAND, 0.07, HEAD - SILL, WALL_T + 0.02, b - 0.035, midY, z);
       const panes = Math.max(1, Math.round(w / 1.5));
+      for (let pane = 0; pane < panes; pane++) {
+        const glass = new THREE.Mesh(new THREE.PlaneGeometry(w / panes - .07, HEAD - SILL - .04), GLASS);
+        glass.position.set(a + w * (pane + .5) / panes, midY, z); g.add(glass);
+      }
       for (let k = 1; k < panes; k++) {
         addBox(g, BAND, 0.06, HEAD - SILL, WALL_T + 0.02, a + (w * k) / panes, midY, z);
       }
@@ -424,10 +436,12 @@ function buildExterior(g: THREE.Group, sbs: boolean): void {
     // continuous header above the windows/doors
     addBandBox(g, BAND, -BODY_X, BODY_X, HEAD, HEAD_T, z);
     addBandBox(g, WHITE, -BODY_X, BODY_X, HEAD_T, CANT_T, z);
-    // wheel-arch trim, proud of the skin (front arch stops at the door bay;
-    // the open front-door leaf glides OUTSIDE it, like the real thing)
-    for (const [aa, ab] of [[2.58, 3.44], [-4.22, -2.98]] as [number, number][]) {
-      addBox(g, BAND, ab - aa, 1.04 - SKIRT_B, 0.012, (aa + ab) / 2, (SKIRT_B + 1.04) / 2, s * (HALF_W + 0.006));
+    // Dark seals follow the wheel aperture, leaving the tire itself exposed.
+    for (const axle of [AXLE_F, AXLE_R]) {
+      // The front curb-side arch terminates at the door jamb.
+      const start = s === 1 && axle === AXLE_F ? Math.acos((FRONT_BAY_A - .035 - axle) / .565) : 0;
+      const arch = new THREE.Mesh(new THREE.TorusGeometry(.565, .028, 4, 20, Math.PI-start).rotateZ(start), BAND);
+      arch.position.set(axle, TIRE_R, s * (HALF_W + .015)); g.add(arch);
     }
     if (sbs) addBox(g, TEAL, 3.6, BELT_T - WHITE_T, 0.012, 1.5, (WHITE_T + BELT_T) / 2, s * (HALF_W + 0.006));
   }
@@ -452,6 +466,18 @@ function buildExterior(g: THREE.Group, sbs: boolean): void {
     addBox(g, BAND, 0.16, 0.32, 0.06, 6.0, 2.0, s * 1.56);
   }
 
+  for (const side of [-1, 1]) {
+    const windshield = new THREE.Mesh(new THREE.PlaneGeometry(1.12, 1.13), GLASS);
+    windshield.rotation.y = Math.PI / 2;
+    windshield.position.set(6.032, 1.75, side * .62); g.add(windshield);
+    for (const x of [-5.6, -4.9, -.15, 2.9]) {
+      addBox(g, BAND, .012, .33, .014, x, .84, side * (HALF_W+.005));
+      addBox(g, HUB_MAT, .095, .025, .026, x+.075, .97, side*(HALF_W+.015));
+    }
+    const mirror = new THREE.Mesh(new THREE.PlaneGeometry(.125,.25), GLASS);
+    mirror.position.set(5.91, 2.0, side*1.56); mirror.rotation.y = -Math.PI/2; g.add(mirror);
+  }
+
   // Rear face: engine grille band, taillights, no window.
   addBox(g, WHITE, 0.08, CANT_T - 1.95, 2.56, -6.03, (1.95 + CANT_T) / 2, 0);
   addBox(g, SKIRT, 0.08, 1.95 - 0.72, 2.56, -6.03, (0.72 + 1.95) / 2, 0);
@@ -463,8 +489,11 @@ function buildExterior(g: THREE.Group, sbs: boolean): void {
   }
 
   // Roof: pale gray slab + low full-length HVAC hump (top ~3.14 < 3.15).
-  addBox(g, ROOF, L - 0.06, 0.1, 2.52, 0, 2.99, 0);
-  addBox(g, ROOF, 10.4, 0.1, 1.6, 0, 3.09, 0);
+  const roof = new THREE.Mesh(new RoundedBoxGeometry(L-.06, .18, 2.52, 2, .08), ROOF);
+  roof.position.set(0, 2.96, 0); g.add(roof);
+  const hvac = new THREE.Mesh(new RoundedBoxGeometry(6.8, .17, 1.65, 2, .07), ROOF);
+  hvac.position.set(-1.3, 3.06, 0); g.add(hvac);
+  for (let x = -4.4; x < -2.4; x += .11) addBox(g, BAND, .04, .025, 1.1, x, 3.15, 0);
 
   // dark underbody closes the view through the doorways at ground level
   addBox(g, SKIRT, 11.2, 0.22, 2.0, 0, 0.25, 0);
@@ -702,6 +731,9 @@ export class BusModel implements BusModelLike {
         const mesh = new THREE.Mesh(leafGeometry(d.w), DOOR_MAT);
         const x0 = d.cx + sign * (d.w / 2);
         mesh.position.set(x0, 0, LEAF_Z);
+        const glass = new THREE.Mesh(new THREE.PlaneGeometry(d.w-.14, 1.18), GLASS);
+        glass.position.set(0, 1.7, .001); mesh.add(glass);
+        glass.userData.busOwnedGeometry = true;
         this.hull.add(mesh);
         this.leaves.push({ mesh, x0, sign, slide: d.slide });
       }
@@ -842,6 +874,9 @@ export class BusModel implements BusModelLike {
       else clearTimeout(this.idleBuild);
       this.idleBuild = 0;
     }
+    this.group.traverse(object => {
+      if (object instanceof THREE.Mesh && object.userData.busOwnedGeometry) object.geometry.dispose();
+    });
     this.group.removeFromParent();
     // the merged hull geometry + materials are shared from hullCache (this bus is
     // a clone) — freeing them would break every other bus on the route. Only the

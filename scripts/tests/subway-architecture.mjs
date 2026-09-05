@@ -185,3 +185,26 @@ test('portal inference never connects crossing platform cells without an authore
   ];
   assert.deepEqual(createStationPortals(cells), []);
 });
+
+
+test('station occlusion preserves custom surface shaders after cloning materials', () => {
+  const scene = new THREE.Scene(), root = new THREE.Group(); scene.add(root);
+  const material = new THREE.MeshStandardMaterial();
+  const hook = shader => { shader.uniforms.surfaceScale = { value: 1.2 }; };
+  material.onBeforeCompile = hook;
+  material.customProgramCacheKey = () => 'physical-platform-detail';
+  const mesh = new THREE.Mesh(new THREE.BoxGeometry(8,.3,3),material); root.add(mesh);
+  const resources = [material,mesh.geometry];
+  const architecture = optimizeStationArchitecture(scene,root,CELLS,[],r=>resources.push(r),'high');
+  let found = false;
+  root.traverse(o => { if(o instanceof THREE.Mesh) {
+    found = true;
+    assert.notEqual(o.material,material);
+    assert.equal(o.material.onBeforeCompile,hook);
+    assert.equal(o.material.customProgramCacheKey(),'physical-platform-detail');
+    const shader = {uniforms:{}}; o.material.onBeforeCompile(shader);
+    assert.equal(shader.uniforms.surfaceScale.value,1.2);
+    assert.equal(o.material.vertexColors,true);
+  }});
+  assert.ok(found); architecture.dispose(); resources.forEach(r=>r.dispose());
+});

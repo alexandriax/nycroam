@@ -3,6 +3,7 @@ import { Train } from './train';
 import { directionLabel } from './directions';
 import type { StationSpec, TrackInfo, NetworkData, Arrival } from './types';
 import { quality } from '../quality';
+import { SPAWN_TO_BOARDING, TRAIN_CYCLE_SECONDS, TRAIN_TIME_SCALE } from './trainTiming';
 
 /** Express partner shown blasting through local stations' center tracks. */
 const EXPRESS_PARTNER: Record<string, string> = {
@@ -30,13 +31,6 @@ interface Slot {
   flip: boolean; // travels opposite to dirSign-along-+x (TrackInfo.trackFlips)
   wasApproaching: boolean; // rising-edge latch for onArrive
 }
-
-// Internal seconds for a freshly-spawned train to go hidden->approach->dwell
-// (BASE_DURATION.hidden 12 + approach 7; both deterministic now, see train.ts) —
-// divided by the slot's timeScale to estimate the countdown for a track with no
-// train on it yet. Kept in lockstep with the live train's own phase clock so the
-// "no train yet" projection hands off seamlessly the instant a train spawns.
-const SPAWN_TO_DWELL = 19;
 
 // Real seconds a RE-SEEDED train (the one the player just stepped off) holds its
 // doors open for re-boarding before it closes up and departs.
@@ -68,7 +62,7 @@ export class TrainScheduler {
     this.parent = parent;
     this.spec = spec;
     this.info = info;
-    this.headway = headway;
+    this.headway = Math.max(headway, TRAIN_CYCLE_SECONDS / TRAIN_TIME_SCALE + 0.05);
 
     // routes that can actually be ridden (present in the network) come first
     const rideable = spec.routes.filter((r) => !network || network.routes[r]);
@@ -107,7 +101,7 @@ export class TrainScheduler {
         train: null,
         trainAge: 0,
         everVisible: false,
-        timeScale: 1.35, // compresses the ~40s internal cycle to ~30s
+        timeScale: TRAIN_TIME_SCALE,
         cooldown: Math.random() * headway, // stagger initial arrivals
         passThrough: false,
         platformSide,
@@ -140,31 +134,38 @@ export class TrainScheduler {
   }
 
   update(dt: number) {
+    if (!Number.isFinite(dt) || dt <= 0) return;
     for (const s of this.slots) {
-      if (s.train) {
-        s.train.update(dt * s.timeScale);
-        s.trainAge += dt;
-        s.everVisible = s.everVisible || s.train.group.visible;
-        // rising edge into 'approach' on a platform track = a train pulling in
+      // Consume phase and spawn boundaries exactly. A long frame must not
+      // discard its overshoot and quietly push every subsequent train late.
+      let remaining = dt;
+      while (remaining > 1e-9) {
+        if (!s.train) {
+          const step = Math.min(remaining, Math.max(0, s.cooldown));
+          s.cooldown -= step;
+          remaining -= step;
+          if (s.cooldown <= 1e-9) this.spawn(s);
+          continue;
+        }
+        const step = Math.min(remaining, s.train.stateRemaining / s.timeScale);
+        s.train.update(step * s.timeScale);
+        s.trainAge += step;
+        remaining -= step;
+        s.everVisible ||= s.train.group.visible;
         const approaching = s.train.phase === 'approach';
         if (approaching && !s.wasApproaching && !s.passThrough) this.onArrive?.();
         s.wasApproaching = approaching;
-        // recycle once the cycle wraps back to hidden AFTER having run.
-        // Deterministic spacing: the countdown boards project future arrivals
-        // at exact `headway` intervals, and a ±20% jittered respawn made every
-        // projected time visibly wrong (rows jumped when the real train
-        // spawned). Real headways are metronomic; the boards now are too.
-        if (s.everVisible && !s.train.group.visible && s.trainAge > 5) {
-          this.parent.remove(s.train.group);
+        if (s.everVisible && s.train.phase === 'hidden') {
           s.train.dispose();
           s.train = null;
-          s.cooldown = Math.max(2, this.headway - 30);
+          s.cooldown = this.recycleDelay(s);
         }
-        continue;
       }
-      s.cooldown -= dt;
-      if (s.cooldown <= 0) this.spawn(s);
     }
+  }
+
+  private recycleDelay(s: Slot): number {
+    return Math.max(0.05, this.headway - TRAIN_CYCLE_SECONDS / s.timeScale);
   }
 
   private spawn(s: Slot) {
@@ -232,7 +233,7 @@ export class TrainScheduler {
   /** A dwelling, doors-open train the player (at parent-local x,z) can board. */
   boardable(px: number, pz: number): BoardableTrain | null {
     for (const s of this.slots) {
-      if (s.passThrough || !s.train || !s.train.doorsOpen) continue;
+      if (s.passThrough || !s.train || !s.train.acceptingPassengers) continue;
       const dz = Math.abs(pz - s.trackZ);
       if (dz < 4.2 && Math.abs(px) < this.info.half * 0.95) {
         const route = s.routes[(s.routeIdx - 1 + s.routes.length) % s.routes.length];
@@ -248,49 +249,27 @@ export class TrainScheduler {
       .map((s) => ({ x: Math.round(s.train!.group.position.x * 10) / 10, doors: s.train!.doorsOpen }));
   }
 
-  /**
-   * Upcoming trains for the platform countdown displays, ONE ENTRY PER TRAIN
-   * (each with a single route) so the boards can list "N … 2 MIN" and
-   * "R … 12 MIN" as separate rows instead of mashing "N/R". Per slot the imminent
-   * train leads with a phase-accurate ETA read off the live train's own clock
-   * (see the `anchor` note below), then the route ROTATION is projected forward
-   * from that same anchor at headway spacing — so a row counts down monotonically
-   * and reads "now" only while a train is genuinely pulling in or dwelling, never
-   * the old ideal-headway projection that hit 0 before a train even existed. Up
-   * to 3 per slot, sorted by the consumer.
-   */
+  /** Project route rotation from the live timeline. Later rows keep counting
+   * down throughout dwell; Now appears only while boarding is available. */
   arrivals(): Arrival[] {
     const out: Arrival[] = [];
-    const respawn = Math.max(2, this.headway - 30); // recycle cooldown (see update())
     for (const s of this.slots) {
       if (s.passThrough) continue;
-      const len = s.routes.length;
-      const ts = s.timeScale;
-      // `anchor` = REAL seconds until this slot's imminent train has its doors
-      // open, read off the SAME clock that spawns and moves trains — never the
-      // old ideal-headway projection that hit 0 before a train even existed.
-      // `first` = which rotation slot that imminent train is. A live train stays
-      // the anchor smoothly through hidden -> approach -> dwell (secondsToArrival
-      // folds the hidden phase in); a DEPARTING train hands off to the next spawn
-      // (the same recycle + hidden + approach budget update() will actually run);
-      // an empty slot counts its cooldown down to the fixed spawn->dwell travel.
-      // All three branches meet at equal values on their boundaries, so a board
-      // row descends monotonically to "now" exactly as a train pulls in, then
-      // rolls up to the next train the moment this one departs.
-      let anchor: number, first: number;
-      if (s.train && s.train.phase !== 'depart') {
-        anchor = s.train.secondsToArrival / ts;
-        first = s.routeIdx - 1; // spawn() already advanced routeIdx past the live train
-      } else if (s.train) {
-        anchor = s.train.stateRemaining / ts + respawn + SPAWN_TO_DWELL / ts;
-        first = s.routeIdx;
-      } else {
-        anchor = Math.max(0, s.cooldown) + SPAWN_TO_DWELL / ts;
-        first = s.routeIdx;
-      }
-      for (let k = 0; out.length < 64 && k < 3; k++) {
-        const idx = (((first + k) % len) + len) % len;
-        out.push({ dirSign: s.dirSign, routes: [s.routes[idx]], seconds: anchor + k * this.headway });
+      const respawn = this.recycleDelay(s);
+      const nextSpawnToDoors = respawn + SPAWN_TO_BOARDING / s.timeScale;
+      const hasCurrent = s.train && Number.isFinite(s.train.secondsToArrival);
+      const next = s.train
+        ? s.train.secondsToCycleEnd / s.timeScale + nextSpawnToDoors
+        : Math.max(0, s.cooldown) + SPAWN_TO_BOARDING / s.timeScale;
+      for (let k = 0; k < 3; k++) {
+        const first = hasCurrent ? s.routeIdx - 1 : s.routeIdx;
+        const index = ((first + k) % s.routes.length + s.routes.length) % s.routes.length;
+        // Later rows keep ticking during dwell, instead of anchoring on a
+        // frozen zero and jumping when doors close or a train is recycled.
+        const seconds = hasCurrent && k === 0
+          ? s.train!.secondsToArrival / s.timeScale
+          : next + (k - (hasCurrent ? 1 : 0)) * this.headway;
+        out.push({ dirSign: s.dirSign, routes: [s.routes[index]], seconds });
       }
     }
     return out;

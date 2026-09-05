@@ -752,7 +752,11 @@ export function makeWorldDetailMaterial(
       .replace(
         '#include <worldpos_vertex>',
         `#include <worldpos_vertex>
-        vDXZ = (modelMatrix * vec4(transformed, 1.0)).xz;`
+        vec4 detailPosition = vec4(transformed, 1.0);
+        #ifdef USE_INSTANCING
+          detailPosition = instanceMatrix * detailPosition;
+        #endif
+        vDXZ = (modelMatrix * detailPosition).xz;`
       );
     shader.fragmentShader = shader.fragmentShader
       .replace('#include <common>', '#include <common>\nvarying vec2 vDXZ;\nuniform sampler2D uDetail;\nuniform float uScale;\nuniform float uAmt;')

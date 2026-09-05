@@ -244,7 +244,7 @@ export function makeBarkTexture(): Tex {
 export function makeSubwayWallTexture(bandColor: string): Tex {
   return surface(`subwall-${bandColor}`, 512, 707, 7, 0.7, (ctx, rand, h, size) => {
     // white 2:1 tiles
-    const tw = size / 12, th = tw / 2, grout = 2;
+    const tw = size / 48, th = size / 56, grout = .75;
     ctx.fillStyle = '#cfcfc8';
     ctx.fillRect(0, 0, size, size);
     const bandTop = Math.round(size * 0.1), bandRows = 3;
@@ -252,7 +252,7 @@ export function makeSubwayWallTexture(bandColor: string): Tex {
       const off = (r % 2) * (tw / 2);
       const y = r * th;
       const inBand = y >= bandTop + th && r < bandTop / th + 1 + bandRows;
-      for (let c = -1; c < 13; c++) {
+      for (let c = -1; c < 49; c++) {
         const x = c * tw + off;
         const l = 236 + Math.floor((rand() - 0.5) * 14);
         ctx.fillStyle = inBand ? bandColor : `rgb(${l},${l - 1},${l - 5})`;

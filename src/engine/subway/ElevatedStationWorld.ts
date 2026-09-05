@@ -1,4 +1,8 @@
 import * as THREE from 'three';
+import { makeTactileMaterial } from '../transitMaterials';
+import { makeTerrazzoTexture } from '../textures';
+import { makeWorldDetailMaterial } from '../materials';
+import { trackDetail } from './trackDetail';
 import type { StationSpec, TrackInfo, Arrival } from './types';
 import { crossSection, rectSubtract, TRACK_W, PlatformCountdown, pickBoardPositions } from './StationWorld';
 import type { ExitZone } from './StationWorld';
@@ -46,7 +50,7 @@ export class ElevatedStationWorld {
     this.scene.background = new THREE.Color('#a9c6e2');
     if (env) { this.scene.environment = env; this.scene.environmentIntensity = 0.5; }
     const q = quality();
-    const hemi = new THREE.HemisphereLight(0xdfe9f5, 0x8a8478, q.stationShadows ? 0.9 : 1.2);
+    const hemi = new THREE.HemisphereLight(0xdfe9f5, 0xc5c5bd, q.stationShadows ? 0.9 : 1.2);
     const sun = new THREE.DirectionalLight(0xfff2dd, q.stationShadows ? 2.4 : 1.8);
     sun.position.set(-140, 220, -95);
     this.scene.add(hemi, sun, sun.target);
@@ -100,14 +104,15 @@ export class ElevatedStationWorld {
     const W = cs.width;
     const deckLen = L + 300; // long enough to swallow departing consists
 
-    const steel = this.track(new THREE.MeshLambertMaterial({ color: 0x274d3d }));
+    const steel = this.track(new THREE.MeshLambertMaterial({ color: 0x426651 }));
     const steelDark = this.track(new THREE.MeshLambertMaterial({ color: 0x1d3a2e }));
     const concrete = this.track(new THREE.MeshLambertMaterial({ color: 0x9a9a94 }));
-    const platMat = this.track(new THREE.MeshLambertMaterial({ color: 0x8f8f8c }));
-    const yellowMat = this.track(new THREE.MeshLambertMaterial({ color: 0xf2c53d }));
+    const platMat = this.track(makeWorldDetailMaterial(0x969995, makeTerrazzoTexture().map, 1.2, .9));
+    const yellowMat = this.track(makeTactileMaterial());
     const bedMat = this.track(new THREE.MeshLambertMaterial({ color: 0x2a2723 }));
     const railMat = this.track(new THREE.MeshStandardMaterial({ color: 0x9aa0a4, metalness: 0.85, roughness: 0.3 }));
-    const roofMat = this.track(new THREE.MeshLambertMaterial({ color: 0x5a4638, side: THREE.DoubleSide }));
+    const roofMat = this.track(new THREE.MeshLambertMaterial({ color: 0x8b948d, side: THREE.DoubleSide }));
+    const canopyLight = this.track(new THREE.MeshBasicMaterial({color: 0xfff3d8}));
     const screenMat = this.track(new THREE.MeshLambertMaterial({ color: 0xcfc9b8, transparent: true, opacity: 0.92 }));
     const sidewalk = this.track(new THREE.MeshLambertMaterial({ color: 0xa3a7ab }));
     const asphalt = this.track(new THREE.MeshLambertMaterial({ color: 0x3f4348 }));
@@ -128,6 +133,7 @@ export class ElevatedStationWorld {
       this.box(0.28, 0.32, W, steel, x, 7.75, 0);
     }
     for (const tz of cs.tracks) {
+      this.scene.add(trackDetail(deckLen, 0, RAIL_Y, tz, resource => { this.track(resource); }));
       this.box(deckLen, 0.16, 3.6, bedMat, 0, 8.02, tz);
       for (const off of [-0.72, 0.72]) this.box(deckLen, 0.14, 0.12, railMat, 0, RAIL_Y - 0.07, tz + off);
       this.box(deckLen, 0.09, 0.24, this.track(new THREE.MeshLambertMaterial({ color: 0x3a3630 })), 0, RAIL_Y + 0.12, tz + 1.35);
@@ -199,13 +205,17 @@ export class ElevatedStationWorld {
     for (const p of cs.platforms) {
       const pw = p.zMax - p.zMin, pc = (p.zMin + p.zMax) / 2;
       this.box(L, 0.7, pw, platMat, 0, PLAT_Y - 0.35, pc);
-      this.box(L, 0.03, 0.5, yellowMat, 0, PLAT_Y + 0.015, p.zMin + 0.28);
-      this.box(L, 0.03, 0.5, yellowMat, 0, PLAT_Y + 0.015, p.zMax - 0.28);
+      if (cs.tracks.some(z => Math.abs(z - (p.zMin - TRACK_W/2)) < .1))
+        this.box(L, 0.03, 0.5, yellowMat, 0, PLAT_Y + 0.015, p.zMin + 0.28);
+      if (cs.tracks.some(z => Math.abs(z - (p.zMax + TRACK_W/2)) < .1))
+        this.box(L, 0.03, 0.5, yellowMat, 0, PLAT_Y + 0.015, p.zMax - 0.28);
 
       // canopy over the middle: posts + gabled roof + under-lights
       const canLen = L * 0.55;
       for (let x = -canLen / 2; x <= canLen / 2; x += 4.6) {
         this.box(0.16, 3.0, 0.16, steel, x, PLAT_Y + 1.5, pc);
+        this.box(.12,.12,pw*.82,steel,x,PLAT_Y+2.86,pc);
+        this.box(1.8,.035,.15,canopyLight,x,PLAT_Y+2.76,pc+.55);
         if (Math.round(x / 4.6) % 3 === 0) {
           const signTex = makeColumnSignTexture(spec.name);
           this.track(signTex.texture);
@@ -217,6 +227,7 @@ export class ElevatedStationWorld {
         }
       }
       for (const tilt of [-1, 1]) {
+        this.box(canLen,.13,.10,steel,0,PLAT_Y+2.92,pc+tilt*pw*.28);
         const panel = new THREE.Mesh(this.track(new THREE.BoxGeometry(canLen, 0.06, pw * 0.62)), roofMat);
         panel.position.set(0, PLAT_Y + 3.15, pc + tilt * pw * 0.26);
         panel.rotation.x = tilt * 0.22;
@@ -398,7 +409,8 @@ export class ElevatedStationWorld {
 
   dispose() {
     this.scene.traverse((o) => {
-      if (o instanceof THREE.Mesh || o instanceof THREE.InstancedMesh) o.geometry.dispose();
+      if (o instanceof THREE.Mesh) o.geometry.dispose();
+      if (o instanceof THREE.InstancedMesh) o.dispose();
     });
     for (const d of this.disposables) d.dispose();
     this.scene.clear();
