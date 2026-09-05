@@ -2,9 +2,11 @@
 // headlights/marker lights, and a route roll-sign, cycling through an
 // arrive -> dwell -> depart loop along the local +x axis.
 import * as THREE from 'three';
-import { architecturalMaterial } from '../surfaceMaterial';
 import { routeColor, bulletTextColor } from './types';
 import { BLACK, LED } from '../fonts';
+import { canvas2d } from '../canvas2d';
+import { quality } from '../quality';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 
 export interface TrainOpts {
   division: string;
@@ -95,7 +97,7 @@ function panesFor(w: number): number {
 // ---------------------------------------------------------------------------
 // Shared materials (module scope: every Train instance reuses these).
 // ---------------------------------------------------------------------------
-const BODY_MATERIAL = architecturalMaterial('#bfc2c3', 'metal', 0.31);
+const BODY_MATERIAL = new THREE.MeshStandardMaterial({ color: '#c3c6c9', metalness: 0.75, roughness: 0.35 });
 // Matte near-black for the R160 window band: the window sill/head lips, the
 // vertical mullions and the band side-posts are drawn in this so the platform-
 // side window row reads as a dark band with light openings, not bright framing.
@@ -104,7 +106,7 @@ const ROOF_MATERIAL = new THREE.MeshLambertMaterial({ color: '#0a0a0a' });
 const UNDERCARRIAGE_MATERIAL = new THREE.MeshLambertMaterial({ color: '#111214' });
 const BOGIE_MATERIAL = new THREE.MeshLambertMaterial({ color: '#161719' });
 const WHEEL_MATERIAL = new THREE.MeshLambertMaterial({ color: '#3a3b3d' });
-const DOOR_MATERIAL = new THREE.MeshStandardMaterial({ color: '#b3b6b7', metalness: 0.78, roughness: 0.34, side: THREE.DoubleSide });
+const DOOR_MATERIAL = new THREE.MeshLambertMaterial({ color: '#8d9094', side: THREE.DoubleSide });
 // Black cab masking / anticlimber / sign backing.
 const END_CAP_MATERIAL = new THREE.MeshLambertMaterial({ color: '#0d0d0d', side: THREE.DoubleSide });
 // Dark front-cab glass (operator + storm-door windows): near-black, faintly
@@ -278,11 +280,7 @@ function drawRouteBullet(ctx: CanvasRenderingContext2D, size: number, route: str
 
 function makeRollSignTexture(route: string): THREE.CanvasTexture {
   const size = 128;
-  const canvas = document.createElement('canvas');
-  canvas.width = size;
-  canvas.height = size;
-  const ctx = canvas.getContext('2d');
-  if (!ctx) throw new Error('2D canvas context unavailable');
+  const { cv: canvas, ctx } = canvas2d(size, size);
   drawRouteBullet(ctx, size, route);
   const texture = new THREE.CanvasTexture(canvas);
   texture.colorSpace = THREE.SRGBColorSpace;
@@ -341,11 +339,7 @@ function roundRectPath(ctx: CanvasRenderingContext2D, x: number, y: number, w: n
 function makeSideSignTexture(route: string, destination: string): THREE.CanvasTexture {
   const w = SIDE_SIGN_TEX_W;
   const h = SIDE_SIGN_TEX_H;
-  const canvas = document.createElement('canvas');
-  canvas.width = w;
-  canvas.height = h;
-  const ctx = canvas.getContext('2d');
-  if (!ctx) throw new Error('2D canvas context unavailable');
+  const { cv: canvas, ctx } = canvas2d(w, h);
   ctx.clearRect(0, 0, w, h); // transparent corners outside the rounded panel
   roundRectPath(ctx, 0, 0, w, h, h * 0.22);
   ctx.fillStyle = '#0a0b0c';
@@ -402,11 +396,7 @@ function makeNumberFlagTexture(numbers: number[]): THREE.CanvasTexture {
   const rows = numbers.length;
   const w = NUMBER_ATLAS_W;
   const rowH = NUMBER_ROW_H;
-  const canvas = document.createElement('canvas');
-  canvas.width = w;
-  canvas.height = rowH * rows;
-  const ctx = canvas.getContext('2d');
-  if (!ctx) throw new Error('2D canvas context unavailable');
+  const { cv: canvas, ctx } = canvas2d(w, rowH * rows);
   ctx.clearRect(0, 0, w, rowH * rows);
   ctx.textBaseline = 'middle';
   ctx.textAlign = 'left';
@@ -477,8 +467,10 @@ export class Train {
 
   private readonly wheelMesh: THREE.InstancedMesh;
   private readonly frameMesh: THREE.InstancedMesh; // all window sill/head lips + mullions, one draw call
-  private readonly doorLeaves: THREE.Object3D[] = [];
+  private readonly doorLowerMesh: THREE.InstancedMesh;
+  private readonly doorUpperMesh: THREE.InstancedMesh;
   private readonly doorClosedX: number[] = [];
+  private readonly doorZ: number[] = [];
   private readonly doorSign: number[] = []; // slide direction (±x) of each leaf
   private readonly doorLeafSide: number[] = []; // local z-sign of the wall each leaf belongs to
   private readonly platformSide: 1 | -1; // local z-sign facing the platform
@@ -489,6 +481,8 @@ export class Train {
   private readonly numberFlagTexture: THREE.CanvasTexture; // per-train atlas of every car's number + flag
   private readonly numberFlagMaterial: THREE.MeshLambertMaterial;
   private readonly numberDecalGeos: THREE.PlaneGeometry[] = []; // per-car UV-remapped clones of NUMBER_DECAL_GEO
+  private readonly mergedStaticGeometries: THREE.BufferGeometry[] = [];
+  private contactShadow: THREE.InstancedMesh | null = null;
 
   private fromX = 0;
   private stopX = 0;
@@ -541,7 +535,7 @@ export class Train {
     this.sideSignMaterial = new THREE.MeshLambertMaterial({
       map: this.sideSignTexture,
       color: '#ffffff',
-      transparent: true,
+      alphaTest: 0.25,
     });
 
     // Per-train car-number + flag atlas. Numbers start from a route-derived base
@@ -558,7 +552,7 @@ export class Train {
     this.numberFlagMaterial = new THREE.MeshLambertMaterial({
       map: this.numberFlagTexture,
       color: '#ffffff',
-      transparent: true,
+      alphaTest: 0.25,
     });
     for (let i = 0; i < carCount; i++) {
       const g = NUMBER_DECAL_GEO.clone();
@@ -631,6 +625,10 @@ export class Train {
 
       const roof = new THREE.Mesh(geo.roof, ROOF_MATERIAL);
       roof.position.set(localX, FLOOR_Y + dims.height + 0.04, 0);
+      // The roof is the train's deliberately coarse station-shadow proxy.
+      // Scheduler enables only these 8–10 meshes on desktop instead of making
+      // every door, mullion, bogie and interior detail submit a shadow draw.
+      roof.userData.trainShadowCaster = true;
       this.group.add(roof);
 
       const undercarriage = new THREE.Mesh(geo.undercarriage, UNDERCARRIAGE_MATERIAL);
@@ -668,6 +666,81 @@ export class Train {
 
     this.wheelMesh.instanceMatrix.needsUpdate = true;
     this.frameMesh.instanceMatrix.needsUpdate = true;
+
+    // Every leaf still gets its own live x offset, but two InstancedMeshes
+    // replace the old two Mesh submissions per leaf (192 draws on an 8-car
+    // train). updateDoors rewrites these matrices with the same choreography.
+    this.doorLowerMesh = new THREE.InstancedMesh(
+      DOOR_LOWER_GEO,
+      DOOR_MATERIAL,
+      this.doorClosedX.length,
+    );
+    this.doorUpperMesh = new THREE.InstancedMesh(
+      DOOR_UPPER_GEO,
+      DOOR_MATERIAL,
+      this.doorClosedX.length,
+    );
+    this.doorLowerMesh.name = 'train-door-lower-instances';
+    this.doorUpperMesh.name = 'train-door-upper-instances';
+    this.doorLowerMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    this.doorUpperMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    this.group.add(this.doorLowerMesh, this.doorUpperMesh);
+    this.updateDoorInstances(0);
+
+    if (!quality().stationShadows) {
+      this.contactShadow = this.buildContactShadow(carCount, carPitch, dims);
+      this.group.add(this.contactShadow);
+    }
+    this.mergeStaticCarMeshes();
+  }
+
+  /** One mobile draw for soft contact under every car; no shadow map required. */
+  private buildContactShadow(
+    carCount: number,
+    carPitch: number,
+    dims: CarDims,
+  ): THREE.InstancedMesh {
+    const geometry = new THREE.PlaneGeometry(1, 1);
+    const material = new THREE.ShaderMaterial({
+      transparent: true,
+      depthWrite: false,
+      polygonOffset: true,
+      polygonOffsetFactor: -1,
+      uniforms: { opacity: { value: 0.34 } },
+      vertexShader: `
+        varying vec2 vUv;
+        void main() {
+          vUv = uv;
+          gl_Position = projectionMatrix * modelViewMatrix * instanceMatrix * vec4(position, 1.0);
+        }`,
+      fragmentShader: `
+        varying vec2 vUv;
+        uniform float opacity;
+        void main() {
+          vec2 d = (vUv - 0.5) * 2.0;
+          float a = smoothstep(1.0, 0.06, dot(d, d)) * opacity;
+          gl_FragColor = vec4(0.015, 0.012, 0.01, a);
+        }`,
+    });
+    material.name = 'train-mobile-contact-shadow';
+    const shadow = new THREE.InstancedMesh(geometry, material, carCount);
+    shadow.name = 'train-contact-shadows';
+    shadow.userData.mobileContactShadow = true;
+    shadow.renderOrder = 2;
+    const quaternion = new THREE.Quaternion().setFromEuler(new THREE.Euler(-Math.PI / 2, 0, 0));
+    const matrix = new THREE.Matrix4();
+    for (let i = 0; i < carCount; i++) {
+      matrix.compose(
+        new THREE.Vector3(i * carPitch, 0.02, 0),
+        quaternion,
+        new THREE.Vector3(dims.length * 0.92, dims.width * 1.16, 1),
+      );
+      shadow.setMatrixAt(i, matrix);
+    }
+    shadow.instanceMatrix.needsUpdate = true;
+    shadow.computeBoundingBox();
+    shadow.computeBoundingSphere();
+    return shadow;
   }
 
   /**
@@ -758,19 +831,87 @@ export class Train {
    * stainless, never the tunnel.
    */
   private addDoorLeaf(x: number, z: number, sign: number, sideZ: number): void {
-    const leaf = new THREE.Group();
-    leaf.position.set(x, FLOOR_Y, z); // origin at the car floor
-    const lower = new THREE.Mesh(DOOR_LOWER_GEO, DOOR_MATERIAL);
-    lower.position.set(0, DOOR_WIN_SILL / 2, 0);
-    leaf.add(lower);
-    const upper = new THREE.Mesh(DOOR_UPPER_GEO, DOOR_MATERIAL);
-    upper.position.set(0, WIN_HEAD + ABOVE_H / 2, 0);
-    leaf.add(upper);
-    this.group.add(leaf);
-    this.doorLeaves.push(leaf);
     this.doorClosedX.push(x);
+    this.doorZ.push(z);
     this.doorSign.push(sign);
     this.doorLeafSide.push(sideZ);
+  }
+
+  private updateDoorInstances(normalizedOpen: number): void {
+    const matrix = new THREE.Matrix4();
+    const position = new THREE.Vector3();
+    for (let i = 0; i < this.doorClosedX.length; i++) {
+      const offset = this.doorLeafSide[i] === this.platformSide
+        ? normalizedOpen * DOOR_SLIDE_DISTANCE
+        : 0;
+      const x = this.doorClosedX[i] + this.doorSign[i] * offset;
+      position.set(x, FLOOR_Y + DOOR_WIN_SILL / 2, this.doorZ[i]);
+      matrix.compose(position, IDENTITY_QUAT, UNIT_SCALE);
+      this.doorLowerMesh.setMatrixAt(i, matrix);
+      position.y = FLOOR_Y + WIN_HEAD + ABOVE_H / 2;
+      matrix.compose(position, IDENTITY_QUAT, UNIT_SCALE);
+      this.doorUpperMesh.setMatrixAt(i, matrix);
+    }
+    this.doorLowerMesh.instanceMatrix.needsUpdate = true;
+    this.doorUpperMesh.instanceMatrix.needsUpdate = true;
+    this.doorLowerMesh.computeBoundingSphere();
+    this.doorUpperMesh.computeBoundingSphere();
+  }
+
+  /**
+   * Cars repeat the same immutable shell, interior and signage geometry.
+   * Merge those pieces once per live train/material while leaving the two door
+   * instance buffers, wheels and window-frame instances dynamic. Shared module
+   * geometries are never disposed here; merged outputs are train-owned.
+   */
+  private mergeStaticCarMeshes(): void {
+    this.group.updateWorldMatrix(true, true);
+    const batches = new Map<string, { material: THREE.Material; meshes: THREE.Mesh[] }>();
+    this.group.traverse((object) => {
+      if (
+        !(object instanceof THREE.Mesh)
+        || object instanceof THREE.InstancedMesh
+        || object instanceof THREE.SkinnedMesh
+        || Array.isArray(object.material)
+        || object.material.transparent
+        || object.userData.noTrainMerge
+        || object.morphTargetInfluences
+        || Object.keys(object.geometry.morphAttributes).length > 0
+      ) return;
+      const attributes = Object.keys(object.geometry.attributes).sort().map((name) => {
+        const attribute = object.geometry.getAttribute(name);
+        return `${name}:${attribute.itemSize}:${attribute.normalized ? 1 : 0}`;
+      }).join(',');
+      const key = [
+        object.material.uuid,
+        object.geometry.index ? 'i' : 'n',
+        attributes,
+        object.renderOrder,
+        object.layers.mask,
+      ].join('|');
+      const batch = batches.get(key);
+      if (batch) batch.meshes.push(object);
+      else batches.set(key, { material: object.material, meshes: [object] });
+    });
+
+    for (const batch of batches.values()) {
+      if (batch.meshes.length < 2) continue;
+      const geometries = batch.meshes.map((mesh) =>
+        mesh.geometry.clone().applyMatrix4(mesh.matrixWorld));
+      const merged = mergeGeometries(geometries, false);
+      for (const geometry of geometries) geometry.dispose();
+      if (!merged) continue;
+      merged.computeBoundingBox();
+      merged.computeBoundingSphere();
+      const replacement = new THREE.Mesh(merged, batch.material);
+      replacement.name = `train-batch:${batch.material.name || batch.material.type}`;
+      replacement.renderOrder = batch.meshes[0].renderOrder;
+      replacement.layers.mask = batch.meshes[0].layers.mask;
+      if (batch.material === ROOF_MATERIAL) replacement.userData.trainShadowCaster = true;
+      for (const mesh of batch.meshes) mesh.removeFromParent();
+      this.group.add(replacement);
+      this.mergedStaticGeometries.push(merged);
+    }
   }
 
   /**
@@ -1033,15 +1174,20 @@ export class Train {
     this.doorOffset = normalizedOpen * DOOR_SLIDE_DISTANCE;
     // Only the platform-side leaves slide; far-side leaves stay pinned shut (and
     // are backed by the solid far wall), so there is no see-through door bay.
-    for (let i = 0; i < this.doorLeaves.length; i++) {
-      const offset = this.doorLeafSide[i] === this.platformSide ? this.doorOffset : 0;
-      this.doorLeaves[i].position.x = this.doorClosedX[i] + this.doorSign[i] * offset;
-    }
+    this.updateDoorInstances(normalizedOpen);
   }
 
   /** Release this instance's own GPU resources (shared geometries/materials are left intact). */
   dispose(): void {
     this.group.removeFromParent();
+    if (this.contactShadow) {
+      this.contactShadow.geometry.dispose();
+      (this.contactShadow.material as THREE.Material).dispose();
+      this.contactShadow.dispose();
+      this.contactShadow = null;
+    }
+    this.doorLowerMesh.dispose();
+    this.doorUpperMesh.dispose();
     this.wheelMesh.dispose();
     this.frameMesh.dispose();
     this.rollSignTexture.dispose();
@@ -1051,5 +1197,6 @@ export class Train {
     this.numberFlagTexture.dispose();
     this.numberFlagMaterial.dispose();
     for (const g of this.numberDecalGeos) g.dispose();
+    for (const g of this.mergedStaticGeometries) g.dispose();
   }
 }

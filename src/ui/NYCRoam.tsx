@@ -9,12 +9,15 @@ import MiniMap from './MiniMap';
 import GoalsModal, { TrophyIcon } from './GoalsModal';
 import InfoModal from './InfoModal';
 import type { PlaqueInfo } from '../engine/PlaqueManager';
+import {
+  QUALITY_LEVELS, detectedQuality, qualityOverride, setQualityOverride, type QualityLevel,
+} from '../engine/quality';
 
 // Every premium landmark (skip alias entries — they resolve to another's build),
 // sorted, for the "Jump to…" menu. Pairs with the ?landmark=<id> deep link.
 const LANDMARK_JUMPS = LANDMARKS_REG
   .filter((l) => !l.aliasOf)
-  .map((l) => ({ name: l.name, lat: l.lat, lon: l.lon }))
+  .map((l) => ({ id: l.id, name: l.name, lat: l.lat, lon: l.lon }))
   .sort((a, b) => a.name.localeCompare(b.name));
 
 function Bullets({ routes, size = 22 }: { routes: string[]; size?: number }) {
@@ -144,6 +147,8 @@ export default function NYCRoam() {
   const [copied, setCopied] = useState(false);
   const copiedTimer = useRef(0);
   const [goalsOpen, setGoalsOpen] = useState(false);
+  const [gfxOpen, setGfxOpen] = useState(false);
+  const [gfx, setGfx] = useState<QualityLevel | null>(null); // null = auto-detected
   const [infoTarget, setInfoTarget] = useState<PlaqueInfo | null>(null); // building-info modal
   const [goalsDone, setGoalsDone] = useState(false); // all goals complete → gold trophy
   const [flashes, setFlashes] = useState<{ id: number; text: string }[]>([]);
@@ -172,9 +177,10 @@ export default function NYCRoam() {
 
   useEffect(() => {
     if (!canvasRef.current) return;
-    // ?touch=1 forces the touch layout on a desktop browser (joystick, GO,
-    // half-size map) — same spirit as ?tick=1 / ?station=
+    // ?touch=1 forces the complete mobile QA path on desktop: this touch
+    // layout plus World/quality's mobile stream radius, LOD and render tier.
     setIsTouch(navigator.maxTouchPoints > 1 || new URLSearchParams(location.search).has('touch'));
+    setGfx(qualityOverride());
     const world = new World(canvasRef.current);
     worldRef.current = world;
     (window as unknown as { __nyc: World }).__nyc = world;
@@ -224,6 +230,15 @@ export default function NYCRoam() {
   const toggleRun = () => {
     const c = worldRef.current?.controlsRef;
     if (c) { c.run = !c.run; setRunning(c.run); }
+  };
+
+  // Graphics quality is baked into the scene at construction (shadow maps,
+  // draw distance, worker count, texture filtering), so changing it reloads.
+  // Rebuilding every material and worker pool in place would be a much larger
+  // surface for very little gain -- this is a once-in-a-while setting.
+  const pickQuality = (level: QualityLevel | null) => {
+    setQualityOverride(level);
+    window.location.reload();
   };
 
   // Live transit readout (which train/bus, next stop). Shared between the
@@ -320,17 +335,23 @@ export default function NYCRoam() {
           className="hud-panel jumpto"
           defaultValue=""
           onChange={(e) => {
-            const [la, lo] = e.target.value.split(',').map(Number);
-            if (Number.isFinite(la) && Number.isFinite(lo)) worldRef.current?.teleport(la, lo);
+            const [kind, a, b] = e.target.value.split('|');
+            if (kind === 'landmark') {
+              const lm = LANDMARK_JUMPS.find((l) => l.id === a);
+              if (lm) worldRef.current?.teleport(lm.lat, lm.lon, lm.id);
+            } else {
+              const la = Number(a), lo = Number(b);
+              if (Number.isFinite(la) && Number.isFinite(lo)) worldRef.current?.teleport(la, lo);
+            }
             e.target.value = '';
           }}
         >
           <option value="" disabled>Jump to…</option>
           <optgroup label="Popular">
-            {LANDMARKS.map((l) => <option key={l.name} value={`${l.lat},${l.lon}`}>{l.name}</option>)}
+            {LANDMARKS.map((l) => <option key={l.name} value={`place|${l.lat}|${l.lon}`}>{l.name}</option>)}
           </optgroup>
           <optgroup label="Landmarks">
-            {LANDMARK_JUMPS.map((l) => <option key={l.name} value={`${l.lat},${l.lon}`}>{l.name}</option>)}
+            {LANDMARK_JUMPS.map((l) => <option key={l.name} value={`landmark|${l.id}`}>{l.name}</option>)}
           </optgroup>
         </select>
         {/* copy a deep link to this exact view (position + camera + transit state) */}
@@ -404,6 +425,46 @@ export default function NYCRoam() {
             </button>
           </>
         )}
+        {/* graphics quality: auto-detected from the GPU, pinnable by the player */}
+        <div className="gfx-wrap">
+          <button
+            className={`hud-panel share-btn${gfxOpen ? ' on' : ''}`}
+            onClick={() => setGfxOpen((v) => !v)}
+            title="Graphics quality"
+            aria-label="Graphics quality"
+            aria-expanded={gfxOpen}
+          >
+            <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round">
+              <rect x="2" y="10" width="2.6" height="4" rx="0.6" fill="currentColor" stroke="none" />
+              <rect x="5.9" y="7" width="2.6" height="7" rx="0.6" fill="currentColor" stroke="none" />
+              <rect x="9.8" y="4" width="2.6" height="10" rx="0.6" fill="currentColor" stroke="none" />
+            </svg>
+          </button>
+          {gfxOpen && (
+            <div className="hud-panel gfx-menu" role="menu" aria-label="Graphics quality">
+              <button
+                role="menuitemradio"
+                aria-checked={gfx === null}
+                className={gfx === null ? 'on' : ''}
+                onClick={() => pickQuality(null)}
+              >
+                Auto <span>{detectedQuality()}</span>
+              </button>
+              {QUALITY_LEVELS.map((lv) => (
+                <button
+                  key={lv}
+                  role="menuitemradio"
+                  aria-checked={gfx === lv}
+                  className={gfx === lv ? 'on' : ''}
+                  onClick={() => pickQuality(lv)}
+                >
+                  {lv}
+                </button>
+              ))}
+              <p>Reloads the world.</p>
+            </div>
+          )}
+        </div>
         {/* sound on/off — the world's footsteps, engines, doors & rotors */}
         <button
           className={`hud-panel share-btn${muted ? ' muted' : ''}`}
@@ -602,13 +663,23 @@ export default function NYCRoam() {
         </>
       )}
 
-      {/* attribution — always visible, above the intro overlay */}
-      <a className="credit hud-panel" href="https://www.alexandriaredmon.com"
-        target="_blank" rel="noopener noreferrer">
-        <span className="credit-dot" />
-        Made by Alexandria
-        <span className="credit-arrow">↗</span>
-      </a>
+      {/* attribution — always visible, above the intro overlay. The OSM credit is
+          not decoration: the world is a derivative database of OpenStreetMap, and
+          ODbL 4.3 requires the notice to travel with any public display of it. */}
+      <div className="credit hud-panel">
+        <a className="credit-link" href="https://www.alexandriaredmon.com"
+          target="_blank" rel="noopener noreferrer">
+          <span className="credit-dot" />
+          Made by Alexandria
+          <span className="credit-arrow">↗</span>
+        </a>
+        <span className="credit-sep">·</span>
+        <a className="credit-link" href="https://www.openstreetmap.org/copyright"
+          target="_blank" rel="noopener noreferrer">
+          © OpenStreetMap
+          <span className="credit-arrow">↗</span>
+        </a>
+      </div>
 
       {/* intro overlay = the loading screen, kept as a frosted-glass welcome card
           over the (blurred) loaded world until the visitor taps Explore */}
@@ -642,6 +713,13 @@ export default function NYCRoam() {
                 Explore Manhattan
               </button>
             )}
+            <p className="intro-attrib">
+              Map data ©{' '}
+              <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">
+                OpenStreetMap
+              </a>{' '}
+              contributors (ODbL) · MTA · NYC Open Data · USGS
+            </p>
           </div>
         </div>
       )}

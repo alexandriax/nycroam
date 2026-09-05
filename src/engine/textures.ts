@@ -3,6 +3,7 @@
 // canvas plus a height field; normals come from a Sobel pass over the heights.
 import * as THREE from 'three';
 import { quality } from './quality';
+import { canvas2d } from './canvas2d';
 
 export interface Tex {
   map: THREE.CanvasTexture;
@@ -22,8 +23,10 @@ function mulberry32(seed: number) {
 
 function configure(t: THREE.CanvasTexture, srgb: boolean) {
   t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  // Asphalt, sidewalks and brick are all seen at grazing angles down a street,
+  // which is exactly where anisotropy earns its keep -- and exactly where a low
+  // tier cannot afford it. This was pinned at 8 for every device.
   t.anisotropy = quality().anisotropy;
-  t.userData.sharedSurface = true;
   t.generateMipmaps = true;
   t.minFilter = THREE.LinearMipmapLinearFilter;
   t.colorSpace = srgb ? THREE.SRGBColorSpace : THREE.NoColorSpace;
@@ -31,9 +34,7 @@ function configure(t: THREE.CanvasTexture, srgb: boolean) {
 }
 
 function heightToNormal(h: Float32Array, size: number, strength: number): THREE.CanvasTexture {
-  const cv = document.createElement('canvas');
-  cv.width = cv.height = size;
-  const ctx = cv.getContext('2d')!;
+  const { cv, ctx } = canvas2d(size, size);
   const img = ctx.createImageData(size, size);
   const d = img.data;
   const at = (x: number, y: number) => h[((y + size) % size) * size + ((x + size) % size)];
@@ -60,9 +61,7 @@ const cache = new Map<string, Tex | THREE.CanvasTexture>();
 function surface(key: string, size: number, seed: number, mpr: number, normalStrength: number, paint: Painter): Tex {
   const hit = cache.get(key);
   if (hit) return hit as Tex;
-  const cv = document.createElement('canvas');
-  cv.width = cv.height = size;
-  const ctx = cv.getContext('2d')!;
+  const { cv, ctx } = canvas2d(size, size);
   const h = new Float32Array(size * size);
   paint(ctx, mulberry32(seed), h, size);
   const tex: Tex = {
@@ -102,9 +101,9 @@ function hRect(h: Float32Array, size: number, x0: number, y0: number, w: number,
 
 export function makeAsphaltTexture(): Tex {
   return surface('asphalt', 512, 101, 4, 1.1, (ctx, rand, h, size) => {
-    ctx.fillStyle = '#656560';
+    ctx.fillStyle = '#2b2d30';
     ctx.fillRect(0, 0, size, size);
-    speckle(ctx, rand, h, size, 14000, '#a6a49c', '#363734', 0.7);
+    speckle(ctx, rand, h, size, 14000, '#5a5c60', '#17181a', 0.7);
     // faint patch seams + cracks
     for (let i = 0; i < 4; i++) {
       ctx.strokeStyle = '#1a1b1d';
@@ -161,7 +160,9 @@ export function makeSidewalkTexture(): Tex {
 export function makeBrickTexture(tone: 'red' | 'brown' | 'tan' = 'red'): Tex {
   const bases = { red: [139, 74, 58], brown: [110, 74, 56], tan: [184, 154, 114] } as const;
   const seedByTone = { red: 303, brown: 313, tan: 323 };
-  return surface(`brick-${tone}`, 512, seedByTone[tone], 1.44, 0.9, (ctx, rand, h, size) => {
+  // 1.2m repeat: six ~200mm stretchers by eighteen ~67mm courses, matching
+  // common NYC modular brick (including mortar) instead of oversized blocks.
+  return surface(`brick-${tone}`, 512, seedByTone[tone], 1.2, 0.9, (ctx, rand, h, size) => {
     const [br, bg, bb] = bases[tone];
     ctx.fillStyle = '#c8c2b6'; // mortar
     ctx.fillRect(0, 0, size, size);
@@ -297,9 +298,7 @@ export function makeGrassDetailTexture(): THREE.CanvasTexture {
   const hit = cache.get(key);
   if (hit) return hit as THREE.CanvasTexture;
   const size = 512;
-  const cv = document.createElement('canvas');
-  cv.width = cv.height = size;
-  const ctx = cv.getContext('2d')!;
+  const { cv, ctx } = canvas2d(size, size);
   const rand = mulberry32(808);
   ctx.fillStyle = '#bcbeb4';
   ctx.fillRect(0, 0, size, size);
@@ -325,9 +324,7 @@ export function makeCloudTexture(seed: number): THREE.CanvasTexture {
   const hit = cache.get(key);
   if (hit) return hit as THREE.CanvasTexture;
   const size = 256;
-  const cv = document.createElement('canvas');
-  cv.width = cv.height = size;
-  const ctx = cv.getContext('2d')!;
+  const { cv, ctx } = canvas2d(size, size);
   const rand = mulberry32(900 + seed);
   const puffs = 9 + Math.floor(rand() * 6);
   for (let i = 0; i < puffs; i++) {
@@ -346,29 +343,4 @@ export function makeCloudTexture(seed: number): THREE.CanvasTexture {
   tex.wrapS = tex.wrapT = THREE.ClampToEdgeWrapping;
   cache.set(key, tex);
   return tex;
-}
-
-/** Alpha-tested leaf clusters: a shared 256px canopy atlas, no transparent
- * sorting and no extra render pass. Individual leaf outlines break silhouettes. */
-export function makeFoliageTexture(): THREE.CanvasTexture {
-  const key = 'foliage';
-  const hit = cache.get(key);
-  if (hit) return hit as THREE.CanvasTexture;
-  const cv = document.createElement('canvas'); cv.width = cv.height = 256;
-  const ctx = cv.getContext('2d')!, rand = mulberry32(1429);
-  for (let i = 0; i < 46; i++) {
-    const angle = rand()*Math.PI*2, radius = Math.sqrt(rand())*100;
-    const x = 128+Math.cos(angle)*radius, y = 128+Math.sin(angle)*radius;
-    ctx.save(); ctx.translate(x,y); ctx.rotate(angle);
-    const green = 85+Math.floor(rand()*48);
-    ctx.fillStyle = `rgb(${Math.round(green*.68)},${green},${Math.round(green*.44)})`;
-    ctx.beginPath(); ctx.moveTo(-18,0); ctx.bezierCurveTo(-5,-12,10,-11,19,0);
-    ctx.bezierCurveTo(7,11,-9,10,-18,0); ctx.fill();
-    ctx.strokeStyle = 'rgba(180,189,126,0.35)'; ctx.lineWidth = 1;
-    ctx.beginPath(); ctx.moveTo(-15,0); ctx.lineTo(16,0); ctx.stroke(); ctx.restore();
-  }
-  const texture = configure(new THREE.CanvasTexture(cv), true);
-  texture.wrapS = texture.wrapT = THREE.ClampToEdgeWrapping;
-  cache.set(key,texture);
-  return texture;
 }

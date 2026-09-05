@@ -4,42 +4,70 @@ import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js
 import type { SubwayData, StationSpec, EntranceSpec } from './subway/types';
 import { buildEntranceKit } from './streetprops';
 import { heightAt } from './terrain';
+import { canvas2d } from './canvas2d';
+import { quality } from './quality';
 
 /**
  * Collapse a prop group into one mesh per material (a kit is otherwise ~40
  * meshes — railing posts, steps, rails — which wrecks the draw-call budget).
+ *
+ * Shadow state is part of the batch key. Collapsing a shadow-casting mesh into
+ * a new Mesh used to silently reset both flags to false; landmarks then looked
+ * detached even on tiers that had paid for the shadow pass.
  */
-export function mergeByMaterial(group: THREE.Group): THREE.Group {
+export function mergeByMaterial(
+  group: THREE.Group,
+  defaults: { castShadow?: boolean; receiveShadow?: boolean } = {},
+): THREE.Group {
   group.updateMatrixWorld(true);
-  const byMat = new Map<THREE.Material, THREE.BufferGeometry[]>();
+  interface Batch {
+    geos: THREE.BufferGeometry[];
+    castShadow: boolean;
+    receiveShadow: boolean;
+  }
+  const byMat = new Map<THREE.Material, Map<string, Batch>>();
   group.traverse((o) => {
     if (o instanceof THREE.Mesh && !Array.isArray(o.material)) {
       const g = (o.geometry as THREE.BufferGeometry).clone().applyMatrix4(o.matrixWorld);
-      // drop UVs mismatches: mergeGeometries needs consistent attributes
-      const list = byMat.get(o.material) ?? [];
-      list.push(g);
-      byMat.set(o.material, list);
+      const castShadow = o.castShadow || defaults.castShadow === true;
+      const receiveShadow = o.receiveShadow || defaults.receiveShadow === true;
+      const key = `${castShadow ? 1 : 0}:${receiveShadow ? 1 : 0}`;
+      let batches = byMat.get(o.material);
+      if (!batches) {
+        batches = new Map();
+        byMat.set(o.material, batches);
+      }
+      let batch = batches.get(key);
+      if (!batch) {
+        batch = { geos: [], castShadow, receiveShadow };
+        batches.set(key, batch);
+      }
+      batch.geos.push(g);
     }
   });
   const out = new THREE.Group();
   out.name = group.name;
-  for (const [mat, geos] of byMat) {
-    // normalize attribute sets (some builder geometries lack uv)
-    const attrNames = ['position', 'normal', 'uv'];
-    const allHaveUv = geos.every((g) => g.getAttribute('uv'));
-    for (const g of geos) {
-      for (const name of Object.keys(g.attributes)) {
-        if (!attrNames.includes(name)) g.deleteAttribute(name);
+  for (const [mat, batches] of byMat) {
+    for (const { geos, castShadow, receiveShadow } of batches.values()) {
+      // normalize attribute sets (some builder geometries lack uv)
+      const attrNames = ['position', 'normal', 'uv'];
+      const allHaveUv = geos.every((g) => g.getAttribute('uv'));
+      for (const g of geos) {
+        for (const name of Object.keys(g.attributes)) {
+          if (!attrNames.includes(name)) g.deleteAttribute(name);
+        }
+        if (!allHaveUv && g.getAttribute('uv')) g.deleteAttribute('uv');
+        if (g.index === null) g.setIndex([...Array(g.getAttribute('position').count).keys()]);
       }
-      if (!allHaveUv && g.getAttribute('uv')) g.deleteAttribute('uv');
-      if (g.index === null) g.setIndex([...Array(g.getAttribute('position').count).keys()]);
+      const merged = mergeGeometries(geos, false);
+      for (const g of geos) g.dispose();
+      if (!merged) continue;
+      const mesh = new THREE.Mesh(merged, mat);
+      mesh.castShadow = castShadow;
+      mesh.receiveShadow = receiveShadow;
+      mesh.matrixAutoUpdate = false;
+      out.add(mesh);
     }
-    const merged = mergeGeometries(geos, false);
-    for (const g of geos) g.dispose();
-    if (!merged) continue;
-    const mesh = new THREE.Mesh(merged, mat);
-    mesh.matrixAutoUpdate = false;
-    out.add(mesh);
   }
   // dispose source geometries from the original group
   group.traverse((o) => {
@@ -74,9 +102,7 @@ function makeBeacon(): THREE.Mesh {
     beaconGeo.setIndex(idx);
     a.dispose(); b.dispose();
 
-    const cv = document.createElement('canvas');
-    cv.width = 32; cv.height = 128;
-    const ctx = cv.getContext('2d')!;
+    const { cv, ctx } = canvas2d(32, 128);
     const g = ctx.createLinearGradient(0, 0, 0, 128);
     g.addColorStop(0, 'rgba(72,255,143,0)');
     g.addColorStop(0.75, 'rgba(72,255,143,0.28)');
@@ -105,8 +131,23 @@ export class EntranceManager {
   private data: SubwayData | null = null;
   private stations = new Map<string, StationSpec>();
   private placed = new Map<number, PlacedEntrance>();
-  private placeRadius = 420;
+  // Successful sidewalk solves remain valid across stream-out/in cycles until
+  // a late landmark changes the local collision field.
+  private resolvedPos = new Map<number, [number, number]>();
+  // OSM nodes that collapse onto an already-represented station corner should
+  // not pay the footprint solver again on every idle pass.
+  private suppressed = new Set<number>();
+  // Manhattan has 835 entrance records but only a few dozen kind/route designs.
+  // Share each design's merged geometry and sign material across scene clones.
+  private templates = new Map<string, THREE.Group>();
+  private pendingTemplates = new Set<string>();
+  private destroyed = false;
+  private placeRadius = 260;
   private timer = 0;
+  private scanCursor = 0;
+  private lastScanX = Infinity;
+  private lastScanZ = Infinity;
+  private readonly detailRadius: number;
   private eject: ((x: number, z: number) => [number, number] | null) | null;
   private wallDir: ((x: number, z: number) => [number, number] | null) | null;
   private compile: ((g: THREE.Object3D) => Promise<void>) | null;
@@ -121,6 +162,8 @@ export class EntranceManager {
     this.scene = scene;
     this.eject = eject;
     this.compile = compile;
+    const level = quality().level;
+    this.detailRadius = level === 'ultra' ? 130 : level === 'high' ? 95 : level === 'medium' ? 78 : 64;
   }
 
   async init(): Promise<boolean> {
@@ -169,93 +212,193 @@ export class EntranceManager {
     return best;
   }
 
+  private templateKey(routes: string[], kind: string): string {
+    return `${kind}\u001f${routes.join('\u001f')}`;
+  }
+
+  private buildTemplate(key: string, routes: string[], kind: string, name: string): void {
+    if (this.templates.has(key) || this.destroyed) return;
+    const q = quality();
+    const template = mergeByMaterial(buildEntranceKit(routes, kind, name), {
+      // Entrances are repeated, material-rich street props. They receive the
+      // nearby building/hero map; submitting every railing/sign material as
+      // a caster scales with station density and adds no readable silhouette.
+      castShadow: false,
+      receiveShadow: q.shadows,
+    });
+    // Cloned Mesh objects retain these geometry/material references. Mark
+    // them so stream-out disposal leaves the owning template intact.
+    template.traverse((o) => {
+      if (o instanceof THREE.Mesh) o.userData.shared = true;
+    });
+    this.templates.set(key, template);
+  }
+
+  /**
+   * Prepare a new route/kind kit between frames. Dense transfers introduce
+   * several unique sign combinations at once; merging them synchronously in
+   * the stream update stacked 20–30ms long tasks onto otherwise fast frames.
+   */
+  private prepareTemplate(key: string, routes: string[], kind: string, name: string): void {
+    if (this.templates.has(key) || this.pendingTemplates.has(key)) return;
+    this.pendingTemplates.add(key);
+    const build = () => {
+      this.pendingTemplates.delete(key);
+      this.buildTemplate(key, routes, kind, name);
+      if (!this.destroyed) this.timer = Math.min(this.timer, 0.05);
+    };
+    if (typeof requestIdleCallback === 'function') requestIdleCallback(build, { timeout: 500 });
+    else window.setTimeout(build, 0);
+  }
+
+  /** A lightweight scene clone backed by one merged geometry set per design. */
+  private entranceGroup(routes: string[], kind: string, name: string): THREE.Group {
+    const key = this.templateKey(routes, kind);
+    let template = this.templates.get(key);
+    if (!template) {
+      this.buildTemplate(key, routes, kind, name);
+      template = this.templates.get(key)!;
+    }
+    const group = template.clone(true);
+    group.name = name;
+    return group;
+  }
+
   update(x: number, z: number, dt: number) {
     if (!this.data) return;
     this.timer -= dt;
-    if (this.timer > 0) return;
+    // Idle scans normally run at 0.7 Hz, but large teleports and high-speed
+    // flight must refresh immediately instead of trailing the player.
+    const movedSq = (x - this.lastScanX) ** 2 + (z - this.lastScanZ) ** 2;
+    if (this.timer > 0 && movedSq < 64 * 64) return;
+    this.lastScanX = x;
+    this.lastScanZ = z;
 
-    // Amortize: build at most ONE kit per pass. Each entrance build (footprint
-    // eject spiral + geometry merge + signage texture) is a multi-ms burst, so
-    // seating a whole neighbourhood in one tick froze for hundreds of ms. When a
-    // backlog remains we resume next frame (timer 0) instead of the 0.7s idle
-    // throttle — the world still populates in a fraction of a second, spread one
-    // build per frame so no single frame stalls. Disposals stay uncapped (cheap).
-    let built = 0;
+    const entrances = this.data.entrances;
     const r2 = this.placeRadius * this.placeRadius;
-    for (let i = 0; i < this.data.entrances.length; i++) {
-      const e = this.data.entrances[i];
-      const dx = e.pos[0] - x, dz = e.pos[1] - z;
-      const inRange = dx * dx + dz * dz < r2;
+
+    // Dispose every out-of-range kit in one cheap pass. Placement is separate:
+    // one expensive footprint attempt per frame, successful or not. Previously
+    // only successful builds consumed the budget, so a single idle pass could
+    // run the solver for 19 deferred/duplicate records and block 75–150 ms.
+    for (let i = 0; i < entrances.length; i++) {
       const existing = this.placed.get(i);
-      if (inRange && !existing) {
-        if (built >= 1) continue; // budget spent — leave the rest for next frame
-        const station = this.stations.get(e.stationId);
-        if (!station) continue;
-        // elevated stations get the kiosk marker (their stairs go up, not down)
-        const kind = /elev|viaduct/i.test(station.structure) ? 'elevator' : e.kind;
-        // OSM maps many entrances at/inside building frontages — push the kit
-        // out of any footprint so it lands visibly on the sidewalk
-        let pos: [number, number] = [e.pos[0], e.pos[1]];
-        if (this.eject) {
-          let deferred = false;
-          for (let k = 0; k < 4; k++) {
-            const adj = this.eject(pos[0], pos[1]);
-            if (adj === null) { deferred = true; break; } // tile not resident yet — retry next cycle
-            pos = adj;
-          }
-          if (deferred) continue;
-        }
-        // OSM maps several entrances per corner; once ejected onto the
-        // sidewalk they can converge. Two stairheads of the same station
-        // within a few meters reads as a glitch — keep the first, skip the rest.
-        let tooClose = false;
-        for (const other of this.placed.values()) {
-          if (other.spec.stationId !== e.stationId) continue;
-          if (Math.hypot(other.pos[0] - pos[0], other.pos[1] - pos[1]) < 12) { tooClose = true; break; }
-        }
-        if (tooClose) continue;
-        const group = mergeByMaterial(buildEntranceKit(station.routes, kind, station.name));
-        // sink slightly so the flat base tucks into sloping sidewalks
-        group.position.set(pos[0], heightAt(pos[0], pos[1]) - 0.12, pos[1]);
-        // Orientation, the way real corner stairs sit: the stair run lies
-        // ALONG the nearest building frontage, descending AWAY from the
-        // station (you enter from the corner side). With no wall nearby
-        // (plazas, parks) the stair simply descends away from the station.
-        const away = Math.atan2(pos[0] - station.pos[0], pos[1] - station.pos[1]);
-        const w = this.wallDir ? this.wallDir(pos[0], pos[1]) : null;
-        if (w) {
-          const a1 = Math.atan2(w[0], w[1]);
-          const angDiff = (a: number) => Math.abs(Math.atan2(Math.sin(a - away), Math.cos(a - away)));
-          group.rotation.y = angDiff(a1) <= angDiff(a1 + Math.PI) ? a1 : a1 + Math.PI;
-        } else {
-          group.rotation.y = away;
-        }
-        const beacon = makeBeacon();
-        beacon.position.set(0, 3.1, 0);
-        group.add(beacon);
-        // Claim the slot synchronously (budget + dedup below rely on it), but
-        // defer the VISIBLE add until the kit's shaders are pre-warmed off the
-        // render frame — the first kit's material combo otherwise compiles
-        // inside the render that first shows it. If the kit was evicted while
-        // the compile was in flight, placed[i] no longer holds this record and
-        // disposeGroup already freed it, so skip the add.
-        const rec: PlacedEntrance = { spec: e, station, group, pos };
-        this.placed.set(i, rec);
-        built++;
-        if (this.compile) {
-          void this.compile(group).then(() => {
-            if (this.placed.get(i) === rec) this.scene.add(group);
-          });
-        } else {
-          this.scene.add(group);
-        }
-      } else if (!inRange && existing) {
+      if (!existing) continue;
+      const e = entrances[i];
+      const dx = e.pos[0] - x, dz = e.pos[1] - z;
+      const d2 = dx * dx + dz * dz;
+      if (d2 >= r2) {
         this.scene.remove(existing.group);
         disposeGroup(existing.group);
         this.placed.delete(i);
+      } else {
+        // From down the block the beacon is the readable entrance signal; ten
+        // railing/stair/sign material batches occupy only a handful of pixels.
+        // Preserve the complete interactive kit inside the tiered near radius.
+        const detailed = d2 <= this.detailRadius * this.detailRadius;
+        for (const child of existing.group.children) {
+          child.visible = detailed || child.userData.entranceBeacon === true;
+        }
       }
     }
-    this.timer = built >= 1 ? 0 : 0.7; // backlog: resume next frame; idle: throttle
+
+    let attempted = false;
+    let deferred = false;
+    const count = entrances.length;
+    for (let offset = 0; offset < count; offset++) {
+      const i = (this.scanCursor + offset) % count;
+      if (this.placed.has(i) || this.suppressed.has(i)) continue;
+      const e = entrances[i];
+      const dx = e.pos[0] - x, dz = e.pos[1] - z;
+      if (dx * dx + dz * dz >= r2) continue;
+
+      // Advance even when the tile is not ready so one deferred record cannot
+      // starve the rest of the neighborhood.
+      this.scanCursor = (i + 1) % count;
+      attempted = true;
+      const station = this.stations.get(e.stationId);
+      if (!station) {
+        this.suppressed.add(i);
+        break;
+      }
+
+      // Elevated stations get the kiosk marker (their stairs go up, not down).
+      const kind = /elev|viaduct/i.test(station.structure) ? 'elevator' : e.kind;
+      const templateKey = this.templateKey(station.routes, kind);
+      if (!this.templates.has(templateKey)) {
+        this.prepareTemplate(templateKey, station.routes, kind, station.name);
+        deferred = true;
+        break;
+      }
+      // resolveFootprint already performs a full joint road/building fixpoint,
+      // spiral fallback, and final lane-clear validation. Calling it four times
+      // multiplied its most expensive work without changing the result.
+      let pos = this.resolvedPos.get(i);
+      if (!pos) {
+        pos = [e.pos[0], e.pos[1]];
+        if (this.eject) {
+          const adjusted = this.eject(pos[0], pos[1]);
+          if (adjusted === null) {
+            deferred = true; // tile not resident yet — rotate and retry soon
+            break;
+          }
+          pos = adjusted;
+        }
+        this.resolvedPos.set(i, pos);
+      }
+
+      // OSM maps several entrances per corner; once ejected onto the sidewalk
+      // they can converge. Keep the first and remember rejected siblings so an
+      // idle scan never pays the footprint solver for them again.
+      let tooClose = false;
+      for (const other of this.placed.values()) {
+        if (other.spec.stationId !== e.stationId) continue;
+        if (Math.hypot(other.pos[0] - pos[0], other.pos[1] - pos[1]) < 12) {
+          tooClose = true;
+          break;
+        }
+      }
+      if (tooClose) {
+        this.suppressed.add(i);
+        break;
+      }
+
+      const group = this.entranceGroup(station.routes, kind, station.name);
+      // Sink slightly so the flat base tucks into sloping sidewalks.
+      group.position.set(pos[0], heightAt(pos[0], pos[1]) - 0.12, pos[1]);
+      // Real corner stairs lie along the building frontage and descend away
+      // from the station; plazas without a nearby wall use the away bearing.
+      const away = Math.atan2(pos[0] - station.pos[0], pos[1] - station.pos[1]);
+      const w = this.wallDir ? this.wallDir(pos[0], pos[1]) : null;
+      if (w) {
+        const a1 = Math.atan2(w[0], w[1]);
+        const angDiff = (a: number) => Math.abs(Math.atan2(Math.sin(a - away), Math.cos(a - away)));
+        group.rotation.y = angDiff(a1) <= angDiff(a1 + Math.PI) ? a1 : a1 + Math.PI;
+      } else {
+        group.rotation.y = away;
+      }
+      const beacon = makeBeacon();
+      beacon.position.set(0, 3.1, 0);
+      beacon.userData.entranceBeacon = true;
+      group.add(beacon);
+      // Claim the slot synchronously, then reveal only after shader pre-warm.
+      // If eviction wins the race, the record identity check prevents a stale
+      // compiled group from returning to the scene.
+      const rec: PlacedEntrance = { spec: e, station, group, pos };
+      this.placed.set(i, rec);
+      if (this.compile) {
+        void this.compile(group).then(() => {
+          if (this.placed.get(i) === rec) this.scene.add(group);
+        });
+      } else {
+        this.scene.add(group);
+      }
+      break;
+    }
+
+    // A deferred tile gets a short breather; a completed/suppressed attempt
+    // yields just this frame. With no backlog, return to the low-cost idle scan.
+    this.timer = attempted ? (deferred ? 0.05 : 0) : 0.7;
   }
 
   /**
@@ -271,6 +414,20 @@ export class EntranceManager {
       this.scene.remove(p.group);
       disposeGroup(p.group);
       this.placed.delete(i);
+      // A late landmark changes the collision field, so the cached sidewalk
+      // seat must be solved again before this entrance returns.
+      this.resolvedPos.delete(i);
+      this.scanCursor = i;
+      // The canonical entrance may move to a different side of the new
+      // landmark. Let same-station siblings compete again under that new
+      // collision field instead of preserving a now-stale duplicate decision.
+      if (this.data) {
+        for (const j of [...this.suppressed]) {
+          if (this.data.entrances[j]?.stationId !== p.spec.stationId) continue;
+          this.suppressed.delete(j);
+          this.resolvedPos.delete(j);
+        }
+      }
       evicted = true;
     }
     // Only force a re-place scan if we actually removed something — every landmark
@@ -292,25 +449,50 @@ export class EntranceManager {
   }
 
   destroy() {
+    this.destroyed = true;
     for (const p of this.placed.values()) {
       this.scene.remove(p.group);
       disposeGroup(p.group);
     }
     this.placed.clear();
+    this.resolvedPos.clear();
+    this.suppressed.clear();
+    // Placed clones deliberately do not own these shared resources; dispose
+    // each template once when the manager itself is destroyed.
+    for (const template of this.templates.values()) {
+      template.traverse((o) => {
+        if (!(o instanceof THREE.Mesh)) return;
+        o.geometry.dispose();
+        const mats = Array.isArray(o.material) ? o.material : [o.material];
+        for (const m of mats) {
+          const std = m as THREE.MeshLambertMaterial;
+          if (std.map instanceof THREE.CanvasTexture) {
+            std.map.dispose();
+            m.dispose();
+          }
+        }
+      });
+    }
+    this.templates.clear();
+    this.pendingTemplates.clear();
   }
 }
 
 export function disposeGroup(g: THREE.Group) {
   g.traverse((o) => {
     if (o instanceof THREE.Mesh) {
-      if (o.userData.shared) return;
+      if (o.userData.shared) {
+        // Shares module-level geometry/material (the beacon, a rack's docked
+        // bikes). Its own per-instance buffer is still ours to free.
+        if (o instanceof THREE.InstancedMesh) o.dispose();
+        return;
+      }
       o.geometry.dispose();
       // materials are module-shared in streetprops except canvas sign textures
-      if (o.userData.shared) return; // beacon shares module-level geo/material
       const mats = Array.isArray(o.material) ? o.material : [o.material];
       for (const m of mats) {
         const std = m as THREE.MeshLambertMaterial;
-        if (std.map && std.map instanceof THREE.CanvasTexture && !std.map.userData.sharedSurface) { std.map.dispose(); m.dispose(); }
+        if (std.map && std.map instanceof THREE.CanvasTexture) { std.map.dispose(); m.dispose(); }
       }
     }
   });

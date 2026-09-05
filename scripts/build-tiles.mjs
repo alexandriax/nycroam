@@ -4,18 +4,20 @@
 // Reads everything in data/cache/ (written by scripts/fetch-osm.mjs), dedupes
 // OSM elements, assembles multipolygons, and emits:
 //   public/tiles/index.json
-//   public/tiles/{tx}_{tz}.json   (one per non-empty 256m tile)
+//   public/tiles/region_{rx}_{rz}.bin (indexed NCT3 bundles of 4x4 256m tiles)
 //   public/tiles/skyline.json
-//   public/geo/ground.json
+//   public/geo/ground.bin
 //
 // Shared constants below MUST match src/engine/geo.ts exactly.
 //
-// Usage: node scripts/build-tiles.mjs
+// Usage: node scripts/build-tiles.mjs [--json-fallback]
 
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import earcut from 'earcut';
+import { encodeTileBinary } from './tile-binary.mjs';
+import { shouldSuppressBuildingOutline } from './building-part-coverage.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..');
@@ -23,6 +25,7 @@ const CACHE_DIR = path.join(ROOT, 'data', 'cache');
 const TILES_DIR = path.join(ROOT, 'public', 'tiles');
 const GEO_DIR = path.join(ROOT, 'public', 'geo');
 const TERRAIN_FILE = path.join(GEO_DIR, 'terrain.json');
+const KEEP_JSON_FALLBACK = process.argv.includes('--json-fallback');
 
 // ---- shared constants (must match src/engine/geo.ts) --------------------------------
 const ORIGIN = { lat: 40.758, lon: -73.9855 };
@@ -321,6 +324,11 @@ function stableHash8(id) {
   const frac = h - Math.floor(h);
   return Math.floor(frac * 8);
 }
+function stableUnit(id, salt = 0) {
+  const n = Number(id);
+  const h = Math.sin(n * 12.9898 + salt * 78.233) * 43758.5453;
+  return h - Math.floor(h);
+}
 function computeHeight(tags, id) {
   const h = parseLength(tags.height);
   if (h != null && Number.isFinite(h) && h > 0) return h;
@@ -338,6 +346,169 @@ function computeMinHeight(tags) {
     if (Number.isFinite(lvl) && lvl > 0) return lvl * 3.35;
   }
   return 0;
+}
+
+// ---- sparse building semantics --------------------------------------------------------
+// The output uses one-character optional keys (see TileBuilding) so keeping
+// source-authored identity does not turn the streamed JSON into a tag dump.
+// Raw values are retained when present; the compact archetype is always baked
+// so rendering remains one merged mesh with one numeric vertex attribute.
+function cleanSemantic(raw) {
+  if (raw === undefined || raw === null) return undefined;
+  const value = String(raw).trim();
+  return value || undefined;
+}
+function semanticTag(tags, canonical, alias) {
+  return cleanSemantic(tags[canonical] ?? (alias ? tags[alias] : undefined));
+}
+function compactLevels(raw) {
+  const value = cleanSemantic(raw);
+  if (value === undefined) return undefined;
+  if (/^-?\d+(?:\.\d+)?$/.test(value)) {
+    const n = Number(value);
+    if (Number.isFinite(n)) return n;
+  }
+  return value;
+}
+function sourceYear(raw) {
+  const match = cleanSemantic(raw)?.match(/(?:^|\D)((?:1[6-9]|20)\d{2})(?:\D|$)/);
+  return match ? Number(match[1]) : undefined;
+}
+function materialHas(material, pattern) {
+  return pattern.test((material ?? '').toLowerCase());
+}
+
+const ARCHETYPE_DEFAULTS = [
+  [0, 7, 0, 2], // punched, prewar brick
+  [1, 13, 3, 5], // curtain wall
+  [5, 5, 5, 2], // stone / civic
+  [4, 8, 0, 4], // postwar concrete
+  [2, 10, 4, 2], // industrial brick
+  [3, 6, 0, 2], // brownstone
+  [1, 11, 3, 5], // metal commercial
+  [7, 9, 1, 3], // mixed storefront
+  [2, 11, 1, 1], // cast-iron loft
+  [6, 10, 0, 6], // residential tower / balconies
+  [0, 8, 3, 3], // Art Deco / setback
+  [0, 7, 1, 6], // modern masonry
+  [5, 6, 5, 3], // institutional
+  [4, 6, 4, 4], // warehouse / utilitarian concrete
+  [3, 5, 0, 1], // wood / vernacular
+  [4, 9, 2, 4], // hotel / mid-century commercial
+];
+
+function constructionEra(startDate) {
+  const year = sourceYear(startDate);
+  if (year === undefined) return 0;
+  if (year < 1880) return 1;
+  if (year < 1920) return 2;
+  if (year < 1946) return 3;
+  if (year < 1975) return 4;
+  if (year < 2000) return 5;
+  return 6;
+}
+function roofFamily(raw) {
+  const tag = (raw ?? '').toLowerCase();
+  if (/green|terrace/.test(tag)) return 6;
+  if (/sawtooth/.test(tag)) return 7;
+  if (/mansard/.test(tag)) return 5;
+  if (/dome|round|cone|onion/.test(tag)) return 4;
+  if (/skillion|shed|lean_to/.test(tag)) return 3;
+  if (/gabled|saltbox|gambrel/.test(tag)) return 2;
+  if (/pyramidal|hipped/.test(tag)) return 1;
+  return 0;
+}
+function packBuildingSemantics({ archetype, window, windowRatio, storefront, era, roof, confidence }) {
+  const clamp = (v, max) => Math.max(0, Math.min(max, Math.round(v)));
+  return clamp(archetype, 15)
+    + clamp(window, 7) * 16
+    + clamp(windowRatio, 15) * 128
+    + clamp(storefront, 7) * 2048
+    + clamp(era, 7) * 16384
+    + clamp(roof, 7) * 131072
+    + clamp(confidence, 3) * 1048576;
+}
+
+/**
+ * Stable 0..15 façade/architecture contract. Explicit source signals win;
+ * geometry creates a strong candidate; a later spatial pass lets uncertain
+ * buildings inherit the prevailing family of nearby, similarly scaled fabric.
+ */
+function deriveBuildingSemantics({ id, height, area, kind, material, startDate, roofShape }) {
+  const k = (kind ?? '').toLowerCase();
+  const m = (material ?? '').toLowerCase();
+  const year = sourceYear(startDate);
+  const r = stableUnit(id, 17);
+  let archetype = 0;
+  let confidence = 1;
+
+  if (materialHas(m, /glass|mirror/)) { archetype = 1; confidence = 3; }
+  else if (materialHas(m, /limestone|sandstone|granite|marble|stone/)) { archetype = /school|hospital|civic|government|museum|relig/.test(k) ? 12 : 2; confidence = 3; }
+  else if (materialHas(m, /concrete|cement|plaster|stucco|block/)) { archetype = /warehouse|industrial|garage/.test(k) ? 13 : 3; confidence = 3; }
+  else if (materialHas(m, /metal|steel|aluminium|aluminum|copper|zinc/)) { archetype = 6; confidence = 3; }
+  else if (materialHas(m, /brick|masonry/)) {
+    archetype = /industrial|warehouse|manufactur|factory/.test(k) ? 4
+      : /house|terrace|detached|bungalow/.test(k) && height <= 22 ? 5
+        : year !== undefined && year >= 2000 ? 11 : 0;
+    confidence = 3;
+  } else if (materialHas(m, /wood|timber/)) {
+    archetype = 14;
+    confidence = 3;
+  } else if (/industrial|manufactur|factory/.test(k)) {
+    archetype = 4;
+    confidence = 3;
+  } else if (/warehouse|garage|hangar/.test(k)) {
+    archetype = 13;
+    confidence = 3;
+  } else if (/house|terrace|detached|bungalow|brownstone/.test(k)) {
+    archetype = 5;
+    confidence = 3;
+  } else if (/church|cathedral|chapel|synagogue|mosque|civic|government|museum|university|college|school|hospital/.test(k)) {
+    archetype = 12;
+    confidence = 3;
+  } else if (/hotel|motel/.test(k)) {
+    archetype = height >= 85 && (year === undefined || year >= 1990) ? 1 : 15;
+    confidence = 3;
+  } else if (/apartments|residential|dormitory/.test(k) && height >= 55) {
+    archetype = 9;
+    confidence = 3;
+  } else if (/retail|shop|supermarket|kiosk|mixed/.test(k)) {
+    archetype = height < 50 ? 7 : 6;
+    confidence = 3;
+  } else if (/office|commercial/.test(k)) {
+    archetype = height >= 60 && (year === undefined || year >= 1975)
+      ? (r < 0.76 ? 1 : 6)
+      : height < 38 ? 7 : 6;
+    confidence = 3;
+  } else if (year !== undefined) {
+    confidence = 2;
+    if (year < 1880 && height <= 28) archetype = area > 1000 ? 8 : 14;
+    else if (year <= 1919) archetype = height <= 22 && area < 1200 && r < 0.38 ? 5 : 0;
+    else if (year <= 1945) archetype = height >= 55 ? 10 : 0;
+    else if (year <= 1974) archetype = height >= 35 ? (r < 0.28 ? 15 : 3) : 13;
+    else if (year <= 1999 && height >= 45) archetype = r < 0.62 ? 1 : 9;
+    else if (year >= 2000) archetype = height >= 45 ? (r < 0.56 ? 1 : 9) : 11;
+  } else {
+    confidence = 1;
+    if (area >= 2600 && height <= 35) archetype = r < 0.55 ? 4 : 13;
+    else if (height >= 120) archetype = r < 0.5 ? 1 : r < 0.7 ? 9 : r < 0.86 ? 10 : 3;
+    else if (height >= 55) archetype = r < 0.26 ? 1 : r < 0.46 ? 9 : r < 0.65 ? 3 : r < 0.82 ? 10 : 0;
+    else if (height <= 18 && area < 1200 && r < 0.34) archetype = 5;
+    else if (height <= 38 && r > 0.92) archetype = 7;
+    else if (height <= 38 && r > 0.84) archetype = 11;
+  }
+
+  const defaults = ARCHETYPE_DEFAULTS[archetype];
+  const explicitEra = constructionEra(startDate);
+  return {
+    archetype,
+    window: defaults[0],
+    windowRatio: defaults[1],
+    storefront: defaults[2],
+    era: explicitEra || defaults[3],
+    roof: roofFamily(roofShape),
+    confidence,
+  };
 }
 
 // ---- cache loading + dedup -------------------------------------------------------------
@@ -447,15 +618,75 @@ async function main() {
     const kindTag = isPart ? partVal : buildingVal;
     const kind = kindTag && kindTag !== 'yes' ? kindTag : undefined;
     const name = tags.name || undefined;
+    const material = semanticTag(tags, 'building:material');
+    const colour = semanticTag(tags, 'building:colour', 'building:color');
+    const roofShape = semanticTag(tags, 'roof:shape');
+    const roofMaterial = semanticTag(tags, 'roof:material');
+    const roofColour = semanticTag(tags, 'roof:colour', 'roof:color');
+    const levels = compactLevels(tags['building:levels']);
+    const startDate = cleanSemantic(tags.start_date);
 
     for (const poly of polys) {
       const holeArea = poly.holes.reduce((s, h) => s + Math.abs(ringArea(h)), 0);
       const area = Math.abs(ringArea(poly.outer)) - holeArea;
+      const semantics = deriveBuildingSemantics({
+        id: el.id, height, area, kind, material, startDate, roofShape,
+      });
       buildingElements.push({
         isPart, outer: poly.outer, holes: poly.holes, height, minHeight, kind, name,
-        area, centroid: centroidOf(poly.outer),
+        area, centroid: centroidOf(poly.outer), sourceId: el.id, semantics,
+        material, colour, roofShape, roofMaterial, roofColour, levels, startDate,
       });
     }
+  }
+
+  // Contextual pass for untagged fabric. Nearby authored/geometry-confident
+  // buildings of a comparable scale vote on the family; this produces coherent
+  // blocks instead of independent dice rolls while remaining fully stable.
+  const CONTEXT_CELL = 96;
+  const contextGrid = new Map();
+  const contextKey = (x, z) => `${Math.floor(x / CONTEXT_CELL)},${Math.floor(z / CONTEXT_CELL)}`;
+  for (const b of buildingElements) {
+    const key = contextKey(b.centroid[0], b.centroid[1]);
+    let bucket = contextGrid.get(key);
+    if (!bucket) { bucket = []; contextGrid.set(key, bucket); }
+    bucket.push(b);
+  }
+  let contextualInferred = 0;
+  for (const b of buildingElements) {
+    if (b.semantics.confidence >= 2) continue;
+    const gx = Math.floor(b.centroid[0] / CONTEXT_CELL);
+    const gz = Math.floor(b.centroid[1] / CONTEXT_CELL);
+    const votes = new Float64Array(16);
+    for (let dx = -1; dx <= 1; dx++) for (let dz = -1; dz <= 1; dz++) {
+      for (const n of contextGrid.get(`${gx + dx},${gz + dz}`) ?? []) {
+        if (n === b || n.semantics.confidence < 2) continue;
+        const dist = Math.hypot(n.centroid[0] - b.centroid[0], n.centroid[1] - b.centroid[1]);
+        if (dist > 105) continue;
+        const heightSimilarity = Math.exp(-Math.abs(Math.log((n.height + 6) / (b.height + 6))) * 1.7);
+        const areaSimilarity = Math.exp(-Math.abs(Math.log((n.area + 80) / (b.area + 80))) * 0.45);
+        votes[n.semantics.archetype] += (1 - dist / 120) * heightSimilarity * areaSimilarity
+          * (n.semantics.confidence === 3 ? 1.35 : 1);
+      }
+    }
+    let winner = b.semantics.archetype;
+    let best = 1.15; // require real evidence; otherwise retain geometry fallback
+    for (let i = 0; i < votes.length; i++) {
+      const tieBreak = stableUnit(b.sourceId, 151 + i) * 1e-5;
+      if (votes[i] + tieBreak > best) { best = votes[i] + tieBreak; winner = i; }
+    }
+    if (winner === b.semantics.archetype) continue;
+    const defaults = ARCHETYPE_DEFAULTS[winner];
+    b.semantics = {
+      ...b.semantics,
+      archetype: winner,
+      window: defaults[0],
+      windowRatio: defaults[1],
+      storefront: defaults[2],
+      era: b.semantics.era || defaults[3],
+      confidence: 1,
+    };
+    contextualInferred++;
   }
 
   // building:part suppression (spatially binned by tile, +/- 1 neighbor)
@@ -521,15 +752,22 @@ async function main() {
   for (const b of buildingElements) {
     if (b.isPart) { keptBuildings.push(b); continue; }
     const [tx, tz] = tileOf(b.centroid);
-    let coveredArea = 0;
+    const nearbyParts = [];
     for (const key of neighborKeys(tx, tz)) {
       const candidates = partsByTile.get(key);
       if (!candidates) continue;
       for (const part of candidates) {
-        if (pointInPolygon(part.centroid, b.outer)) coveredArea += part.area;
+        if (pointInPolygon(part.centroid, b.outer)) nearbyParts.push(part);
       }
     }
-    if (b.area > 0 && coveredArea / b.area > 0.85) { suppressedCount++; continue; }
+    // Area-sum suppression remains appropriate for normal stepped towers, but
+    // it can double-count stacked upper tiers and erase the only solid lower
+    // massing. At 1585 Broadway that left four 7m-wide shafts supporting a
+    // 70m-wide tower, creating a 122m-high black void.
+    if (shouldSuppressBuildingOutline(b, nearbyParts)) {
+      suppressedCount++;
+      continue;
+    }
     keptBuildings.push(b);
   }
 
@@ -570,6 +808,10 @@ async function main() {
     if (!allByTile.has(key)) allByTile.set(key, []);
     allByTile.get(key).push(b);
   });
+  // Height difference under which two overlapping buildings count as twins
+  // rather than as a tier and its neighbour. Roughly one storey's worth of
+  // rounding slop, well under the ~3 m that separates real setback tiers.
+  const TWIN_H_EPS = 0.6;
   const buried = new Set();
   let droppedParts = 0;
   for (const p of keptBuildings) {
@@ -581,10 +823,20 @@ async function main() {
       if (!list) continue;
       for (const q of list) {
         if (q === p || buried.has(q)) continue;
-        // strictly taller, or an exact-height twin resolved by index so a
-        // duplicated footprint drops one copy instead of fighting forever
-        if (q.height < p.height) continue;
-        if (q.height === p.height && q._idx > p._idx) continue;
+        // Taller, or a twin of near-enough the same height that the two would
+        // fight. The tolerance matters: OSM duplicates are rarely bit-identical
+        // (24.87 vs 24.93 for the same roof), and an exact === test let every
+        // such pair through -- neither could bury the other, so both rendered
+        // with coplanar walls. An audit of the baked output found 31 of these,
+        // including two 200 m+ towers duplicated at full height.
+        if (q.height < p.height - TWIN_H_EPS) continue;
+        // Among twins the LARGER footprint survives. Resolving by index instead
+        // (the old rule) drops whichever copy happens to come first in the file,
+        // which is as often the outer one -- and burial then fails, because the
+        // bigger polygon is not covered by the smaller.
+        if (Math.abs(q.height - p.height) <= TWIN_H_EPS) {
+          if (q.area < p.area || (q.area === p.area && q._idx > p._idx)) continue;
+        }
         if (q.minHeight >= p.height || q.height <= p.minHeight) continue; // bands must overlap
         const qb = bbAll[q._idx];
         if (qb[2] < pb[0] || qb[0] > pb[2] || qb[3] < pb[1] || qb[1] > pb[3]) continue; // bbox reject
@@ -592,19 +844,28 @@ async function main() {
       }
     }
     if (!cands.length) continue;
-    const N = 10;
+    // A 10x10 grid over the BBOX lands fewer than 12 samples inside a thin or
+    // L-shaped polygon, and the `inside >= 12` floor then silently spared it --
+    // which is how slivers like the two 210 m spire parts at 3_-3 survived
+    // fully inside their own tower. Refine once when the coarse pass is
+    // undersampled rather than lowering the floor, which would make the
+    // coverage ratio noisy for everything.
     let inside = 0, covered = 0;
-    for (let i = 0; i < N; i++) {
-      const x = pb[0] + ((i + 0.5) / N) * (pb[2] - pb[0]);
-      for (let j = 0; j < N; j++) {
-        const z = pb[1] + ((j + 0.5) / N) * (pb[3] - pb[1]);
-        if (!pointInPolygon([x, z], p.outer)) continue;
-        inside++;
-        for (const { q, bb } of cands) {
-          if (x < bb[0] || x > bb[2] || z < bb[1] || z > bb[3]) continue;
-          if (pointInPolygon([x, z], q.outer)) { covered++; break; }
+    for (const N of [10, 32]) {
+      inside = 0; covered = 0;
+      for (let i = 0; i < N; i++) {
+        const x = pb[0] + ((i + 0.5) / N) * (pb[2] - pb[0]);
+        for (let j = 0; j < N; j++) {
+          const z = pb[1] + ((j + 0.5) / N) * (pb[3] - pb[1]);
+          if (!pointInPolygon([x, z], p.outer)) continue;
+          inside++;
+          for (const { q, bb } of cands) {
+            if (x < bb[0] || x > bb[2] || z < bb[1] || z > bb[3]) continue;
+            if (pointInPolygon([x, z], q.outer)) { covered++; break; }
+          }
         }
       }
+      if (inside >= 12) break;
     }
     if (inside >= 12 && covered / inside > 0.9) { buried.add(p); droppedParts++; }
   }
@@ -627,6 +888,12 @@ async function main() {
   // drops the parts our build replaces (e.g. Hearst's tower above its 1928
   // base) while keeping the rest of the building.
   const LANDMARK_FIT = [
+    // Replace One WTC as one coherent premium landmark. OSM maps the faceted
+    // body as five overlapping 417m prisms plus a separate 541m antenna, while
+    // the old hand anchor sat ~59m southwest and added a second floating mast.
+    // Measure only this >400m site cluster, then clear all of it after the fit;
+    // the always-on landmark build supplies both the near tower and skyline.
+    { id: 'one-wtc', lat: 40.7130, lon: -74.01319, r: 70, minH: 400, clearAboveH: 400 },
     // r 55 (was 45): NOTE the "~150m parts at 45.2m" that motivated the bump
     // were actually The Sheffield 57's towers next door — site grouping now
     // excludes them from the measure AND from the clear (the r only bounds the
@@ -634,23 +901,101 @@ async function main() {
     { id: 'hearst-tower', lat: 40.7666, lon: -73.9836, r: 55, clearAboveH: 5 },
     { id: 'chrysler', lat: 40.7516, lon: -73.9755, r: 45, clearAboveMin: 184, clearAboveH: 270 },
     { id: 'empire-state', lat: 40.7484, lon: -73.9857, r: 40, clearAboveMin: 325 },
-    // minH: obb over the tall shaft only, so the crown centers on the tower
-    // (not the block-wide base). clearAboveH: OSM's own crown prisms (h=397)
-    // and 3m-wide spire stick (h=427) are full-height extrusions (base ~18m),
-    // so clearAboveMin can't catch them — drop by TOP height instead; the
-    // bespoke faceted-glass crown replaces them above the kept 350m setbacks.
-    // r 48: a 350m part centroid sits 39.9m out (the hearst boundary lesson).
-    { id: 'one-vanderbilt', lat: 40.7529, lon: -73.9787, r: 48, minH: 340, clearAboveH: 380 },
-    // minH: the 120m base obb centered the crown 13m off the tower shaft — the
-    // verdigris crown floated beside the top (the "topper near City Hall" bug)
-    { id: 'woolworth', lat: 40.7124, lon: -74.0083, r: 40, minH: 150 },
+    // One Bryant Park is mapped as one 366m containing outline plus numerous
+    // ground-up/pyramidal parts between 12m and 366m. The architectural roof is
+    // actually 288m and the remaining height is a ~78m spire, so every opaque
+    // source part must go. Ownership grouping isolates the complete two-acre
+    // site without touching adjacent 4 Times Square.
+    {
+      id: 'one-bryant', lat: 40.7555573, lon: -73.9847166, r: 85,
+      clearAll: true,
+    },
+    // Full coherent replacement for Foster + Partners' completed tower. The
+    // source maps one full-block outline plus nine contiguous stepped bands;
+    // their 130/250/330/382/423m tops accurately describe the fan silhouette,
+    // but emitting every part from ground produces an opaque bronze truss
+    // stack. Measure the ownership group, then let the premium builder recreate
+    // the lifted base, glass envelope and correctly limited east/west bracing.
+    { id: 'chase-hq', lat: 40.755980, lon: -73.975987, r: 60, clearAll: true },
+    // Central Park Tower is currently ten overlapping generic prisms,
+    // including its 8.5m eastern cantilever and 472m architectural cap. Measure
+    // the complete 217 W 57th ownership group and replace it coherently so the
+    // Nordstrom podium, slender shaft and stainless pinstripe skin read as one
+    // landmark instead of stacked anonymous boxes.
+    {
+      id: 'central-park-tower', lat: 40.766410, lon: -73.980772, r: 62,
+      clearAll: true, clearAdjacentAboveH: 200, clearAdjacentWithin: 30,
+    },
+    // 111 West 57th's current source is thirteen ground-up rectangles stacked
+    // at every feathered setback, plus its containing development outline and
+    // south lobby volume. Measure and clear that exact ownership group so the
+    // premium tower can express one coherent terracotta profile without
+    // hidden full-height slabs multiplying its silhouette and collision.
+    {
+      id: 'steinway-tower', lat: 40.764998, lon: -73.977437, r: 40,
+      clearAll: true,
+    },
+    // Viñoly's 432 Park Avenue tower is one unusually clean 425.5m source
+    // part: measure only that square shaft so the adjacent low retail/office
+    // volumes retain their real footprints. The premium build replaces the
+    // shaft while exposing its five double-height windbreak floors instead of
+    // leaving the source's solid generic extrusion behind it.
+    {
+      id: '432-park', lat: 40.7615943, lon: -73.9718353, r: 22,
+      minH: 400, clearAboveH: 400,
+    },
+    // Full coherent replacement. The source maps the KPF tower as more than 20
+    // overlapping full-height prisms: accurate in aggregate, but flat generic
+    // boxes in the renderer, plus a 77m solid pyramid where the staggered glass
+    // crown and slender spire should be. Site grouping safely isolates every
+    // part owned by the named One Vanderbilt outline from Grand Central and
+    // neighbouring towers, then clearAll removes only that ownership group.
+    { id: 'one-vanderbilt', lat: 40.7529, lon: -73.9787, r: 58, clearAll: true },
+    // Measure only the accurately centered 120m-above tower stack, then clear
+    // its eleven overlapping 170–238m generic parts. The mapped 30-storey/120m
+    // base stays; one coherent premium build now supplies the progressively
+    // smaller Gothic tower, copper crown and 241m spire above that shoulder.
+    { id: 'woolworth', lat: 40.7124, lon: -74.0083, r: 40, minH: 150, clearAboveH: 170 },
+    // The registry point historically marked the Chambers Street triumphal
+    // arch, about 50m southwest of the actual central tower. Measure the tower
+    // at its own source-part center and clear only its 123–183m wedding-cake
+    // stack; the accurate 107m C-plan block and 113m wing pavilions remain.
+    {
+      id: 'municipal-building', lat: 40.712960, lon: -74.003620, r: 55,
+      minH: 123, clearAboveH: 123,
+    },
+    // Rebuild the New York Life Building's upper tower from the 115m setback.
+    // OSM's 148m shaft, four corner turrets and 187.5m pyramidal roof are
+    // otherwise emitted as flat generic prisms, including a solid gold block
+    // where the landmark's signature six-story gilded crown should be.
+    { id: 'new-york-life', lat: 40.742735, lon: -73.985608, r: 48, minH: 100, clearAboveH: 148 },
+    // OSM's named outer Met Life tower is a 150m flat-roofed prism, while its
+    // nested parts reach the documented height but remain generic extrusions.
+    // Replace only those tower parts; the historic home-office complex stays.
+    { id: 'met-life-tower', lat: 40.741239, lon: -73.987305, r: 24, minH: 145, clearAboveH: 145 },
     // minH: obb only over the tall slab — low wings shifted the center 34m off
     // the shaft and the summit crown hung off the roof edge
     { id: 'top-of-the-rock', lat: 40.7591, lon: -73.9794, r: 40, minH: 120 },
     // (flatiron was dropped from the fit list: a triangle's longest-edge obb
     // rotated and offset the cornice trim — it uses a measured registry rot now)
     { id: 'msg', lat: 40.7505, lon: -73.9934, r: 80 },
-    { id: 'edge-deck', lat: 40.7539, lon: -74.0006, r: 45 },
+    // 30 Hudson Yards is now mapped as eight overlapping 130–395m ground-up
+    // prisms, including three coincident 395m crown pieces and a separate Edge
+    // slab. Their aggregate OBB is accurate, but generic extrusion makes KPF's
+    // crystalline taper into an opaque stack. Replace the complete ownership
+    // group while preserving adjacent 50 Hudson Yards.
+    {
+      id: 'edge-deck', lat: 40.753949, lon: -74.000555, r: 60,
+      clearAll: true, fitRot: 2.638,
+    },
+    // Foster + Partners' full-block tower is accurately mapped as a 33m
+    // podium, a 160m western shoulder and one 308m generic glass extrusion.
+    // Measure that ownership group as a whole, then replace it with the real
+    // three-block white-stone/glass vertical campus and illuminated roof halo.
+    {
+      id: 'fifty-hudson', lat: 40.754519, lon: -74.000119, r: 55,
+      clearAll: true, fitRot: 2.638,
+    },
   ].map((e) => { const [x, z] = lonLatToXZ(e.lon, e.lat); return { ...e, x, z }; });
 
   console.log('Measuring landmark host buildings...');
@@ -711,15 +1056,43 @@ async function main() {
     if (cands.length !== rawCands.length) {
       console.log(`  fit ${lf.id}: site grouping excluded ${rawCands.length - cands.length}/${rawCands.length} foreign parts`);
     }
+    // Central Park Tower's east shaft/cantilever pieces are mapped as separate
+    // building:parts whose centroids fall outside the containing podium outline,
+    // so strict ownership (correctly) classifies four of them as adjacent.
+    // Require BOTH a landmark-specific height and a tight centroid radius:
+    // this claims those 237–433m pieces without deleting the 259–290m parts of
+    // 220 Central Park South whose centroids also fall inside the broad fit
+    // radius.
+    const adjacentRadius = lf.clearAdjacentWithin ?? Infinity;
+    const adjacentCleared = lf.clearAdjacentAboveH === undefined
+      ? []
+      : rawCands.filter((b) =>
+        !cands.includes(b)
+        && b.height >= lf.clearAdjacentAboveH
+        && Math.hypot(b.centroid[0] - lf.x, b.centroid[1] - lf.z) <= adjacentRadius
+      );
     // dominant orientation: longest edge of the largest footprint
-    const largest = cands.reduce((a, b) => (b.area > a.area ? b : a));
-    let ex = 1, ez = 0, bestLen = 0;
-    const ring = largest.outer;
-    for (let i = 0; i < ring.length; i++) {
-      const a = ring[i], b = ring[(i + 1) % ring.length];
-      const dx = b[0] - a[0], dz = b[1] - a[1];
-      const len = dx * dx + dz * dz;
-      if (len > bestLen) { bestLen = len; const l = Math.sqrt(len); ex = dx / l; ez = dz / l; }
+    // A broad low podium can have a different longest edge from its tower. A
+    // landmark may nominate either the tall shaft as the orientation authority
+    // or a surveyed rotation while still measuring/clearing the complete
+    // ownership group (30 Hudson Yards' rail-platform base is the motivating
+    // case: its tall source parts are nearly square and numerically unstable).
+    const orientCands = lf.orientAboveH === undefined
+      ? cands
+      : cands.filter((b) => b.height >= lf.orientAboveH);
+    const largest = (orientCands.length ? orientCands : cands)
+      .reduce((a, b) => (b.area > a.area ? b : a));
+    let ex = lf.fitRot === undefined ? 1 : Math.cos(lf.fitRot);
+    let ez = lf.fitRot === undefined ? 0 : -Math.sin(lf.fitRot);
+    if (lf.fitRot === undefined) {
+      let bestLen = 0;
+      const ring = largest.outer;
+      for (let i = 0; i < ring.length; i++) {
+        const a = ring[i], b = ring[(i + 1) % ring.length];
+        const dx = b[0] - a[0], dz = b[1] - a[1];
+        const len = dx * dx + dz * dz;
+        if (len > bestLen) { bestLen = len; const l = Math.sqrt(len); ex = dx / l; ez = dz / l; }
+      }
     }
     const rot = Math.atan2(-ez, ex); // rotation.y mapping local +x onto the edge
     const proj = (pt) => {
@@ -739,12 +1112,19 @@ async function main() {
       return { minU, maxU, minV, maxV, roof };
     };
     const all = measure(cands);
-    const isTall = (b) => (lf.clearAboveMin !== undefined && (b.minHeight ?? 0) >= lf.clearAboveMin)
+    const isTall = (b) => lf.clearAll
+      || (lf.clearAboveMin !== undefined && (b.minHeight ?? 0) >= lf.clearAboveMin)
       || (lf.clearAboveH !== undefined && b.height >= lf.clearAboveH);
-    const cleared = lf.clearAboveMin !== undefined || lf.clearAboveH !== undefined ? cands.filter(isTall) : [];
+    const clearedOnSite = lf.clearAll || lf.clearAboveMin !== undefined || lf.clearAboveH !== undefined
+      ? cands.filter(isTall)
+      : [];
+    const cleared = clearedOnSite.concat(adjacentCleared);
     for (const b of cleared) fitCleared.add(b);
-    const kept = cands.filter((b) => !cleared.includes(b));
-    const keptM = kept.length ? measure(kept) : all;
+    const kept = cands.filter((b) => !clearedOnSite.includes(b));
+    // A full replacement intentionally leaves no host massing. Report keptH=0
+    // so builders and validation cannot mistake the measured source roof for a
+    // surviving slab.
+    const keptM = kept.length ? measure(kept) : { ...all, roof: 0 };
     const top = measure(cands.filter((b) => b.height >= all.roof - 12));
     // center of the full-massing obb, in world coords
     const cu = (all.minU + all.maxU) / 2, cv = (all.minV + all.maxV) / 2;
@@ -758,10 +1138,10 @@ async function main() {
       keptH: Math.round(keptM.roof),        // tallest massing left standing
       topW: Math.round(top.maxU - top.minU),
       topD: Math.round(top.maxV - top.minV),
-      parts: cands.length,
+      parts: cands.length + adjacentCleared.length,
       clearedParts: cleared.length,
     };
-    console.log(`  fit ${lf.id}: ${cands.length} parts, obb ${fitOut[lf.id].w}x${fitOut[lf.id].d}m rot ${fitOut[lf.id].rot}, roof ${fitOut[lf.id].roofH}m, kept ${fitOut[lf.id].keptH}m, cleared ${cleared.length}`);
+    console.log(`  fit ${lf.id}: ${fitOut[lf.id].parts} parts, obb ${fitOut[lf.id].w}x${fitOut[lf.id].d}m rot ${fitOut[lf.id].rot}, roof ${fitOut[lf.id].roofH}m, kept ${fitOut[lf.id].keptH}m, cleared ${cleared.length}`);
   }
   fs.writeFileSync(path.join(GEO_DIR, 'landmarks-fit.json'), JSON.stringify({ v: 1, fits: fitOut }));
 
@@ -770,8 +1150,19 @@ async function main() {
   // point that OSM also maps as a building would be swallowed inside it.
   // Buildings whose centroid falls within r of a point are dropped; layered
   // landmarks (crowns, marquees, facades) keep their massing and are NOT here.
+  // [id, lat, lon, radius, keepH?]
+  //
+  // keepH is a HEIGHT CEILING on what a circle may delete. A radius sized to a
+  // low landmark's own site inevitably reaches a neighbouring tower's setback
+  // parts in Manhattan, and deleting one of those punches a notch out of a
+  // building the bespoke build does not replace. An audit of the baked output
+  // found three: the Oculus (h=47) circle eating a 281 m part of 3 WTC, the
+  // Times Square circle taking four parts of the Bertelsmann Building
+  // (h=223/188/168) so 1540 Broadway stood ~45 m short, and Carnegie Hall's
+  // taking a 170 m part of Carnegie Hall Tower. Nothing a low-rise landmark
+  // replaces is anywhere near these ceilings.
   const LANDMARK_CLEAR = [
-    ['oculus', 40.7115, -74.0113, 55], ['sept11-museum', 40.7115, -74.0125, 28],
+    ['oculus', 40.7115, -74.0113, 55, 90], ['sept11-museum', 40.7115, -74.0125, 28],
     ['trinity-church', 40.7081, -74.0121, 40], ['federal-hall', 40.7074, -74.0102, 30],
     ['castle-clinton', 40.7033, -74.017, 38], ['fraunces-tavern', 40.7034, -74.0113, 18],
     ['whitehall-terminal', 40.7013, -74.0131, 45], ['city-hall', 40.7128, -74.006, 50],
@@ -791,13 +1182,28 @@ async function main() {
     // build stands alone. r=30 catches only that centroid; Hayden House (190m NE)
     // and everything across CPW/Columbus survive.
     ['amnh', 40.780962, -73.974258, 30],
+    // The mapped 30m 432 Park podium wraps around the square tower and would
+    // otherwise swallow the premium lobby/plaza. Its centroid is 29m from the
+    // tall shaft; a 7m clear is surgical, while the development's separate
+    // 20.5m and 28.3m East 57th Street retail/office volumes remain intact.
+    ['432-park-podium', 40.7617805, -73.9719587, 7],
+    // The modern 111 W 57th source group and the landmarked 1925 Steinway Hall
+    // are separate OSM ownership outlines but physically form one development.
+    // A tight centroid clear removes only the 67m hall that the premium builder
+    // recreates; Windsor Park and every neighboring 57th/58th Street building
+    // are more than 25m from this centroid.
+    ['steinway-hall', 40.7649461, -73.9775890, 8],
     // Times Square's bowtie is our billboard-stack canyon; drop the generic
     // brick OSM massing in the core so the spectaculars stand free instead of
     // spearing through buildings (the district's real towers beyond r remain).
-    ['times-square', 40.758, -73.9855, 55],
+    ['times-square', 40.758, -73.9855, 55, 110],
     // recentered on the measured OSM centroids: the old circles sat 50-90m off
     // and left the real 156m Secretariat slab + GA hall standing through the build
     ['un-secretariat', 40.7489, -73.9681, 60], ['un-ga', 40.7501, -73.9677, 50],
+    // The Flatiron is duplicated in OSM as an 86m detailed outline plus an
+    // overlapping 88m part. A tight 14m centroid circle removes only those two
+    // volumes (the nearest unrelated building centroid is more than 27m away).
+    ['flatiron', 40.74107, -73.98964, 14],
     // 270 Park (Foster JPMorganChase HQ): the bespoke chase-hq landmark owns the
     // whole site. The old clear/anchor sat ~33m SE of the real footprint, leaving
     // the OSM tower's WEST parts (a 382m stub) standing beside the bespoke build.
@@ -805,26 +1211,37 @@ async function main() {
     // covers all its stepped parts and stays clear of the named neighbours
     // (280 Park 85m, Postum/250 Park 87m, 383 Madison tower 87m).
     ['chase-hq', 40.755980, -73.975987, 55],
-    ['dakota', 40.7765, -73.9761, 50], ['carnegie-hall', 40.7651, -73.9799, 35],
+    ['dakota', 40.7765, -73.9761, 50], ['carnegie-hall', 40.7651, -73.9799, 35, 80],
     ['whitney', 40.7397, -74.0089, 35], ['vessel', 40.7538, -74.0022, 40],
-    ['little-island', 40.742, -74.01, 70], ['belvedere', 40.7794, -73.9692, 28],
+    ['little-island', 40.742, -74.01, 70], ['belvedere', 40.7794, -73.9692, 36],
     ['grants-tomb', 40.8134, -73.963, 32], ['riverside-church', 40.8119, -73.9633, 42],
     ['columbia-low', 40.8081, -73.9619, 42], ['st-john-divine', 40.8038, -73.9619, 55],
-    ['cloisters', 40.8649, -73.9317, 55], ['hamilton-grange', 40.8214, -73.9469, 18],
+    ['cloisters', 40.8649, -73.9317, 55],
+    // hamilton-grange / dyckman-farmhouse: both circles were aligned to their
+    // registry ANCHORS, which sit 31.5 m and 21.9 m from the real footprints --
+    // so each deleted nothing and the OSM original stood beside the bespoke
+    // build as a duplicate. Re-centred on the measured footprints.
+    ['hamilton-grange', 40.821391, -73.947274, 22],
     // both aligned to the registry anchors — the old points were 276m / 929m off,
     // clearing innocent blocks while the real sites kept their OSM massing
-    ['morris-jumel', 40.8345, -73.9386, 20], ['dyckman-farmhouse', 40.8668, -73.9229, 18],
-  ].map(([id, lat, lon, r]) => { const [x, z] = lonLatToXZ(lon, lat); return { id, x, z, r }; });
+    ['morris-jumel', 40.8345, -73.9386, 20], ['dyckman-farmhouse', 40.866858, -73.922652, 20],
+    // the OSM lighthouse had no circle at all, so the bespoke 12 m tower stood
+    // 41 m from an identical one
+    ['little-red-lighthouse', 40.850255, -73.946963, 14],
+  ].map(([id, lat, lon, r, keepH]) => { const [x, z] = lonLatToXZ(lon, lat); return { id, x, z, r, keepH }; });
   let landmarkCleared = 0;
 
   // bin into tiles + collect skyline candidates
   const tileBuildings = new Map(); // key -> array of output objs
   const tileBuildingFootprints = new Map(); // key -> array of {outer,holes} world-meter rings (for tree placement filters)
   const skylineCandidates = [];
+  const archetypeCounts = new Array(16).fill(0);
+  const semanticCounts = { material: 0, colour: 0, roofShape: 0, roofMaterial: 0, roofColour: 0, levels: 0, startDate: 0 };
   for (const b of keptBuildings) {
     let cleared = fitCleared.has(b);
     for (const lc of LANDMARK_CLEAR) {
       if (cleared) break;
+      if (lc.keepH !== undefined && b.height > lc.keepH) continue;
       const dx = b.centroid[0] - lc.x, dz = b.centroid[1] - lc.z;
       if (dx * dx + dz * dz < lc.r * lc.r) { cleared = true; break; }
     }
@@ -832,10 +1249,29 @@ async function main() {
     const [tx, tz] = tileOf(b.centroid);
     const key = tileKeyOf(tx, tz);
     const p = [toTileLocalDecimeters(b.outer, tx, tz), ...b.holes.map((h) => toTileLocalDecimeters(h, tx, tz))];
-    const obj = { p, h: round1(b.height), b: round1(terrainAt(b.centroid[0], b.centroid[1])) };
+    const archetype = b.semantics.archetype;
+    if (!Number.isInteger(archetype) || archetype < 0 || archetype > 15) {
+      throw new Error(`invalid building archetype ${archetype} at ${b.centroid.join(',')}`);
+    }
+    const obj = {
+      p,
+      h: round1(b.height),
+      b: round1(terrainAt(b.centroid[0], b.centroid[1])),
+      a: archetype,
+      s: packBuildingSemantics(b.semantics),
+      v: Math.floor(stableUnit(b.sourceId, 211) * 65536),
+    };
+    archetypeCounts[archetype]++;
     if (b.minHeight > 0) obj.m = round1(b.minHeight);
     if (b.name) obj.n = b.name;
     if (b.kind) obj.k = b.kind;
+    if (b.material) { obj.f = b.material; semanticCounts.material++; }
+    if (b.colour) { obj.c = b.colour; semanticCounts.colour++; }
+    if (b.roofShape) { obj.r = b.roofShape; semanticCounts.roofShape++; }
+    if (b.roofMaterial) { obj.q = b.roofMaterial; semanticCounts.roofMaterial++; }
+    if (b.roofColour) { obj.o = b.roofColour; semanticCounts.roofColour++; }
+    if (b.levels !== undefined) { obj.l = b.levels; semanticCounts.levels++; }
+    if (b.startDate) { obj.d = b.startDate; semanticCounts.startDate++; }
     if (!tileBuildings.has(key)) tileBuildings.set(key, []);
     tileBuildings.get(key).push(obj);
     if (!tileBuildingFootprints.has(key)) tileBuildingFootprints.set(key, []);
@@ -845,6 +1281,17 @@ async function main() {
   }
 
   console.log(`  landmark clearing: ${landmarkCleared} buildings dropped at ${LANDMARK_CLEAR.length} premium-landmark sites`);
+  console.log(
+    `  archetypes [prewar, glass, stone, postwar, industrial, brownstone, metal, mixed, ` +
+      `cast-iron, residential-tower, art-deco, modern-masonry, institutional, warehouse, wood, hotel]: ` +
+      archetypeCounts.join(', '),
+  );
+  console.log(`  contextual building-family inferences: ${contextualInferred}`);
+  console.log(
+    `  source semantics retained: material ${semanticCounts.material}, colour ${semanticCounts.colour}, ` +
+      `roof shape ${semanticCounts.roofShape}, roof material ${semanticCounts.roofMaterial}, ` +
+      `roof colour ${semanticCounts.roofColour}, levels ${semanticCounts.levels}, start_date ${semanticCounts.startDate}`,
+  );
 
   // ---- ROADS ----------------------------------------------------------------------------
   console.log('Processing roads...');
@@ -926,20 +1373,127 @@ async function main() {
     return piece.map(([x, z]) => round1(terrainAt(x, z)));
   }
 
+/**
+ * A roadway is HIDDEN when it does not exist as visible pavement at ground
+ * level, and must not be baked as a ribbon at all.
+ *
+ * `tunnel === 'yes'` was the whole test, which missed two large classes the
+ * audit surfaced as "roads through buildings":
+ *  - `tunnel=building_passage` (184 vehicular ways): a roadway threaded UNDER a
+ *    building. Rendered at grade it paints asphalt straight through the walls.
+ *  - `covered=yes` (318 vehicular ways, incl. 5 motorway segments of the
+ *    Trans-Manhattan Expressway, which Washington Heights is literally built
+ *    over): same situation, expressed with a different tag.
+ * Both are dropped for exactly the reason plain tunnels are: you cannot see
+ * them from the street, and drawing them puts pavement inside a building.
+ */
+function isHiddenRoad(tags) {
+  const tunnel = tags.tunnel && tags.tunnel !== 'no';
+  const covered = tags.covered && tags.covered !== 'no';
+  return Boolean(tunnel || covered);
+}
+
+/**
+ * True when the way rides above ground. OSM tags plenty of viaducts with a
+ * positive `layer` and no `bridge` at all -- 96 vehicular ways here, including
+ * the elevated FDR Drive and the Queensboro approach ramps, which the pipeline
+ * was laying at grade straight through the buildings they fly past. That
+ * cluster was the single worst source of building-in-roadbed overlap.
+ */
+function isElevatedRoad(tags) {
+  if (tags.bridge && tags.bridge !== 'no') return true;
+  const layer = Number(tags.layer);
+  return Number.isFinite(layer) && layer > 0;
+}
+
+  const ROAD_DEFAULT_WIDTH = {
+    motorway: 22, trunk: 20, primary: 17, secondary: 14, tertiary: 12,
+    unclassified: 10, residential: 10, living_street: 8, service: 5.5,
+    pedestrian: 8, footway: 2.6, crossing: 3, cycleway: 2.4, path: 2, steps: 2.6,
+    motorway_link: 9, trunk_link: 9, primary_link: 9, secondary_link: 9, tertiary_link: 9,
+  };
+  const RF_SIDEWALK_LEFT = 1 << 0;
+  const RF_SIDEWALK_RIGHT = 1 << 1;
+  const RF_DRIVEWAY = 1 << 2;
+  const RF_MEDIAN = 1 << 3;
+  const RF_ISLAND = 1 << 4;
+  const RF_INTERSECTION_START = 1 << 5;
+  const RF_INTERSECTION_END = 1 << 6;
+  const RF_CROSSING = 1 << 7;
+  const RF_ONEWAY = 1 << 8;
+  const RF_PARKING_LEFT = 1 << 9;
+  const RF_PARKING_RIGHT = 1 << 10;
+  const SURFACE_STREET = new Set([
+    'primary', 'secondary', 'tertiary', 'unclassified', 'residential', 'living_street',
+  ]);
+  const VEHICULAR_CLASS = new Set([
+    'motorway', 'trunk', 'primary', 'secondary', 'tertiary', 'unclassified',
+    'residential', 'living_street', 'service', 'motorway_link', 'trunk_link',
+    'primary_link', 'secondary_link', 'tertiary_link',
+  ]);
+  function sourceRoadWidth(tags, cls) {
+    const explicit = parseLength(tags.width);
+    if (explicit !== null && explicit >= 1.2 && explicit <= 45) return explicit;
+    const lanes = Number.parseFloat(String(tags.lanes ?? ''));
+    if (Number.isFinite(lanes) && lanes > 0 && lanes <= 12 && VEHICULAR_CLASS.has(cls)) {
+      const laneWidth = cls === 'motorway' || cls === 'trunk' ? 3.45 : 3.15;
+      const parking = /^(parallel|diagonal|perpendicular|marked)$/.test(tags['parking:lane:left'] ?? '') ? 2.1 : 0;
+      const parkingRight = /^(parallel|diagonal|perpendicular|marked)$/.test(tags['parking:lane:right'] ?? '') ? 2.1 : 0;
+      return Math.max(ROAD_DEFAULT_WIDTH[cls] ?? 5.5, lanes * laneWidth + parking + parkingRight);
+    }
+    return ROAD_DEFAULT_WIDTH[cls] ?? 10;
+  }
+  function roadFlags(tags, cls, startDegree, endDegree) {
+    let flags = 0;
+    const sidewalk = String(tags.sidewalk ?? '').toLowerCase();
+    const left = String(tags['sidewalk:left'] ?? '').toLowerCase();
+    const right = String(tags['sidewalk:right'] ?? '').toLowerCase();
+    const attachDefault = SURFACE_STREET.has(cls) && sidewalk !== 'no' && sidewalk !== 'separate';
+    if (sidewalk === 'both' || sidewalk === 'yes' || attachDefault || /yes|both/.test(left)) flags |= RF_SIDEWALK_LEFT;
+    if (sidewalk === 'both' || sidewalk === 'yes' || attachDefault || /yes|both/.test(right)) flags |= RF_SIDEWALK_RIGHT;
+    if (sidewalk === 'left') flags = (flags | RF_SIDEWALK_LEFT) & ~RF_SIDEWALK_RIGHT;
+    if (sidewalk === 'right') flags = (flags | RF_SIDEWALK_RIGHT) & ~RF_SIDEWALK_LEFT;
+    if (left === 'no') flags &= ~RF_SIDEWALK_LEFT;
+    if (right === 'no') flags &= ~RF_SIDEWALK_RIGHT;
+    if (cls === 'service' && /driveway|drive-through|parking_aisle/.test(tags.service ?? '')) flags |= RF_DRIVEWAY;
+    if (/yes|median/.test(tags.median ?? '') || /yes|solid|jersey_barrier/.test(tags.divider ?? '')) flags |= RF_MEDIAN;
+    if (/island/.test(tags.traffic_calming ?? '') || tags.crossing === 'island') flags |= RF_ISLAND;
+    if (startDegree >= 3) flags |= RF_INTERSECTION_START;
+    if (endDegree >= 3) flags |= RF_INTERSECTION_END;
+    if (cls === 'crossing' || tags.footway === 'crossing' || tags.cycleway === 'crossing') flags |= RF_CROSSING;
+    if (/^(yes|1|-1|reversible)$/.test(tags.oneway ?? '')) flags |= RF_ONEWAY;
+    if (!/^(no|none)$/.test(tags['parking:lane:left'] ?? 'no')) flags |= RF_PARKING_LEFT;
+    if (!/^(no|none)$/.test(tags['parking:lane:right'] ?? 'no')) flags |= RF_PARKING_RIGHT;
+    return flags;
+  }
+
+  // Node-way degree is computed globally before tile clipping. Only shared
+  // vehicular endpoints with degree >=3 create inferred intersection details;
+  // tile-boundary split points never masquerade as junctions.
+  const roadNodeDegree = new Map();
+  for (const el of roadsMap.values()) {
+    const cls = el.tags?.highway;
+    if (el.type !== 'way' || !VEHICULAR_CLASS.has(cls) || !Array.isArray(el.nodes)) continue;
+    for (const node of new Set(el.nodes)) roadNodeDegree.set(node, Math.min(255, (roadNodeDegree.get(node) ?? 0) + 1));
+  }
+
   const tileRoads = new Map();
-  const tileRoadPiecesWorld = new Map(); // key -> array of {pts (world meters), cls} for tree placement filters
+  const tileRoadPiecesWorld = new Map(); // key -> array of {pts (world meters), cls, width} for placement filters
   let roadWayCount = 0, roadPieceCount = 0;
   for (const el of roadsMap.values()) {
     if (el.type !== 'way') continue;
     const tags = el.tags || {};
     if (!tags.highway) continue;
     if (tags.area === 'yes') continue;
-    if (tags.tunnel === 'yes') continue;
+    if (isHiddenRoad(tags)) continue;
     if (!el.geometry || el.geometry.length < 2) continue;
 
     let c = tags.highway;
     if (tags.footway === 'crossing' || tags.cycleway === 'crossing') c = 'crossing';
-    const bridge = tags.bridge && tags.bridge !== 'no' ? 1 : undefined;
+    const bridge = isElevatedRoad(tags) ? 1 : undefined;
+    const width = sourceRoadWidth(tags, c);
+    const startDegree = roadNodeDegree.get(el.nodes?.[0]) ?? 0;
+    const endDegree = roadNodeDegree.get(el.nodes?.[el.nodes.length - 1]) ?? 0;
 
     const pts = el.geometry.filter((p) => typeof p.lat === 'number' && typeof p.lon === 'number').map((p) => lonLatToXZ(p.lon, p.lat));
     if (pts.length < 2) continue;
@@ -952,12 +1506,22 @@ async function main() {
       const [tx, tz] = tileOf(mid);
       const key = tileKeyOf(tx, tz);
       const flat = toTileLocalDecimeters(piece, tx, tz);
-      const obj = { p: flat, c, e: bridge ? bridgeElevations(piece) : plainElevations(piece) };
+      const pieceStartDegree = pointsEqual(piece[0], pts[0]) ? startDegree : 0;
+      const pieceEndDegree = pointsEqual(piece[piece.length - 1], pts[pts.length - 1]) ? endDegree : 0;
+      const flags = roadFlags(tags, c, pieceStartDegree, pieceEndDegree);
+      const obj = {
+        p: flat,
+        c,
+        e: bridge ? bridgeElevations(piece) : plainElevations(piece),
+        w: Math.round(width * 10),
+      };
       if (bridge) obj.b = 1;
+      if (flags) obj.f = flags;
+      if (pieceStartDegree || pieceEndDegree) obj.i = [pieceStartDegree, pieceEndDegree];
       if (!tileRoads.has(key)) tileRoads.set(key, []);
       tileRoads.get(key).push(obj);
       if (!tileRoadPiecesWorld.has(key)) tileRoadPiecesWorld.set(key, []);
-      tileRoadPiecesWorld.get(key).push({ pts: piece, cls: c });
+      tileRoadPiecesWorld.get(key).push({ pts: piece, cls: c, width });
       roadPieceCount++;
     }
   }
@@ -992,7 +1556,7 @@ async function main() {
   let roadSegCount = 0;
   for (const pieces of tileRoadPiecesWorld.values()) {
     for (const piece of pieces) {
-      const half = VEHICULAR_HALF[piece.cls];
+      const half = VEHICULAR_HALF[piece.cls] === undefined ? undefined : piece.width / 2;
       if (half === undefined) continue; // footway/path/crossing/cycleway: not a vehicular roadbed
       const p = piece.pts;
       for (let i = 0; i < p.length - 1; i++) { addRoadSeg(p[i][0], p[i][1], p[i + 1][0], p[i + 1][1], half); roadSegCount++; }
@@ -1081,7 +1645,7 @@ async function main() {
     const tags = el.tags || {};
     const w = MAJOR_W[tags.highway];
     if (!w) continue;
-    if (tags.area === 'yes' || tags.tunnel === 'yes') continue;
+    if (tags.area === 'yes' || isHiddenRoad(tags)) continue;
     if (!el.geometry || el.geometry.length < 2) continue;
     const pts = el.geometry.map((g) => lonLatToXZ(g.lon, g.lat));
     majorPtsBefore += pts.length;
@@ -1106,7 +1670,7 @@ async function main() {
     if (el.type !== 'way') continue;
     const tags = el.tags || {};
     if (!tags.highway || !SIGN_CLASSES.has(tags.highway) || !tags.name) continue;
-    if (tags.tunnel === 'yes' || tags.area === 'yes') continue;
+    if (isHiddenRoad(tags) || tags.area === 'yes') continue;
     if (!el.nodes || !el.geometry || el.nodes.length !== el.geometry.length) continue;
     const pts = el.geometry.map((g) => lonLatToXZ(g.lon, g.lat));
     for (let i = 0; i < el.nodes.length; i++) {
@@ -1224,7 +1788,7 @@ async function main() {
           const x = ax + (bx - ax) * t, z = az + (bz - az) * t;
           const nx = -(bz - az) / seg, nz = (bx - ax) / seg;
           const side = Math.abs(Math.sin(x * 12.9898 + z * 78.233)) < 0.5 ? 1 : -1;
-          const off = (HYD_W[piece.cls] || 10) / 2 + 1.3;
+          const off = (piece.width || HYD_W[piece.cls] || 10) / 2 + 1.3;
           let hx = x + nx * off * side, hz = z + nz * off * side;
           // Eject out of ANY vehicular roadbed — cross streets at corners, plus avenues
           // whose centerline sits in a neighbouring tile the old per-tile scan missed —
@@ -1540,7 +2104,7 @@ async function main() {
         for (let i = 1; i < pts.length; i++) cum.push(cum[i - 1] + Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]));
         const total = cum[pts.length - 1];
         if (total <= 0) continue;
-        const offset = CLASS_WIDTH[piece.cls] / 2 + 2.5;
+        const offset = (piece.width || CLASS_WIDTH[piece.cls]) / 2 + 2.5;
         const spacing = STREET_TREE_SPACING * spacingMul;
         let segIdx = 0;
         for (let s = 0; s <= total; s += spacing) {
@@ -1641,9 +2205,9 @@ async function main() {
   console.log('Writing tiles...');
   // Clear any stale tile files from a previous (e.g. partial-cache) run so the output
   // directory never mixes tiles from different builds.
-  const tileFileRe = /^-?\d+_-?\d+\.json$/;
+  const tileFileRe = /^-?\d+_-?\d+\.(?:json|bin)$/;
   for (const f of fs.readdirSync(TILES_DIR)) {
-    if (tileFileRe.test(f)) fs.unlinkSync(path.join(TILES_DIR, f));
+    if (tileFileRe.test(f) || /^region_-?\d+_-?\d+\.bin$/.test(f)) fs.unlinkSync(path.join(TILES_DIR, f));
   }
   const allKeys = new Set([...tileBuildings.keys(), ...tileRoads.keys(), ...tileAreas.keys(), ...tileTrees.keys(), ...tileSigns.keys(), ...tileHyd.keys()]);
   const sortedKeys = [...allKeys].sort((a, b) => {
@@ -1653,10 +2217,12 @@ async function main() {
   });
 
   let totalBuildingsWritten = 0, totalRoadsWritten = 0;
+  let tileJsonBytes = 0, tileBinaryBytes = 0;
+  const regionTiles = new Map();
   const writtenTiles = [];
   for (const key of sortedKeys) {
     const [tx, tz] = key.split('_').map(Number);
-    const tile = { v: 2, x: tx, z: tz };
+    const tile = { v: 3, x: tx, z: tz };
     const b = tileBuildings.get(key);
     if (b && b.length) { tile.buildings = b; totalBuildingsWritten += b.length; }
     const r = tileRoads.get(key);
@@ -1677,18 +2243,55 @@ async function main() {
     if (!tile.buildings && !tile.roads && !tile.areas && !tile.trees && !tile.signs && !tile.hyd) continue; // skip empty
 
     const file = path.join(TILES_DIR, `${key}.json`);
-    fs.writeFileSync(file, JSON.stringify(tile));
+    const json = JSON.stringify(tile);
+    const binary = encodeTileBinary(tile);
+    fs.writeFileSync(file, json);
+    tileJsonBytes += Buffer.byteLength(json);
+    tileBinaryBytes += binary.byteLength;
+    const regionKey = `${Math.floor(tx / 4)}_${Math.floor(tz / 4)}`;
+    let region = regionTiles.get(regionKey);
+    if (!region) { region = []; regionTiles.set(regionKey, region); }
+    region.push({ key, binary });
     writtenTiles.push(key);
   }
 
+  const regions = {};
+  for (const regionKey of [...regionTiles.keys()].sort((a, b) => {
+    const [ax, az] = a.split('_').map(Number), [bx, bz] = b.split('_').map(Number);
+    return ax - bx || az - bz;
+  })) {
+    const entries = regionTiles.get(regionKey).sort((a, b) => a.key.localeCompare(b.key));
+    const filename = `region_${regionKey}.bin`;
+    const tiles = {};
+    const chunks = [];
+    let offset = 0;
+    for (const entry of entries) {
+      tiles[entry.key] = [offset, entry.binary.byteLength];
+      chunks.push(Buffer.from(entry.binary.buffer, entry.binary.byteOffset, entry.binary.byteLength));
+      offset += entry.binary.byteLength;
+    }
+    fs.writeFileSync(path.join(TILES_DIR, filename), Buffer.concat(chunks, offset));
+    regions[regionKey] = { f: filename, t: tiles };
+  }
+
   const indexObj = {
-    v: 2,
+    v: 3,
     tileSize: TILE_SIZE,
+    format: 'nct3-regions',
+    ...(KEEP_JSON_FALLBACK ? { fallback: 'json' } : {}),
+    regions,
     tiles: writtenTiles,
     counts: { buildings: totalBuildingsWritten, roads: totalRoadsWritten, tiles: writtenTiles.length },
   };
   fs.writeFileSync(path.join(TILES_DIR, 'index.json'), JSON.stringify(indexObj));
-  console.log(`  wrote ${writtenTiles.length} tile files + index.json`);
+  console.log(
+    `  wrote ${writtenTiles.length} temporary JSON validation files + ` +
+      `${Object.keys(regions).length} indexed NCT3 region bundles + index.json`,
+  );
+  console.log(
+    `  NCT3 binary: ${(tileBinaryBytes / 1048576).toFixed(1)}MB vs ${(tileJsonBytes / 1048576).toFixed(1)}MB JSON ` +
+      `(${tileJsonBytes ? ((1 - tileBinaryBytes / tileJsonBytes) * 100).toFixed(1) : '0'}% smaller)`,
+  );
 
   // ---- SKYLINE ------------------------------------------------------------------------------
   console.log('Building skyline...');
@@ -1944,18 +2547,442 @@ async function main() {
   console.log('\n=== VALIDATION ===');
   const results = [];
 
-  const tileCountOk = writtenTiles.length >= 400 && writtenTiles.length <= 2000;
-  results.push(`tiles written: ${writtenTiles.length} (expect 400-2000) -> ${tileCountOk ? 'PASS' : 'FAIL'}`);
+  // Full 8x4 OSM cache coverage now reaches the whole Manhattan bbox and its
+  // harbor/bridge fringe. The old 400-2000 / 25k-90k ranges described the
+  // earlier partial-cache build and have falsely failed every complete bake.
+  const tileCountOk = writtenTiles.length >= 2500 && writtenTiles.length <= 4000;
+  results.push(`tiles written: ${writtenTiles.length} (expect 2500-4000 full-cache) -> ${tileCountOk ? 'PASS' : 'FAIL'}`);
 
-  const buildingsOk = totalBuildingsWritten >= 25000 && totalBuildingsWritten <= 90000;
-  results.push(`total buildings: ${totalBuildingsWritten} (expect 25000-90000) -> ${buildingsOk ? 'PASS' : 'FAIL'}`);
+  const buildingsOk = totalBuildingsWritten >= 120000 && totalBuildingsWritten <= 200000;
+  results.push(`total buildings: ${totalBuildingsWritten} (expect 120000-200000 full-cache) -> ${buildingsOk ? 'PASS' : 'FAIL'}`);
 
   const esbXZ = lonLatToXZ(-73.9857, 40.7484);
   const [esbTx, esbTz] = tileOf(esbXZ);
   const esbKey = tileKeyOf(esbTx, esbTz);
   const esbBuildings = tileBuildings.get(esbKey) || [];
-  const esbTall = esbBuildings.some((b) => b.h >= 300);
-  results.push(`Empire State Building tile (${esbKey}): ${esbBuildings.length} buildings, tallest h=${Math.max(0, ...esbBuildings.map((b) => b.h))} -> ${esbTall ? 'PASS' : 'FAIL'}`);
+  const esbFit = fitOut['empire-state'];
+  const esbBakedCrown = esbBuildings.filter((b) => b.h > 330).length;
+  const esbBaseKept = esbBuildings.some((b) => Math.abs(b.h - 330) < 0.2);
+  const esbOk = !!esbFit
+    && Math.abs(esbFit.roofH - 443) < 1
+    && Math.abs(esbFit.keptH - 330) < 1
+    && esbFit.clearedParts === 2
+    && esbBakedCrown === 0
+    && esbBaseKept;
+  results.push(
+    `Empire State crown replacement (${esbKey}): fit=${esbFit?.keptH ?? 0}-${esbFit?.roofH ?? 0}m, ` +
+      `cleared=${esbFit?.clearedParts ?? 0}, baked >330m parts=${esbBakedCrown}, ` +
+      `330m base=${esbBaseKept} -> ${esbOk ? 'PASS' : 'FAIL'}`,
+  );
+
+  // One WTC is a complete premium replacement: its six overlapping OSM
+  // prisms/antenna must be measured into the fit and absent from both the near
+  // tile and skyline, or the old duplicate-mast bug returns.
+  const wtcXZ = lonLatToXZ(-74.01319, 40.7130);
+  const [wtcTx, wtcTz] = tileOf(wtcXZ);
+  const wtcKey = tileKeyOf(wtcTx, wtcTz);
+  const wtcBuildings = tileBuildings.get(wtcKey) || [];
+  const wtcBakedTall = wtcBuildings.filter((b) => b.h >= 400).length;
+  const wtcFit = fitOut['one-wtc'];
+  const wtcOk = !!wtcFit
+    && Math.hypot(wtcFit.cx - wtcXZ[0], wtcFit.cz - wtcXZ[1]) < 5
+    && wtcFit.roofH >= 540
+    && wtcFit.clearedParts === 6
+    && wtcBakedTall === 0;
+  results.push(
+    `One WTC replacement (${wtcKey}): fit roof=${wtcFit?.roofH ?? 0}m, cleared=${wtcFit?.clearedParts ?? 0}, ` +
+      `baked >=400m parts=${wtcBakedTall} -> ${wtcOk ? 'PASS' : 'FAIL'}`,
+  );
+
+  // The Chrysler crown is procedural from the retained 199m shaft shoulder:
+  // the raw source's overlapping round-roof prisms must stay cleared, while
+  // their measured 282m crown cap remains available to seat the 318.9m build.
+  const chryslerXZ = lonLatToXZ(-73.9755, 40.7516);
+  const [chryslerTx, chryslerTz] = tileOf(chryslerXZ);
+  const chryslerKey = tileKeyOf(chryslerTx, chryslerTz);
+  const chryslerBuildings = tileBuildings.get(chryslerKey) || [];
+  const chryslerBakedCrown = chryslerBuildings.filter((b) => b.h >= 200).length;
+  const chryslerFit = fitOut.chrysler;
+  const chryslerOk = !!chryslerFit
+    && Math.abs(chryslerFit.roofH - 282) < 1
+    && Math.abs(chryslerFit.keptH - 199) < 1
+    && chryslerFit.clearedParts === 11
+    && chryslerBakedCrown === 0;
+  results.push(
+    `Chrysler replacement (${chryslerKey}): fit=${chryslerFit?.keptH ?? 0}-${chryslerFit?.roofH ?? 0}m, ` +
+      `cleared=${chryslerFit?.clearedParts ?? 0}, baked >=200m parts=${chryslerBakedCrown} -> ${chryslerOk ? 'PASS' : 'FAIL'}`,
+  );
+
+  // One Vanderbilt is also a complete procedural replacement. Its source
+  // ownership group contains one block outline plus 23 mutually overlapping
+  // parts; none may remain in the near tile or skyline behind the premium
+  // four-volume build.
+  const oneVXZ = lonLatToXZ(-73.9787, 40.7529);
+  const [oneVTx, oneVTz] = tileOf(oneVXZ);
+  const oneVKey = tileKeyOf(oneVTx, oneVTz);
+  const oneVBuildings = tileBuildings.get(oneVKey) || [];
+  const oneVBakedTall = oneVBuildings.filter((b) => b.h >= 300).length;
+  const oneVFit = fitOut['one-vanderbilt'];
+  const oneVOk = !!oneVFit
+    && Math.abs(oneVFit.w - 65) < 1
+    && Math.abs(oneVFit.d - 61) < 1
+    && Math.abs(oneVFit.roofH - 427) < 1
+    && oneVFit.keptH === 0
+    && oneVFit.clearedParts === 24
+    && oneVBakedTall === 0;
+  results.push(
+    `One Vanderbilt replacement (${oneVKey}): fit=${oneVFit?.w ?? 0}x${oneVFit?.d ?? 0}m, ` +
+      `roof=${oneVFit?.roofH ?? 0}m, cleared=${oneVFit?.clearedParts ?? 0}, ` +
+      `baked >=300m parts=${oneVBakedTall} -> ${oneVOk ? 'PASS' : 'FAIL'}`,
+  );
+
+  // 270 Park is measured from nine mapped stepped bands (the containing
+  // full-block outline is correctly suppressed by those building parts), then
+  // supplied entirely by the always-on premium build. The near tile and
+  // skyline must not retain any of the old full-height bronze prisms.
+  const chaseXZ = lonLatToXZ(-73.975987, 40.755980);
+  const [chaseTx, chaseTz] = tileOf(chaseXZ);
+  const chaseKey = tileKeyOf(chaseTx, chaseTz);
+  const chaseBuildings = tileBuildings.get(chaseKey) || [];
+  const chaseBakedTall = chaseBuildings.filter((b) => b.h >= 300).length;
+  const chaseFit = fitOut['chase-hq'];
+  const chaseOk = !!chaseFit
+    && Math.abs(chaseFit.w - 57) < 1
+    && Math.abs(chaseFit.d - 109) < 1
+    && Math.abs(chaseFit.roofH - 423) < 1
+    && chaseFit.keptH === 0
+    && chaseFit.clearedParts === 9
+    && chaseBakedTall === 0;
+  results.push(
+    `270 Park replacement (${chaseKey}): fit=${chaseFit?.w ?? 0}x${chaseFit?.d ?? 0}m, ` +
+      `roof=${chaseFit?.roofH ?? 0}m, cleared=${chaseFit?.clearedParts ?? 0}, ` +
+      `baked >=300m parts=${chaseBakedTall} -> ${chaseOk ? 'PASS' : 'FAIL'}`,
+  );
+
+  const outputBuildingCentroid = (b, tx, tz) => {
+    const outer = b.p?.[0];
+    if (!outer?.length) return null;
+    let sx = 0, sz = 0;
+    for (let i = 0; i < outer.length; i += 2) {
+      sx += tx * TILE_SIZE + outer[i] / 10;
+      sz += tz * TILE_SIZE + outer[i + 1] / 10;
+    }
+    const n = outer.length / 2;
+    return [sx / n, sz / n];
+  };
+
+  // Woolworth's eleven upper source parts used to enclose the custom crown in a
+  // 238m generic prism. They must all be measured but absent within the tight
+  // tower radius, leaving the exact 120m mapped base for the procedural build.
+  const woolXZ = lonLatToXZ(-74.0083, 40.7124);
+  const [woolTx, woolTz] = tileOf(woolXZ);
+  const woolKey = tileKeyOf(woolTx, woolTz);
+  const woolBuildings = tileBuildings.get(woolKey) || [];
+  const woolFit = fitOut.woolworth;
+  const woolBakedUpper = woolBuildings.filter((b) => {
+    if (b.h < 170) return false;
+    const center = outputBuildingCentroid(b, woolTx, woolTz);
+    return !!center && !!woolFit
+      && Math.hypot(center[0] - woolFit.cx, center[1] - woolFit.cz) <= 22;
+  }).length;
+  const woolOk = !!woolFit
+    && Math.abs(woolFit.w - 30) < 1
+    && Math.abs(woolFit.d - 30) < 1
+    && Math.abs(woolFit.roofH - 238) < 1
+    && woolFit.keptH === 0
+    && woolFit.clearedParts === 11
+    && woolBakedUpper === 0;
+  results.push(
+    `Woolworth upper replacement (${woolKey}): fit=${woolFit?.w ?? 0}x${woolFit?.d ?? 0}m, ` +
+      `roof=${woolFit?.roofH ?? 0}m, cleared=${woolFit?.clearedParts ?? 0}, ` +
+      `baked >=170m within 22m=${woolBakedUpper} -> ${woolOk ? 'PASS' : 'FAIL'}`,
+  );
+
+  // The Municipal Building's arch and cupola have different centers. The fit
+  // must clear only the twelve central 123–177m parts across the adjacent tile
+  // boundary while retaining the 107m C-plan block and both 113m pavilions.
+  const muniXZ = lonLatToXZ(-74.003620, 40.712960);
+  const [muniTx, muniTz] = tileOf(muniXZ);
+  const muniFit = fitOut['municipal-building'];
+  let muniBakedUpper = 0, muniWingPavilions = 0, muniBaseKept = false;
+  for (let dx = -1; dx <= 1; dx++) for (let dz = -1; dz <= 1; dz++) {
+    const tx = muniTx + dx, tz = muniTz + dz;
+    for (const b of tileBuildings.get(tileKeyOf(tx, tz)) || []) {
+      const center = outputBuildingCentroid(b, tx, tz);
+      if (!center || !muniFit) continue;
+      const d = Math.hypot(center[0] - muniFit.cx, center[1] - muniFit.cz);
+      if (b.h >= 123 && d <= 25) muniBakedUpper++;
+      if (Math.abs(b.h - 113) < 0.2 && Math.abs((b.m ?? 0) - 107) < 0.2 && d <= 60) {
+        muniWingPavilions++;
+      }
+      if (Math.abs(b.h - 107) < 0.2 && d <= 10) muniBaseKept = true;
+    }
+  }
+  const muniOk = !!muniFit
+    && Math.abs(muniFit.w - 29) < 1
+    && Math.abs(muniFit.d - 26) < 1
+    && Math.abs(muniFit.roofH - 177) < 1
+    && muniFit.keptH === 0
+    && muniFit.clearedParts === 12
+    && muniBakedUpper === 0
+    && muniWingPavilions === 2
+    && muniBaseKept;
+  results.push(
+    `Municipal crown replacement (${tileKeyOf(muniTx, muniTz)}): ` +
+      `fit=${muniFit?.w ?? 0}x${muniFit?.d ?? 0}m @ ${muniFit?.roofH ?? 0}m, ` +
+      `cleared=${muniFit?.clearedParts ?? 0}, upper residuals=${muniBakedUpper}, ` +
+      `base=${muniBaseKept}, wing pavilions=${muniWingPavilions} -> ${muniOk ? 'PASS' : 'FAIL'}`,
+  );
+
+  // New York Life keeps its real 115m lower block, but its generic 148–188m
+  // shaft/turret/roof stack is wholly replaced by the always-on procedural
+  // upper tower. Guard both halves of that contract: no cleared crown residual
+  // may survive, and the accurately mapped base must not be collateral damage.
+  const nylXZ = lonLatToXZ(-73.985608, 40.742735);
+  const [nylTx, nylTz] = tileOf(nylXZ);
+  const nylFit = fitOut['new-york-life'];
+  let nylBakedUpper = 0, nylBaseKept = false;
+  for (let dx = -1; dx <= 1; dx++) for (let dz = -1; dz <= 1; dz++) {
+    const tx = nylTx + dx, tz = nylTz + dz;
+    for (const b of tileBuildings.get(tileKeyOf(tx, tz)) || []) {
+      const center = outputBuildingCentroid(b, tx, tz);
+      if (!center || !nylFit) continue;
+      const d = Math.hypot(center[0] - nylFit.cx, center[1] - nylFit.cz);
+      if (b.h >= 148 && d <= 45) nylBakedUpper++;
+      if (Math.abs(b.h - 115) < 0.2 && d <= 45) nylBaseKept = true;
+    }
+  }
+  const nylOk = !!nylFit
+    && Math.abs(nylFit.w - 70) < 1
+    && Math.abs(nylFit.d - 35) < 1
+    && Math.abs(nylFit.roofH - 188) < 1
+    && Math.abs(nylFit.keptH - 115) < 1
+    && nylFit.clearedParts === 6
+    && nylBakedUpper === 0
+    && nylBaseKept;
+  results.push(
+    `New York Life upper replacement (${tileKeyOf(nylTx, nylTz)}): ` +
+      `fit=${nylFit?.w ?? 0}x${nylFit?.d ?? 0}m, roof=${nylFit?.roofH ?? 0}m, ` +
+      `kept=${nylFit?.keptH ?? 0}m, cleared=${nylFit?.clearedParts ?? 0}, ` +
+      `upper residuals=${nylBakedUpper}, base=${nylBaseKept} -> ${nylOk ? 'PASS' : 'FAIL'}`,
+  );
+
+  // Central Park Tower owns one broad retail podium plus a dense set of
+  // overlapping shaft, shoulder, cantilever and cap pieces. The premium
+  // always-on build must be the only >=200m object within the tower's tight
+  // 30m site radius. 220 Central Park South begins farther north and must stay.
+  const cptXZ = lonLatToXZ(-73.980772, 40.766410);
+  const [cptTx, cptTz] = tileOf(cptXZ);
+  const cptKey = tileKeyOf(cptTx, cptTz);
+  const cptBuildings = tileBuildings.get(cptKey) || [];
+  const cptBakedTall = cptBuildings.filter((b) => {
+    if (b.h < 200) return false;
+    const center = outputBuildingCentroid(b, cptTx, cptTz);
+    return !!center && Math.hypot(center[0] - cptXZ[0], center[1] - cptXZ[1]) <= 30;
+  }).length;
+  const cptFit = fitOut['central-park-tower'];
+  const cptOk = !!cptFit
+    && Math.abs(cptFit.w - 60) < 1
+    && Math.abs(cptFit.d - 61) < 1
+    && Math.abs(cptFit.roofH - 472) < 1
+    && cptFit.keptH === 0
+    && cptFit.parts === 13
+    && cptFit.clearedParts === 13
+    && cptBakedTall === 0;
+  results.push(
+    `Central Park Tower replacement (${cptKey}): fit=${cptFit?.w ?? 0}x${cptFit?.d ?? 0}m, ` +
+      `roof=${cptFit?.roofH ?? 0}m, cleared=${cptFit?.clearedParts ?? 0}, ` +
+      `baked >=200m parts within 30m=${cptBakedTall} -> ${cptOk ? 'PASS' : 'FAIL'}`,
+  );
+
+  // 111 West 57th is a complete replacement of fourteen contiguous source
+  // bands plus the separately mapped Steinway Hall. A tight spatial test
+  // proves no tall strip remains behind the feathered build, while the named
+  // Windsor Park neighbor proves that ownership clearing stayed surgical.
+  const stwXZ = lonLatToXZ(-73.977437, 40.764998);
+  const [stwTx, stwTz] = tileOf(stwXZ);
+  const stwKey = tileKeyOf(stwTx, stwTz);
+  const stwBuildings = tileBuildings.get(stwKey) || [];
+  const stwBakedTall = stwBuildings.filter((b) => {
+    if (b.h < 150) return false;
+    const center = outputBuildingCentroid(b, stwTx, stwTz);
+    return !!center && Math.hypot(center[0] - stwXZ[0], center[1] - stwXZ[1]) <= 30;
+  }).length;
+  const stwHallBaked = stwBuildings.some((b) => b.n === 'Steinway Hall');
+  const stwNeighborKept = stwBuildings.some((b) => b.n === 'Windsor Park');
+  const stwFit = fitOut['steinway-tower'];
+  const stwOk = !!stwFit
+    && Math.abs(stwFit.w - 43) < 1
+    && Math.abs(stwFit.d - 18) < 1
+    && Math.abs(stwFit.roofH - 435) < 1
+    && Math.abs(stwFit.topW - 4) < 1
+    && Math.abs(stwFit.topD - 18) < 1
+    && stwFit.keptH === 0
+    && stwFit.parts === 14
+    && stwFit.clearedParts === 14
+    && stwBakedTall === 0
+    && !stwHallBaked
+    && stwNeighborKept;
+  results.push(
+    `111 West 57th replacement (${stwKey}): fit=${stwFit?.w ?? 0}x${stwFit?.d ?? 0}m, ` +
+      `tip=${stwFit?.topW ?? 0}x${stwFit?.topD ?? 0}m @ ${stwFit?.roofH ?? 0}m, ` +
+      `cleared=${stwFit?.clearedParts ?? 0}+hall, baked >=150m within 30m=${stwBakedTall}, ` +
+      `Windsor Park kept=${stwNeighborKept} -> ${stwOk ? 'PASS' : 'FAIL'}`,
+  );
+
+  // 432 Park keeps the source's two detached East 57th Street volumes while
+  // replacing the square supertall shaft and its overlapping 30m podium. This
+  // guards both sides of the surgical clear: no solid 425m duplicate and no
+  // accidental erasure of the real four-/seven-storey development frontage.
+  const park432XZ = lonLatToXZ(-73.9718353, 40.7615943);
+  const [park432Tx, park432Tz] = tileOf(park432XZ);
+  const park432Key = tileKeyOf(park432Tx, park432Tz);
+  const park432Buildings = tileBuildings.get(park432Key) || [];
+  const park432Near = (lat, lon, radius, height) => {
+    const target = lonLatToXZ(lon, lat);
+    return park432Buildings.some((b) => {
+      if (height !== undefined && Math.abs(b.h - height) > 0.2) return false;
+      const center = outputBuildingCentroid(b, park432Tx, park432Tz);
+      return !!center && Math.hypot(center[0] - target[0], center[1] - target[1]) <= radius;
+    });
+  };
+  const park432BakedTall = park432Buildings.filter((b) => {
+    if (b.h < 400) return false;
+    const center = outputBuildingCentroid(b, park432Tx, park432Tz);
+    return !!center && Math.hypot(center[0] - park432XZ[0], center[1] - park432XZ[1]) <= 30;
+  }).length;
+  const park432PodiumKept = park432Near(40.7617805, -73.9719587, 7, 30);
+  const park432Retail20Kept = park432Near(40.7616284, -73.9715897, 8, 20.5);
+  const park432Retail28Kept = park432Near(40.7615889, -73.9715233, 8, 28.3);
+  const park432Fit = fitOut['432-park'];
+  const park432Ok = !!park432Fit
+    && Math.abs(park432Fit.w - 28) < 2
+    && Math.abs(park432Fit.d - 28) < 2
+    && Math.abs(park432Fit.roofH - 426) < 1
+    && park432Fit.keptH === 0
+    && park432Fit.parts === 1
+    && park432Fit.clearedParts === 1
+    && park432BakedTall === 0
+    && !park432PodiumKept
+    && park432Retail20Kept
+    && park432Retail28Kept;
+  results.push(
+    `432 Park Avenue replacement (${park432Key}): fit=${park432Fit?.w ?? 0}x${park432Fit?.d ?? 0}m, ` +
+      `roof=${park432Fit?.roofH ?? 0}m, cleared=${park432Fit?.clearedParts ?? 0}+podium, ` +
+      `baked >=400m within 30m=${park432BakedTall}, retail kept=${park432Retail20Kept && park432Retail28Kept} ` +
+      `-> ${park432Ok ? 'PASS' : 'FAIL'}`,
+  );
+
+  // One Bryant Park's source contains an especially misleading cluster: a
+  // solid 366m pyramidal "roof" plus overlapping 240–279m prisms. Verify the
+  // complete host OBB is empty after replacement while the 341m broadcast
+  // crown of adjacent 4 Times Square remains at its measured location.
+  const bryantFit = fitOut['one-bryant'];
+  let bryantResiduals = 0;
+  if (bryantFit) {
+    const cos = Math.cos(bryantFit.rot), sin = Math.sin(bryantFit.rot);
+    for (const [key, buildings] of tileBuildings) {
+      const [tx, tz] = key.split('_').map(Number);
+      for (const b of buildings) {
+        const center = outputBuildingCentroid(b, tx, tz);
+        if (!center) continue;
+        const dx = center[0] - bryantFit.cx, dz = center[1] - bryantFit.cz;
+        const lx = dx * cos - dz * sin;
+        const lz = dx * sin + dz * cos;
+        if (Math.abs(lx) < bryantFit.w / 2 - 1 && Math.abs(lz) < bryantFit.d / 2 - 1) {
+          bryantResiduals++;
+        }
+      }
+    }
+  }
+  const fourTimesXZ = lonLatToXZ(-73.9857361, 40.7559605);
+  let fourTimesKept = false;
+  for (const [key, buildings] of tileBuildings) {
+    const [tx, tz] = key.split('_').map(Number);
+    for (const b of buildings) {
+      if (Math.abs(b.h - 341) > 0.2) continue;
+      const center = outputBuildingCentroid(b, tx, tz);
+      if (center && Math.hypot(center[0] - fourTimesXZ[0], center[1] - fourTimesXZ[1]) < 12) {
+        fourTimesKept = true;
+      }
+    }
+  }
+  const bryantOk = !!bryantFit
+    && Math.abs(bryantFit.w - 131) < 3
+    && Math.abs(bryantFit.d - 62) < 3
+    && Math.abs(bryantFit.roofH - 366) < 1
+    && bryantFit.keptH === 0
+    && bryantFit.clearedParts >= 12
+    && bryantResiduals === 0
+    && fourTimesKept;
+  results.push(
+    `One Bryant Park replacement: fit=${bryantFit?.w ?? 0}x${bryantFit?.d ?? 0}m, ` +
+      `source roof=${bryantFit?.roofH ?? 0}m, cleared=${bryantFit?.clearedParts ?? 0}, ` +
+      `site residuals=${bryantResiduals}, 4 Times Square kept=${fourTimesKept} ` +
+      `-> ${bryantOk ? 'PASS' : 'FAIL'}`,
+  );
+
+  // 30 Hudson Yards' full replacement must remove every tall source slab
+  // without reaching across the ownership boundary into the adjacent site.
+  const edgeFit = fitOut['edge-deck'];
+  const edgeAnchorXZ = lonLatToXZ(-74.000555, 40.753949);
+  let edgeTallResiduals = 0;
+  for (const [key, buildings] of tileBuildings) {
+    const [tx, tz] = key.split('_').map(Number);
+    for (const b of buildings) {
+      if (b.h < 120) continue;
+      const center = outputBuildingCentroid(b, tx, tz);
+      if (center && Math.hypot(center[0] - edgeAnchorXZ[0], center[1] - edgeAnchorXZ[1]) < 52) {
+        edgeTallResiduals++;
+      }
+    }
+  }
+  const edgeOk = !!edgeFit
+    && Math.abs(edgeFit.w - 117) < 3
+    && Math.abs(edgeFit.d - 58) < 3
+    && Math.abs(edgeFit.roofH - 395) < 1
+    && edgeFit.keptH === 0
+    && edgeFit.clearedParts >= 7
+    && edgeTallResiduals === 0;
+  results.push(
+    `30 Hudson Yards replacement: fit=${edgeFit?.w ?? 0}x${edgeFit?.d ?? 0}m, ` +
+      `source roof=${edgeFit?.roofH ?? 0}m, cleared=${edgeFit?.clearedParts ?? 0}, ` +
+      `tall residuals=${edgeTallResiduals} ` +
+      `-> ${edgeOk ? 'PASS' : 'FAIL'}`,
+  );
+
+  // 50 Hudson Yards must clear exactly its stacked source group while retaining
+  // The Spiral one block north. This guards the same dense-site ownership edge
+  // that previously protected 50 Hudson Yards from the 30 Hudson replacement.
+  const fiftyFit = fitOut['fifty-hudson'];
+  const fiftyHudsonXZ = lonLatToXZ(-74.000119, 40.754519);
+  let fiftyResiduals = 0;
+  let spiralKept = false;
+  for (const [key, buildings] of tileBuildings) {
+    const [tx, tz] = key.split('_').map(Number);
+    for (const b of buildings) {
+      const center = outputBuildingCentroid(b, tx, tz);
+      if (!center) continue;
+      if (b.h >= 30 && Math.hypot(center[0] - fiftyHudsonXZ[0], center[1] - fiftyHudsonXZ[1]) < 55) {
+        fiftyResiduals++;
+      }
+      if (b.n === 'The Spiral' && Math.abs(b.h - 317.3) < 0.3) spiralKept = true;
+    }
+  }
+  const fiftyOk = !!fiftyFit
+    && Math.abs(fiftyFit.w - 107) < 3
+    && Math.abs(fiftyFit.d - 57) < 3
+    && Math.abs(fiftyFit.roofH - 308.2) < 1
+    && fiftyFit.keptH === 0
+    && fiftyFit.clearedParts >= 3
+    && fiftyResiduals === 0
+    && spiralKept;
+  results.push(
+    `50 Hudson Yards replacement: fit=${fiftyFit?.w ?? 0}x${fiftyFit?.d ?? 0}m, ` +
+      `source roof=${fiftyFit?.roofH ?? 0}m, cleared=${fiftyFit?.clearedParts ?? 0}, ` +
+      `site residuals=${fiftyResiduals}, The Spiral kept=${spiralKept} ` +
+      `-> ${fiftyOk ? 'PASS' : 'FAIL'}`,
+  );
 
   const timesSquareRoads = tileRoads.get('0_0') || [];
   const tsOk = timesSquareRoads.length > 0;
@@ -2018,7 +3045,7 @@ async function main() {
     if (groundTris[i] > groundYMax) groundYMax = groundTris[i];
   }
   const groundRange = groundYMax - groundYMin;
-  results.push(`ground.json y range: ${groundYMin.toFixed(1)}-${groundYMax.toFixed(1)}m (span ${groundRange.toFixed(1)}m, expect >40m) -> ${groundRange > 40 ? 'PASS' : 'FAIL'}`);
+  results.push(`ground mesh y range: ${groundYMin.toFixed(1)}-${groundYMax.toFixed(1)}m (span ${groundRange.toFixed(1)}m, expect >40m) -> ${groundRange > 40 ? 'PASS' : 'FAIL'}`);
 
   let totalTilesDirBytes = 0;
   for (const f of fs.readdirSync(TILES_DIR)) {
@@ -2051,6 +3078,22 @@ async function main() {
   console.log(`ground source: ${groundSource}, ${groundTris.length / 9} triangles (subdivided to <${groundSubdivThreshold}m edges)`);
   console.log(`public/tiles size: ${sizeMb.toFixed(1)}MB`);
   console.log(`missing cache chunk files: ${missingChunks.length}`);
+  if (!KEEP_JSON_FALLBACK) {
+    let removedBytes = 0;
+    for (const key of writtenTiles) {
+      const file = path.join(TILES_DIR, `${key}.json`);
+      try {
+        removedBytes += fs.statSync(file).size;
+        fs.unlinkSync(file);
+      } catch { /* already absent */ }
+    }
+    let shippingBytes = 0;
+    for (const file of fs.readdirSync(TILES_DIR)) shippingBytes += fs.statSync(path.join(TILES_DIR, file)).size;
+    console.log(
+      `shipping payload: NCT3 regions only, removed ${(removedBytes / 1048576).toFixed(1)}MB JSON build intermediates; ` +
+        `${(shippingBytes / 1048576).toFixed(1)}MB remains`,
+    );
+  }
   console.log('DONE');
 }
 

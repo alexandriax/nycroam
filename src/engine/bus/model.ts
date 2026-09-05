@@ -23,6 +23,7 @@ import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js
 import { mergeByMaterial } from '../EntranceManager';
 import { BLACK, LED, SANS } from '../fonts';
 import { BUS, type BusModelLike, type BusModelOpts } from './types';
+import { canvas2d } from '../canvas2d';
 
 // ---------------------------------------------------------------------------
 // Layout constants (absolute y from ground; x/z in the bus local frame)
@@ -95,6 +96,44 @@ const TEAL = new THREE.MeshLambertMaterial({ color: '#00a6ce' }); // SBS accent
 
 // merged-hull buckets that cast/receive shadows
 const SHADOW_MATS = new Set<THREE.Material>([WHITE, BLUE, BAND, SKIRT, ROOF]);
+
+let farTemplate: THREE.Group | null = null;
+/**
+ * Five-draw XD40 silhouette for buses seen down the avenue. At 130m the real
+ * doors, cabin poles, lamps and individual wheels are sub-pixel, but the white
+ * body, blue belt, dark glazing, roof and paired wheel masses remain legible.
+ */
+function farBusTemplate(): THREE.Group {
+  if (farTemplate) return farTemplate;
+  const source = new THREE.Group();
+  const add = (
+    material: THREE.Material,
+    w: number,
+    h: number,
+    d: number,
+    x: number,
+    y: number,
+    z: number,
+  ) => {
+    const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), material);
+    mesh.position.set(x, y, z);
+    source.add(mesh);
+  };
+  add(WHITE, L, 2.5, BUS.width, 0, 1.6, 0);
+  add(BLUE, L + 0.03, 0.24, BUS.width + 0.035, 0, 1.18, 0);
+  add(BAND, L - 0.65, 0.82, BUS.width + 0.045, 0.05, 2.02, 0);
+  add(ROOF, L - 0.3, 0.18, BUS.width - 0.18, -0.05, 2.93, 0);
+  for (const x of [AXLE_F, AXLE_R]) add(TIRE_MAT, 0.92, 0.76, BUS.width + 0.08, x, 0.48, 0);
+  farTemplate = mergeByMaterial(source, { receiveShadow: true });
+  farTemplate.name = 'Bus distance silhouette';
+  farTemplate.traverse((child) => {
+    if (child instanceof THREE.Mesh) {
+      child.castShadow = false;
+      child.userData.shared = true;
+    }
+  });
+  return farTemplate;
+}
 
 // ---------------------------------------------------------------------------
 // Shared geometries for the dynamic parts (module cache; NEVER disposed —
@@ -198,11 +237,7 @@ function cachedCanvasMat(
 ): THREE.Material {
   let m = signMatCache.get(key);
   if (!m) {
-    const canvas = document.createElement('canvas');
-    canvas.width = w;
-    canvas.height = h;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) throw new Error('2D canvas context unavailable');
+    const { cv: canvas, ctx } = canvas2d(w, h);
     draw(ctx);
     const tex = new THREE.CanvasTexture(canvas);
     tex.colorSpace = THREE.SRGBColorSpace;
@@ -576,14 +611,15 @@ function addStaticSigns(g: THREE.Group, opts: BusModelOpts): void {
 export class BusModel implements BusModelLike {
   readonly group: THREE.Group;
 
-  private readonly hull: THREE.Group; // merged statics + doors + LED (bobs subtly)
-  private readonly mergedMeshes: THREE.Mesh[];
+  private readonly hull = new THREE.Group(); // merged statics + doors + LED (bobs subtly)
+  private readonly farHull: THREE.Group;
+  private readonly mergedMeshes: THREE.Mesh[] = [];
   private readonly leaves: { mesh: THREE.Mesh; x0: number; sign: number; slide: number }[] = [];
   private readonly axles: THREE.Mesh[] = [];
-  private readonly ledGeo: THREE.PlaneGeometry;
-  private readonly ledCtx: CanvasRenderingContext2D;
-  private readonly ledTexture: THREE.CanvasTexture;
-  private readonly ledMaterial: THREE.MeshBasicMaterial;
+  private ledGeo: THREE.PlaneGeometry | null = null;
+  private ledCtx: CanvasRenderingContext2D | null = null;
+  private ledTexture: THREE.CanvasTexture | null = null;
+  private ledMaterial: THREE.MeshBasicMaterial | null = null;
 
   private ledRaw: string | null = null; // last text from setNextStop
   private ledShown = ''; // last string actually drawn (redraw throttle)
@@ -591,15 +627,49 @@ export class BusModel implements BusModelLike {
   private stopReqShown = false;
   private doorT = 0;
   private bobPhase = 0;
+  private distanceLod = true;
+  private detailed = false;
+  private disposed = false;
+  private idleBuild = 0;
+  private readonly opts: BusModelOpts;
 
   constructor(opts: BusModelOpts, env?: THREE.Texture | null) {
+    this.opts = opts;
     if (env && !POLE.envMap) {
       POLE.envMap = env; // steel bits pick up the shared street env map
       POLE.needsUpdate = true;
     }
     this.group = new THREE.Group();
     this.group.name = `Bus ${opts.route}`;
+    this.hull.name = `Bus ${opts.route} near detail`;
+    this.hull.visible = false;
+    this.group.add(this.hull);
+    this.farHull = farBusTemplate().clone(true);
+    this.farHull.visible = true;
+    this.group.add(this.farHull);
 
+    // Most buses first materialize 100–250m down an avenue. Build only their
+    // five-draw silhouette in the animation frame, then prepare the full
+    // walkable XD40 during browser idle time. This removes route/destination
+    // canvas work and geometry merging from the traversal tail without
+    // sacrificing any geometry where a player can resolve or board the bus.
+    if (typeof requestIdleCallback === 'function') {
+      this.idleBuild = requestIdleCallback(() => {
+        this.idleBuild = 0;
+        if (!this.disposed) this.ensureDetailed();
+      }, { timeout: 500 });
+    } else {
+      this.idleBuild = window.setTimeout(() => {
+        this.idleBuild = 0;
+        if (!this.disposed) this.ensureDetailed();
+      }, 0);
+    }
+  }
+
+  private ensureDetailed(): void {
+    if (this.detailed || this.disposed) return;
+    this.detailed = true;
+    const opts = this.opts;
     const hullKey = `${opts.route}|${opts.dest}|${opts.sbs ? 1 : 0}`;
     let template = hullCache.get(hullKey);
     if (!template) {
@@ -612,15 +682,15 @@ export class BusModel implements BusModelLike {
     }
     // clone shares the cached geometry + materials — dispose() must not free them
     const merged = template.clone();
-    this.mergedMeshes = merged.children.filter((c): c is THREE.Mesh => c instanceof THREE.Mesh);
-    for (const m of this.mergedMeshes) {
+    const meshes = merged.children.filter((c): c is THREE.Mesh => c instanceof THREE.Mesh);
+    this.mergedMeshes.push(...meshes);
+    for (const m of meshes) {
       if (SHADOW_MATS.has(m.material as THREE.Material)) {
         m.castShadow = true;
         m.receiveShadow = true;
       }
     }
-    this.hull = merged;
-    this.group.add(merged);
+    this.hull.add(merged);
 
     // door leaves (kept out of the merge; slide apart in x and out in +z)
     const doors = [
@@ -646,11 +716,7 @@ export class BusModel implements BusModelLike {
     }
 
     // interior next-stop LED (per-instance dynamic canvas)
-    const canvas = document.createElement('canvas');
-    canvas.width = 768;
-    canvas.height = 96;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) throw new Error('2D canvas context unavailable');
+    const { cv: canvas, ctx } = canvas2d(768, 96);
     this.ledCtx = ctx;
     this.ledTexture = new THREE.CanvasTexture(canvas);
     this.ledTexture.colorSpace = THREE.SRGBColorSpace;
@@ -660,7 +726,17 @@ export class BusModel implements BusModelLike {
     led.rotation.y = -Math.PI / 2; // faces the passengers (-x)
     led.position.set(3.628, 2.26, 0);
     this.hull.add(led);
+    this.ledShown = '\u0000'; // force the latest queued state onto the new canvas
     this.paintLed('', false);
+    // Door state may already have advanced while this bus was a distance
+    // silhouette. Apply it directly: setDoors() quite correctly skips work
+    // when the scalar has not changed, but these leaves are brand new.
+    for (const leaf of this.leaves) {
+      leaf.mesh.position.x = leaf.x0 + leaf.sign * leaf.slide * this.doorT;
+      leaf.mesh.position.z = LEAF_Z + DOOR_OUT * this.doorT;
+    }
+    this.renderLed();
+    this.hull.visible = !this.distanceLod;
   }
 
   /** 0 closed .. 1 open (linear, like the train doors). */
@@ -700,6 +776,19 @@ export class BusModel implements BusModelLike {
     this.renderLed();
   }
 
+  setViewerDistanceSq(distanceSq: number, forceFull = false): void {
+    // Wide hysteresis prevents a bus circling a stop from toggling as it
+    // crosses the threshold. The interaction/ride path always forces full.
+    const threshold = this.distanceLod ? 82 : 102;
+    const far = !forceFull && distanceSq > threshold * threshold;
+    if (!far) this.ensureDetailed();
+    if (far === this.distanceLod) return;
+    this.distanceLod = far;
+    this.hull.visible = !far;
+    for (const axle of this.axles) axle.visible = !far;
+    this.farHull.visible = far;
+  }
+
   private renderLed(): void {
     const raw = this.ledRaw;
     const shown = raw === null || raw === '' ? '' : this.doorT > 0.5 ? raw : `NEXT STOP: ${raw}`;
@@ -711,6 +800,7 @@ export class BusModel implements BusModelLike {
 
   private paintLed(shown: string, req: boolean): void {
     const ctx = this.ledCtx;
+    if (!ctx || !this.ledTexture) return;
     ctx.fillStyle = '#050607';
     ctx.fillRect(0, 0, 768, 96);
     const red = '#ff2d3a';
@@ -746,12 +836,18 @@ export class BusModel implements BusModelLike {
    * sign textures and the shared leaf/axle geometries are left intact
    * (bikes.ts documents the same pattern). */
   dispose(): void {
+    this.disposed = true;
+    if (this.idleBuild) {
+      if (typeof cancelIdleCallback === 'function') cancelIdleCallback(this.idleBuild);
+      else clearTimeout(this.idleBuild);
+      this.idleBuild = 0;
+    }
     this.group.removeFromParent();
     // the merged hull geometry + materials are shared from hullCache (this bus is
     // a clone) — freeing them would break every other bus on the route. Only the
     // per-instance LED is ours to dispose.
-    this.ledGeo.dispose();
-    this.ledTexture.dispose();
-    this.ledMaterial.dispose();
+    this.ledGeo?.dispose();
+    this.ledTexture?.dispose();
+    this.ledMaterial?.dispose();
   }
 }

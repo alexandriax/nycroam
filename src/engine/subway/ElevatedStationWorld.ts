@@ -7,6 +7,7 @@ import { directionLabel } from './directions';
 import { buildBench, buildTrashCan, buildRailing, buildStairs, buildTurnstileRow, buildBooth } from './props';
 import type { WalkBox } from '../collision';
 import { quality } from '../quality';
+import { batchStaticStationMeshes, type StationBatchStats } from '../performance/stationBatch';
 
 const RAIL_Y = 8.2;
 const PLAT_Y = 9.3;
@@ -36,6 +37,8 @@ export class ElevatedStationWorld {
   // Several MTA-style countdown boards per platform sharing ONE canvas/texture,
   // hung under the canopy; redrawn from arrivalsFn() on a timer in update().
   private countdown!: PlatformCountdown;
+  /** Static color/shadow submission reduction, exposed for profiling/HUD QA. */
+  readonly batchStats: StationBatchStats;
 
   constructor(spec: StationSpec, env: THREE.Texture | null = null) {
     this.name = spec.name;
@@ -43,12 +46,12 @@ export class ElevatedStationWorld {
     this.scene.background = new THREE.Color('#a9c6e2');
     if (env) { this.scene.environment = env; this.scene.environmentIntensity = 0.5; }
     const q = quality();
-    const hemi = new THREE.HemisphereLight(0xdfe9f5, 0x8a8478, q.shadows ? 0.9 : 1.2);
-    const sun = new THREE.DirectionalLight(0xfff2dd, q.shadows ? 2.4 : 1.8);
+    const hemi = new THREE.HemisphereLight(0xdfe9f5, 0x8a8478, q.stationShadows ? 0.9 : 1.2);
+    const sun = new THREE.DirectionalLight(0xfff2dd, q.stationShadows ? 2.4 : 1.8);
     sun.position.set(-140, 220, -95);
     this.scene.add(hemi, sun, sun.target);
     this.build(spec);
-    if (q.shadows) {
+    if (q.stationShadows) {
       // outdoor scene: real sun shadows on everything (viaduct onto street,
       // canopy onto platform, trains onto the deck)
       sun.castShadow = true;
@@ -66,6 +69,13 @@ export class ElevatedStationWorld {
         if (o instanceof THREE.Mesh) { o.castShadow = true; o.receiveShadow = true; }
       });
     }
+    // Trains attach to the scene after construction. Countdown faces are safe
+    // to batch because paging mutates their shared texture, not their geometry.
+    // Transparent windscreens are deliberately excluded by the helper.
+    this.batchStats = batchStaticStationMeshes(
+      this.scene,
+      (geometry) => this.track(geometry),
+    );
   }
 
   private track<T extends THREE.BufferGeometry | THREE.Material | THREE.Texture>(t: T): T {

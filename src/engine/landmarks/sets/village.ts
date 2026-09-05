@@ -1,9 +1,10 @@
 import * as THREE from 'three';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import {
   type LandmarkCtx,
   LIMESTONE, GRANITE, DARKSTONE, MARBLE, BRICK_RED, BRONZE, WHITE_LM,
   WATER_LM, GREEN_PATINA, STEEL_LM, GLASS_LM,
-  box, cyl, strut, lathe, archWall, figure,
+  box, cyl, strut, lathe, archWall, figure, canvasTexture,
 } from '../kit';
 
 /**
@@ -15,6 +16,249 @@ import {
 // local tones (kept module-scope so the merger sees one instance per material)
 const GRASS = new THREE.MeshLambertMaterial({ color: '#6d8f3a' });
 const GRAVEL = new THREE.MeshLambertMaterial({ color: '#9a958a' });
+const NYL_GLASS = new THREE.MeshStandardMaterial({
+  color: '#263a3e', metalness: 0.38, roughness: 0.23,
+  emissive: '#152528', emissiveIntensity: 0.28, envMapIntensity: 0.7,
+});
+const NYL_GOLD = new THREE.MeshStandardMaterial({
+  color: '#d7ad2f', metalness: 0.84, roughness: 0.27,
+  emissive: '#493000', emissiveIntensity: 0.17,
+});
+const NYL_GOLD_SHADE = new THREE.MeshStandardMaterial({
+  color: '#b8891c', metalness: 0.88, roughness: 0.32,
+  emissive: '#503300', emissiveIntensity: 0.22,
+});
+const NYL_COLLISION = new THREE.MeshBasicMaterial({ visible: false });
+const FLAT_STONE = new THREE.MeshLambertMaterial({ color: '#d5cbb7' });
+const FLAT_TERRA = new THREE.MeshLambertMaterial({ color: '#c6b99f' });
+const FLAT_TERRA_LIGHT = new THREE.MeshLambertMaterial({ color: '#ded4c1' });
+const FLAT_GLASS = new THREE.MeshStandardMaterial({ color: '#26383a', metalness: 0.28, roughness: 0.2 });
+const FLAT_BRONZE = new THREE.MeshStandardMaterial({ color: '#594630', metalness: 0.72, roughness: 0.36 });
+const MET_STONE = new THREE.MeshLambertMaterial({ color: '#d8d3c5' });
+const MET_GLASS = new THREE.MeshStandardMaterial({ color: '#21343b', metalness: 0.36, roughness: 0.25 });
+const MET_ROOF = new THREE.MeshStandardMaterial({ color: '#aaa99f', metalness: 0.32, roughness: 0.48 });
+const MET_ROOF_SHADE = new THREE.MeshStandardMaterial({ color: '#85867f', metalness: 0.36, roughness: 0.5 });
+const MET_GOLD = new THREE.MeshStandardMaterial({ color: '#c99f32', metalness: 0.84, roughness: 0.3 });
+const MET_LANTERN = new THREE.MeshBasicMaterial({ color: '#ffd27a' });
+
+// 30 Hudson Yards palette. Its dark blue curtain wall needs enough reflected
+// sky to stay crystalline, but a low emissive floor keeps shaded/mobile faces
+// from becoming a black monolith when the environment map is reduced.
+const HY_STEEL = new THREE.MeshStandardMaterial({
+  color: '#c5d0d4', metalness: 0.5, roughness: 0.23,
+  emissive: '#45555d', emissiveIntensity: 0.28,
+});
+const HY_DARK_STEEL = new THREE.MeshStandardMaterial({
+  color: '#38484e', metalness: 0.38, roughness: 0.34,
+  emissive: '#1b3038', emissiveIntensity: 0.46,
+});
+const HY_EDGE_UNDERSIDE = new THREE.MeshStandardMaterial({
+  color: '#9ba9ad', metalness: 0.58, roughness: 0.28,
+  emissive: '#35464d', emissiveIntensity: 0.3,
+  side: THREE.DoubleSide,
+});
+const HY_EDGE_GLASS = new THREE.MeshStandardMaterial({
+  color: '#bedce4', metalness: 0.12, roughness: 0.08,
+  emissive: '#527d89', emissiveIntensity: 0.5,
+  transparent: true, opacity: 0.62, depthWrite: false,
+  side: THREE.DoubleSide,
+});
+const HY_CROWN_GLASS = new THREE.MeshStandardMaterial({
+  color: '#416d79', metalness: 0.08, roughness: 0.3,
+  emissive: '#264c58', emissiveIntensity: 0.48, envMapIntensity: 0.45,
+  transparent: true, opacity: 0.78, depthWrite: false,
+  side: THREE.DoubleSide,
+});
+const HY_LOBBY = new THREE.MeshStandardMaterial({
+  color: '#99b7bd', metalness: 0.14, roughness: 0.12,
+  emissive: '#9f7148', emissiveIntensity: 0.58,
+  transparent: true, opacity: 0.82,
+});
+const HY_DOOR = new THREE.MeshStandardMaterial({
+  color: '#233c43', metalness: 0.3, roughness: 0.16,
+  emissive: '#183740', emissiveIntensity: 0.68,
+});
+const HY_GLOW = new THREE.MeshBasicMaterial({ color: '#e9f2f4' });
+const HY_COLLISION = new THREE.MeshBasicMaterial({ visible: false });
+
+// Foster + Partners' 50 Hudson Yards palette: pale structural stone frames
+// around cool low-e glazing, a warm transparent lobby and the summit halo.
+const FIFTY_STONE = new THREE.MeshStandardMaterial({
+  color: '#e2e0d8', metalness: 0.12, roughness: 0.38,
+  emissive: '#4c4b47', emissiveIntensity: 0.12,
+});
+const FIFTY_CORE = new THREE.MeshStandardMaterial({
+  color: '#20343a', metalness: 0.42, roughness: 0.2,
+  emissive: '#17282e', emissiveIntensity: 0.4, envMapIntensity: 1.05,
+});
+const FIFTY_ROOF = new THREE.MeshStandardMaterial({
+  color: '#777f7f', metalness: 0.42, roughness: 0.44,
+});
+const FIFTY_SCREEN = new THREE.MeshStandardMaterial({
+  color: '#cdd9d9', metalness: 0.34, roughness: 0.2,
+  emissive: '#91a5a7', emissiveIntensity: 0.3,
+  transparent: true, opacity: 0.72, depthWrite: false,
+});
+const FIFTY_LOBBY = new THREE.MeshStandardMaterial({
+  color: '#79969d', metalness: 0.16, roughness: 0.12,
+  emissive: '#a87545', emissiveIntensity: 0.5,
+  transparent: true, opacity: 0.82,
+});
+const FIFTY_HALO = new THREE.MeshBasicMaterial({ color: '#f3f5e9' });
+const FIFTY_COLLISION = new THREE.MeshBasicMaterial({ visible: false });
+
+function hyDetail<T extends THREE.Mesh>(mesh: T): T {
+  mesh.userData.noCollision = true;
+  return mesh;
+}
+
+/** Bake a same-material throwaway detail batch before it enters the scene. */
+function mergeDetailBatch(
+  meshes: THREE.Mesh[], material: THREE.Material, label: string,
+): THREE.Mesh {
+  const geometries = meshes.map((mesh) => {
+    mesh.updateMatrix();
+    return (mesh.geometry as THREE.BufferGeometry).clone().applyMatrix4(mesh.matrix);
+  });
+  const merged = mergeGeometries(geometries, false);
+  if (!merged) {
+    for (const geometry of geometries) geometry.dispose();
+    for (const mesh of meshes) mesh.geometry.dispose();
+    throw new Error(`Could not merge ${label} detail batch of ${meshes.length} meshes`);
+  }
+  for (const geometry of geometries) geometry.dispose();
+  for (const mesh of meshes) mesh.geometry.dispose();
+  return new THREE.Mesh(merged, material);
+}
+
+type HyPoint = readonly [number, number];
+type HyLevel = { y: number; points: readonly HyPoint[] };
+
+/**
+ * One continuously faceted curtain-wall volume. Physical-scale UVs repeat a
+ * six-bay/eight-floor atlas across clean facade strips, so the 100-story tower
+ * retains mullions, spandrels and interior variation at close range without
+ * thousands of window meshes or draw calls.
+ */
+function hyEnvelope(levels: readonly HyLevel[], mat: THREE.Material, cap = true): THREE.Mesh {
+  const positions: number[] = [];
+  const uvs: number[] = [];
+  const indices: number[] = [];
+  const BAY_ATLAS = 1.52 * 6;
+  const FLOOR_ATLAS = 3.65 * 8;
+  const point = (p: HyPoint, y: number) => new THREE.Vector3(p[0], y, p[1]);
+  const addQuad = (
+    a: THREE.Vector3, b: THREE.Vector3, c: THREE.Vector3, d: THREE.Vector3,
+    u0: number, u1: number, v0: number, v1: number,
+  ) => {
+    const n = positions.length / 3;
+    for (const p of [a, b, c, d]) positions.push(p.x, p.y, p.z);
+    uvs.push(u0, v0, u0, v1, u1, v1, u1, v0);
+    indices.push(n, n + 1, n + 2, n, n + 2, n + 3);
+  };
+
+  for (let band = 0; band < levels.length - 1; band++) {
+    const lower = levels[band], upper = levels[band + 1];
+    if (lower.points.length !== upper.points.length) continue;
+    let along = 0;
+    for (let side = 0; side < lower.points.length; side++) {
+      const next = (side + 1) % lower.points.length;
+      const l0 = point(lower.points[side], lower.y);
+      const l1 = point(lower.points[next], lower.y);
+      const u0 = point(upper.points[side], upper.y);
+      const u1 = point(upper.points[next], upper.y);
+      const span = Math.max(l0.distanceTo(l1), u0.distanceTo(u1));
+      addQuad(
+        l0, u0, u1, l1,
+        along / BAY_ATLAS, (along + span) / BAY_ATLAS,
+        lower.y / FLOOR_ATLAS, upper.y / FLOOR_ATLAS,
+      );
+      along += span;
+    }
+  }
+
+  if (cap) {
+    const top = levels[levels.length - 1];
+    const center = new THREE.Vector3(
+      top.points.reduce((sum, p) => sum + p[0], 0) / top.points.length,
+      top.y,
+      top.points.reduce((sum, p) => sum + p[1], 0) / top.points.length,
+    );
+    for (let i = 0; i < top.points.length; i++) {
+      const next = (i + 1) % top.points.length;
+      const n = positions.length / 3;
+      for (const p of [center, point(top.points[next], top.y), point(top.points[i], top.y)]) {
+        positions.push(p.x, p.y, p.z);
+      }
+      uvs.push(0.5, 0.5, 1, 1, 0, 1);
+      indices.push(n, n + 1, n + 2);
+    }
+  }
+
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  geo.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+  geo.setIndex(indices);
+  geo.computeVertexNormals();
+  return hyDetail(new THREE.Mesh(geo, mat));
+}
+
+/** Flat x/z polygon used for Edge's transparent glass-floor window. */
+function hyHorizontalPanel(points: readonly HyPoint[], y: number, mat: THREE.Material): THREE.Mesh {
+  const positions = points.flatMap(([x, z]) => [x, y, z]);
+  const indices: number[] = [];
+  for (let i = 1; i < points.length - 1; i++) indices.push(0, i + 1, i);
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  geo.setIndex(indices);
+  geo.computeVertexNormals();
+  return hyDetail(new THREE.Mesh(geo, mat));
+}
+
+/** One transparent wall leaning the official 6.6° out from Edge's centroid. */
+function hyEdgeWall(
+  a: HyPoint,
+  b: HyPoint,
+  center: HyPoint,
+  y: number,
+  h: number,
+): { panel: THREE.Mesh; bottomA: THREE.Vector3; bottomB: THREE.Vector3; topA: THREE.Vector3; topB: THREE.Vector3 } {
+  const dx = b[0] - a[0], dz = b[1] - a[1];
+  const len = Math.max(0.001, Math.hypot(dx, dz));
+  let nx = dz / len, nz = -dx / len;
+  const mx = (a[0] + b[0]) / 2, mz = (a[1] + b[1]) / 2;
+  if (nx * (mx - center[0]) + nz * (mz - center[1]) < 0) {
+    nx = -nx; nz = -nz;
+  }
+  const lean = Math.tan(THREE.MathUtils.degToRad(6.6)) * h;
+  const bottomA = new THREE.Vector3(a[0], y, a[1]);
+  const bottomB = new THREE.Vector3(b[0], y, b[1]);
+  const topA = new THREE.Vector3(a[0] + nx * lean, y + h, a[1] + nz * lean);
+  const topB = new THREE.Vector3(b[0] + nx * lean, y + h, b[1] + nz * lean);
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute([
+    ...bottomA.toArray(), ...topA.toArray(), ...topB.toArray(), ...bottomB.toArray(),
+  ], 3));
+  geo.setAttribute('uv', new THREE.Float32BufferAttribute([0, 0, 0, 1, 1, 1, 1, 0], 2));
+  geo.setIndex([0, 1, 2, 0, 2, 3]);
+  geo.computeVertexNormals();
+  return {
+    panel: hyDetail(new THREE.Mesh(geo, HY_EDGE_GLASS)),
+    bottomA, bottomB, topA, topB,
+  };
+}
+
+/** Transparent triangular crown plane facing local +/-z. */
+function hyCrownPanel(points: readonly (readonly [number, number])[], z: number): THREE.Mesh {
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(
+    points.flatMap(([x, y]) => [x, y, z]),
+    3,
+  ));
+  geo.setIndex([0, 1, 2]);
+  geo.computeVertexNormals();
+  return hyDetail(new THREE.Mesh(geo, HY_CROWN_GLASS));
+}
 
 /** Park bench (matches the Central Park style). */
 function bench(mat: THREE.Material = DARKSTONE): THREE.Group {
@@ -32,6 +276,35 @@ function edgeBar(ax: number, az: number, bx: number, bz: number, y: number, thic
   const m = box(Math.hypot(dx, dz), height, thick, mat, (ax + bx) / 2, y, (az + bz) / 2);
   m.rotation.y = Math.atan2(-dz, dx);
   return m;
+}
+
+/** Stand a 2D x/z outline up into a solid vertical prism with exact collision. */
+function polygonPrism(
+  outline: readonly (readonly [number, number])[],
+  height: number,
+  mat: THREE.Material,
+  y = 0,
+  scaleX = 1,
+  scaleZ = 1,
+): THREE.Mesh {
+  const shape = new THREE.Shape();
+  for (let i = 0; i < outline.length; i++) {
+    const [x, z] = outline[i];
+    const sx = x * scaleX;
+    // ExtrudeGeometry uses shape XY + depth Z. A -90° X rotation maps shape
+    // Y to world -Z and extrusion depth to +Y, hence the sign flip here.
+    const sy = -z * scaleZ;
+    if (i === 0) shape.moveTo(sx, sy); else shape.lineTo(sx, sy);
+  }
+  shape.closePath();
+  const mesh = new THREE.Mesh(new THREE.ExtrudeGeometry(shape, {
+    depth: height,
+    bevelEnabled: false,
+    curveSegments: 1,
+  }), mat);
+  mesh.rotation.x = -Math.PI / 2;
+  mesh.position.y = y;
+  return mesh;
 }
 
 /** Classic NYC rooftop water tower: steel legs, wood-tone tank, conical cap. */
@@ -133,18 +406,536 @@ export const builders: Record<string, (ctx: LandmarkCtx) => THREE.Group> = {
     return g;
   },
 
-  // Flatiron crown: heavy projecting cornice + parapet on the triangular wedge at y=86.
-  // Dims/orientation measured from the baked OSM footprint (apex north, base 27.2m,
-  // length 54.4m); the registry rot points local +z at the real apex.
+  // Flatiron Building: a full replacement for the two overlapping generic OSM
+  // extrusions. Its 0.1m-precision outline below comes from the baked building
+  // footprint, transformed into the registry's measured local frame: the broad
+  // 22nd Street base is local -z and the rounded six-foot prow points north.
   flatiron: () => {
     const g = new THREE.Group();
-    const yC = 86;
-    const V = [[-13.6, -27], [13.6, -27], [0, 27.2]] as const; // back-left, back-right, sharp nose (+z)
-    const edges = [[V[0], V[1]], [V[0], V[2]], [V[1], V[2]]] as const;
-    for (const [a, b] of edges) {
-      g.add(edgeBar(a[0], a[1], b[0], b[1], yC, 2.6, 2.4, LIMESTONE)); // projecting cornice ring
-      g.add(edgeBar(a[0], a[1], b[0], b[1], yC + 2.4, 0.8, 2.0, LIMESTONE)); // 2m parapet above
+    const outline = [
+      [-12.8, -32.1], [-10.2, -31.7], [10.7, -27.1], [12.9, -24.7],
+      [13.1, -23.7], [12.9, -22.8], [7.7, 0.9], [4.9, 24.1],
+      [3.9, 25.9], [2.0, 26.7], [-0.2, 26.8], [-2.6, 26.7],
+      [-3.9, 25.9], [-4.9, 24.1], [-10.0, -2.7], [-15.1, -29.5],
+      [-14.6, -31.0], [-13.4, -32.0],
+    ] as const;
+    const height = 86.9; // official 285ft architectural height
+
+    // The National Historic Landmark description explicitly divides the skin
+    // into a five-floor limestone base, twelve-floor terra-cotta shaft, and a
+    // four-floor capital. Separate solids preserve that columnar reading while
+    // retaining one exact triangular collision envelope at every level.
+    g.add(polygonPrism(outline, 21.0, FLAT_STONE));
+    g.add(polygonPrism(outline, 48.7, FLAT_TERRA, 21.0));
+    g.add(polygonPrism(outline, height - 69.7 - 2.0, FLAT_TERRA_LIGHT, 69.7));
+    for (const [y, h, sx, sz] of [
+      [8.4, 0.75, 1.025, 1.012],
+      [20.7, 1.15, 1.035, 1.018],
+      [69.2, 1.15, 1.035, 1.018],
+      [84.6, 1.45, 1.055, 1.026],
+    ] as const) {
+      g.add(polygonPrism(outline, h, FLAT_STONE, y, sx, sz));
     }
+
+    // Window panes are hand-packed into one mesh: roughly 800 individually
+    // placed openings, but a single draw and no four-figure Object3D traversal.
+    // The three long façade axes follow the real wedge rather than projecting a
+    // rectangular texture across its prow.
+    const pos: number[] = [], norm: number[] = [], idx: number[] = [];
+    const addQuad = (
+      cx: number, cy: number, cz: number,
+      tx: number, tz: number, nx: number, nz: number,
+      w: number, h: number,
+    ) => {
+      const base = pos.length / 3;
+      const vx = tx * w / 2, vz = tz * w / 2, vy = h / 2;
+      pos.push(
+        cx - vx, cy - vy, cz - vz,
+        cx - vx, cy + vy, cz - vz,
+        cx + vx, cy + vy, cz + vz,
+        cx + vx, cy - vy, cz + vz,
+      );
+      for (let i = 0; i < 4; i++) norm.push(nx, 0, nz);
+      idx.push(base, base + 1, base + 2, base, base + 2, base + 3);
+    };
+    type Face = { a: readonly [number, number]; b: readonly [number, number]; bays: number };
+    const faces: Face[] = [
+      { a: [12.9, -22.8], b: [3.9, 25.9], bays: 14 },   // Broadway
+      { a: [-3.9, 25.9], b: [-15.1, -29.5], bays: 15 }, // Fifth Avenue
+      { a: [-14.6, -31.0], b: [12.5, -25.6], bays: 8 }, // East 22nd Street
+      { a: [0.95, 26.85], b: [-0.95, 26.85], bays: 1 }, // six-foot rounded prow
+    ];
+    const frame = (face: Face) => {
+      const dx = face.b[0] - face.a[0], dz = face.b[1] - face.a[1];
+      const len = Math.hypot(dx, dz);
+      const tx = dx / len, tz = dz / len;
+      return { tx, tz, nx: tz, nz: -tx, len };
+    };
+    const paneRow = (face: Face, y: number, h: number, widthScale = 0.58, out = 0.65) => {
+      const { tx, tz, nx, nz, len } = frame(face);
+      const pitch = len / (face.bays + 1);
+      const w = Math.min(h * 0.78, pitch * widthScale);
+      for (let i = 0; i < face.bays; i++) {
+        const t = (i + 1) / (face.bays + 1);
+        addQuad(
+          face.a[0] + (face.b[0] - face.a[0]) * t + nx * out,
+          y,
+          face.a[1] + (face.b[1] - face.a[1]) * t + nz * out,
+          tx, tz, nx, nz, w, h,
+        );
+      }
+    };
+    for (const face of faces) {
+      paneRow(face, 3.25, 4.8, 0.78); // tall storefront/display windows
+      for (const y of [8.1, 12.2, 16.2, 20.0]) paneRow(face, y, 2.45);
+      for (let floor = 0; floor < 12; floor++) paneRow(face, 23.9 + floor * 3.72, 2.35);
+      paneRow(face, 72.3, 2.45);
+      paneRow(face, 77.8, 5.6, 0.48); // paired-story arcade proportions
+      paneRow(face, 83.2, 1.65, 0.5); // small square top-story openings
+    }
+
+    // Three rows of eight-story projecting oriels interrupt each long face,
+    // one of the façade's defining details in the NHL description.
+    for (const face of faces.slice(0, 2)) {
+      const { tx, tz, nx, nz } = frame(face);
+      const rot = Math.atan2(-tz, tx);
+      for (const t of [0.25, 0.5, 0.75]) {
+        const cx = face.a[0] + (face.b[0] - face.a[0]) * t;
+        const cz = face.a[1] + (face.b[1] - face.a[1]) * t;
+        const bay = box(3.35, 30.5, 0.72, FLAT_TERRA_LIGHT, cx + nx * 0.42, 38.0, cz + nz * 0.42);
+        bay.rotation.y = rot;
+        g.add(bay);
+        for (let floor = 0; floor < 8; floor++) {
+          addQuad(cx + nx * 0.83, 25.0 + floor * 3.65, cz + nz * 0.83,
+            tx, tz, nx, nz, 2.15, 2.25);
+        }
+      }
+    }
+
+    // Matching double-height arched-entry compositions at the center of the
+    // Broadway and Fifth Avenue elevations: recessed dark glazing, engaged
+    // columns, and a full stone entablature.
+    for (const face of faces.slice(0, 2)) {
+      const { tx, tz, nx, nz } = frame(face);
+      const cx = (face.a[0] + face.b[0]) / 2;
+      const cz = (face.a[1] + face.b[1]) / 2;
+      addQuad(cx + nx * 0.88, 5.2, cz + nz * 0.88, tx, tz, nx, nz, 4.5, 8.4);
+      const rot = Math.atan2(-tz, tx);
+      for (const side of [-1, 1]) {
+        const col = box(0.58, 8.6, 0.72, FLAT_STONE,
+          cx + tx * side * 2.45 + nx * 0.76, 4.55,
+          cz + tz * side * 2.45 + nz * 0.76);
+        col.rotation.y = rot;
+        g.add(col);
+      }
+      const ent = box(6.0, 0.85, 0.95, FLAT_STONE, cx + nx * 0.72, 9.15, cz + nz * 0.72);
+      ent.rotation.y = rot;
+      g.add(ent);
+    }
+
+    const windowGeo = new THREE.BufferGeometry();
+    windowGeo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    windowGeo.setAttribute('normal', new THREE.Float32BufferAttribute(norm, 3));
+    windowGeo.setIndex(idx);
+    const windows = new THREE.Mesh(windowGeo, FLAT_GLASS);
+    windows.userData.noCollision = true;
+    g.add(windows);
+
+    // Roof dentils and the continuous stone balustrade complete the heavy
+    // capital without a texture: many tiny pieces merge into the stone draw.
+    for (const face of faces) {
+      const { tx, tz, nx, nz, len } = frame(face);
+      const rot = Math.atan2(-tz, tx);
+      const dentils = Math.max(2, Math.floor(len / 2.1));
+      for (let i = 0; i <= dentils; i++) {
+        const t = i / dentils;
+        const cx = face.a[0] + (face.b[0] - face.a[0]) * t;
+        const cz = face.a[1] + (face.b[1] - face.a[1]) * t;
+        const d = box(0.82, 0.55, 0.72, FLAT_STONE, cx + nx * 0.72, 84.25, cz + nz * 0.72);
+        d.rotation.y = rot; g.add(d);
+      }
+      g.add(edgeBar(face.a[0], face.a[1], face.b[0], face.b[1], 86.62, 0.5, 0.32, FLAT_STONE));
+      const posts = Math.max(2, Math.floor(len / 4.2));
+      for (let i = 0; i <= posts; i++) {
+        const t = i / posts;
+        const cx = face.a[0] + (face.b[0] - face.a[0]) * t;
+        const cz = face.a[1] + (face.b[1] - face.a[1]) * t;
+        g.add(box(0.42, 1.45, 0.42, FLAT_STONE, cx, 85.93, cz));
+      }
+    }
+
+    // Dark metal rails at the lower-storefront datum add close-up relief and
+    // echo the historic display-window framing without expensive transparency.
+    for (const face of faces) {
+      g.add(edgeBar(face.a[0], face.a[1], face.b[0], face.b[1], 5.7, 0.18, 0.18, FLAT_BRONZE));
+    }
+    return g;
+  },
+
+  // New York Life Building: rebuild the generic OSM upper massing with the
+  // real 115m setback, limestone tower, four corner turrets and six-story
+  // gilded octagonal crown. The tile pipeline clears only the replaced parts.
+  'new-york-life': (ctx) => {
+    const g = new THREE.Group();
+    const setbackY = ctx.fit?.keptH ?? 115;
+    const roofY = ctx.fit?.roofH ?? 188;
+    const shaftTop = Math.min(148, roofY - 36);
+    const shaftW = 33, shaftD = 35;
+
+    // Limestone upper tower. All 236 recessed panes are authored directly into
+    // one quad mesh. This preserves the close-up Gothic bay rhythm without
+    // allocating/traversing hundreds of temporary BoxGeometry objects whenever
+    // the landmark streams in (and without turning the façade into collision).
+    g.add(box(shaftW, shaftTop - setbackY, shaftD, LIMESTONE, 0, (setbackY + shaftTop) / 2, 0));
+    g.add(box(shaftW + 2.2, 1.2, shaftD + 2.2, LIMESTONE, 0, setbackY + 0.6, 0));
+    g.add(box(shaftW + 1.6, 1.5, shaftD + 1.6, LIMESTONE, 0, shaftTop - 0.75, 0));
+
+    const panePos: number[] = [], paneNorm: number[] = [], paneIdx: number[] = [];
+    const addPane = (
+      cx: number, cy: number, cz: number,
+      tx: number, tz: number, nx: number, nz: number,
+      w: number, h: number,
+    ) => {
+      const base = panePos.length / 3;
+      const vx = tx * w / 2, vz = tz * w / 2, vy = h / 2;
+      panePos.push(
+        cx - vx, cy - vy, cz - vz,
+        cx - vx, cy + vy, cz - vz,
+        cx + vx, cy + vy, cz + vz,
+        cx + vx, cy - vy, cz + vz,
+      );
+      for (let i = 0; i < 4; i++) paneNorm.push(nx, 0, nz);
+      paneIdx.push(base, base + 2, base + 1, base, base + 3, base + 2);
+    };
+    const floorCount = 8;
+    for (let floor = 0; floor < floorCount; floor++) {
+      const y = setbackY + 3.0 + floor * ((shaftTop - setbackY - 5.2) / (floorCount - 1));
+      for (let bay = -3; bay <= 3; bay++) {
+        const u = bay * 4.05;
+        addPane(u, y, shaftD / 2 + 0.015, 1, 0, 0, 1, 2.65, 2.25);
+        addPane(-u, y, -shaftD / 2 - 0.015, -1, 0, 0, -1, 2.65, 2.25);
+        addPane(shaftW / 2 + 0.015, y, -u, 0, -1, 1, 0, 2.65, 2.25);
+        addPane(-shaftW / 2 - 0.015, y, u, 0, 1, -1, 0, 2.65, 2.25);
+      }
+    }
+    // Strong vertical piers and a final row of tall arched-window proportions.
+    for (const x of [-15.2, 15.2]) for (const z of [-15.8, 15.8]) {
+      const pier = box(1.2, shaftTop - setbackY + 1.0, 1.2, LIMESTONE, x, (setbackY + shaftTop) / 2, z);
+      pier.userData.noCollision = true;
+      g.add(pier);
+    }
+    for (const u of [-8, 0, 8]) {
+      addPane(u, shaftTop - 3.4, shaftD / 2 + 0.02, 1, 0, 0, 1, 4.3, 4.7);
+      addPane(-u, shaftTop - 3.4, -shaftD / 2 - 0.02, -1, 0, 0, -1, 4.3, 4.7);
+      addPane(shaftW / 2 + 0.02, shaftTop - 3.4, -u, 0, -1, 1, 0, 4.3, 4.7);
+      addPane(-shaftW / 2 - 0.02, shaftTop - 3.4, u, 0, 1, -1, 0, 4.3, 4.7);
+    }
+    const paneGeo = new THREE.BufferGeometry();
+    paneGeo.setAttribute('position', new THREE.Float32BufferAttribute(panePos, 3));
+    paneGeo.setAttribute('normal', new THREE.Float32BufferAttribute(paneNorm, 3));
+    paneGeo.setIndex(paneIdx);
+    const panes = new THREE.Mesh(paneGeo, NYL_GLASS);
+    panes.userData.noCollision = true;
+    g.add(panes);
+
+    // Four real corner turrets occupy measured OSM centers on the shaft roof.
+    for (const x of [-12.6, 12.6]) for (const z of [-13.4, 13.4]) {
+      g.add(cyl(1.75, 1.9, 3.0, LIMESTONE, x, shaftTop - 1.5, z, 8));
+      g.add(cyl(0.08, 1.8, 4.5, NYL_GOLD, x, shaftTop + 2.25, z, 8));
+      g.add(cyl(0.08, 0.18, 1.4, NYL_GOLD, x, shaftTop + 5.2, z, 6));
+    }
+    // Open parapet between the turrets, deliberately segmented at the corners.
+    for (const z of [-shaftD / 2, shaftD / 2]) {
+      g.add(box(20, 1.1, 0.45, LIMESTONE, 0, shaftTop + 0.55, z));
+    }
+    for (const x of [-shaftW / 2, shaftW / 2]) {
+      g.add(box(0.45, 1.1, 21, LIMESTONE, x, shaftTop + 0.55, 0));
+    }
+
+    // The official crown is an octagonal pyramid. Eight separately shaded
+    // facets plus low-profile ribs suggest the gold-dipped ceramic tile work
+    // without a texture or transparency cost at skyline distance.
+    const crownBase = shaftTop;
+    const lanternBase = Math.max(crownBase + 28, roofY - 7);
+    const half = Math.min(ctx.fit?.topW ?? 24, ctx.fit?.topD ?? 24) / 2;
+    const clip = half * 0.42;
+    const rim = [
+      new THREE.Vector3(-clip, crownBase, -half), new THREE.Vector3(clip, crownBase, -half),
+      new THREE.Vector3(half, crownBase, -clip), new THREE.Vector3(half, crownBase, clip),
+      new THREE.Vector3(clip, crownBase, half), new THREE.Vector3(-clip, crownBase, half),
+      new THREE.Vector3(-half, crownBase, clip), new THREE.Vector3(-half, crownBase, -clip),
+    ];
+    const apex = new THREE.Vector3(0, lanternBase, 0);
+    for (let i = 0; i < rim.length; i++) {
+      const a = rim[i], b = rim[(i + 1) % rim.length];
+      const geo = new THREE.BufferGeometry().setFromPoints([b, a, apex]);
+      geo.setIndex([0, 1, 2]);
+      geo.computeVertexNormals();
+      const facet = new THREE.Mesh(geo, i % 2 ? NYL_GOLD_SHADE : NYL_GOLD);
+      // A sloped triangle is a visible skin, not an axis-aligned solid. The
+      // stepped octagonal collision below follows the taper without turning
+      // each facet's broad AABB into an invisible box in the surrounding air.
+      facet.userData.noCollision = true;
+      g.add(facet);
+      g.add(strut(a, apex, 0.07, NYL_GOLD_SHADE, 5));
+    }
+    for (const t of [0.27, 0.52, 0.76]) {
+      const ring = rim.map((p) => p.clone().lerp(apex, t));
+      for (let i = 0; i < ring.length; i++) {
+        g.add(strut(ring[i], ring[(i + 1) % ring.length], 0.055, NYL_GOLD_SHADE, 5));
+      }
+    }
+    // Three exact footprint bands make the gilded pyramid landable and solid
+    // while shrinking with its real octagonal silhouette. This replaces eight
+    // overlapping facet AABBs with three conservative polygonal rings.
+    const crownCollisionSteps = 3;
+    for (let i = 0; i < crownCollisionSteps; i++) {
+      const t = i / crownCollisionSteps;
+      const bandOutline = rim.map((p) => [
+        p.x * (1 - t),
+        p.z * (1 - t),
+      ] as const);
+      const y0 = crownBase + (lanternBase - crownBase) * t;
+      const y1 = crownBase + (lanternBase - crownBase) * ((i + 1) / crownCollisionSteps);
+      g.add(polygonPrism(bandOutline, y1 - y0, NYL_COLLISION, y0));
+    }
+    // The 18-ton lantern and spire finish at the measured 187.5m roof height.
+    g.add(cyl(1.2, 1.55, 2.2, NYL_GOLD, 0, lanternBase + 1.1, 0, 8));
+    g.add(cyl(0.32, 0.75, 2.0, NYL_GOLD_SHADE, 0, lanternBase + 3.2, 0, 8));
+    g.add(cyl(0.03, 0.3, Math.max(1, roofY - lanternBase - 4.2), NYL_GOLD, 0, (lanternBase + roofY + 4.2) / 2, 0, 6));
+    return g;
+  },
+
+  // Metropolitan Life Insurance Company Tower: the generic source contained
+  // the correct stacked silhouette but rendered every part as an unadorned
+  // prism. Rebuild the 1909 Venetian-campanile landmark at its measured host
+  // center, using the documented 213.4m architectural height.
+  'met-life-tower': (ctx) => {
+    const g = new THREE.Group();
+    // The National Historic Landmark survey gives an 85x75ft (25.9x22.9m)
+    // lot. The tile fit independently measures 26x22m; use that real plan
+    // instead of the old 33x32m box that made the campanile read squat.
+    const W = ctx.fit?.w ?? 25.9, D = ctx.fit?.d ?? 22.9;
+    const baseTop = 20.7;  // five-storey, 68ft base
+    const shaftTop = 132.3; // +366ft simple shaft through the 28th storey
+    const loggiaBase = 138.0, loggiaTop = 160.5, plinthBase = 162.0;
+    const roofBase = 178;
+    const pyramidTop = 197;
+    const totalH = 213.4;
+
+    // Subtle entasis and stepped cornices preserve the tower's base/shaft/
+    // capital proportions after its simplified 1960s limestone recladding.
+    g.add(box(W, 50, D, MET_STONE, 0, 25, 0));
+    g.add(box(W - 0.35, 50, D - 0.35, MET_STONE, 0, 75, 0));
+    g.add(box(W - 0.7, shaftTop - 100, D - 0.7, MET_STONE, 0, (100 + shaftTop) / 2, 0));
+    for (const [y, grow, h] of [
+      [8, 1.0, 0.8], [baseTop, 1.15, 0.95], [50, 0.7, 0.65],
+      [100, 0.6, 0.65], [shaftTop, 2.0, 1.8],
+    ] as const) {
+      g.add(box(W + grow, h, D + grow, MET_STONE, 0, y, 0));
+    }
+
+    // Every regular window lives in one hand-packed quad mesh and therefore one
+    // final draw. Nine bays echo the survey's three sets of triple windows.
+    const pos: number[] = [], norm: number[] = [], idx: number[] = [];
+    const clockY = 120.0;
+    const clockSize = 8.08; // documented 26.5ft dial, not the old 10.2m disc
+    const bayPitch = (Math.min(W, D) - 3.0) / 8;
+    const addQuad = (
+      cx: number, cy: number, cz: number,
+      hx: number, hz: number, nx: number, nz: number,
+      w: number, h: number,
+    ) => {
+      const base = pos.length / 3;
+      const vx = hx * w / 2, vz = hz * w / 2, vy = h / 2;
+      pos.push(
+        cx - vx, cy - vy, cz - vz,
+        cx + vx, cy - vy, cz + vz,
+        cx + vx, cy + vy, cz + vz,
+        cx - vx, cy + vy, cz - vz,
+      );
+      for (let i = 0; i < 4; i++) norm.push(nx, 0, nz);
+      idx.push(base, base + 1, base + 2, base, base + 2, base + 3);
+    };
+    for (let y = 9.5; y < shaftTop - 1.5; y += 3.75) {
+      const faceW = y < 50 ? W : y < 100 ? W - 0.35 : W - 0.7;
+      const faceD = y < 50 ? D : y < 100 ? D - 0.35 : D - 0.7;
+      for (let bay = -4; bay <= 4; bay++) {
+        const u = bay * bayPitch;
+        if (Math.abs(u) < clockSize / 2 + 0.7 && Math.abs(y - clockY) < clockSize / 2 + 0.55) continue;
+        addQuad(u, y, faceD / 2 + 0.025, 1, 0, 0, 1, 1.35, 2.15);
+        addQuad(u, y, -faceD / 2 - 0.025, -1, 0, 0, -1, 1.35, 2.15);
+        addQuad(faceW / 2 + 0.025, y, u, 0, -1, 1, 0, 1.35, 2.15);
+        addQuad(-faceW / 2 - 0.025, y, u, 0, 1, -1, 0, 1.35, 2.15);
+      }
+    }
+    // Two restrained window rows articulate the recessed four-storey plinth
+    // below the roof. Keep them in the shaft's packed façade draw: the real
+    // crown has five small openings per face here, not a blank limestone box.
+    const plinthW = W - 2.0, plinthD = D - 2.0;
+    const plinthPitch = (Math.min(plinthW, plinthD) - 4.0) / 4;
+    for (const y of [166.4, 172.2]) {
+      for (let bay = -2; bay <= 2; bay++) {
+        const u = bay * plinthPitch;
+        addQuad(u, y, plinthD / 2 + 0.025, 1, 0, 0, 1, 1.25, 1.9);
+        addQuad(-u, y, -plinthD / 2 - 0.025, -1, 0, 0, -1, 1.25, 1.9);
+        addQuad(plinthW / 2 + 0.025, y, -u, 0, -1, 1, 0, 1.25, 1.9);
+        addQuad(-plinthW / 2 - 0.025, y, u, 0, 1, -1, 0, 1.25, 1.9);
+      }
+    }
+    const windowGeo = new THREE.BufferGeometry();
+    windowGeo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    windowGeo.setAttribute('normal', new THREE.Float32BufferAttribute(norm, 3));
+    windowGeo.setIndex(idx);
+    // This one mesh spans every face and tier; its aggregate AABB is not a
+    // solid building volume. Excluding it prevents a redundant full-width
+    // collision ring from sealing the real setbacks above the 132m shaft.
+    const windows = new THREE.Mesh(windowGeo, MET_GLASS);
+    windows.userData.noCollision = true;
+    g.add(windows);
+
+    // Four working-time clock faces. They bake the visitor's local time when
+    // the landmark streams in, so the icon behaves like a clock rather than a
+    // decorative random dial; all four faces share the same 256px texture.
+    const now = new Date();
+    const mins = now.getMinutes() + now.getSeconds() / 60;
+    const hours = (now.getHours() % 12) + mins / 60;
+    const clockTex = canvasTexture((c, w, h) => {
+      const cx = w / 2, cy = h / 2, r = w * 0.43;
+      c.clearRect(0, 0, w, h);
+      c.beginPath(); c.arc(cx, cy, r, 0, Math.PI * 2);
+      c.fillStyle = '#e8e1cb'; c.fill();
+      c.lineWidth = 11; c.strokeStyle = '#315b70'; c.stroke();
+      c.save(); c.translate(cx, cy);
+      for (let i = 0; i < 60; i++) {
+        const a = (i / 60) * Math.PI * 2;
+        const inner = r - (i % 5 === 0 ? 15 : 8);
+        c.beginPath();
+        c.moveTo(Math.sin(a) * inner, -Math.cos(a) * inner);
+        c.lineTo(Math.sin(a) * (r - 3), -Math.cos(a) * (r - 3));
+        c.lineWidth = i % 5 === 0 ? 4 : 2;
+        c.strokeStyle = '#263238'; c.stroke();
+      }
+      const numerals = ['12', '1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11'];
+      c.fillStyle = '#263238'; c.textAlign = 'center'; c.textBaseline = 'middle';
+      c.font = 'bold 22px Georgia, serif';
+      for (let i = 0; i < 12; i++) {
+        const a = (i / 12) * Math.PI * 2;
+        c.fillText(numerals[i], Math.sin(a) * (r - 29), -Math.cos(a) * (r - 29));
+      }
+      const hand = (turn: number, len: number, width: number) => {
+        const a = turn * Math.PI * 2;
+        c.beginPath(); c.moveTo(0, 0);
+        c.lineTo(Math.sin(a) * len, -Math.cos(a) * len);
+        c.lineCap = 'round'; c.lineWidth = width; c.strokeStyle = '#171b1d'; c.stroke();
+      };
+      hand(hours / 12, r * 0.52, 7);
+      hand(mins / 60, r * 0.72, 5);
+      c.beginPath(); c.arc(0, 0, 7, 0, Math.PI * 2); c.fillStyle = '#9d7333'; c.fill();
+      c.restore();
+    });
+    const clockMat = new THREE.MeshBasicMaterial({ map: clockTex, transparent: true, alphaTest: 0.04 });
+    const addFace = (mesh: THREE.Mesh, x: number, z: number, ry: number) => {
+      mesh.position.set(x, clockY, z); mesh.rotation.y = ry; g.add(mesh);
+    };
+    const clockW = W - 0.7, clockD = D - 0.7;
+    addFace(new THREE.Mesh(new THREE.PlaneGeometry(clockSize, clockSize), clockMat), 0, clockD / 2 + 0.09, 0);
+    addFace(new THREE.Mesh(new THREE.PlaneGeometry(clockSize, clockSize), clockMat), 0, -clockD / 2 - 0.09, Math.PI);
+    addFace(new THREE.Mesh(new THREE.PlaneGeometry(clockSize, clockSize), clockMat), clockW / 2 + 0.09, 0, Math.PI / 2);
+    addFace(new THREE.Mesh(new THREE.PlaneGeometry(clockSize, clockSize), clockMat), -clockW / 2 - 0.09, 0, -Math.PI / 2);
+    for (const [x, z, ry] of [
+      [0, clockD / 2 + 0.04, 0], [0, -clockD / 2 - 0.04, Math.PI],
+      [clockW / 2 + 0.04, 0, Math.PI / 2], [-clockW / 2 - 0.04, 0, -Math.PI / 2],
+    ] as const) {
+      const ring = new THREE.Mesh(new THREE.TorusGeometry(clockSize / 2, 0.31, 8, 32), MET_STONE);
+      ring.position.set(x, clockY, z); ring.rotation.y = ry; g.add(ring);
+    }
+
+    // Two balcony storeys, five-storey arcaded loggia and recessed four-storey
+    // plinth follow the landmark survey's vertical sequence. The previous
+    // shaft ran 19m too high and compressed this defining campanile capital.
+    g.add(box(W + 3.2, 2.2, D + 3.2, MET_STONE, 0, shaftTop + 1.1, 0));
+    g.add(box(W + 3.6, 0.9, D + 3.6, MET_STONE, 0, loggiaBase - 0.45, 0));
+    g.add(box(W + 1.2, loggiaTop - loggiaBase, D + 1.2, MET_STONE, 0, (loggiaBase + loggiaTop) / 2, 0));
+    const archPanel = (w: number, h: number) => {
+      const s = new THREE.Shape();
+      const r = w / 2, spring = h / 2 - r;
+      s.moveTo(-r, -h / 2); s.lineTo(r, -h / 2); s.lineTo(r, spring);
+      s.absarc(0, spring, r, 0, Math.PI, false); s.lineTo(-r, -h / 2); s.closePath();
+      return new THREE.ShapeGeometry(s, 8);
+    };
+    const capitalPitch = (Math.min(W, D) - 4.4) / 4;
+    for (let bay = -2; bay <= 2; bay++) {
+      const u = bay * capitalPitch;
+      const panels = [
+        { x: u, z: D / 2 + 0.72, ry: 0 },
+        { x: -u, z: -D / 2 - 0.72, ry: Math.PI },
+        { x: W / 2 + 0.72, z: -u, ry: Math.PI / 2 },
+        { x: -W / 2 - 0.72, z: u, ry: -Math.PI / 2 },
+      ];
+      for (const p of panels) {
+        const panel = new THREE.Mesh(archPanel(2.8, 12.2), MET_GLASS);
+        panel.position.set(p.x, (loggiaBase + loggiaTop) / 2 + 0.2, p.z);
+        panel.rotation.y = p.ry;
+        g.add(panel);
+      }
+    }
+    for (const z of [-D / 2 - 1.0, D / 2 + 1.0]) {
+      g.add(box(W + 2.0, 0.7, 0.55, MET_STONE, 0, loggiaTop + 0.35, z));
+      for (let x = -W / 2; x <= W / 2; x += 1.8) {
+        g.add(box(0.28, 1.8, 0.28, MET_STONE, x, loggiaTop + 1.25, z));
+      }
+    }
+    for (const x of [-W / 2 - 1.0, W / 2 + 1.0]) {
+      g.add(box(0.55, 0.7, D + 2.0, MET_STONE, x, loggiaTop + 0.35, 0));
+      for (let z = -D / 2; z <= D / 2; z += 1.8) {
+        g.add(box(0.28, 1.8, 0.28, MET_STONE, x, loggiaTop + 1.25, z));
+      }
+    }
+    g.add(box(plinthW, roofBase - plinthBase, plinthD, MET_STONE, 0, (plinthBase + roofBase) / 2, 0));
+    g.add(box(W, 1.2, D, MET_STONE, 0, roofBase - 0.6, 0));
+
+    // Four steep roof facets, seam ribs and oculi. Normal-aware triangle winding
+    // keeps every face visible with standard one-sided materials.
+    const rhw = plinthW / 2, rhd = plinthD / 2;
+    const corners = [
+      new THREE.Vector3(-rhw, roofBase, -rhd), new THREE.Vector3(rhw, roofBase, -rhd),
+      new THREE.Vector3(rhw, roofBase, rhd), new THREE.Vector3(-rhw, roofBase, rhd),
+    ];
+    const roofApex = new THREE.Vector3(0, pyramidTop, 0);
+    for (let i = 0; i < 4; i++) {
+      let a = corners[i], b = corners[(i + 1) % 4];
+      let normal = new THREE.Vector3().subVectors(b, a).cross(new THREE.Vector3().subVectors(roofApex, a)).normalize();
+      const outward = a.clone().add(b).multiplyScalar(0.5).setY(0);
+      if (normal.dot(outward) < 0) {
+        const tmp = a; a = b; b = tmp;
+        normal = new THREE.Vector3().subVectors(b, a).cross(new THREE.Vector3().subVectors(roofApex, a)).normalize();
+      }
+      const geo = new THREE.BufferGeometry().setFromPoints([a, b, roofApex]);
+      geo.setIndex([0, 1, 2]); geo.computeVertexNormals();
+      g.add(new THREE.Mesh(geo, i % 2 ? MET_ROOF_SHADE : MET_ROOF));
+      g.add(strut(a, roofApex, 0.11, MET_GOLD, 6));
+      const edgeMid = a.clone().add(b).multiplyScalar(0.5);
+      for (const [t, r] of [[0.28, 0.9], [0.5, 0.72], [0.7, 0.55]] as const) {
+        const disc = new THREE.Mesh(new THREE.CircleGeometry(r, 14), MET_GLASS);
+        disc.position.copy(edgeMid).lerp(roofApex, t).addScaledVector(normal, 0.04);
+        disc.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), normal);
+        g.add(disc);
+      }
+    }
+
+    // Gilded cupola and the illuminated "light that never fails" lantern.
+    g.add(cyl(3.3, 3.8, 1.0, MET_GOLD, 0, pyramidTop + 0.5, 0, 8));
+    g.add(cyl(2.4, 2.4, 6.2, MET_GLASS, 0, pyramidTop + 4.0, 0, 8));
+    for (let i = 0; i < 8; i++) {
+      const a = (i / 8) * Math.PI * 2;
+      g.add(cyl(0.14, 0.18, 6.4, MET_GOLD, Math.cos(a) * 2.45, pyramidTop + 4.0, Math.sin(a) * 2.45, 6));
+    }
+    g.add(cyl(3.0, 2.8, 0.8, MET_GOLD, 0, pyramidTop + 7.4, 0, 8));
+    g.add(cyl(0.45, 2.7, 2.8, MET_GOLD, 0, pyramidTop + 9.2, 0, 8));
+    g.add(cyl(1.05, 1.05, 2.2, MET_LANTERN, 0, pyramidTop + 11.7, 0, 8));
+    g.add(cyl(0.05, 1.0, 1.7, MET_GOLD, 0, pyramidTop + 13.65, 0, 8));
+    g.add(cyl(0.035, 0.16, Math.max(0.4, totalH - pyramidTop - 14.5), MET_GOLD, 0, (totalH + pyramidTop + 14.5) / 2, 0, 6));
     return g;
   },
 
@@ -341,22 +1132,574 @@ export const builders: Record<string, (ctx: LandmarkCtx) => THREE.Group> = {
     return g;
   },
 
-  // Edge deck: the triangular cantilevered observation platform jutting at y=335
-  'edge-deck': () => {
+  // 30 Hudson Yards + Edge: full replacement for eleven overlapping generic
+  // source prisms. The data pipeline supplies the surveyed 117x58m site and
+  // 395m steel-crown height; this lean build recreates KPF's city-facing
+  // crystalline shift, 100-story curtain wall, open triangular crown, City
+  // Climb and the exact 1,100ft cantilevered Edge deck as one coherent object.
+  'edge-deck': (ctx) => {
     const g = new THREE.Group();
-    const y = 335;
-    const shape = new THREE.Shape(); // triangle, point at +z
-    shape.moveTo(-14, 0); shape.lineTo(14, 0); shape.lineTo(0, 24); shape.closePath();
-    const slab = new THREE.Mesh(new THREE.ExtrudeGeometry(shape, { depth: 0.7, bevelEnabled: false }), STEEL_LM);
-    slab.rotation.x = Math.PI / 2; slab.position.y = y; g.add(slab);
-    g.add(box(28, 1.3, 0.12, GLASS_LM, 0, y + 0.65, 0)); // back-edge glass parapet
-    g.add(edgeBar(-14, 0, 0, 24, y + 0.65, 0.12, 1.3, GLASS_LM)); // left-edge glass
-    g.add(edgeBar(14, 0, 0, 24, y + 0.65, 0.12, 1.3, GLASS_LM)); // right-edge glass
-    const tip = new THREE.Vector3(0, y - 0.7, 23);
-    g.add(strut(tip, new THREE.Vector3(-7, y - 20, 0), 0.35, STEEL_LM, 6)); // underside brace back to tower face
-    g.add(strut(tip, new THREE.Vector3(7, y - 20, 0), 0.35, STEEL_LM, 6));
-    g.add(strut(new THREE.Vector3(-11, y - 0.7, 1), new THREE.Vector3(-5, y - 18, 0), 0.3, STEEL_LM, 6));
-    g.add(strut(new THREE.Vector3(11, y - 0.7, 1), new THREE.Vector3(5, y - 18, 0), 0.3, STEEL_LM, 6));
+    const siteW = ctx.fit?.w ?? 117;
+    const siteD = ctx.fit?.d ?? 58;
+    const tipY = ctx.fit?.roofH ?? 395;
+    const sx = siteW / 117;
+    const sz = siteD / 58;
+    const P = (x: number, z: number): HyPoint => [x * sx, z * sz];
+    const scaled = (points: readonly HyPoint[]) => points.map(([x, z]) => P(x, z));
+    const steelDetails: THREE.Mesh[] = [];
+    const darkSteelDetails: THREE.Mesh[] = [];
+    const edgeFasciaDetails: THREE.Mesh[] = [];
+    const addHySteel = (mesh: THREE.Mesh) => { steelDetails.push(mesh); };
+    const addHyDarkSteel = (mesh: THREE.Mesh) => { darkSteelDetails.push(mesh); };
+
+    // Six facade bays by eight floors: dark blue low-e glass, pale mullions,
+    // broad horizontal spandrels and deterministic warm interior variation.
+    const curtain = canvasTexture((c, w, h) => {
+      const cols = 6, rows = 8;
+      const cw = w / cols, ch = h / rows;
+      c.fillStyle = '#315867';
+      c.fillRect(0, 0, w, h);
+      for (let row = 0; row < rows; row++) {
+        for (let col = 0; col < cols; col++) {
+          const x = col * cw, y = row * ch;
+          const tone = (row * 13 + col * 7 + row * col * 3) % 9;
+          const grad = c.createLinearGradient(x, y, x + cw, y);
+          grad.addColorStop(0, tone < 3 ? '#294e5d' : '#365f6e');
+          grad.addColorStop(0.48, tone % 4 === 0 ? '#89aeb9' : '#5e8794');
+          grad.addColorStop(1, tone === 7 ? '#244653' : '#315b69');
+          c.fillStyle = grad;
+          c.fillRect(x, y, cw, ch);
+          c.fillStyle = 'rgba(213,229,232,.24)';
+          c.fillRect(x + cw * 0.58, y + 2, 2, ch - 8);
+          if ((row * 5 + col * 11) % 13 < 2) {
+            c.fillStyle = 'rgba(239,189,122,.3)';
+            c.fillRect(x + 3, y + 3, cw - 6, ch * 0.48);
+          }
+          c.fillStyle = 'rgba(193,211,216,.92)';
+          c.fillRect(x, y, 2, ch);
+          c.fillStyle = '#263942';
+          c.fillRect(x, y + ch - 6, cw, 6);
+          c.fillStyle = 'rgba(158,189,196,.58)';
+          c.fillRect(x, y + ch - 6, cw, 1);
+        }
+      }
+    }, 192, 256);
+    curtain.wrapS = curtain.wrapT = THREE.RepeatWrapping;
+    curtain.anisotropy = 4;
+    const towerGlass = new THREE.MeshStandardMaterial({
+      map: curtain, color: '#94b7c0', metalness: 0.24, roughness: 0.18,
+      emissive: '#315965', emissiveIntensity: 0.52, envMapIntensity: 1.15,
+    });
+    const towerGlassShade = new THREE.MeshStandardMaterial({
+      map: curtain, color: '#739ba8', metalness: 0.26, roughness: 0.21,
+      emissive: '#284d59', emissiveIntensity: 0.54, envMapIntensity: 1.08,
+    });
+
+    // Measured source plans: the rail-platform podium spreads west while the
+    // office shaft rises from the eastern half, then shifts toward the city as
+    // it climbs. Six shared vertices keep every fold sharp and flicker-free.
+    const podiumPlan = scaled([
+      [-58.5, -29], [-15.3, -29], [-15.8, 4.6], [-26.5, 4.7],
+      [-36.7, 13], [-52, 12.2], [-53.8, -12.4], [-48.5, -15.4],
+    ]);
+    const podiumTop = scaled([
+      [-53.5, -28], [-14.5, -28], [-15.5, 5.5], [-25.5, 5.5],
+      [-35.5, 13], [-49.5, 12], [-51.5, -12], [-47, -15],
+    ]);
+    g.add(hyEnvelope([
+      { y: 0, points: podiumPlan },
+      { y: 70, points: podiumPlan },
+      { y: 130, points: podiumTop },
+    ], towerGlassShade));
+
+    const main0 = scaled([
+      [-16, -29], [51.7, -29], [51.7, -16.7],
+      [55, -14], [53, 20], [-16, 20],
+    ]);
+    const main130 = scaled([
+      [-16, -29], [51.7, -29], [51.7, -16.7],
+      [55, -14], [53, 20], [-16, 20],
+    ]);
+    const main250 = scaled([
+      [-12, -27], [53, -27], [53, -16],
+      [57, -13], [55, 23], [-12, 23],
+    ]);
+    const main310 = scaled([
+      [-9, -24], [54, -24], [54, -16],
+      [58, -13], [56, 26], [-9, 26],
+    ]);
+    // Above the 310m office roof, the mapped skillion volumes fold around
+    // Edge rather than continuing as one full rectangular prism. This
+    // concave reveal is what lets the real deck project 80ft into open air.
+    const upper310 = scaled([
+      [-9, -24], [54, -24], [54, -16], [58, -13],
+      [56, 26], [21, 26], [20, -15], [-9, -16],
+    ]);
+    const main335 = scaled([
+      [-8, -21], [55, -21], [55, -16], [58, -13],
+      [57, 27], [21, 27], [20, -15], [-8, -16],
+    ]);
+    const main370 = scaled([
+      [-6, -17], [57, -17], [57, -14], [58, -13],
+      [58, 28], [22, 28], [21, -14], [-6, -14],
+    ]);
+    const shaftLevels: HyLevel[] = [
+      { y: 0, points: main0 },
+      { y: 130, points: main130 },
+      { y: 250, points: main250 },
+      { y: 310, points: main310 },
+    ];
+    const upperLevels: HyLevel[] = [
+      { y: 310, points: upper310 },
+      { y: 335, points: main335 },
+      { y: 370, points: main370 },
+    ];
+    g.add(hyEnvelope(shaftLevels, towerGlass));
+    g.add(hyEnvelope(upperLevels, towerGlass, false));
+
+    // Stainless corner folds and major mechanical datums stay visible at
+    // skyline distance while the texture supplies all sub-floor detail.
+    for (const levels of [shaftLevels, upperLevels]) {
+      for (let level = 0; level < levels.length - 1; level++) {
+        const a = levels[level], b = levels[level + 1];
+        for (let i = 0; i < a.points.length; i++) {
+          addHySteel(strut(
+            new THREE.Vector3(a.points[i][0], a.y, a.points[i][1]),
+            new THREE.Vector3(b.points[i][0], b.y, b.points[i][1]),
+            0.17, HY_STEEL, 5,
+          ));
+        }
+      }
+    }
+    for (const level of [...shaftLevels.slice(1), ...upperLevels.slice(1)]) {
+      for (let i = 0; i < level.points.length; i++) {
+        const next = (i + 1) % level.points.length;
+        addHySteel(strut(
+          new THREE.Vector3(level.points[i][0], level.y, level.points[i][1]),
+          new THREE.Vector3(level.points[next][0], level.y, level.points[next][1]),
+          0.15, HY_STEEL, 5,
+        ));
+      }
+    }
+    // 1,296ft sloping crown. KPF's city elevation rises to one west apex and
+    // falls to the opposite shoulder; the old model inverted this into a
+    // horizontal scaffold. Translucent front/back wedges, floor datum rails,
+    // and the bright sloping perimeter preserve the glass-clad triangular
+    // silhouette without rebuilding OSM's three opaque 395m roof slabs.
+    const crownLeft = -6 * sx, crownRight = 58 * sx;
+    const frontZ = 28.2 * sz, backZ = -17.2 * sz;
+    const crownTri = [
+      [crownLeft, 370] as const,
+      [crownLeft, tipY] as const,
+      [crownRight, 370] as const,
+    ];
+    g.add(hyCrownPanel(crownTri, frontZ - 0.2));
+    g.add(hyCrownPanel(crownTri, backZ + 0.2));
+    const frontA = new THREE.Vector3(crownLeft, 370, frontZ);
+    const frontB = new THREE.Vector3(crownLeft, tipY, frontZ);
+    const frontC = new THREE.Vector3(crownRight, 370, frontZ);
+    const backA = new THREE.Vector3(crownLeft, 370, backZ);
+    const backB = new THREE.Vector3(crownLeft, tipY, backZ);
+    const backC = new THREE.Vector3(crownRight, 370, backZ);
+    for (const [a, b] of [
+      [frontA, frontB], [frontB, frontC], [frontC, frontA],
+      [backA, backB], [backB, backC], [backC, backA],
+      [frontA, backA], [frontB, backB], [frontC, backC],
+    ] as [THREE.Vector3, THREE.Vector3][]) {
+      addHySteel(strut(a, b, 0.52, HY_STEEL, 7));
+    }
+    for (const t of [0.2, 0.4, 0.6, 0.8]) {
+      const y = THREE.MathUtils.lerp(370, tipY, t);
+      const x = THREE.MathUtils.lerp(crownRight, crownLeft, t);
+      const left = new THREE.Vector3(crownLeft, y, frontZ);
+      const right = new THREE.Vector3(x, y, frontZ);
+      const leftBack = new THREE.Vector3(crownLeft, y, backZ);
+      const rightBack = new THREE.Vector3(x, y, backZ);
+      addHySteel(strut(left, right, 0.16, HY_STEEL, 5));
+      addHySteel(strut(leftBack, rightBack, 0.16, HY_STEEL, 5));
+      addHyDarkSteel(strut(left, rightBack, 0.1, HY_DARK_STEEL, 5));
+      addHyDarkSteel(strut(right, leftBack, 0.1, HY_DARK_STEEL, 5));
+    }
+    // The diagonal silver reveal around City Climb remains legible from the
+    // High Line without turning the crown into a dense lattice.
+    const revealA = new THREE.Vector3(crownLeft + 2 * sx, 391, frontZ + 0.12);
+    const revealB = new THREE.Vector3(crownLeft + 11 * sx, 373, frontZ + 0.12);
+    const revealC = new THREE.Vector3(crownLeft + 25 * sx, 381, frontZ + 0.12);
+    for (const [a, b] of [
+      [revealA, revealB], [revealB, revealC], [revealC, revealA],
+    ] as [THREE.Vector3, THREE.Vector3][]) {
+      addHySteel(strut(a, b, 0.42, HY_STEEL, 7));
+    }
+
+    // City Climb follows the exposed south crown slope to the highest outdoor
+    // platform. Twelve real step landings and paired rails make the ascent read
+    // in close helicopter passes without creating hundreds of objects.
+    const climbA = frontC.clone().add(new THREE.Vector3(0, 0.6, 0.45));
+    const climbB = frontB.clone().add(new THREE.Vector3(0, 0.6, 0.45));
+    for (let i = 0; i <= 12; i++) {
+      const t = i / 12;
+      const p = climbA.clone().lerp(climbB, t);
+      addHyDarkSteel(box(2.8, 0.18, 1.2, HY_DARK_STEEL, p.x, p.y, p.z));
+    }
+    for (const zOff of [-0.75, 0.75]) {
+      addHySteel(strut(
+        climbA.clone().add(new THREE.Vector3(0, 1.1, zOff)),
+        climbB.clone().add(new THREE.Vector3(0, 1.1, zOff)),
+        0.08, HY_STEEL, 5,
+      ));
+    }
+    addHyDarkSteel(box(9, 0.55, 5, HY_DARK_STEEL, crownLeft + 3.5 * sx, tipY - 0.3, frontZ - 2.5));
+    g.add(hyDetail(box(8, 0.18, 0.18, HY_GLOW, crownLeft + 3.5 * sx, tipY + 0.08, frontZ)));
+
+    // Edge at the official 1,100ft elevation. Its 7,500ft² triangular plan is
+    // anchored to the tower's east and south faces and extends the documented
+    // 80ft beyond the south face. The former outline crossed the upper shaft's
+    // concave reveal, leaving most of the deck visually buried in the tower.
+    const deckY = 335;
+    const deckPlan = scaled([
+      [48, 51], [25, 27], [57, 0],
+    ]);
+    const deckSlab = polygonPrism(deckPlan, 0.8, HY_STEEL, deckY);
+    const deckTop = deckY + 0.8;
+    deckSlab.userData.noCollision = true;
+    g.add(deckSlab);
+    const deckCenter: HyPoint = [
+      deckPlan.reduce((sum, p) => sum + p[0], 0) / deckPlan.length,
+      deckPlan.reduce((sum, p) => sum + p[1], 0) / deckPlan.length,
+    ];
+    // The real underside is a field of triangular linen-finish stainless
+    // plates. Four broad facets plus radial seams give the same shifting
+    // reflection at one merged draw call rather than a costly panel array.
+    for (let i = 0; i < deckPlan.length; i++) {
+      const next = (i + 1) % deckPlan.length;
+      g.add(hyHorizontalPanel(
+        [deckCenter, deckPlan[i], deckPlan[next]],
+        deckY - 0.025,
+        i % 2 ? HY_EDGE_UNDERSIDE : HY_STEEL,
+      ));
+      addHyDarkSteel(strut(
+        new THREE.Vector3(deckCenter[0], deckY - 0.08, deckCenter[1]),
+        new THREE.Vector3(deckPlan[i][0], deckY - 0.08, deckPlan[i][1]),
+        0.09, HY_DARK_STEEL, 5,
+      ));
+    }
+    // Collision extraction intentionally ignores sub-2m decorative meshes.
+    // Preserve the thin real slab visually while supplying the same footprint
+    // as an invisible 2m landing surface for flight-to-foot transitions.
+    g.add(polygonPrism(deckPlan, 2.0, HY_COLLISION, deckTop - 2.0));
+
+    // 225ft² triangular glass floor with a stainless perimeter.
+    const floorGlass = scaled([[46, 44], [42, 37], [48, 37]]);
+    g.add(hyHorizontalPanel(floorGlass, deckTop + 0.035, HY_EDGE_GLASS));
+    for (let i = 0; i < floorGlass.length; i++) {
+      const next = (i + 1) % floorGlass.length;
+      addHySteel(edgeBar(
+        floorGlass[i][0], floorGlass[i][1],
+        floorGlass[next][0], floorGlass[next][1],
+        deckTop + 0.10, 0.12, 0.18, HY_STEEL,
+      ));
+    }
+
+    // The real 79 non-reflective panels become three continuous glass walls
+    // plus correctly spaced posts, each leaning 6.6° outward. Invisible low
+    // walls preserve safe on-foot interaction without turning the whole crown
+    // into a collision box.
+    const publicEdges: [HyPoint, HyPoint][] = [
+      [deckPlan[0], deckPlan[1]],
+      [deckPlan[2], deckPlan[0]],
+    ];
+    let edgePostCount = 0;
+    for (const [a, b] of publicEdges) {
+      edgeFasciaDetails.push(edgeBar(
+        a[0], a[1], b[0], b[1],
+        deckY + 0.4, 0.32, 0.8, HY_EDGE_UNDERSIDE,
+      ));
+      const wall = hyEdgeWall(a, b, deckCenter, deckTop, 2.74);
+      g.add(wall.panel);
+      const len = wall.bottomA.distanceTo(wall.bottomB);
+      const posts = Math.max(1, Math.ceil(len / 3.8));
+      for (let i = 0; i <= posts; i++) {
+        const t = i / posts;
+        addHySteel(strut(
+          wall.bottomA.clone().lerp(wall.bottomB, t),
+          wall.topA.clone().lerp(wall.topB, t),
+          0.055, HY_STEEL, 5,
+        ));
+        edgePostCount++;
+      }
+      g.add(edgeBar(a[0], a[1], b[0], b[1], deckTop + 1.37, 0.18, 2.74, HY_COLLISION));
+    }
+
+    // Skyline steps rise from level 100 to Peak on 101 with glass rails. Edge's
+    // real modular steel is enclosed by its faceted stainless soffit, so keep
+    // the cantilever clean rather than exposing fictional external braces.
+    for (let i = 0; i < 10; i++) {
+      addHyDarkSteel(box(
+        7, 0.28, 1.35, HY_DARK_STEEL,
+        51.5 * sx, deckTop + i * 0.30, (7 + i * 1.2) * sz,
+      ));
+    }
+    for (const x of [48 * sx, 55 * sx]) {
+      addHySteel(strut(
+        new THREE.Vector3(x, deckTop + 0.7, 7 * sz),
+        new THREE.Vector3(x, deckTop + 3.5, 18 * sz),
+        0.08, HY_STEEL, 5,
+      ));
+    }
+    // Triple-height public lobby and Voices: a warm transparent cable-net wall,
+    // broad entrances and eleven suspended steel letter-orb silhouettes.
+    const lobbyZ = -29.2 * sz;
+    g.add(hyDetail(box(47 * sx, 17.5, 0.28, HY_LOBBY, 18 * sx, 8.75, lobbyZ)));
+    for (let x = -3; x <= 40; x += 5.4) {
+      addHySteel(box(0.17, 17.8, 0.22, HY_STEEL, x * sx, 8.9, lobbyZ - 0.18));
+    }
+    for (const x of [9, 15, 21, 27]) {
+      g.add(hyDetail(box(4.7 * sx, 8.2, 0.18, HY_DOOR, x * sx, 4.1, lobbyZ - 0.34)));
+    }
+    addHySteel(box(22 * sx, 0.32, 6.2, HY_STEEL, 18 * sx, 8.4, lobbyZ - 3.1));
+    for (let i = 0; i < 11; i++) {
+      const radius = 0.28 + (i % 4) * 0.12;
+      const orb = hyDetail(new THREE.Mesh(new THREE.IcosahedronGeometry(radius, 1), HY_STEEL));
+      orb.position.set((-2 + i * 4) * sx, 10.5 + (i % 3) * 1.6, lobbyZ + 0.5);
+      g.add(orb);
+      addHySteel(strut(
+        new THREE.Vector3(orb.position.x, orb.position.y + radius, orb.position.z),
+        new THREE.Vector3(orb.position.x, 17.2, orb.position.z),
+        0.025, HY_STEEL, 4,
+      ));
+    }
+
+    // Preserve every rail, cable and facade seam, but enter the scene with three
+    // packed material batches instead of rebuilding 150+ tiny nodes on every
+    // approach. The Edge post count varies with a fitted source footprint.
+    const expectedSteelDetails = 115 + edgePostCount;
+    if (
+      steelDetails.length !== expectedSteelDetails
+      || darkSteelDetails.length !== 35
+      || edgeFasciaDetails.length !== 2
+    ) {
+      throw new Error(
+        `Incomplete 30 Hudson Yards details: ${steelDetails.length}/${expectedSteelDetails} steel, `
+        + `${darkSteelDetails.length}/35 dark steel, ${edgeFasciaDetails.length}/2 fascia`,
+      );
+    }
+    g.add(hyDetail(mergeDetailBatch(steelDetails, HY_STEEL, '30 Hudson Yards steel')));
+    g.add(hyDetail(mergeDetailBatch(darkSteelDetails, HY_DARK_STEEL, '30 Hudson Yards dark steel')));
+    g.add(hyDetail(mergeDetailBatch(edgeFasciaDetails, HY_EDGE_UNDERSIDE, 'Edge fascia')));
+
+    // Conservative, tiered collision follows the real occupied massing and
+    // leaves both the open crown and Edge's underside free. The podium, 310m
+    // shaft, 370m upper roof and 335.8m deck are all independently landable.
+    g.add(polygonPrism(podiumPlan, 130, HY_COLLISION));
+    g.add(polygonPrism(main0, 310, HY_COLLISION));
+    g.add(polygonPrism(upper310, 60, HY_COLLISION, 310));
+    return g;
+  },
+
+  // 50 Hudson Yards: Foster + Partners' full-block vertical campus. The source
+  // data has the right three-level silhouette but renders each level as a
+  // featureless prism; this replacement preserves those measured footprints
+  // while supplying the white structural frame, four-floor glass boxes,
+  // terraces, permeable lobby and illuminated summit halo.
+  'fifty-hudson': (ctx) => {
+    const g = new THREE.Group();
+    const siteW = ctx.fit?.w ?? 107;
+    const siteD = ctx.fit?.d ?? 57;
+    const roofH = ctx.fit?.roofH ?? 308.2;
+    const sx = siteW / 107;
+    const sz = siteD / 57;
+    const sy = roofH / 308.2;
+    const stoneDetails: THREE.Mesh[] = [];
+    const visual = <T extends THREE.Mesh>(mesh: T): T => {
+      mesh.userData.noCollision = true;
+      return mesh;
+    };
+    const addStone = (mesh: THREE.Mesh) => {
+      mesh.userData.noCollision = true;
+      stoneDetails.push(mesh);
+    };
+
+    // One exact facade atlas per block/elevation pair. Major four-floor stone
+    // bars are physical geometry below; the atlas carries floor plates, narrow
+    // mullions, reflected sky and sparse warm interiors without window meshes.
+    const facadeMaterial = (bays: number, floors: number, seed: number) => {
+      const tex = canvasTexture((c, w, h) => {
+        c.fillStyle = '#253d44';
+        c.fillRect(0, 0, w, h);
+        const panes = bays * 4;
+        const paneW = w / panes;
+        const floorH = h / floors;
+        for (let row = 0; row < floors; row++) {
+          for (let pane = 0; pane < panes; pane++) {
+            const x = pane * paneW;
+            const y = h - (row + 1) * floorH;
+            const tone = (row * 11 + pane * 7 + seed * 13) % 12;
+            const grad = c.createLinearGradient(x, y, x + paneW, y + floorH);
+            grad.addColorStop(0, tone < 4 ? '#29454d' : '#3b5c64');
+            grad.addColorStop(0.48, tone % 5 === 0 ? '#9db3b6' : '#6f8f94');
+            grad.addColorStop(1, tone === 9 ? '#20373e' : '#35535a');
+            c.fillStyle = grad;
+            c.fillRect(x + 1, y + 1, Math.max(1, paneW - 2), Math.max(1, floorH - 2));
+            if ((row * 17 + pane * 5 + seed) % 29 < 2) {
+              c.fillStyle = 'rgba(237,190,124,.35)';
+              c.fillRect(x + 2, y + 2, Math.max(1, paneW - 4), Math.max(1, floorH - 4));
+            }
+          }
+          c.fillStyle = 'rgba(17,29,33,.88)';
+          c.fillRect(0, h - row * floorH - 2, w, 2);
+        }
+        c.fillStyle = 'rgba(207,217,216,.72)';
+        for (let pane = 1; pane < panes; pane++) {
+          const x = Math.round(pane * paneW);
+          c.fillRect(x, 0, 1, h);
+        }
+        // The physical bars stay legible close up; a matching atlas trace keeps
+        // the grid present after those slim meshes fall below pixel size.
+        c.fillStyle = '#d9d9d2';
+        for (let bay = 0; bay <= bays; bay++) {
+          const x = Math.round((bay / bays) * w);
+          c.fillRect(Math.max(0, x - 3), 0, 6, h);
+        }
+        for (let floor = 0; floor <= floors; floor += 4) {
+          const y = Math.round(h - (floor / floors) * h);
+          c.fillRect(0, Math.max(0, y - 2), w, 4);
+        }
+        c.fillRect(0, 0, w, 4);
+      }, 256, 512);
+      tex.anisotropy = 4;
+      return new THREE.MeshStandardMaterial({
+        map: tex, color: '#d8e1e2', metalness: 0.3, roughness: 0.17,
+        emissive: '#283f44', emissiveIntensity: 0.34, envMapIntensity: 1.18,
+      });
+    };
+
+    type FiftyBlock = {
+      w: number; d: number; x: number; z: number;
+      y0: number; y1: number; floors: number; broadBays: number; sideBays: number;
+    };
+    const blocks: FiftyBlock[] = [
+      {
+        w: 107 * sx, d: 57 * sz, x: 0, z: 0,
+        y0: 0, y1: 33 * sy, floors: 8, broadBays: 6, sideBays: 3,
+      },
+      {
+        w: 95 * sx, d: 49 * sz, x: 1.5 * sx, z: -1 * sz,
+        y0: 33 * sy, y1: 160 * sy, floors: 24, broadBays: 4, sideBays: 3,
+      },
+      {
+        w: 76 * sx, d: 49 * sz, x: 10.8 * sx, z: -1 * sz,
+        y0: 160 * sy, y1: roofH, floors: 26, broadBays: 3, sideBays: 2,
+      },
+    ];
+
+    const addBlock = (b: FiftyBlock, index: number) => {
+      const h = b.y1 - b.y0;
+      const cy = b.y0 + h / 2;
+      g.add(visual(box(b.w - 0.8, h, b.d - 0.8, FIFTY_CORE, b.x, cy, b.z)));
+      const broad = facadeMaterial(b.broadBays, b.floors, index * 2 + 1);
+      const side = facadeMaterial(b.sideBays, b.floors, index * 2 + 2);
+      for (const z of [b.z - b.d / 2, b.z + b.d / 2]) {
+        g.add(visual(box(b.w - 0.7, h - 0.5, 0.16, broad, b.x, cy, z)));
+      }
+      for (const x of [b.x - b.w / 2, b.x + b.w / 2]) {
+        g.add(visual(box(0.16, h - 0.5, b.d - 0.7, side, x, cy, b.z)));
+      }
+
+      // Full-height perimeter structure and four-floor transfer bands. These
+      // are the building's defining white-stone grid, batched to one draw call.
+      for (let bay = 0; bay <= b.broadBays; bay++) {
+        const x = b.x - b.w / 2 + (bay / b.broadBays) * b.w;
+        for (const z of [b.z - b.d / 2 - 0.08, b.z + b.d / 2 + 0.08]) {
+          addStone(box(0.95, h, 0.48, FIFTY_STONE, x, cy, z));
+        }
+      }
+      for (let bay = 0; bay <= b.sideBays; bay++) {
+        const z = b.z - b.d / 2 + (bay / b.sideBays) * b.d;
+        for (const x of [b.x - b.w / 2 - 0.08, b.x + b.w / 2 + 0.08]) {
+          addStone(box(0.48, h, 0.95, FIFTY_STONE, x, cy, z));
+        }
+      }
+      const bandFloors = new Set<number>();
+      for (let floor = 0; floor <= b.floors; floor += 4) bandFloors.add(floor);
+      bandFloors.add(b.floors);
+      for (const floor of bandFloors) {
+        let y = b.y0 + (floor / b.floors) * h;
+        if (floor === 0) y += 0.36;
+        if (floor === b.floors) y -= 0.36;
+        for (const z of [b.z - b.d / 2 - 0.1, b.z + b.d / 2 + 0.1]) {
+          addStone(box(b.w + 0.15, 0.72, 0.5, FIFTY_STONE, b.x, y, z));
+        }
+        for (const x of [b.x - b.w / 2 - 0.1, b.x + b.w / 2 + 0.1]) {
+          addStone(box(0.5, 0.72, b.d + 0.15, FIFTY_STONE, x, y, b.z));
+        }
+      }
+    };
+    blocks.forEach(addBlock);
+
+    // Deep terrace datums separate the three stacked commercial blocks.
+    addStone(box(blocks[0].w + 0.6, 0.6, blocks[0].d + 0.6, FIFTY_STONE, 0, blocks[0].y1 - 0.3, 0));
+    addStone(box(
+      blocks[1].w + 0.6, 0.6, blocks[1].d + 0.6, FIFTY_STONE,
+      blocks[1].x, blocks[1].y1 - 0.3, blocks[1].z,
+    ));
+    for (const b of blocks.slice(0, 2)) {
+      const y = b.y1 + 0.64;
+      for (const z of [b.z - b.d / 2 + 0.4, b.z + b.d / 2 - 0.4]) {
+        g.add(visual(box(b.w - 0.8, 1.28, 0.1, FIFTY_SCREEN, b.x, y, z)));
+      }
+      for (const x of [b.x - b.w / 2 + 0.4, b.x + b.w / 2 - 0.4]) {
+        g.add(visual(box(0.1, 1.28, b.d - 0.8, FIFTY_SCREEN, x, y, b.z)));
+      }
+    }
+
+    // Four street-facing entrances sit behind shallow stone canopies; the
+    // warm cable-net lobby reads through the full-height glass after dark.
+    const base = blocks[0];
+    for (const z of [base.z - base.d / 2 - 0.12, base.z + base.d / 2 + 0.12]) {
+      g.add(visual(box(20 * sx, 9.5 * sy, 0.18, FIFTY_LOBBY, base.x, 4.75 * sy, z)));
+      addStone(box(22 * sx, 0.45, 4.8, FIFTY_STONE, base.x, 9.1 * sy, z));
+    }
+    for (const x of [base.x - base.w / 2 - 0.12, base.x + base.w / 2 + 0.12]) {
+      g.add(visual(box(0.18, 9.5 * sy, 15 * sz, FIFTY_LOBBY, x, 4.75 * sy, base.z)));
+      addStone(box(4.8, 0.45, 17 * sz, FIFTY_STONE, x, 9.1 * sy, base.z));
+    }
+
+    // A translucent louver screen hides rooftop plant while the bright
+    // perimeter halo gives the building its documented night-time crown.
+    const upper = blocks[2];
+    const screenH = Math.min(8 * sy, upper.y1 - upper.y0);
+    const screenY = roofH - screenH / 2 - 0.7;
+    for (const z of [upper.z - upper.d / 2 - 0.12, upper.z + upper.d / 2 + 0.12]) {
+      g.add(visual(box(upper.w - 1.6, screenH, 0.18, FIFTY_SCREEN, upper.x, screenY, z)));
+    }
+    for (const x of [upper.x - upper.w / 2 - 0.12, upper.x + upper.w / 2 + 0.12]) {
+      g.add(visual(box(0.18, screenH, upper.d - 1.6, FIFTY_SCREEN, x, screenY, upper.z)));
+    }
+    addStone(box(upper.w, 1.1, 0.8, FIFTY_STONE, upper.x, roofH - 0.55, upper.z - upper.d / 2));
+    addStone(box(upper.w, 1.1, 0.8, FIFTY_STONE, upper.x, roofH - 0.55, upper.z + upper.d / 2));
+    addStone(box(0.8, 1.1, upper.d, FIFTY_STONE, upper.x - upper.w / 2, roofH - 0.55, upper.z));
+    addStone(box(0.8, 1.1, upper.d, FIFTY_STONE, upper.x + upper.w / 2, roofH - 0.55, upper.z));
+    g.add(visual(box(upper.w - 1.2, 0.12, 0.2, FIFTY_HALO, upper.x, roofH + 0.08, upper.z - upper.d / 2)));
+    g.add(visual(box(upper.w - 1.2, 0.12, 0.2, FIFTY_HALO, upper.x, roofH + 0.08, upper.z + upper.d / 2)));
+    g.add(visual(box(0.2, 0.12, upper.d - 1.2, FIFTY_HALO, upper.x - upper.w / 2, roofH + 0.08, upper.z)));
+    g.add(visual(box(0.2, 0.12, upper.d - 1.2, FIFTY_HALO, upper.x + upper.w / 2, roofH + 0.08, upper.z)));
+    g.add(visual(box(upper.w - 3, 0.7, upper.d - 3, FIFTY_ROOF, upper.x, roofH - 0.35, upper.z)));
+
+    if (stoneDetails.length !== 136) {
+      throw new Error(`Incomplete 50 Hudson Yards stone frame: ${stoneDetails.length}/136 details`);
+    }
+    g.add(hyDetail(mergeDetailBatch(stoneDetails, FIFTY_STONE, '50 Hudson Yards stone')));
+
+    // Three independently landable masses follow the surveyed stacked plans.
+    g.add(box(base.w, base.y1, base.d, FIFTY_COLLISION, base.x, base.y1 / 2, base.z));
+    g.add(box(
+      blocks[1].w, blocks[1].y1 - blocks[1].y0, blocks[1].d, FIFTY_COLLISION,
+      blocks[1].x, (blocks[1].y0 + blocks[1].y1) / 2, blocks[1].z,
+    ));
+    g.add(box(
+      upper.w, upper.y1 - upper.y0, upper.d, FIFTY_COLLISION,
+      upper.x, (upper.y0 + upper.y1) / 2, upper.z,
+    ));
     return g;
   },
 };

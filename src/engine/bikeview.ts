@@ -64,6 +64,10 @@ function buildWheel(unit: THREE.CylinderGeometry): THREE.Group {
  */
 function buildSteer(unit: THREE.CylinderGeometry, wheel: THREE.Object3D): THREE.Group {
   const g = new THREE.Group();
+  // The grips sit closest to the camera and occupy far more pixels than any
+  // docked-bike tube. Give only these viewmodel pieces a rounder cross-section;
+  // the world bikes retain their cheaper shared six-sided tube.
+  const gripUnit = new THREE.CylinderGeometry(1, 1, 1, 12);
   const rel = (v: THREE.Vector3) => v.clone().sub(HEAD_TOP);
 
   const barL = new THREE.Vector3(-BAR_HALF, BAR_Y, BAR_Z);
@@ -78,7 +82,7 @@ function buildSteer(unit: THREE.CylinderGeometry, wheel: THREE.Object3D): THREE.
   for (const s of [-1, 1]) {
     const outer = new THREE.Vector3(s * BAR_HALF, BAR_Y, BAR_Z);
     const inner = new THREE.Vector3(s * (BAR_HALF - 0.11), BAR_Y, BAR_Z);
-    g.add(tube(unit, RUBBER, rel(inner), rel(outer), 0.026));
+    g.add(tube(gripUnit, RUBBER, rel(inner), rel(outer), 0.026));
   }
 
   const merged = mergeByMaterial(g);

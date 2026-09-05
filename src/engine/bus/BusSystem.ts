@@ -3,6 +3,7 @@ import { dataUrl } from '../dataver';
 import { disposeGroup } from '../EntranceManager';
 import { heightAt } from '../terrain';
 import { hash01 } from '../palette';
+import { quality } from '../quality';
 import {
   BUS,
   type BusData,
@@ -13,6 +14,29 @@ import {
   type BusHud,
   type BusArrival,
 } from './types';
+import {
+  findTrafficLateralEscape,
+  findStalledTrafficEscape,
+  trafficFootprintsOverlap,
+  trafficForwardClearance,
+  trafficLateralEscape,
+  trafficMotionConflicts,
+  trafficMotionClearsObstacles,
+  trafficPairMotionsConflict,
+  trafficPairKey,
+  type TrafficFootprint,
+  type TrafficMotion,
+} from '../population/trafficSafety';
+import {
+  BUS_DEADLOCK_ESCAPE_AFTER,
+  BUS_DEADLOCK_RETIRE_AFTER,
+  breakBusLeaderCycles,
+  busDeadlockEscapeReady,
+  busMeshCap,
+  busRecoveryWins,
+  busScheduleDensity,
+  busYieldsAtConflict,
+} from './flow';
 
 /**
  * Bus network simulation + street-level manager.
@@ -40,16 +64,18 @@ const SPEED_SBS = 11.5;   // m/s cruising speed, Select Bus Service
 const SPEED_LOCAL = 9.5;  // m/s cruising speed, local
 const DOOR_RAMP = 1.2;    // s for doors to open / close within a dwell
 const DOOR_OPEN = 0.6;    // door t threshold for board/exit
-const HEADWAY_BASE = 42;
-const HEADWAY_SPAN = 30;  // H ∈ [42, 72)
+const DWELL_POSITION_EPS = 2.0; // timetable dwell is real only at its physical stop
+const DWELL_LATERAL_EPS = 0.65; // doors stay closed while passing/berthing off lane
+const PHYSICAL_STOP_ARRIVAL_EPS = 0.35;
 const WORLD_TIME_START = 7200;
 
 // ---- streaming / culling constants ----
 const STOP_PLACE_R2 = 300 * 300;
 const STOP_REMOVE_R2 = 340 * 340;
 const STOP_CAP = 120;
-const BUS_MESH_R2 = 420 * 420;
-const BUS_CULL_R2 = 460 * 460;
+const BUS_MESH_R2 = 250 * 250;
+const BUS_CULL_R2 = 285 * 285;
+const STOP_DETAIL_R2 = 86 * 86;
 const STOP_TICK = 0.7;
 const BUS_TICK = 0.35;
 
@@ -90,6 +116,8 @@ const V_MAX = 20;          // cap on rendered arc-speed (m/s) — bounds every s
 const END_EPS = 2.0;       // despawn a finished run once it renders within this of its terminal
 const REL_RATE = 2.5;      // lateral-nudge release smoothing rate (base, per second)
 const LAT_CAP = 8;         // max lateral slide speed (m/s) — smooth merge, never a sideways snap
+const DEADLOCK_LAT_SPEED = 3.2; // deliberate low-speed lane change around a stopped chain
+const DEADLOCK_LAT_MAX = 4.4;   // at most one adjacent lane from the authored route
 // cross-traffic yield (intersections): a bus never drives its nose into another
 // bus's body regardless of heading; the one closer to the conflict proceeds, the
 // other holds back like waiting at the light.
@@ -121,6 +149,7 @@ interface DirRT {
   stopIds: string[];
   stopNames: string[];
   stopS: Float64Array;
+  parkS: Float64Array;
   dwellStart: Float64Array; // run-time a bus begins dwelling at stop i
   /** Curb pull-in, meters toward local +z while serving stop i. The GTFS shape
    *  runs down the roadway; the pole sits on the sidewalk. Pulling over parks
@@ -171,6 +200,7 @@ interface MeshedBus {
   // ---- car-following scratch, recomputed each frame (see stepMeshed) ----
   sDes: number;     // desired arc-length from the timetable
   lat: number;      // curb offset this frame (m, right-of-travel)
+  committedLat: number; // last transaction-accepted route-frame curb offset
   desX: number;     // desired on-lane world x (centerline + curb)
   desZ: number;     // desired on-lane world z
   fx: number;       // travel forward x (unit tangent)
@@ -179,8 +209,28 @@ interface MeshedBus {
   // ---- persistent smoothed anti-overlap state ----
   rs: number;       // RENDERED arc-length (eased toward the capped target; never jumps)
   finishing: boolean; // run's schedule is over; drive to the terminal, then despawn
+  runDeadline: number; // absolute generation end; cannot rebase on timetable wrap
+  nextPhysicalStopIdx: number; // first unserved stop ahead of committed rs
+  physicalDwellRemaining: number; // -1 not started, 0 served, >0 open-stop seconds
+  physicalLat: number; // smoothed carried-stop curb offset, NaN when inactive
   sepX: number;     // smoothed lateral safety offset (world m)
   sepZ: number;
+  renderSpeed: number; // actual committed body speed, not timetable intent
+  blockedFor: number;  // seconds rejected by the collision transaction
+  escapeSide: number;  // remembered local lateral sign while working out of a jam
+  escapeBlockerKey: string | null; // body being passed; release only after tail clearance
+  serviceDwell: boolean; // ordinary scheduled stop, never treated as a deadlock
+  serviceDoorT: number; // actual committed door command, not timetable intent
+  serviceStopIdx: number; // physical stop currently being served, or -1
+  // Pre-stage service snapshot. PASS 1 proposes curb/dwell/door state before
+  // the collision transaction accepts the matching body motion; rejected or
+  // unadmitted proposals restore these allocation-free scratch values.
+  beforePhysicalLat: number;
+  beforePhysicalDwellRemaining: number;
+  beforeNextPhysicalStopIdx: number;
+  beforeServiceDwell: boolean;
+  beforeServiceDoorT: number;
+  beforeServiceStopIdx: number;
 }
 
 interface PlacedStop {
@@ -263,12 +313,18 @@ class BusRide implements BusRideHandle {
   atEnd = false;
   pos = { x: 0, z: 0, yaw: 0 };
   active = true;
+  private unpin: () => void;
+  public mb: MeshedBus;
+  public dir: DirRT;
   constructor(
-    private unpin: () => void,
-    public mb: MeshedBus,
-    public dir: DirRT,
+    unpin: () => void,
+    mb: MeshedBus,
+    dir: DirRT,
     route: RouteRT,
   ) {
+    this.unpin = unpin;
+    this.mb = mb;
+    this.dir = dir;
     this.model = mb.model;
     this.hud = {
       route: route.id,
@@ -308,7 +364,21 @@ export class BusSystem {
 
   private worldTime = WORLD_TIME_START;
   private meshed = new Map<string, MeshedBus>();
+  private readonly meshCap = busMeshCap(quality().level);
+  /**
+   * Which side of each other a meshed PAIR berthed to, keyed by their two
+   * keyNums. See the tie-break in separateMeshed: derived fresh from the current
+   * offset it is a feedback loop, so it is decided once and kept.
+   */
+  private sepSide = new Map<string, number>();
+  /** One persistent token prevents incompatible lane changes in one streamed area. */
+  private recoveryOwnerKey: string | null = null;
+  /** A retired gridlock loser stays out for one cycle instead of popping back in. */
+  private suppressedUntil = new Map<string, number>();
+  private externalTrafficObstacles: readonly TrafficFootprint[] = [];
+  private readonly committedTrafficMotions: TrafficMotion[] = [];
   private placedStops = new Map<string, PlacedStop>();
+  private stopTemplates = new Map<string, THREE.Group>();
   private stopTimer = 0;
   private busTimer = 0;
 
@@ -430,9 +500,15 @@ export class BusSystem {
       }
     }
     const T = t;
-    const H = HEADWAY_BASE + hash01(routeIdx * 17 + dirIdx * 7) * HEADWAY_SPAN;
-    const N = Math.max(1, Math.ceil(T / H));
-    const C = N * H;
+    const schedule = busScheduleDensity(
+      T,
+      routeIdx,
+      dirIdx,
+      sbs,
+    );
+    const H = schedule.headway;
+    const N = schedule.slots;
+    const C = schedule.cycle;
     // Even (low-discrepancy) phase across directions so routes sharing a corridor
     // don't spawn in lockstep and bunch. A golden-ratio sequence over the global
     // direction index spreads phases maximally; a per-route hash perturbation
@@ -472,7 +548,7 @@ export class BusSystem {
     return {
       routeIdx, dirIdx, dest,
       px: Float64Array.from(xs), pz: Float64Array.from(zs), cum: Float64Array.from(cumA), nPts, total,
-      stopIds, stopNames, stopS, dwellStart, curbPull, nStops,
+      stopIds, stopNames, stopS, parkS, dwellStart, curbPull, nStops,
       segT0: Float64Array.from(segT0), segDur: Float64Array.from(segDur), segType: Uint8Array.from(segType),
       segStopIdx: Int32Array.from(segStopIdx), segSStart: Float64Array.from(segSStart), segSEnd: Float64Array.from(segSEnd),
       nSeg: segT0.length,
@@ -564,8 +640,14 @@ export class BusSystem {
   }
 
   // ---- update ----
-  update(px: number, pz: number, dt: number) {
+  update(
+    px: number,
+    pz: number,
+    dt: number,
+    externalTrafficObstacles: readonly TrafficFootprint[] = [],
+  ) {
     if (!this.data) return;
+    this.externalTrafficObstacles = externalTrafficObstacles;
     this.worldTime += dt;
 
     this.stopTimer -= dt;
@@ -575,38 +657,202 @@ export class BusSystem {
     if (this.busTimer <= 0) { this.busTimer = BUS_TICK; this.maintainBuses(px, pz); }
 
     // per-frame: transform every meshed bus (newly built ones included)
-    this.stepMeshed(dt);
+    this.stepMeshed(px, pz, dt);
     if (this.ride) this.refreshRide();
   }
 
-  private stepMeshed(dt: number) {
+  private stepMeshed(px: number, pz: number, dt: number) {
+    this.committedTrafficMotions.length = 0;
     // PASS 1 — timetable: each in-service meshed bus's DESIRED on-lane pose, plus
     // its purely-scheduled outputs (doors, next-stop sign). The anti-overlap pass
     // then decides where it actually renders.
-    const vis: MeshedBus[] = [];
+    const staged: MeshedBus[] = [];
     for (const mb of this.meshed.values()) {
+      mb.beforePhysicalLat = mb.physicalLat;
+      mb.beforePhysicalDwellRemaining = mb.physicalDwellRemaining;
+      mb.beforeNextPhysicalStopIdx = mb.nextPhysicalStopIdx;
+      mb.beforeServiceDwell = mb.serviceDwell;
+      mb.beforeServiceDoorT = mb.serviceDoorT;
+      mb.beforeServiceStopIdx = mb.serviceStopIdx;
       const dir = mb.dir;
       const tau = this.tau(dir, mb.k);
       // When the schedule says the run is over, DON'T vanish in place — keep the
       // bus visible and drive it to its terminal (target = the route's final s);
       // finalize removes it once it renders there. The ridden bus is pinned
       // (World ends the ride via ride.active=false), so leave its schedule alone.
-      const finishing = tau >= dir.T && mb.key !== this.riddenKey;
+      const finishing = mb.finishing || this.worldTime >= mb.runDeadline;
       mb.finishing = finishing;
       let s: number;
+      let scheduledDoorT = 0;
+      let scheduledDwell = false;
       if (finishing) {
         s = dir.segSEnd[dir.nSeg - 1]; // the terminal
         mb.lat = BASE_LAT;
-        mb.model.setDoors(0);
       } else {
         this.state(dir, tau >= dir.T ? dir.T - 1e-3 : tau, _st);
         s = _st.s;
         mb.lat = _st.lat;
-        mb.model.setDoors(_st.doorT);
-        const nx = dir.stopNames[_st.stopIdx] ?? null;
-        if (nx !== mb.lastNextStop) { mb.model.setNextStop(nx); mb.lastNextStop = nx; }
-        if (_st.stopReq !== mb.lastStopReq) { mb.model.setStopRequested(_st.stopReq); mb.lastStopReq = _st.stopReq; }
+        scheduledDwell = _st.state !== 'moving';
+        scheduledDoorT = _st.doorT;
       }
+
+      // Timetable intent can move past a stop while collision-safe committed
+      // motion is delayed. Cap at the first unserved physical stop and carry a
+      // real dwell there; an on-time dwell overlaps the timetable dwell, while
+      // a late bus still opens at the stop instead of skipping it.
+      const timetableLat = mb.lat;
+      let carriedDwell = false;
+      const finalStopIdx = dir.nStops - 1;
+      if (
+        finishing
+        && mb.key === this.riddenKey
+        && mb.nextPhysicalStopIdx >= dir.nStops
+        && mb.init
+        && Math.abs(mb.rs - dir.parkS[finalStopIdx]) <= DWELL_POSITION_EPS
+      ) {
+        // Boarding late in the scheduled terminal dwell initially marks that
+        // stop served. If its timetable expires before the rider steps off,
+        // reopen a physical terminal dwell instead of stranding them behind
+        // closed doors in a pinned, already-finished generation.
+        mb.nextPhysicalStopIdx = finalStopIdx;
+        mb.physicalDwellRemaining = Number.POSITIVE_INFINITY;
+      }
+      while (
+        mb.nextPhysicalStopIdx < dir.nStops
+        && mb.physicalDwellRemaining === 0
+      ) {
+        mb.physicalDwellRemaining = -1;
+        mb.nextPhysicalStopIdx++;
+      }
+      let targetedStopIdx = -1;
+      if (mb.nextPhysicalStopIdx < dir.nStops) {
+        const stopIdx = mb.nextPhysicalStopIdx;
+        const parkS = dir.parkS[stopIdx];
+        if (
+          mb.physicalDwellRemaining > 0
+          || s >= parkS - PHYSICAL_STOP_ARRIVAL_EPS
+        ) {
+          targetedStopIdx = stopIdx;
+          s = Math.min(s, parkS);
+        }
+      }
+      if (targetedStopIdx >= 0) {
+        if (!Number.isFinite(mb.physicalLat)) {
+          // Begin the carried pull-in at the body that is actually on screen.
+          // Timetable expiry changes `lat` intent to BASE_LAT immediately; using
+          // that proposal as the seed would jump a terminal bus several metres
+          // sideways before the physical-lat smoothing even began.
+          mb.physicalLat = mb.init ? mb.committedLat : mb.lat;
+        }
+        const targetLat = dir.curbPull[targetedStopIdx];
+        const latStep = Math.min(
+          Math.abs(targetLat - mb.physicalLat),
+          DEADLOCK_LAT_SPEED * dt,
+        );
+        mb.physicalLat += Math.sign(targetLat - mb.physicalLat) * latStep;
+        mb.lat = mb.physicalLat;
+      } else if (Number.isFinite(mb.physicalLat)) {
+        const latStep = Math.min(
+          Math.abs(timetableLat - mb.physicalLat),
+          DEADLOCK_LAT_SPEED * dt,
+        );
+        mb.physicalLat += Math.sign(timetableLat - mb.physicalLat) * latStep;
+        mb.lat = mb.physicalLat;
+        if (Math.abs(timetableLat - mb.physicalLat) < 1e-3) {
+          mb.physicalLat = Number.NaN;
+        }
+      }
+      const lateralAligned =
+        Math.hypot(mb.sepX, mb.sepZ) <= DWELL_LATERAL_EPS
+        && (
+          targetedStopIdx < 0
+          || Math.abs(mb.lat - dir.curbPull[targetedStopIdx])
+            <= DWELL_LATERAL_EPS
+        );
+      if (targetedStopIdx >= 0) {
+        const parkS = dir.parkS[targetedStopIdx];
+        const atBerth = mb.init
+          && mb.rs >= parkS - PHYSICAL_STOP_ARRIVAL_EPS
+          && Math.abs(mb.rs - parkS) <= DWELL_POSITION_EPS;
+        if (
+          mb.physicalDwellRemaining < 0
+          && atBerth
+          && lateralAligned
+        ) {
+          mb.physicalDwellRemaining = (
+            finishing
+            && mb.key === this.riddenKey
+            && targetedStopIdx === dir.nStops - 1
+          )
+            ? Number.POSITIVE_INFINITY
+            : (
+              targetedStopIdx === dir.nStops - 1
+                ? LAST_DWELL
+                : DWELL
+            );
+        }
+        if (
+          mb.physicalDwellRemaining > 0
+          && atBerth
+          && lateralAligned
+        ) {
+          carriedDwell = true;
+          mb.physicalDwellRemaining = Math.max(
+            0,
+            mb.physicalDwellRemaining - dt,
+          );
+        }
+      }
+      const scheduledStopMatchesPhysicalTarget = targetedStopIdx < 0
+        || targetedStopIdx === _st.stopIdx;
+      const scheduledPhysicalDwell = scheduledDwell
+        && scheduledStopMatchesPhysicalTarget
+        && (
+          !mb.init
+          || Math.abs(mb.rs - dir.parkS[_st.stopIdx])
+            <= DWELL_POSITION_EPS
+        );
+      const carriedPhysicalDwell = carriedDwell && mb.init;
+      mb.serviceDwell = lateralAligned
+        && (scheduledPhysicalDwell || carriedPhysicalDwell);
+      mb.serviceDoorT = mb.serviceDwell
+        ? (
+          carriedPhysicalDwell
+            ? (scheduledPhysicalDwell ? scheduledDoorT : 1)
+            : scheduledDoorT
+        )
+        : 0;
+      mb.serviceStopIdx = mb.serviceDwell
+        ? (
+          carriedPhysicalDwell
+            ? mb.nextPhysicalStopIdx
+            : _st.stopIdx
+        )
+        : -1;
+      const physicalDisplayStopIdx = mb.serviceStopIdx >= 0
+        ? mb.serviceStopIdx
+        : (
+          mb.nextPhysicalStopIdx < dir.nStops
+            ? mb.nextPhysicalStopIdx
+            : -1
+        );
+      const nx = physicalDisplayStopIdx >= 0
+        ? (dir.stopNames[physicalDisplayStopIdx] ?? null)
+        : null;
+      if (nx !== mb.lastNextStop) {
+        mb.model.setNextStop(nx);
+        mb.lastNextStop = nx;
+      }
+      const physicalStopReq = (
+        !mb.serviceDwell
+        && physicalDisplayStopIdx >= 0
+        && dir.parkS[physicalDisplayStopIdx] - mb.rs <= 30
+      );
+      if (physicalStopReq !== mb.lastStopReq) {
+        mb.model.setStopRequested(physicalStopReq);
+        mb.lastStopReq = physicalStopReq;
+      }
+      mb.model.setDoors(mb.serviceDoorT);
       this.pointAt(dir, s, _pt);
       this.tangentAt(dir, s, _tan);
       const rnx = -_tan.z, rnz = _tan.x; // unit right-of-travel normal
@@ -614,10 +860,80 @@ export class BusSystem {
       mb.desX = _pt.x + rnx * mb.lat;    // desired on-lane world position
       mb.desZ = _pt.z + rnz * mb.lat;
       mb.fx = _tan.x; mb.fz = _tan.z;    // travel forward = shape tangent
+      staged.push(mb);
+    }
+
+    // A just-streamed mesh has no committed safe pose to roll back to. Admit it
+    // only when its first body is clear of StreetLife and every already-visible
+    // bus; deferred meshes remain hidden and retry on the next frame without
+    // influencing leader or separation passes.
+    const vis: MeshedBus[] = [];
+    const admittedNew: TrafficFootprint[] = [];
+    const hL = BUS.length / 2;
+    const hW = BUS.width / 2;
+    for (const mb of staged) {
+      if (mb.init) {
+        vis.push(mb);
+        continue;
+      }
+      const candidate: TrafficFootprint = {
+        key: `bus:${mb.key}`,
+        x: mb.desX,
+        z: mb.desZ,
+        fx: mb.fx,
+        fz: mb.fz,
+        halfLength: hL,
+        halfWidth: hW,
+        speed: 0,
+        priority: true,
+      };
+      let occupied = this.externalTrafficObstacles.some((obstacle) => (
+        trafficFootprintsOverlap(candidate, obstacle, 0.08)
+      ));
+      if (!occupied) {
+        occupied = staged.some((other) => {
+          if (!other.init) return false;
+          const yaw = other.yaw;
+          return trafficFootprintsOverlap(candidate, {
+            key: `bus:${other.key}`,
+            x: other.model.group.position.x,
+            z: other.model.group.position.z,
+            fx: Math.cos(yaw),
+            fz: -Math.sin(yaw),
+            halfLength: hL,
+            halfWidth: hW,
+            speed: other.renderSpeed,
+            priority: true,
+          }, 0.08);
+        });
+      }
+      if (!occupied) {
+        occupied = admittedNew.some((other) => (
+          trafficFootprintsOverlap(candidate, other, 0.08)
+        ));
+      }
+      if (occupied) {
+        mb.model.group.visible = false;
+        this.restoreStagedService(mb);
+        mb.renderSpeed = 0;
+        mb.model.setSpeed(0, dt);
+        continue;
+      }
+      admittedNew.push(candidate);
       vis.push(mb);
     }
-    const finished = this.clampSeparate(vis, dt);
+    const finished = this.clampSeparate(vis, dt, px, pz);
     for (const mb of finished) this.removeMeshed(mb);
+  }
+
+  private restoreStagedService(mb: MeshedBus): void {
+    mb.physicalLat = mb.beforePhysicalLat;
+    mb.physicalDwellRemaining = mb.beforePhysicalDwellRemaining;
+    mb.nextPhysicalStopIdx = mb.beforeNextPhysicalStopIdx;
+    mb.serviceDwell = mb.beforeServiceDwell;
+    mb.serviceDoorT = mb.beforeServiceDoorT;
+    mb.serviceStopIdx = mb.beforeServiceStopIdx;
+    mb.model.setDoors(mb.serviceDoorT);
   }
 
   /**
@@ -641,14 +957,44 @@ export class BusSystem {
    *     two apart along the shared street's perpendicular by their footprint
    *     penetration. Fires only on a real oriented-footprint overlap.
    */
-  private clampSeparate(vis: MeshedBus[], dt: number): MeshedBus[] {
+  private clampSeparate(vis: MeshedBus[], dt: number, px: number, pz: number): MeshedBus[] {
     const n = vis.length;
     if (n === 0) return [];
     const rx = new Float64Array(n), rz = new Float64Array(n);   // rendered pose
     const rfx = new Float64Array(n), rfz = new Float64Array(n);
     const done = new Uint8Array(n), onStack = new Uint8Array(n);
+    // Full committed snapshots. A failed proposal must restore every persistent
+    // motion filter, not only position/arc-length, or the rejected tangent and
+    // separation impulses leak into the next frame as a visible jump.
+    const priorInit = new Uint8Array(n);
+    const priorX = new Float64Array(n), priorZ = new Float64Array(n);
+    const priorY = new Float64Array(n), priorYaw = new Float64Array(n);
+    const priorRS = new Float64Array(n), priorLastRS = new Float64Array(n);
+    const priorSfx = new Float64Array(n), priorSfz = new Float64Array(n);
+    const priorFlipRS = new Float64Array(n);
+    const priorSepX = new Float64Array(n), priorSepZ = new Float64Array(n);
+    const priorRenderSpeed = new Float64Array(n);
+    for (let i = 0; i < n; i++) {
+      const a = vis[i];
+      priorInit[i] = a.init ? 1 : 0;
+      priorX[i] = a.model.group.position.x;
+      priorZ[i] = a.model.group.position.z;
+      priorY[i] = a.y;
+      priorYaw[i] = a.yaw;
+      priorRS[i] = a.rs;
+      priorLastRS[i] = a.lastRS;
+      priorSfx[i] = a.sfx;
+      priorSfz[i] = a.sfz;
+      priorFlipRS[i] = a.flipRS;
+      priorSepX[i] = a.sepX;
+      priorSepZ[i] = a.sepZ;
+      priorRenderSpeed[i] = a.renderSpeed;
+    }
 
-    // (1) nearest same-lane leader AHEAD, on DESIRED positions (stable, lag-free).
+    // (1) nearest same-lane leader AHEAD, on committed positions. Timetable
+    // intent may be hundreds of metres ahead during congestion; using it here
+    // makes a physically adjacent bus disappear from LOOKAHEAD and leaves the
+    // exact collision transaction to freeze both actors indefinitely.
     // A bus only ever holds behind something in FRONT of it — the follower waits,
     // a leader is never moved by what trails it, and no bus is ever driven
     // backward. (A prior "terminal hand-off" let the more-advanced bus YIELD to
@@ -658,12 +1004,21 @@ export class BusSystem {
     // motion: the stationary originating bus is the natural follower and simply
     // holds its ground, and the lateral safety net (3) berths the pair apart.)
     for (let i = 0; i < n; i++) {
-      const a = vis[i], fx = a.fx, fz = a.fz, xi = a.desX, zi = a.desZ, ki = a.keyNum;
+      const a = vis[i];
+      const fx = priorInit[i] ? a.sfx : a.fx;
+      const fz = priorInit[i] ? a.sfz : a.fz;
+      const xi = priorInit[i] ? priorX[i] : a.desX;
+      const zi = priorInit[i] ? priorZ[i] : a.desZ;
+      const ki = a.keyNum;
       let bestAhead = -1, bestAlong = Infinity, bestColoc = -1, bestColocKey = -Infinity;
       for (let j = 0; j < n; j++) {
         if (j === i) continue;
         const b = vis[j];
-        const ddx = b.desX - xi, ddz = b.desZ - zi;
+        const bx = priorInit[j] ? priorX[j] : b.desX;
+        const bz = priorInit[j] ? priorZ[j] : b.desZ;
+        const bfx = priorInit[j] ? b.sfx : b.fx;
+        const bfz = priorInit[j] ? b.sfz : b.fz;
+        const ddx = bx - xi, ddz = bz - zi;
         const along = ddx * fx + ddz * fz;
         if (along > LOOKAHEAD) continue;
         const lat = ddx * -fz + ddz * fx;
@@ -674,10 +1029,10 @@ export class BusSystem {
         // circles (Columbus Circle), bends — a leader one gap ahead sits off to
         // the side in the follower's straight frame, so a fixed width misses it
         // and they overlap. The cone catches it while staying tight up close.
-        const latJ = ddx * b.fz - ddz * b.fx;
+        const latJ = ddx * bfz - ddz * bfx;
         const laneTol = LANE_HALF + LANE_FAN * Math.min(Math.max(0, along), 30);
         if (Math.min(Math.abs(lat), Math.abs(latJ)) >= laneTol) continue;
-        const cosH = fx * b.fx + fz * b.fz;
+        const cosH = fx * bfx + fz * bfz;
         if (cosH <= SAME_DIR_COS) continue; // only queue behind same travel heading
         if (along > CO_EPS) { if (along < bestAlong) { bestAlong = along; bestAhead = j; } }
         else if (along > -CO_EPS && b.keyNum < ki) { if (b.keyNum > bestColocKey) { bestColocKey = b.keyNum; bestColoc = j; } }
@@ -687,6 +1042,9 @@ export class BusSystem {
       // ahead-or-here, never behind — a follower can only be held, not shoved back.
       a.leaderIdx = bestColoc >= 0 ? bestColoc : bestAhead;
     }
+    const leaders = Int32Array.from(vis.map((bus) => bus.leaderIdx));
+    breakBusLeaderCycles(leaders, vis.map((bus) => bus.keyNum));
+    for (let i = 0; i < n; i++) vis[i].leaderIdx = leaders[i];
 
     // (1b) cross-traffic yield: no bus drives its nose into another bus's body,
     // whatever the heading — this is what stops two buses PHASING THROUGH each
@@ -699,31 +1057,123 @@ export class BusSystem {
     // freeze (no gridlock). Result is an absolute arc-length cap folded into (2).
     const hLb = BUS.length / 2, hWb = BUS.width / 2;
     const noseCapRS = new Float64Array(n);
+    const routeHeld = new Uint8Array(n);
     noseCapRS.fill(Infinity);
     for (let i = 0; i < n; i++) {
-      const a = vis[i], afx = a.fx, afz = a.fz;
+      const a = vis[i];
+      const afx = priorInit[i] ? a.sfx : a.fx;
+      const afz = priorInit[i] ? a.sfz : a.fz;
+      const ax = priorInit[i] ? priorX[i] : a.desX;
+      const az = priorInit[i] ? priorZ[i] : a.desZ;
       for (let j = 0; j < n; j++) {
         if (j === i) continue;
         const b = vis[j];
-        const ddx = b.desX - a.desX, ddz = b.desZ - a.desZ;
+        const bx = priorInit[j] ? priorX[j] : b.desX;
+        const bz = priorInit[j] ? priorZ[j] : b.desZ;
+        const bfx = priorInit[j] ? b.sfx : b.fx;
+        const bfz = priorInit[j] ? b.sfz : b.fz;
+        const ddx = bx - ax, ddz = bz - az;
         const along = ddx * afx + ddz * afz;             // b's centre ahead of a
         if (along <= 0 || along > CROSS_LOOK) continue;   // only near hazards ahead
         const lat = ddx * -afz + ddz * afx;
         // b's half-extent projected on a's forward (E) and a's lateral (latExt)
-        const c1 = Math.abs(afx * b.fx + afz * b.fz);     // |cos| between forwards
-        const c2 = Math.abs(afx * -b.fz + afz * b.fx);    // |sin|
+        const c1 = Math.abs(afx * bfx + afz * bfz);       // |cos| between forwards
+        const c2 = Math.abs(afx * -bfz + afz * bfx);      // |sin|
         const E = c1 * hLb + c2 * hWb;
         const latExt = c2 * hLb + c1 * hWb;
         if (Math.abs(lat) >= hWb + latExt) continue;      // b not across a's lane
         const dA = along - E - hLb - CROSS_STOP_GAP;      // a's room before contact
-        // symmetric room for b before it hits a → right-of-way (closer proceeds)
-        const alongB = -ddx * b.fx - ddz * b.fz;
-        const dB = alongB - E - hLb - CROSS_STOP_GAP;
-        const aYields = dA > dB + 1e-3 || (Math.abs(dA - dB) <= 1e-3 && a.keyNum > b.keyNum);
+        // A total order is required here. Pairwise "closer to the conflict"
+        // comparisons can form A→B→C→A at a busy junction and stop everybody.
+        // Let a bus already clearing the box continue; stable key order resolves
+        // a fully stopped tie and therefore always leaves one winner.
+        const aYields = busYieldsAtConflict(a, b);
         if (!aYields) continue;
-        const cap = a.sDes + dA;                          // absolute arc a may reach
+        const cap = priorInit[i] ? a.rs + dA : a.sDes + dA;
         if (cap < noseCapRS[i]) noseCapRS[i] = cap;
+        if (
+          b.renderSpeed <= 0.15
+          && !b.serviceDwell
+          && cap <= a.rs + 0.05
+        ) {
+          routeHeld[i] = 1;
+        }
       }
+    }
+
+    // (1c) prior committed StreetLife snapshot. Pedestrians are priority bodies
+    // with a generous stopping gap; moving cars get a shorter hard guard because
+    // their current-frame resolver yields to a moving bus. This two-phase handoff
+    // prevents either system from committing into the other's last safe body.
+    for (let i = 0; i < n; i++) {
+      const a = vis[i];
+      const initialized = a.init;
+      const x = initialized ? a.model.group.position.x : a.desX;
+      const z = initialized ? a.model.group.position.z : a.desZ;
+      const fx = initialized ? a.sfx : a.fx;
+      const fz = initialized ? a.sfz : a.fz;
+      const mover: TrafficFootprint = {
+        key: `bus:${a.key}`,
+        x,
+        z,
+        fx,
+        fz,
+        halfLength: hLb,
+        halfWidth: hWb,
+        speed: a.renderSpeed,
+        priority: a.renderSpeed > 0.15,
+      };
+      for (const obstacle of this.externalTrafficObstacles) {
+        const centerAlong = (obstacle.x - x) * fx + (obstacle.z - z) * fz;
+        const lookahead = obstacle.priority ? 24 : 6;
+        if (centerAlong <= 0 || centerAlong > lookahead + hLb) continue;
+        const clearance = trafficForwardClearance(
+          mover,
+          obstacle,
+          obstacle.immovable ? 0.08 : 0.25,
+        );
+        if (clearance === null || clearance > lookahead) continue;
+        const stopGap = obstacle.priority ? 1.2 : 0.35;
+        const allowed = Math.max(0, clearance - stopGap);
+        const cap = initialized ? a.rs + allowed : a.sDes + Math.min(0, clearance - stopGap);
+        if (cap < noseCapRS[i]) noseCapRS[i] = cap;
+        if (
+          initialized
+          && obstacle.speed <= 0.15
+          && !obstacle.key.startsWith('ped:')
+          && cap <= a.rs + 0.05
+        ) {
+          routeHeld[i] = 1;
+        }
+      }
+    }
+
+    // Pairwise recovery ownership is not enough at a compact junction: several
+    // independently legal lane changes can occupy every escape corridor. Keep
+    // one persistent token across the streamed bus set so all other buses hold
+    // exact committed poses while the elected actor completes or times out.
+    let recoveryOwner = this.recoveryOwnerKey
+      ? vis.find((bus) => bus.key === this.recoveryOwnerKey)
+      : undefined;
+    if (
+      recoveryOwner
+      && recoveryOwner.escapeSide === 0
+      && !busDeadlockEscapeReady(recoveryOwner.blockedFor)
+    ) {
+      this.recoveryOwnerKey = null;
+      recoveryOwner = undefined;
+    }
+    if (!recoveryOwner) {
+      const ready = vis.filter((bus) => (
+        !bus.serviceDwell
+        && busDeadlockEscapeReady(bus.blockedFor)
+      ));
+      ready.sort((a, b) => (
+        Number(b.key === this.riddenKey) - Number(a.key === this.riddenKey)
+        || a.keyNum - b.keyNum
+      ));
+      recoveryOwner = ready[0];
+      this.recoveryOwnerKey = recoveryOwner?.key ?? null;
     }
 
     // (2) topological resolve: each follower's persistent rendered arc-length
@@ -733,17 +1183,27 @@ export class BusSystem {
       if (onStack[i]) { done[i] = 1; return; } // cycle: leader already resolving upstack
       onStack[i] = 1;
       const a = vis[i];
-      // target arc-length: the timetable position, capped one MIN_GAP behind the
-      // leader's ALREADY-RESOLVED rendered position (measured from a's desired
-      // pose, which is stable/lag-free), never before the route start.
+      // Target arc-length: timetable intent capped by how much physical road is
+      // actually open ahead of the committed body. Desired-position math is
+      // invalid once a queue has delayed a bus away from its schedule.
       let target = a.sDes;
       const L = a.leaderIdx;
       if (L >= 0) {
         resolve(L);
-        const gap = (rx[L] - a.desX) * a.fx + (rz[L] - a.desZ) * a.fz;
-        if (gap < MIN_GAP) {
-          const capped = a.sDes - (MIN_GAP - gap);
-          if (capped < target) target = capped;
+        const ax = priorInit[i] ? priorX[i] : a.desX;
+        const az = priorInit[i] ? priorZ[i] : a.desZ;
+        const afx = priorInit[i] ? a.sfx : a.fx;
+        const afz = priorInit[i] ? a.sfz : a.fz;
+        const gap = (rx[L] - ax) * afx + (rz[L] - az) * afz;
+        const capped = (priorInit[i] ? a.rs : a.sDes)
+          + Math.max(0, gap - MIN_GAP);
+        if (capped < target) target = capped;
+        if (
+          vis[L].renderSpeed <= 0.15
+          && !vis[L].serviceDwell
+          && target <= a.rs + 0.05
+        ) {
+          routeHeld[i] = 1;
         }
       }
       // cross-traffic hold: never advance the nose into a blocking body (2 §1b)
@@ -799,6 +1259,31 @@ export class BusSystem {
     const order = vis.map((_, i) => i).sort((p, q) => vis[p].keyNum - vis[q].keyNum);
     const sepTx = new Float64Array(n), sepTz = new Float64Array(n);
     const hL = BUS.length / 2, hW = BUS.width / 2;
+    // Parked vehicles are hard curb geometry, not participants in right-of-way.
+    // Give each bus a smooth lateral target away from the strongest obstruction;
+    // the longitudinal guard above holds it short until this merge clears.
+    for (let i = 0; i < n; i++) {
+      const a = vis[i];
+      const mover: TrafficFootprint = {
+        key: `bus:${a.key}`,
+        x: rx[i],
+        z: rz[i],
+        fx: rfx[i],
+        fz: rfz[i],
+        halfLength: hL,
+        halfWidth: hW,
+        speed: a.renderSpeed,
+        priority: true,
+      };
+      let escape = 0;
+      for (const obstacle of this.externalTrafficObstacles) {
+        const candidate = trafficLateralEscape(mover, obstacle);
+        if (Math.abs(candidate) > Math.abs(escape)) escape = candidate;
+      }
+      const sideX = -rfz[i], sideZ = rfx[i];
+      sepTx[i] += sideX * escape;
+      sepTz[i] += sideZ * escape;
+    }
     for (let pass = 0; pass < SEP_PASSES; pass++) {
       for (let r = 0; r < n; r++) {
         const i = order[r];
@@ -830,7 +1315,31 @@ export class BusSystem {
           // gap). Break that tie deterministically by the key-sorted pass order (i
           // precedes j), so the pair berths to stable opposite sides instead of
           // oscillating on top of each other.
-          const sgn = proj > 1e-2 ? 1 : proj < -1e-2 ? -1 : 1;
+          // Split direction, decided ONCE per pair and remembered.
+          //
+          // Deriving it from the CURRENT offset each frame is a feedback loop:
+          // proj is measured from positions that already carry last frame's
+          // smoothed push, so the pair chases its own correction. Measured on
+          // two buses of different routes sharing a stop at Herald Square --
+          // locked at the same arc position (along pinned at 0.76 m, headings
+          // exactly parallel) with their lateral offsets swinging 0 -> 2.24 m
+          // -> 0 on a repeating cycle, overlapping for up to 5 frames at a time.
+          // That reads as a bus shimmying sideways next to another bus.
+          //
+          // The old code recognised the degenerate case but only when the
+          // centres were within 1 cm, which is far narrower than the range over
+          // which proj is unreliable. Keyed memory covers the whole of it, and
+          // is deterministic: the same pair always berths the same way.
+          const ki = vis[i].keyNum, kj = vis[j].keyNum;
+          const pairKey = trafficPairKey(ki, kj);
+          const flip = ki > kj;                 // store the side in low-key order
+          let stored = this.sepSide.get(pairKey) ?? 0;
+          if (stored === 0) {
+            stored = proj > 1e-2 ? 1 : proj < -1e-2 ? -1 : 1;
+            if (flip) stored = -stored;
+            this.sepSide.set(pairKey, stored);
+          }
+          const sgn = flip ? -stored : stored;
           const half = (overlap / 2) * sgn;
           sepTx[j] += px * half; sepTz[j] += pz * half;   // push both apart
           sepTx[i] -= px * half; sepTz[i] -= pz * half;
@@ -853,6 +1362,18 @@ export class BusSystem {
     const latCap = LAT_CAP * dt;
     for (let i = 0; i < n; i++) {
       const a = vis[i];
+      // A deadlock escape is a persistent lane-change state, not a one-frame
+      // separation impulse. Releasing it toward zero here creates an equilibrium
+      // below one lane width, so the bus can wiggle forever without clearing the
+      // blocker. Hold the committed offset until the rear clears it (or it pulls
+      // safely away); the exact transaction below still validates every step.
+      if (
+        a.escapeSide !== 0
+        && busDeadlockEscapeReady(a.blockedFor)
+      ) {
+        sepTx[i] = a.sepX;
+        sepTz[i] = a.sepZ;
+      }
       if (!a.init) { a.sepX = sepTx[i]; a.sepZ = sepTz[i]; }
       else {
         let ex = (sepTx[i] - a.sepX) * kS, ez = (sepTz[i] - a.sepZ) * kS;
@@ -863,27 +1384,421 @@ export class BusSystem {
       rx[i] += a.sepX; rz[i] += a.sepZ;
     }
 
-    // finalize: every bus is visible (none are ever hidden); smooth ground height
-    // + heading, place, and drive wheel speed from the RENDERED arc-length (0 when
-    // stopped behind a leader). A finished run that has reached its terminal is
-    // returned for removal so it drives off rather than blinking out mid-street.
+    // Finalize in stable key order as a sequential collision transaction. Each
+    // proposal must clear StreetLife, already-accepted bus proposals, and the
+    // still-committed poses of later buses. This prevents two clear endpoints
+    // from swapping through one another and covers perpendicular buses that the
+    // lateral comfort pass intentionally ignores.
     const yawK = Math.min(1, dt * 6), yK = Math.min(1, dt * 8);
     const finished: MeshedBus[] = [];
-    for (let i = 0; i < n; i++) {
+    const accepted: Array<TrafficFootprint | null> = new Array(n).fill(null);
+    const priorBodies: Array<TrafficFootprint | null> = vis.map((a, i) => (
+      priorInit[i]
+        ? {
+          key: `bus:${a.key}`,
+          x: priorX[i],
+          z: priorZ[i],
+          fx: Math.cos(priorYaw[i]),
+          fz: -Math.sin(priorYaw[i]),
+          halfLength: hL,
+          halfWidth: hW,
+          speed: priorRenderSpeed[i],
+          priority: true,
+        }
+        : null
+    ));
+    for (const i of order) {
       const a = vis[i], g = a.model.group;
+      const rawYaw = Math.atan2(-rfz[i], rfx[i]);
+      let nextYaw = priorInit[i]
+        ? angLerp(priorYaw[i], rawYaw, yawK)
+        : rawYaw;
+      let committedSpeed = dt > 0
+        ? Math.max(0, a.rs - priorLastRS[i]) / dt
+        : 0;
+      const candidate: TrafficFootprint = {
+        key: `bus:${a.key}`,
+        x: rx[i],
+        z: rz[i],
+        fx: Math.cos(nextYaw),
+        fz: -Math.sin(nextYaw),
+        halfLength: hL,
+        halfWidth: hW,
+        speed: committedSpeed,
+        priority: committedSpeed > 0.15,
+      };
+      const startBody = priorBodies[i];
+      const conflictsFixed = (obstacle: TrafficFootprint): boolean => (
+        startBody
+          ? trafficMotionConflicts(startBody, candidate, obstacle, 0.08)
+          : trafficFootprintsOverlap(candidate, obstacle, 0.08)
+      );
+      let blocked = this.externalTrafficObstacles.some(conflictsFixed);
+      if (blocked && startBody) {
+        const escape = findTrafficLateralEscape(
+          startBody,
+          candidate,
+          this.externalTrafficObstacles,
+          LAT_CAP * dt,
+          0.08,
+        );
+        if (escape) {
+          if (escape.heldRoute) {
+            a.rs = priorRS[i];
+            a.lastRS = priorLastRS[i];
+            a.sfx = priorSfx[i];
+            a.sfz = priorSfz[i];
+            a.flipRS = priorFlipRS[i];
+            a.sepX = priorSepX[i] + escape.shiftX;
+            a.sepZ = priorSepZ[i] + escape.shiftZ;
+            nextYaw = priorYaw[i];
+          } else {
+            a.sepX += escape.shiftX;
+            a.sepZ += escape.shiftZ;
+          }
+          rx[i] = escape.end.x;
+          rz[i] = escape.end.z;
+          candidate.x = escape.end.x;
+          candidate.z = escape.end.z;
+          candidate.fx = escape.end.fx;
+          candidate.fz = escape.end.fz;
+          committedSpeed = Math.max(
+            escape.heldRoute ? 0 : committedSpeed,
+            dt > 0 ? Math.hypot(escape.shiftX, escape.shiftZ) / dt : 0,
+          );
+          candidate.speed = committedSpeed;
+          candidate.priority = committedSpeed > 0.15;
+          blocked = false;
+        }
+      }
+      // The ordinary transaction only needs the first conflict. Avoid allocating
+      // O(n²) motion wrappers every frame; full obstacle collection is reserved
+      // for the rare bus that has remained stalled long enough to recover.
+      for (let j = 0; j < n; j++) {
+        if (j === i) continue;
+        const acceptedEnd = accepted[j];
+        const otherStart = priorBodies[j];
+        const otherBody = acceptedEnd ?? otherStart;
+        if (!otherBody) continue;
+        if (
+          trafficPairMotionsConflict(
+            startBody ?? candidate,
+            candidate,
+            otherStart ?? otherBody,
+            acceptedEnd ?? otherBody,
+            0.08,
+          )
+        ) {
+          blocked = true;
+          break;
+        }
+      }
+      if (
+        (blocked || routeHeld[i] === 1)
+        && startBody
+        && busDeadlockEscapeReady(a.blockedFor)
+        && a.key === this.recoveryOwnerKey
+      ) {
+        const busObstacles: TrafficFootprint[] = [];
+        const recoverableBusKeys = new Set<string>();
+        for (let j = 0; j < n; j++) {
+          if (j === i) continue;
+          const otherBody = accepted[j] ?? priorBodies[j];
+          if (!otherBody) continue;
+          busObstacles.push(otherBody);
+          if (busRecoveryWins(
+            {
+              keyNum: a.keyNum,
+              ridden: a.key === this.riddenKey,
+            },
+            {
+              keyNum: vis[j].keyNum,
+              ridden: vis[j].key === this.riddenKey,
+            },
+          )) {
+            recoverableBusKeys.add(otherBody.key);
+          }
+        }
+        const stalledObstacles = this.externalTrafficObstacles.length > 0
+          ? [...this.externalTrafficObstacles, ...busObstacles]
+          : busObstacles;
+        const remainingLateral = Math.max(
+          0,
+          DEADLOCK_LAT_MAX - Math.hypot(a.sepX, a.sepZ),
+        );
+        const maxShift = Math.min(
+          remainingLateral,
+          DEADLOCK_LAT_SPEED * dt,
+          0.18,
+        );
+        const sideX = -startBody.fz;
+        const sideZ = startBody.fx;
+        // The authored route is a street centerline and BASE_LAT places traffic
+        // on its right. Recover toward the center/adjacent lane, never farther
+        // curbward onto the sidewalk.
+        const rememberedSide = -1;
+        const recoveryProposal = routeHeld[i] === 1 && !blocked
+          ? {
+            ...candidate,
+            x: startBody.x + startBody.fx * 0.75,
+            z: startBody.z + startBody.fz * 0.75,
+            speed: Math.max(candidate.speed, 0.75 / Math.max(dt, 1e-3)),
+          }
+          : candidate;
+        const escape = findStalledTrafficEscape(
+          startBody,
+          recoveryProposal,
+          stalledObstacles,
+          maxShift,
+          0.08,
+          rememberedSide,
+          routeHeld[i] === 1 && !blocked,
+          0.25,
+          (obstacle) => (
+            !obstacle.key.startsWith('bus:')
+            || recoverableBusKeys.has(obstacle.key)
+          ),
+        );
+        let escapeIsSafe = Boolean(escape) && trafficMotionClearsObstacles(
+          startBody,
+          escape!.end,
+          this.externalTrafficObstacles,
+          [],
+          0.08,
+        );
+        if (escape && escapeIsSafe) {
+          for (let j = 0; j < n; j++) {
+            if (j === i) continue;
+            const acceptedEnd = accepted[j];
+            const otherStart = priorBodies[j];
+            const otherBody = acceptedEnd ?? otherStart;
+            if (
+              otherBody
+              && trafficPairMotionsConflict(
+                startBody,
+                escape.end,
+                otherStart ?? otherBody,
+                acceptedEnd ?? otherBody,
+                0.08,
+              )
+            ) {
+              escapeIsSafe = false;
+              break;
+            }
+          }
+        }
+        if (escape && escapeIsSafe) {
+          if (escape.heldRoute) {
+            a.rs = priorRS[i];
+            a.lastRS = priorLastRS[i];
+            a.sfx = priorSfx[i];
+            a.sfz = priorSfz[i];
+            a.flipRS = priorFlipRS[i];
+            a.sepX = priorSepX[i] + escape.shiftX;
+            a.sepZ = priorSepZ[i] + escape.shiftZ;
+            nextYaw = priorYaw[i];
+          } else {
+            a.sepX += escape.shiftX;
+            a.sepZ += escape.shiftZ;
+          }
+          a.escapeSide = Math.sign(
+            escape.shiftX * sideX + escape.shiftZ * sideZ,
+          ) || a.escapeSide;
+          a.escapeBlockerKey = escape.blockerKey;
+          rx[i] = escape.end.x;
+          rz[i] = escape.end.z;
+          candidate.x = escape.end.x;
+          candidate.z = escape.end.z;
+          candidate.fx = escape.end.fx;
+          candidate.fz = escape.end.fz;
+          committedSpeed = Math.max(
+            escape.heldRoute ? 0 : committedSpeed,
+            dt > 0 ? Math.hypot(escape.shiftX, escape.shiftZ) / dt : 0,
+          );
+          candidate.speed = committedSpeed;
+          candidate.priority = committedSpeed > 0.15;
+          blocked = false;
+        }
+      }
+      if (blocked && !priorInit[i]) {
+        // A freshly streamed bus has no prior safe pose to restore. Defer its
+        // mesh-in until the occupied scheduled position clears.
+        g.visible = false;
+        this.restoreStagedService(a);
+        a.renderSpeed = 0;
+        a.model.setSpeed(0, dt);
+        continue;
+      }
+      if (blocked) {
+        a.blockedFor += dt;
+        a.rs = priorRS[i];
+        a.lastRS = priorLastRS[i];
+        a.sfx = priorSfx[i];
+        a.sfz = priorSfz[i];
+        a.flipRS = priorFlipRS[i];
+        a.sepX = priorSepX[i];
+        a.sepZ = priorSepZ[i];
+        a.renderSpeed = 0;
+        a.y = priorY[i];
+        a.yaw = priorYaw[i];
+        this.restoreStagedService(a);
+        a.init = true;
+        g.visible = true;
+        g.position.set(priorX[i], priorY[i], priorZ[i]);
+        g.rotation.y = priorYaw[i];
+        accepted[i] = priorBodies[i];
+        this.committedTrafficMotions.push({
+          start: priorBodies[i]!,
+          end: priorBodies[i]!,
+        });
+        a.model.setViewerDistanceSq?.(
+          (priorX[i] - px) ** 2 + (priorZ[i] - pz) ** 2,
+          a.key === this.riddenKey,
+        );
+        a.model.setSpeed(0, dt);
+        continue;
+      }
       g.visible = true;
       const gy = heightAt(rx[i], rz[i]);
-      // rfx/rfz is the smoothed flip-rejecting forward, so both position and yaw
-      // are already jump-free; just ease ground height + heading.
-      const rawYaw = Math.atan2(-rfz[i], rfx[i]);
-      if (!a.init) { a.y = gy; a.yaw = rawYaw; a.lastRS = a.rs; a.init = true; }
-      else { a.y += (gy - a.y) * yK; a.yaw = angLerp(a.yaw, rawYaw, yawK); }
+      if (!priorInit[i]) {
+        a.y = gy;
+        a.yaw = nextYaw;
+        a.lastRS = a.rs;
+        a.renderSpeed = 0;
+        a.init = true;
+      } else {
+        a.y = priorY[i] + (gy - priorY[i]) * yK;
+        a.yaw = nextYaw;
+        a.lastRS = a.rs;
+        a.renderSpeed = committedSpeed;
+      }
+      a.committedLat = a.lat;
+      let escapeBlocker: TrafficFootprint | undefined;
+      if (a.escapeBlockerKey) {
+        escapeBlocker = this.externalTrafficObstacles.find(
+          (obstacle) => obstacle.key === a.escapeBlockerKey,
+        );
+        if (!escapeBlocker) {
+          for (let j = 0; j < n; j++) {
+            if (j === i) continue;
+            const other = accepted[j] ?? priorBodies[j];
+            if (other?.key === a.escapeBlockerKey) {
+              escapeBlocker = other;
+              break;
+            }
+          }
+        }
+      }
+      const escapeActive = a.escapeSide !== 0 && a.escapeBlockerKey !== null;
+      const blockerAlong = escapeBlocker
+        ? (
+          (escapeBlocker.x - candidate.x) * candidate.fx
+          + (escapeBlocker.z - candidate.z) * candidate.fz
+        )
+        : 0;
+      const blockerClearance = escapeBlocker
+        ? (
+          candidate.halfLength
+          + Math.hypot(escapeBlocker.halfLength, escapeBlocker.halfWidth)
+          + 0.6
+        )
+        : 0;
+      const escapeComplete = escapeActive && (
+        !escapeBlocker
+        || blockerAlong < -blockerClearance
+        || blockerAlong > blockerClearance
+      );
+      if (escapeActive && !escapeComplete) {
+        // Keep the lane-change offset and recovery eligibility through the
+        // entire pass. Returning after the first few centimetres of progress
+        // merely collides with the same body and restarts the timeout.
+        a.blockedFor = a.rs > priorRS[i] + 1e-4
+          ? Math.max(a.blockedFor, BUS_DEADLOCK_ESCAPE_AFTER)
+          : a.blockedFor + dt;
+      } else if (escapeComplete) {
+        // The blocker is behind our tail, has disappeared, or has pulled a full
+        // body gap ahead. Release toward the authored lane gradually; each
+        // return step still goes through the exact sweep transaction.
+        a.blockedFor = 0;
+        a.escapeSide = 0;
+        a.escapeBlockerKey = null;
+        if (this.recoveryOwnerKey === a.key) this.recoveryOwnerKey = null;
+      } else if (a.rs > priorRS[i] + 1e-4) {
+        a.blockedFor = 0;
+        a.escapeSide = 0;
+        a.escapeBlockerKey = null;
+        if (this.recoveryOwnerKey === a.key) this.recoveryOwnerKey = null;
+      } else if (routeHeld[i] === 1) {
+        a.blockedFor += dt;
+      } else {
+        a.blockedFor = 0;
+        a.escapeSide = 0;
+        a.escapeBlockerKey = null;
+      }
+      if (
+        a.serviceDoorT > 0
+        && Math.hypot(a.sepX, a.sepZ) > DWELL_LATERAL_EPS
+      ) {
+        a.physicalDwellRemaining = a.beforePhysicalDwellRemaining;
+        a.serviceDwell = false;
+        a.serviceDoorT = 0;
+        a.serviceStopIdx = -1;
+        a.model.setDoors(0);
+      }
       g.position.set(rx[i], a.y, rz[i]);
       g.rotation.y = a.yaw;
-      let ds = a.rs - a.lastRS; if (ds < 0) ds = 0;
-      a.lastRS = a.rs;
-      a.model.setSpeed(dt > 0 ? ds / dt : 0, dt);
-      if (a.finishing && a.rs >= a.sDes - END_EPS) finished.push(a);
+      candidate.speed = a.renderSpeed;
+      candidate.priority = a.renderSpeed > 0.15;
+      accepted[i] = candidate;
+      this.committedTrafficMotions.push({
+        start: priorBodies[i] ?? candidate,
+        end: candidate,
+      });
+      a.model.setViewerDistanceSq?.(
+        (rx[i] - px) ** 2 + (rz[i] - pz) ** 2,
+        a.key === this.riddenKey,
+      );
+      a.model.setSpeed(a.renderSpeed, dt);
+      if (
+        a.finishing
+        && a.key !== this.riddenKey
+        && a.nextPhysicalStopIdx >= a.dir.nStops
+        && a.rs >= a.dir.parkS[a.dir.nStops - 1] - END_EPS
+      ) finished.push(a);
+    }
+    const timedOutOwner = this.recoveryOwnerKey
+      ? vis.find((bus) => bus.key === this.recoveryOwnerKey)
+      : undefined;
+    if (
+      timedOutOwner
+      && timedOutOwner.blockedFor >= BUS_DEADLOCK_RETIRE_AFTER
+    ) {
+      const namedBlocker = timedOutOwner.escapeBlockerKey
+        ? vis.find(
+          (bus) => `bus:${bus.key}` === timedOutOwner.escapeBlockerKey,
+        )
+        : undefined;
+      // Prefer removing the automated body sealing the owner's corridor. If
+      // that body is external or ridden, retire the automated owner instead.
+      // This is a last resort after 45 seconds of exact no-progress, and its
+      // timetable slot is suppressed for a full cycle to prevent a pop-in loop.
+      const retired = namedBlocker && namedBlocker.key !== this.riddenKey
+        ? namedBlocker
+        : timedOutOwner;
+      if (
+        retired
+        && retired.key !== this.riddenKey
+        && !finished.includes(retired)
+      ) {
+        this.suppressedUntil.set(
+          retired.key,
+          this.worldTime + retired.dir.C,
+        );
+        finished.push(retired);
+      }
+      if (retired?.key === this.recoveryOwnerKey) {
+        this.recoveryOwnerKey = null;
+      }
     }
     return finished;
   }
@@ -892,34 +1807,89 @@ export class BusSystem {
     const route = this.routes[dir.routeIdx];
     const model = this.makeModel({ route: route.id, dest: dir.dest, color: route.color, sbs: route.sbs });
     this.scene.add(model.group);
+    const tau = this.tau(dir, k);
+    const stateTau = Math.min(tau, dir.T - 1e-3);
+    this.state(dir, stateTau, _st);
+    // `stopIdx` is the stop currently being served or approached. Arc-position
+    // alone cannot decide completion: a bus can first stream in centimetres
+    // before a berth and then be held until the timetable has passed it.
+    const nextPhysicalStopIdx = _st.stopIdx;
+    let physicalDwellRemaining = -1;
+    if (_st.state !== 'moving') {
+      const segIdx = lastLE(dir.segT0, dir.nSeg, stateTau);
+      physicalDwellRemaining = Math.max(
+        1e-3,
+        dir.segT0[segIdx] + dir.segDur[segIdx] - stateTau,
+      );
+    }
     const mb: MeshedBus = {
       key, keyNum: dir.routeIdx * 1e6 + dir.dirIdx * 1e5 + k, dir, k, model,
       sfx: 1, sfz: 0, flipRS: 0, y: 0, yaw: 0, lastRS: 0,
       lastNextStop: undefined, lastStopReq: false, init: false,
-      sDes: 0, lat: 0, desX: 0, desZ: 0, fx: 1, fz: 0, leaderIdx: -1,
-      rs: 0, finishing: false, sepX: 0, sepZ: 0,
+      sDes: 0, lat: 0, committedLat: 0,
+      desX: 0, desZ: 0, fx: 1, fz: 0, leaderIdx: -1,
+      rs: 0, finishing: false,
+      runDeadline: this.worldTime + Math.max(0, dir.T - tau),
+      nextPhysicalStopIdx,
+      physicalDwellRemaining,
+      physicalLat: Number.NaN,
+      sepX: 0, sepZ: 0, renderSpeed: 0,
+      blockedFor: 0, escapeSide: 0, escapeBlockerKey: null,
+      serviceDwell: false, serviceDoorT: 0, serviceStopIdx: -1,
+      beforePhysicalLat: Number.NaN,
+      beforePhysicalDwellRemaining: physicalDwellRemaining,
+      beforeNextPhysicalStopIdx: nextPhysicalStopIdx,
+      beforeServiceDwell: false,
+      beforeServiceDoorT: 0,
+      beforeServiceStopIdx: -1,
     };
     this.meshed.set(key, mb);
     return mb;
   }
 
   private removeMeshed(mb: MeshedBus) {
+    // drop this bus's remembered berth sides so the map cannot grow unbounded
+    // over a long session (keys are pair-scoped, so they are dead once either
+    // bus is gone)
+    if (this.sepSide.size) {
+      for (const k of this.sepSide.keys()) {
+        const [low, high] = k.split(':').map(Number);
+        if (low === mb.keyNum || high === mb.keyNum) this.sepSide.delete(k);
+      }
+    }
     this.scene.remove(mb.model.group);
     mb.model.dispose();
     this.meshed.delete(mb.key);
+    if (this.recoveryOwnerKey === mb.key) this.recoveryOwnerKey = null;
   }
 
   /** Every ~0.35 s: cull far/despawned meshes, add at most one near mesh. */
   private maintainBuses(px: number, pz: number) {
+    for (const [key, until] of this.suppressedUntil) {
+      if (until <= this.worldTime) this.suppressedUntil.delete(key);
+    }
     // cull (never the ridden bus)
     for (const mb of Array.from(this.meshed.values())) {
       if (mb.key === this.riddenKey) continue;
       const tau = this.tau(mb.dir, mb.k);
-      if (tau >= mb.dir.T) { this.removeMeshed(mb); continue; }
-      this.pointAt(mb.dir, this.sAt(mb.dir, tau), _pt);
+      // An initialized bus whose schedule expired remains until stepMeshed drives
+      // its persistent rendered pose through the terminal. Removing it here made
+      // the finish path unreachable and could recycle the same slot into a fresh
+      // run while its delayed predecessor was still clearing a queue.
+      if (tau >= mb.dir.T && !mb.init) {
+        this.removeMeshed(mb);
+        continue;
+      }
+      if (mb.init) {
+        _pt.x = mb.model.group.position.x;
+        _pt.z = mb.model.group.position.z;
+      } else {
+        this.pointAt(mb.dir, this.sAt(mb.dir, tau), _pt);
+      }
       const dx = _pt.x - px, dz = _pt.z - pz;
       if (dx * dx + dz * dz > BUS_CULL_R2) this.removeMeshed(mb);
     }
+    if (this.meshed.size >= this.meshCap) return;
     // find the single nearest un-meshed active slot within mesh range
     let bestKey = '', bestDir: DirRT | null = null, bestK = 0, bestD2 = BUS_MESH_R2;
     for (const rt of this.routes) {
@@ -928,6 +1898,11 @@ export class BusSystem {
           const tau = this.tau(dir, k);
           if (tau >= dir.T) continue;
           const key = `${dir.routeIdx}:${dir.dirIdx}:${k}`;
+          const suppressedUntil = this.suppressedUntil.get(key);
+          if (
+            suppressedUntil !== undefined
+            && suppressedUntil > this.worldTime
+          ) continue;
           if (this.meshed.has(key)) continue;
           this.pointAt(dir, this.sAt(dir, tau), _pt);
           const dx = _pt.x - px, dz = _pt.z - pz;
@@ -962,10 +1937,18 @@ export class BusSystem {
     // removals first (frees the cap)
     for (const ps of Array.from(this.placedStops.values())) {
       const dx = ps.x - px, dz = ps.z - pz;
-      if (dx * dx + dz * dz > STOP_REMOVE_R2) {
+      const d2 = dx * dx + dz * dz;
+      if (d2 > STOP_REMOVE_R2) {
         this.scene.remove(ps.group);
         disposeGroup(ps.group);
         this.placedStops.delete(ps.id);
+      } else {
+        // Keep the blue flag readable down the block; shelter panels, bench,
+        // guide box and trim switch on only where their geometry resolves.
+        const detailed = d2 <= STOP_DETAIL_R2;
+        for (const child of ps.group.children) {
+          child.visible = detailed || child.userData.busStopLodAnchor === true;
+        }
       }
     }
     // placements — amortized: at most 2 stop kits actually seated per pass
@@ -1021,7 +2004,22 @@ export class BusSystem {
       }
     }
     const shelter = badges.length >= 2 && hash01(st.seed * 13 + 2) < 0.45;
-    const group = this.makeStop(badges, st.seed, shelter);
+    const templateKey = `${shelter ? 1 : 0}|${badges
+      .map((badge) => `${badge.id}:${badge.color}:${badge.sbs ? 1 : 0}`)
+      .sort()
+      .join(',')}`;
+    let template = this.stopTemplates.get(templateKey);
+    if (!template) {
+      template = this.makeStop(badges, st.seed, shelter);
+      template.traverse((child) => {
+        if (!(child instanceof THREE.Mesh)) return;
+        if (child.userData.shared !== true) child.userData.stopTemplateOwned = true;
+        child.userData.shared = true;
+      });
+      this.stopTemplates.set(templateKey, template);
+    }
+    const group = template.clone(true);
+    group.name = 'Bus Stop';
     group.position.set(sx, heightAt(sx, sz), sz);
     group.rotation.y = yaw;
     this.scene.add(group);
@@ -1037,10 +2035,8 @@ export class BusSystem {
     let bestDoor: [number, number] = [0, 0];
     let bestD2 = 6 * 6;
     for (const mb of this.meshed.values()) {
-      const tau = this.tau(mb.dir, mb.k);
-      if (tau >= mb.dir.T) continue;
-      this.state(mb.dir, tau, _st);
-      if (_st.state === 'moving' || _st.doorT <= DOOR_OPEN) continue;
+      if (!mb.init || !mb.model.group.visible || mb.finishing) continue;
+      if (!mb.serviceDwell || mb.serviceDoorT <= DOOR_OPEN) continue;
       const door = this.localXZToWorld(mb, BUS.doorX.front, BUS.width / 2);
       const dx = door[0] - px, dz = door[1] - pz;
       const d2 = dx * dx + dz * dz;
@@ -1059,7 +2055,11 @@ export class BusSystem {
       route: this.routes[mb.dir.routeIdx].id,
       dirIdx: mb.dir.dirIdx,
       k: mb.k,
-      tau: Math.round(this.tau(mb.dir, mb.k)),
+      tau: Math.round(
+        mb.finishing
+          ? Math.max(0, mb.dir.T - 1)
+          : this.tau(mb.dir, mb.k),
+      ),
     };
   }
 
@@ -1087,55 +2087,149 @@ export class BusSystem {
     const rt = this.routes[routeIdx];
     const dir = rt?.dirs.find((d) => d.dirIdx === dirIdx);
     if (!dir) return null;
+    const existing = this.meshed.get(key);
+    if (existing?.finishing) return null;
     if (this.tau(dir, k) >= dir.T) return null; // run already despawned
-    let mb = this.meshed.get(key);
+    const suppressedUntil = this.suppressedUntil.get(key);
+    if (
+      suppressedUntil !== undefined
+      && suppressedUntil > this.worldTime
+    ) return null;
+    let mb = existing;
+    const builtForBoarding = !mb;
     if (!mb) mb = this.buildMeshed(dir, k, key);
-    this.riddenKey = key;
+    if (!this.stepOneMeshed(mb)) {
+      if (builtForBoarding) this.removeMeshed(mb);
+      return null;
+    }
     // end() unpins so the bus resumes normal culling (it stays in service)
     const ride: BusRide = new BusRide(() => {
-      if (this.ride === ride) { this.riddenKey = null; this.ride = null; }
+      ride.active = false;
+      if (this.ride === ride) {
+        // The terminal dwell is intentionally infinite only while a rider is
+        // pinned to this generation. Once they step off, mark it served so the
+        // automated bus can leave the berth/despawn on the next safe update.
+        if (mb.physicalDwellRemaining === Number.POSITIVE_INFINITY) {
+          mb.physicalDwellRemaining = 0;
+          mb.serviceDwell = false;
+          mb.serviceDoorT = 0;
+          mb.serviceStopIdx = -1;
+          mb.model.setDoors(0);
+        }
+        this.riddenKey = null;
+        this.ride = null;
+      }
     }, mb, dir, rt);
+    this.riddenKey = key;
     this.ride = ride;
-    this.stepOneMeshed(mb); // ensure a valid pose before the handle is read
     this.refreshRide();
     return ride;
   }
 
   /** Position a single meshed bus immediately (used at board time). Uses the raw
    *  timetable pose — car-following refines it on the next stepMeshed. */
-  private stepOneMeshed(mb: MeshedBus) {
+  private stepOneMeshed(mb: MeshedBus): boolean {
+    if (mb.init) return mb.model.group.visible;
     const dir = mb.dir;
     const tau = this.tau(dir, mb.k);
-    if (tau >= dir.T) return;
-    mb.model.group.visible = true;
+    if (tau >= dir.T) return false;
     this.state(dir, tau, _st);
     this.pointAt(dir, _st.s, _pt);
     this.tangentAt(dir, _st.s, _tan);
     const wx = _pt.x - _tan.z * _st.lat;
     const wz = _pt.z + _tan.x * _st.lat;
     const rawYaw = Math.atan2(-_tan.z, _tan.x);
-    if (!mb.init) { mb.y = heightAt(wx, wz); mb.yaw = rawYaw; mb.lastRS = _st.s; mb.init = true; }
+    const candidate: TrafficFootprint = {
+      key: `bus:${mb.key}`,
+      x: wx,
+      z: wz,
+      fx: _tan.x,
+      fz: _tan.z,
+      halfLength: BUS.length / 2,
+      halfWidth: BUS.width / 2,
+      speed: 0,
+      priority: true,
+    };
+    const occupied = this.externalTrafficObstacles.some((obstacle) => (
+      trafficFootprintsOverlap(candidate, obstacle, 0.08)
+    )) || Array.from(this.meshed.values()).some((other) => {
+      if (
+        other === mb
+        || !other.init
+        || !other.model.group.visible
+      ) return false;
+      const yaw = other.yaw;
+      return trafficFootprintsOverlap(candidate, {
+        key: `bus:${other.key}`,
+        x: other.model.group.position.x,
+        z: other.model.group.position.z,
+        fx: Math.cos(yaw),
+        fz: -Math.sin(yaw),
+        halfLength: BUS.length / 2,
+        halfWidth: BUS.width / 2,
+        speed: other.renderSpeed,
+        priority: true,
+      }, 0.08);
+    });
+    if (occupied) {
+      mb.model.group.visible = false;
+      return false;
+    }
+    mb.model.group.visible = true;
+    mb.y = heightAt(wx, wz);
+    mb.yaw = rawYaw;
+    mb.rs = _st.s;
+    mb.lastRS = _st.s;
+    mb.sfx = _tan.x;
+    mb.sfz = _tan.z;
+    mb.flipRS = _st.s;
+    mb.sepX = 0;
+    mb.sepZ = 0;
+    mb.lat = _st.lat;
+    mb.committedLat = _st.lat;
+    mb.renderSpeed = 0;
+    mb.init = true;
     mb.model.group.position.set(wx, mb.y, wz);
     mb.model.group.rotation.y = mb.yaw;
+    return true;
   }
 
   private refreshRide() {
     const ride = this.ride!;
     const dir = ride.dir;
-    const tau = this.tau(dir, ride.mb.k);
-    ride.active = tau < dir.T;
-    if (!ride.active) return; // World reads active=false and bails
-    this.state(dir, tau, _st);
-    ride.canExit = _st.state !== 'moving' && _st.doorT > DOOR_OPEN;
-    ride.atEnd = _st.atEnd;
+    // A delayed rider remains attached to the boarded generation until an
+    // explicit exit. Timetable expiry/wrap must never eject the player in the
+    // road or rebase the pinned bus onto the next scheduled run.
+    ride.active = true;
+    const serviceStopIdx = ride.mb.serviceStopIdx;
+    ride.canExit = ride.mb.serviceDoorT > DOOR_OPEN;
+    ride.atEnd = ride.canExit && serviceStopIdx === dir.nStops - 1;
     ride.pos.x = ride.mb.model.group.position.x;
     ride.pos.z = ride.mb.model.group.position.z;
     ride.pos.yaw = ride.mb.yaw;
+    if (ride.mb.finishing) {
+      const terminalHud = ride.hud;
+      const displayStopIdx = serviceStopIdx >= 0
+        ? serviceStopIdx
+        : Math.min(ride.mb.nextPhysicalStopIdx, dir.nStops - 1);
+      terminalHud.state = ride.mb.serviceDwell ? 'dwell' : 'moving';
+      terminalHud.thisStop = dir.stopNames[displayStopIdx] ?? '';
+      terminalHud.nextStop = displayStopIdx + 1 < dir.nStops
+        ? dir.stopNames[displayStopIdx + 1]
+        : null;
+      terminalHud.atEnd = ride.atEnd;
+      return;
+    }
+    const physicalStopIdx = serviceStopIdx >= 0
+      ? serviceStopIdx
+      : Math.min(ride.mb.nextPhysicalStopIdx, dir.nStops - 1);
     const h = ride.hud;
-    h.state = _st.state;
-    h.thisStop = dir.stopNames[_st.stopIdx] ?? '';
-    h.nextStop = _st.stopIdx + 1 < dir.nStops ? dir.stopNames[_st.stopIdx + 1] : null;
-    h.atEnd = _st.atEnd;
+    h.state = ride.mb.serviceDwell ? 'dwell' : 'moving';
+    h.thisStop = dir.stopNames[physicalStopIdx] ?? '';
+    h.nextStop = physicalStopIdx + 1 < dir.nStops
+      ? dir.stopNames[physicalStopIdx + 1]
+      : null;
+    h.atEnd = ride.atEnd;
   }
 
   // ---- queries ----
@@ -1201,6 +2295,38 @@ export class BusSystem {
     return out;
   }
 
+  /**
+   * Rendered nearby buses as physical traffic obstacles. StreetLife consumes
+   * this already-streamed set rather than scanning the island-wide timetable,
+   * so cars yield to the exact smoothed bus bodies the player can see.
+   */
+  trafficObstacles(): TrafficFootprint[] {
+    const out: TrafficFootprint[] = [];
+    for (const mb of this.meshed.values()) {
+      if (!mb.init || !mb.model.group.visible) continue;
+      out.push({
+        key: `bus:${mb.key}`,
+        x: mb.model.group.position.x,
+        z: mb.model.group.position.z,
+        fx: Math.cos(mb.yaw),
+        fz: -Math.sin(mb.yaw),
+        halfLength: BUS.length * 0.5,
+        halfWidth: BUS.width * 0.5,
+        // Publish committed render speed, not timetable intent. A bus stopped
+        // for a crossing actor relinquishes the tie so that actor can clear;
+        // once moving, transit regains deterministic right of way.
+        speed: mb.renderSpeed,
+        priority: mb.renderSpeed > 0.15,
+      });
+    }
+    return out;
+  }
+
+  /** Start→end bodies committed in the latest frame for synchronized sweeps. */
+  trafficMotions(): readonly TrafficMotion[] {
+    return this.committedTrafficMotions;
+  }
+
   dispose() {
     for (const mb of this.meshed.values()) {
       this.scene.remove(mb.model.group);
@@ -1212,6 +2338,17 @@ export class BusSystem {
       disposeGroup(ps.group);
     }
     this.placedStops.clear();
+    for (const template of this.stopTemplates.values()) {
+      template.traverse((child) => {
+        if (child instanceof THREE.Mesh && child.userData.stopTemplateOwned === true) {
+          child.geometry.dispose();
+        }
+      });
+    }
+    this.stopTemplates.clear();
+    this.sepSide.clear();
+    this.suppressedUntil.clear();
+    this.recoveryOwnerKey = null;
     this.riddenKey = null;
     this.ride = null;
   }

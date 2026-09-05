@@ -1,9 +1,10 @@
 import * as THREE from 'three';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import {
   type LandmarkCtx,
   LIMESTONE, GRANITE, DARKSTONE, MARBLE, BRICK_RED, BRONZE, VERDIGRIS, GOLD,
   STEEL_LM, GLASS_LM, WHITE_LM, WATER_LM, GREEN_PATINA,
-  box, cyl, strut, colonnade, lathe, archWall, figure, ellipsoid, twoSidedPanel, canvasTexture,
+  box, cyl, strut, colonnade, lathe, archWall, figure, twoSidedPanel, canvasTexture,
 } from '../kit';
 
 /**
@@ -52,37 +53,371 @@ function starPrism(points: number, rOuter: number, rInner: number, depth: number
   return new THREE.Mesh(geo, mat);
 }
 
+// One World Trade Center: four draw-call materials after LandmarkManager's
+// merge. The body itself is only eight triangles; close-range richness comes
+// from tiny repeating curtain-wall textures and naturally different facet
+// normals, not thousands of panes.
+const WTC_STEEL = new THREE.MeshStandardMaterial({
+  color: '#bac5cb', metalness: 0.72, roughness: 0.25,
+  emissive: '#263036', emissiveIntensity: 0.18,
+});
+const WTC_DARK_STEEL = new THREE.MeshStandardMaterial({
+  color: '#4f6069', metalness: 0.62, roughness: 0.3,
+  emissive: '#151d22', emissiveIntensity: 0.2,
+});
+const WTC_BEACON = new THREE.MeshBasicMaterial({ color: '#f5fbff' });
+const WTC_RED = new THREE.MeshBasicMaterial({ color: '#ff3f38' });
+// Invisible geometry is retained solely so collision follows the taper in six
+// cheap polygon bands. Material.visible avoids even an empty render pass.
+const WTC_COLLISION = new THREE.MeshBasicMaterial({ visible: false });
+
+function wtcDetail<T extends THREE.Mesh>(mesh: T): T {
+  mesh.userData.noCollision = true;
+  return mesh;
+}
+
+/** One outward-facing textured triangle of the tower's crystalline envelope. */
+function wtcFacet(
+  a: THREE.Vector3,
+  b: THREE.Vector3,
+  c: THREE.Vector3,
+  uvA: [number, number],
+  uvB: [number, number],
+  uvC: [number, number],
+  mat: THREE.Material,
+): THREE.Mesh {
+  let vb = b, vc = c, ub = uvB, uc = uvC;
+  const n = vb.clone().sub(a).cross(vc.clone().sub(a));
+  const center = a.clone().add(vb).add(vc).multiplyScalar(1 / 3);
+  if (n.x * center.x + n.z * center.z < 0) {
+    vb = c; vc = b; ub = uvC; uc = uvB;
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute([
+    a.x, a.y, a.z, vb.x, vb.y, vb.z, vc.x, vc.y, vc.z,
+  ], 3));
+  geo.setAttribute('uv', new THREE.Float32BufferAttribute([
+    uvA[0], uvA[1], ub[0], ub[1], uc[0], uc[1],
+  ], 2));
+  geo.setIndex([0, 1, 2]);
+  geo.computeVertexNormals();
+  return wtcDetail(new THREE.Mesh(geo, mat));
+}
+
+/** Exact vertical collision prism from an x/z footprint, y0..y1. */
+function wtcCollisionPrism(points: THREE.Vector2[], y0: number, y1: number): THREE.Mesh {
+  const shape = new THREE.Shape();
+  points.forEach((p, i) => {
+    // A mesh-level -90deg X rotation maps Shape y -> local +z.
+    if (i === 0) shape.moveTo(p.x, -p.y);
+    else shape.lineTo(p.x, -p.y);
+  });
+  shape.closePath();
+  const mesh = new THREE.Mesh(
+    new THREE.ExtrudeGeometry(shape, { depth: y1 - y0, bevelEnabled: false, steps: 1 }),
+    WTC_COLLISION,
+  );
+  mesh.rotation.x = -Math.PI / 2;
+  mesh.position.y = y0;
+  return mesh;
+}
+
+/** Tower cross-section: base diamond -> middle octagon -> top axis-aligned square. */
+function wtcRing(t: number, baseR: number, topHalf: number): THREE.Vector2[] {
+  const pts: THREE.Vector2[] = [];
+  for (let i = 0; i < 8; i++) {
+    const cardinal = i % 2 === 0;
+    const r0 = cardinal ? baseR : baseR * Math.SQRT1_2;
+    const r1 = cardinal ? topHalf : topHalf * Math.SQRT2;
+    const r = r0 + (r1 - r0) * t;
+    const a = (i * Math.PI) / 4;
+    pts.push(new THREE.Vector2(Math.cos(a) * r, Math.sin(a) * r));
+  }
+  return pts;
+}
+
 export const builders: Record<string, (ctx: LandmarkCtx) => THREE.Group> = {
-  // One WTC spire only (tower massing is OSM): mechanical ring + lattice mast + beacon
-  'one-wtc': () => {
+  // One World Trade Center — complete replacement for OSM's overlapping prisms
+  // and separate antenna. SOM's defining geometry is eight long triangular
+  // facets: a 200ft square base becomes a perfect octagon at mid-height and a
+  // 150ft square, rotated 45 degrees, at the 417m glass parapet. A 408ft steel
+  // spire and beacon bring the exact source-measured tip to 541m / 1,776ft.
+  'one-wtc': (ctx) => {
     const g = new THREE.Group();
-    const base = 417, tip = 541;
-    g.add(cyl(7.5, 8.5, 7, STEEL_LM, 0, base + 3.5, 0, 12)); // mechanical equipment ring
-    g.add(cyl(6, 6, 1.2, DARKSTONE, 0, base + 7.6, 0, 12));
-    g.add(cyl(0.35, 1.6, tip - base, STEEL_LM, 0, (base + tip) / 2, 0, 8)); // central tapering mast
-    const rings: [number, number][] = [[base + 2, 4.6], [base + 16, 3.4], [base + 34, 2.3], [base + 56, 1.2]];
-    const legs = 4;
+    const roof = 417;
+    const tip = ctx.fit?.roofH ?? 541;
+    // Fit OBB is the 92m point-to-point envelope. In fit-local coordinates the
+    // retained OSM top square measured 46m and is axis-aligned; the 65m base
+    // square is the diamond whose vertices define this outer radius.
+    const baseR = Math.min(ctx.fit?.w ?? 92, ctx.fit?.d ?? 92) / 2;
+    const baseSide = baseR * Math.SQRT2;
+    const topHalf = 22.85; // SOM's 150ft square parapet / 2
+    const podiumH = 56.7; // 186ft security podium
+
+    // ---- reflective podium: angled low-iron glass fins over the concrete shell
+    const podiumTex = canvasTexture((c, w, h) => {
+      const grad = c.createLinearGradient(0, 0, w, 0);
+      grad.addColorStop(0, '#73858d');
+      grad.addColorStop(0.35, '#d4e0e3');
+      grad.addColorStop(0.52, '#8a9da5');
+      grad.addColorStop(0.72, '#e8f1f2');
+      grad.addColorStop(1, '#6b7d84');
+      c.fillStyle = grad;
+      c.fillRect(0, 0, w, h);
+      c.strokeStyle = 'rgba(247,253,255,.82)';
+      c.lineWidth = 1;
+      for (let x = 0; x <= w; x += 4) {
+        c.beginPath(); c.moveTo(x, 0); c.lineTo(x + 2, h); c.stroke();
+      }
+      c.strokeStyle = 'rgba(35,48,54,.34)';
+      for (let y = 0; y <= h; y += 13.5) {
+        c.beginPath(); c.moveTo(0, y); c.lineTo(w, y); c.stroke();
+      }
+    }, 128, 256);
+    const podiumMat = new THREE.MeshStandardMaterial({
+      map: podiumTex, color: '#d5e0e3', metalness: 0.4, roughness: 0.27, envMapIntensity: 1.05,
+    });
+    const podium = wtcDetail(box(baseSide, podiumH, baseSide, podiumMat, 0, podiumH / 2, 0));
+    podium.rotation.y = Math.PI / 4;
+    g.add(podium);
+    g.add(wtcCollisionPrism(wtcRing(0, baseR, topHalf).filter((_, i) => i % 2 === 0), 0, podiumH));
+
+    // 60ft-high transparent entrance portals and cantilevered glass canopies on
+    // all four sides. The textured podium supplies its thousands of small fins;
+    // these few true volumes preserve close-up depth and reflections.
+    const portalTex = canvasTexture((c, w, h) => {
+      const glow = c.createLinearGradient(0, 0, 0, h);
+      glow.addColorStop(0, '#5f8493');
+      glow.addColorStop(0.65, '#789fac');
+      glow.addColorStop(1, '#355866');
+      c.fillStyle = glow;
+      c.fillRect(0, 0, w, h);
+      c.strokeStyle = 'rgba(213,235,242,.72)';
+      c.lineWidth = 1;
+      for (let x = 0; x <= w; x += 16) {
+        c.beginPath(); c.moveTo(x, 0); c.lineTo(x, h); c.stroke();
+      }
+      for (let y = 0; y <= h; y += 16) {
+        c.beginPath(); c.moveTo(0, y); c.lineTo(w, y); c.stroke();
+      }
+      c.strokeStyle = 'rgba(25,44,52,.62)';
+      c.lineWidth = 2;
+      c.strokeRect(1, 1, w - 2, h - 2);
+    }, 128, 128);
+    const portalMat = new THREE.MeshStandardMaterial({
+      map: portalTex, color: '#b8d4de', metalness: 0.32, roughness: 0.14,
+      emissive: '#294a57', emissiveIntensity: 0.52,
+    });
+    const doorMat = new THREE.MeshStandardMaterial({
+      color: '#416b7a', metalness: 0.4, roughness: 0.12,
+      emissive: '#183945', emissiveIntensity: 0.7,
+    });
+    const podiumApothem = baseR * Math.SQRT1_2;
+    for (let i = 0; i < 4; i++) {
+      const a = Math.PI / 4 + (i * Math.PI) / 2;
+      const nx = Math.sin(a), nz = Math.cos(a);
+      const tx = Math.cos(a), tz = -Math.sin(a);
+      const portal = wtcDetail(box(18.3, 18.3, 0.4, portalMat, nx * (podiumApothem + 0.24), 9.15, nz * (podiumApothem + 0.24)));
+      portal.rotation.y = a;
+      g.add(portal);
+      for (const side of [-1, 1]) {
+        const frame = wtcDetail(box(0.72, 19.2, 0.72, WTC_STEEL,
+          nx * (podiumApothem + 0.48) + tx * side * 9.45, 9.6,
+          nz * (podiumApothem + 0.48) + tz * side * 9.45));
+        frame.rotation.y = a;
+        g.add(frame);
+      }
+      const header = wtcDetail(box(19.6, 0.75, 0.72, WTC_STEEL,
+        nx * (podiumApothem + 0.48), 18.8, nz * (podiumApothem + 0.48)));
+      header.rotation.y = a;
+      g.add(header);
+      const canopy = wtcDetail(box(19.2, 0.45, 6.6, WTC_STEEL,
+        nx * (podiumApothem + 3.4), 7.1, nz * (podiumApothem + 3.4)));
+      canopy.rotation.y = a;
+      g.add(canopy);
+      // Four human-scale revolving/door bays under each canopy.
+      for (const off of [-6.6, -2.2, 2.2, 6.6]) {
+        const door = wtcDetail(box(3.65, 5.25, 0.34, doorMat,
+          nx * (podiumApothem + 0.52) + tx * off, 2.625,
+          nz * (podiumApothem + 0.52) + tz * off));
+        door.rotation.y = a;
+        g.add(door);
+        const mullion = wtcDetail(box(0.16, 5.4, 0.46, WTC_STEEL,
+          nx * (podiumApothem + 0.7) + tx * (off - 1.82), 2.7,
+          nz * (podiumApothem + 0.7) + tz * (off - 1.82)));
+        mullion.rotation.y = a;
+        g.add(mullion);
+      }
+    }
+
+    // ---- 71-story crystalline office tower: eight real planar facets
+    const curtain = canvasTexture((c, w, h) => {
+      c.fillStyle = '#e4edf0';
+      c.fillRect(0, 0, w, h);
+      c.fillStyle = 'rgba(255,255,255,.78)';
+      c.fillRect(0, 0, 2, h);
+      c.fillStyle = 'rgba(61,83,94,.34)';
+      c.fillRect(0, 0, w, 2);
+      c.fillStyle = 'rgba(255,255,255,.32)';
+      c.fillRect(w * 0.55, 0, 1, h);
+    }, 32, 32);
+    curtain.wrapS = curtain.wrapT = THREE.RepeatWrapping;
+    const glassA = new THREE.MeshStandardMaterial({
+      map: curtain, color: '#d8ebf3', metalness: 0.28, roughness: 0.18,
+      emissive: '#4d7182', emissiveIntensity: 0.38, envMapIntensity: 1.25,
+    });
+    const glassB = new THREE.MeshStandardMaterial({
+      map: curtain, color: '#bad7e4', metalness: 0.34, roughness: 0.2,
+      emissive: '#3c6173', emissiveIntensity: 0.4, envMapIntensity: 1.15,
+    });
+    const B = [
+      new THREE.Vector3(baseR, podiumH, 0),
+      new THREE.Vector3(0, podiumH, baseR),
+      new THREE.Vector3(-baseR, podiumH, 0),
+      new THREE.Vector3(0, podiumH, -baseR),
+    ];
+    const T = [
+      new THREE.Vector3(topHalf, roof, topHalf),
+      new THREE.Vector3(-topHalf, roof, topHalf),
+      new THREE.Vector3(-topHalf, roof, -topHalf),
+      new THREE.Vector3(topHalf, roof, -topHalf),
+    ];
+    const risePanels = (roof - podiumH) / 4.064; // real 13ft-4in full-floor glass panels
+    const widthPanels = baseSide / 1.524; // real 5ft panel module
+    for (let i = 0; i < 4; i++) {
+      const next = (i + 1) % 4, prev = (i + 3) % 4;
+      // Upward facet: broad base edge tapering to one corner of the top square.
+      g.add(wtcFacet(
+        B[i], B[next], T[i],
+        [0, 0], [widthPanels, 0], [widthPanels / 2, risePanels],
+        i % 2 ? glassB : glassA,
+      ));
+      // Downward facet: one base corner widening to an edge of the top square.
+      g.add(wtcFacet(
+        B[i], T[i], T[prev],
+        [widthPanels / 2, 0], [widthPanels, risePanels], [0, risePanels],
+        i % 2 ? glassA : glassB,
+      ));
+    }
+
+    // Six exact collision bands follow the taper; each uses the lower (wider)
+    // cross-section as a conservative envelope for its 60m vertical slice.
+    for (let i = 0; i < 6; i++) {
+      const y0 = podiumH + ((roof - podiumH) * i) / 6;
+      const y1 = podiumH + ((roof - podiumH) * (i + 1)) / 6;
+      g.add(wtcCollisionPrism(wtcRing(i / 6, baseR, topHalf), y0, y1));
+    }
+
+    // Glass parapet at the original Twin Towers' roof line and a dark,
+    // stainless-steel communications platform above it.
+    g.add(wtcDetail(box(topHalf * 2, 1.2, topHalf * 2, WTC_STEEL, 0, roof - 0.6, 0)));
+    for (const z of [-topHalf, topHalf])
+      g.add(wtcDetail(box(topHalf * 2, 3.2, 0.28, glassA, 0, roof - 1.6, z)));
+    for (const x of [-topHalf, topHalf])
+      g.add(wtcDetail(box(0.28, 3.2, topHalf * 2, glassA, x, roof - 1.6, 0)));
+    g.add(cyl(13.2, 14.8, 2.4, WTC_STEEL, 0, roof + 1.2, 0, 18));
+    g.add(cyl(11.0, 13.2, 3.0, WTC_DARK_STEEL, 0, roof + 3.9, 0, 18));
+    g.add(cyl(10.4, 10.4, 0.7, WTC_STEEL, 0, roof + 5.75, 0, 18));
+
+    // ---- cable-stayed broadcast spire and LED beacon
+    const mastBase = roof + 5.8;
+    g.add(cyl(0.22, 1.75, tip - mastBase, WTC_STEEL, 0, (mastBase + tip) / 2, 0, 10));
+    const rings: [number, number][] = [
+      [mastBase + 1, 5.8],
+      [mastBase + 19, 4.9],
+      [mastBase + 40, 3.8],
+      [mastBase + 65, 2.7],
+      [mastBase + 91, 1.45],
+    ];
+    // Build the 112-piece cable frame as two material batches rather than 112
+    // scene nodes. The unit cylinders reproduce strut() exactly after their
+    // transforms are baked, while the final noCollision meshes keep diagonal
+    // cables from becoming broad AABB obstacles around the flyable spire.
+    const spireSteelGeos: THREE.BufferGeometry[] = [];
+    const spireDarkGeos: THREE.BufferGeometry[] = [];
+    const spireUnit4 = new THREE.CylinderGeometry(1, 1, 1, 4);
+    const spireUnit5 = new THREE.CylinderGeometry(1, 1, 1, 5);
+    const spireUp = new THREE.Vector3(0, 1, 0);
+    const spireMid = new THREE.Vector3();
+    const spireDirection = new THREE.Vector3();
+    const spireRotation = new THREE.Quaternion();
+    const spireScale = new THREE.Vector3();
+    const spireMatrix = new THREE.Matrix4();
+    const addSpireStrut = (
+      target: THREE.BufferGeometry[], unit: THREE.BufferGeometry,
+      a: THREE.Vector3, b: THREE.Vector3, radius: number,
+    ): void => {
+      const len = a.distanceTo(b);
+      spireMid.copy(a).add(b).multiplyScalar(0.5);
+      spireDirection.copy(b).sub(a).normalize();
+      spireRotation.setFromUnitVectors(spireUp, spireDirection);
+      spireScale.set(radius, len, radius);
+      spireMatrix.compose(spireMid, spireRotation, spireScale);
+      target.push(unit.clone().applyMatrix4(spireMatrix));
+    };
+    const legs = 8;
     for (let i = 0; i < legs; i++) {
-      const a = (i / legs) * Math.PI * 2 + Math.PI / 4;
-      const a2 = ((i + 1) / legs) * Math.PI * 2 + Math.PI / 4;
+      const a = (i / legs) * Math.PI * 2 + Math.PI / 8;
+      const a2 = ((i + 1) / legs) * Math.PI * 2 + Math.PI / 8;
       for (let k = 0; k < rings.length - 1; k++) {
         const [y0, r0] = rings[k], [y1, r1] = rings[k + 1];
         const p0 = new THREE.Vector3(Math.cos(a) * r0, y0, Math.sin(a) * r0);
         const p1 = new THREE.Vector3(Math.cos(a) * r1, y1, Math.sin(a) * r1);
         const px = new THREE.Vector3(Math.cos(a2) * r1, y1, Math.sin(a2) * r1);
-        g.add(strut(p0, p1, 0.16, STEEL_LM, 5)); // vertical leg
-        g.add(strut(p0, px, 0.09, STEEL_LM, 4)); // diagonal cross-brace
+        addSpireStrut(spireSteelGeos, spireUnit5, p0, p1, 0.15);
+        addSpireStrut(spireDarkGeos, spireUnit4, p0, px, 0.075);
       }
     }
-    for (const [y, r] of rings) { // horizontal ties around the lattice
+    for (const [y, r] of rings) {
       for (let i = 0; i < legs; i++) {
-        const a = (i / legs) * Math.PI * 2 + Math.PI / 4, b = ((i + 1) / legs) * Math.PI * 2 + Math.PI / 4;
-        g.add(strut(new THREE.Vector3(Math.cos(a) * r, y, Math.sin(a) * r), new THREE.Vector3(Math.cos(b) * r, y, Math.sin(b) * r), 0.08, STEEL_LM, 4));
+        const a = (i / legs) * Math.PI * 2 + Math.PI / 8;
+        const b = ((i + 1) / legs) * Math.PI * 2 + Math.PI / 8;
+        addSpireStrut(
+          spireSteelGeos,
+          spireUnit4,
+          new THREE.Vector3(Math.cos(a) * r, y, Math.sin(a) * r),
+          new THREE.Vector3(Math.cos(b) * r, y, Math.sin(b) * r),
+          0.07,
+        );
       }
     }
-    const beacon = new THREE.Mesh(new THREE.SphereGeometry(0.95, 10, 8), GOLD);
+    // Eight long stays are the structure's most legible close-range signature.
+    for (let i = 0; i < 8; i++) {
+      const a = (i / 8) * Math.PI * 2 + Math.PI / 8;
+      addSpireStrut(
+        spireSteelGeos,
+        spireUnit5,
+        new THREE.Vector3(Math.cos(a) * 13.1, roof + 4.8, Math.sin(a) * 13.1),
+        new THREE.Vector3(Math.cos(a) * 1.15, mastBase + 48, Math.sin(a) * 1.15),
+        0.085,
+      );
+    }
+    if (spireSteelGeos.length !== 80 || spireDarkGeos.length !== 32) {
+      throw new Error(
+        `One WTC spire count changed: ${spireSteelGeos.length} steel, ${spireDarkGeos.length} dark`,
+      );
+    }
+    const addSpireBatch = (
+      geos: THREE.BufferGeometry[], material: THREE.Material, label: string,
+    ): void => {
+      const merged = mergeGeometries(geos, false);
+      if (!merged) throw new Error(`Could not merge One WTC ${label} geometry`);
+      for (const geometry of geos) geometry.dispose();
+      g.add(wtcDetail(new THREE.Mesh(merged, material)));
+    };
+    addSpireBatch(spireSteelGeos, WTC_STEEL, 'steel spire');
+    addSpireBatch(spireDarkGeos, WTC_DARK_STEEL, 'dark spire');
+    spireUnit4.dispose();
+    spireUnit5.dispose();
+
+    for (const y of [mastBase + 38, mastBase + 80]) {
+      const warning = new THREE.Mesh(new THREE.SphereGeometry(0.5, 8, 6), WTC_RED);
+      warning.position.y = y;
+      g.add(wtcDetail(warning));
+    }
+    const beacon = new THREE.Mesh(new THREE.SphereGeometry(0.9, 10, 8), WTC_BEACON);
     beacon.position.y = tip;
-    g.add(beacon);
+    g.add(wtcDetail(beacon));
     return g;
   },
 
@@ -192,7 +527,7 @@ export const builders: Record<string, (ctx: LandmarkCtx) => THREE.Group> = {
     g.add(box(8, 40, 8, STONE, 0, 20, 12)); // square tower at the front
     for (const sx of [-1, 1]) for (const sz of [-1, 1]) g.add(box(1.1, 43, 1.1, STONE, sx * 4.3, 21.5, 12 + sz * 4.3)); // corner buttress pinnacles
     g.add(cyl(0.2, 4.8, 46, DARKSTONE, 0, 63, 12, 8)); // octagonal tapering spire (40 -> 86m)
-    const portal = archWall(8, 6, 0.8, 2.6, 4.5, STONE, true); // pointed-arch portal (round-arched helper)
+    const portal = archWall(8, 6, 0.8, 2.6, 4.5, STONE); // pointed-arch portal (round-arched helper)
     portal.position.set(0, 0, 16.05);
     g.add(portal);
     for (const [hx, hz] of [[-9, 6], [-8, 1.5], [9, 5], [8, -0.5], [-9, -4]]) g.add(box(0.5, 1.0, 0.14, DARKSTONE, hx, 0.5, hz)); // churchyard headstones
@@ -204,15 +539,15 @@ export const builders: Record<string, (ctx: LandmarkCtx) => THREE.Group> = {
     const g = new THREE.Group();
     g.add(cyl(3.2, 3.4, 0.25, DARKSTONE, 0, 0.125, 0, 12)); // cobble pad
     const b = new THREE.Group();
-    b.add(ellipsoid(1.55, 1.6, 2.6, BRONZE, 0, 2.0, -0.2)); // barrel
-    b.add(ellipsoid(1.75, 1.7, 1.5, BRONZE, 0, 2.05, 0.8)); // shoulders (front)
-    b.add(ellipsoid(1.35, 1.4, 1.3, BRONZE, 0, 1.85, -1.5)); // haunches
-    const neck = ellipsoid(1.1, 1.05, 1.1, BRONZE, 0, 1.6, 1.7);
+    b.add(box(1.55, 1.6, 2.6, BRONZE, 0, 2.0, -0.2)); // barrel
+    b.add(box(1.75, 1.7, 1.5, BRONZE, 0, 2.05, 0.8)); // shoulders (front)
+    b.add(box(1.35, 1.4, 1.3, BRONZE, 0, 1.85, -1.5)); // haunches
+    const neck = box(1.1, 1.05, 1.1, BRONZE, 0, 1.6, 1.7);
     neck.rotation.x = 0.5;
     b.add(neck);
     const head = new THREE.Group(); // lowered, horned head
-    head.add(ellipsoid(0.85, 0.9, 1.1, BRONZE, 0, 0, 0));
-    head.add(ellipsoid(0.68, 0.5, 0.55, BRONZE, 0, -0.42, 0.5));
+    head.add(box(0.85, 0.9, 1.1, BRONZE, 0, 0, 0));
+    head.add(box(0.68, 0.5, 0.55, BRONZE, 0, -0.42, 0.5));
     for (const sx of [-1, 1]) {
       const horn = cyl(0.03, 0.12, 0.95, BRONZE, sx * 0.42, 0.42, 0.1, 6);
       horn.rotation.z = sx * 0.95;

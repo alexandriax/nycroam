@@ -303,7 +303,7 @@ function snapOldNyc(px, pz) {
 // where it differs from the display name (runtime falls back to the name, and to
 // the matched building's own wikidata/wikipedia tag when present).
 const LANDMARK_INFO = [
-  { id: 'one-wtc', name: 'One World Trade Center', lat: 40.712507, lon: -74.013462 },
+  { id: 'one-wtc', name: 'One World Trade Center', lat: 40.7130, lon: -74.01319 },
   { id: 'oculus', name: 'Oculus', lat: 40.7115, lon: -74.0113, wiki: 'World Trade Center station (PATH)' },
   { id: 'sept11-museum', name: 'National September 11 Memorial & Museum', lat: 40.7115, lon: -74.0125, wiki: 'National September 11 Memorial & Museum' },
   { id: 'nyse', name: 'New York Stock Exchange', lat: 40.7069, lon: -74.0113, wiki: 'New York Stock Exchange Building' },

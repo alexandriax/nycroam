@@ -62,9 +62,9 @@ resumable. Generated world data lands in `public/tiles/`, `public/geo/`, `public
   by distance, capped per frame, and dispose beyond the fog. A low-poly skyline layer
   (every building ≥ 70 m island-wide) renders beyond the fog with a distance haze so
   the Midtown/Downtown skylines are always on the horizon.
-- **Facades**: one shared physically based material with an injected shader that carves
-  per-floor window grids and ground-relative storefronts from world position:
-  shared brick/roof textures, separate glass roughness, one draw call per tile layer.
+- **Facades**: one shared Lambert material with an injected shader that carves
+  per-floor window grids (and ground-floor storefronts) from world position: zero
+  textures, one draw call per tile layer.
 - **Subway** (`src/engine/subway/`): station interiors are generated from each
   station's real spec: IRT vs IND/BMT platform lengths, side/island/dual-island
   platform types (curated for ~35 major stations, heuristic elsewhere), express
@@ -91,14 +91,6 @@ resumable. Generated world data lands in `public/tiles/`, `public/geo/`, `public
   travel so bikes and the helicopter stay ahead of the fog), and localStorage
   position persistence.
 
-## Data sources
-
-- © OpenStreetMap contributors (ODbL): buildings, roads, parks, trees, subway entrances
-- NYC Open Data: borough boundaries (water-clipped)
-- MTA: subway stations, routes, structure types
-- Station interiors are stylized approximations informed by public documentation of
-  NYC station layouts (see e.g. Project Subway NYC for the real things).
-
 ## Appearance
 
 Everything is generated at runtime: no downloaded assets. Procedural canvas
@@ -107,23 +99,50 @@ tile with grime, bark, clouds) ship with Sobel-derived normal maps; buildings
 split into curtain-wall vs punched-masonry styles; streets carry lane lines and
 continental crosswalks; the sun casts real-time shadows (desktop tier) with a
 camera-following texel-snapped frustum; rivers animate with fresnel and glints.
-Constrained devices keep a lean shadowless tier automatically. Outdoor environment
-reflections, shared weathered landmark finishes, instanced leaf canopies, animated
-pedestrians, and curbside cars add detail with bounded geometry and draw calls.
+Mobile keeps a lean shadowless tier automatically.
 
-See [rendering quality and performance](docs/rendering-quality.md) for budgets,
-validation commands, architectural references, and the limits of this procedural
-approach. `npm test` runs the rendering regression checks.
+## Data sources
 
-## Data sources (additions)
+Everything in the world comes from public map and transit data. Full license
+terms for each are in [NOTICE.md](NOTICE.md).
 
-- USGS/AWS Terrain Tiles (Terrarium): elevation
-- MTA GTFS static: route stop sequences and travel times
-- NYC bike share (GBFS station_information): public bike dock locations and capacities
-- NYC Open Data: 2020 Neighborhood Tabulation Areas (live location label)
-- [Old NYC](https://www.oldnyc.org/) (Apache-2.0): geocoded historic-photo marker
-  coordinates for the building-info deep links (link-out only; the photos are NYPL's)
-- Wikipedia / Wikidata: live building summaries in the info modal, attributed there
+- **[© OpenStreetMap contributors](https://www.openstreetmap.org/copyright)
+  ([ODbL](https://opendatacommons.org/licenses/odbl/1-0/))**: buildings, roads,
+  parks and water, trees, subway entrances, bus stops. Fetched from the
+  [Overpass API](https://overpass-api.de/) — see the note below before running
+  the pipeline.
+- **MTA**: subway stations, routes and structure types; GTFS static for route
+  stop sequences and travel times, subway and bus
+- **NYC Open Data**: borough boundaries (the water-clipped island ground) and
+  2020 Neighborhood Tabulation Areas (the live location label)
+- **USGS / AWS Terrain Tiles** (Terrarium): elevation
+- **Citi Bike (GBFS `station_information`)**: public bike dock locations and capacities
+- **[Old NYC](https://www.oldnyc.org/)** (Apache-2.0): geocoded historic-photo marker
+  coordinates for the building-info deep links — link-out only, no images
+  redistributed; the photos are NYPL's
+- **Wikipedia / Wikidata** (CC BY-SA): live building summaries fetched in the
+  browser, attributed in the info modal
+
+Station interiors are stylized approximations informed by public documentation of
+NYC station layouts (see e.g. Project Subway NYC for the real things); no
+third-party 3D models or photographs are included.
+
+> **Running the pipeline?** `npm run data:all` pulls all of Manhattan from
+> Overpass, which is volunteer-funded infrastructure. The fetcher already
+> chunks its queries, identifies itself, backs off on rate limits, and caches
+> to `data/cache/` so re-runs are free — please keep that intact and read the
+> [Overpass usage policy](https://operations.osmfoundation.org/policies/overpass/).
+> If you only want to run the app, the built world is already committed under
+> `public/`; you don't need to fetch anything.
+
+## Configuration
+
+Optional, all build-time. Copy [.env.example](.env.example) to `.env.local`:
+
+| Variable | Effect |
+|---|---|
+| `NEXT_PUBLIC_GA_ID` | Google Analytics 4 measurement ID. Unset (the default) ships no analytics tag at all. |
+| `NEXT_PUBLIC_SITE_URL` | Pins the absolute origin for `og:image` and canonical URLs. On Vercel it falls back to the deployment URL. |
 
 ## Known limitations
 
@@ -136,10 +155,18 @@ approach. `npm test` runs the rendering regression checks.
 
 ## License
 
-The code is [MIT](LICENSE). The generated world data (`public/tiles/`,
-`public/geo/`, `public/subway/`) rides on its own licenses regardless of the
-code license: the tiles are a derivative database of OpenStreetMap
-(© OpenStreetMap contributors, [ODbL](https://www.openstreetmap.org/copyright)),
-the self-hosted fonts are SIL OFL, the Old NYC marker coordinates are
-Apache-2.0 (photos remain NYPL's; the app links out and redistributes none),
-and terrain/transit data carry the terms of the sources listed above.
+The code is [MIT](LICENSE). What the repo *ships* is not only code, and the MIT
+license does not reach the rest of it — see **[NOTICE.md](NOTICE.md)** for the
+full inventory. In short:
+
+- The generated world data (`public/tiles/`, `public/geo/`, `public/subway/`) is
+  a **derivative database of OpenStreetMap**, © OpenStreetMap contributors under
+  [ODbL](https://opendatacommons.org/licenses/odbl/1-0/). Keep the attribution
+  visible, and publish any modified world database under ODbL.
+  ([public/DATA-LICENSE.txt](public/DATA-LICENSE.txt))
+- The self-hosted fonts are SIL OFL, with license texts bundled in `public/fonts/`.
+- Old NYC marker coordinates are Apache-2.0 ([licenses/Apache-2.0.txt](licenses/Apache-2.0.txt));
+  the photos remain NYPL's, and the app links out rather than redistributing any.
+- Terrain, transit and bike-share data carry the terms of the sources listed above.
+- The sound effects in `public/audio/` are ElevenLabs-generated and are **not**
+  MIT — source your own if you fork this.

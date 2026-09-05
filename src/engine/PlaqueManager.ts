@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { dataUrl } from './dataver';
 import { TILE_SIZE, tileKey } from './geo';
 import { BLACK, SANS } from './fonts';
+import { canvas2d } from './canvas2d';
 
 /**
  * Address-plaque layer. Small numbered plates mounted on the street-facing wall
@@ -219,9 +220,7 @@ export class PlaqueManager {
     const cw = Math.min(CELL_W, Math.floor(2048 / cols));
     const ch = Math.min(CELL_H, Math.floor(2048 / rows));
     const atlasW = cols * cw, atlasH = rows * ch;
-    const cv = document.createElement('canvas');
-    cv.width = atlasW; cv.height = atlasH;
-    const ctx = cv.getContext('2d')!;
+    const { cv, ctx } = canvas2d(atlasW, atlasH);
     // scale the fixed-cell draw routine to the shrunk cell size
     const sx = cw / CELL_W, sy = ch / CELL_H;
 

@@ -86,6 +86,8 @@ export interface BusModelLike {
   setNextStop(text: string | null): void;
   /** Interior "STOP REQUESTED" indicator. */
   setStopRequested(on: boolean): void;
+  /** Optional exterior LOD hook; ridden buses always retain the full cabin. */
+  setViewerDistanceSq?(distanceSq: number, forceFull?: boolean): void;
   dispose(): void;
 }
 

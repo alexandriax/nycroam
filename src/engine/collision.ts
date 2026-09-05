@@ -25,6 +25,20 @@ function ringSolidAt(set: CollisionData, ri: number, y: number | undefined): boo
   return y < set.top[ri] - ROOF_BAND && y + HEAD > set.base[ri];
 }
 
+function pointInRing(x: number, z: number, set: CollisionData, ri: number): boolean {
+  const minX = set.aabb[ri * 4], minZ = set.aabb[ri * 4 + 1];
+  const maxX = set.aabb[ri * 4 + 2], maxZ = set.aabb[ri * 4 + 3];
+  if (x < minX || x > maxX || z < minZ || z > maxZ) return false;
+  const start = set.ringStart[ri], end = set.ringStart[ri + 1];
+  let inside = false;
+  for (let i = start, j = end - 1; i < end; j = i++) {
+    const xi = set.points[i * 2], zi = set.points[i * 2 + 1];
+    const xj = set.points[j * 2], zj = set.points[j * 2 + 1];
+    if ((zi > z) !== (zj > z) && x < ((xj - xi) * (z - zi)) / (zj - zi) + xi) inside = !inside;
+  }
+  return inside;
+}
+
 /**
  * Push a point (player, radius r) out of building footprints.
  * Buildings are convex-ish rings; we do point-in-polygon + nearest-edge pushout,
@@ -98,17 +112,51 @@ export function pointInBuildings(x: number, z: number, sets: CollisionData[], y?
     const ringCount = set.ringStart.length - 1;
     for (let ri = 0; ri < ringCount; ri++) {
       if (!ringSolidAt(set, ri, y)) continue;
-      const minX = set.aabb[ri * 4], minZ = set.aabb[ri * 4 + 1];
-      const maxX = set.aabb[ri * 4 + 2], maxZ = set.aabb[ri * 4 + 3];
-      if (x < minX || x > maxX || z < minZ || z > maxZ) continue;
-      const start = set.ringStart[ri], end = set.ringStart[ri + 1];
-      let inside = false;
-      for (let i = start, j = end - 1; i < end; j = i++) {
-        const xi = set.points[i * 2], zi = set.points[i * 2 + 1];
-        const xj = set.points[j * 2], zj = set.points[j * 2 + 1];
-        if ((zi > z) !== (zj > z) && x < ((xj - xi) * (z - zi)) / (zj - zi) + xi) inside = !inside;
+      if (pointInRing(x, z, set, ri)) return true;
+    }
+  }
+  return false;
+}
+
+export type CollisionRingMap = Map<CollisionData, Set<number>>;
+
+/** Exact ring identities whose solid footprints contain a point. */
+export function buildingRingsAt(
+  x: number,
+  z: number,
+  sets: CollisionData[],
+  y?: number,
+): CollisionRingMap {
+  const found: CollisionRingMap = new Map();
+  for (const set of sets) {
+    const ringCount = set.ringStart.length - 1;
+    for (let ri = 0; ri < ringCount; ri++) {
+      if (!ringSolidAt(set, ri, y) || !pointInRing(x, z, set, ri)) continue;
+      let rings = found.get(set);
+      if (!rings) {
+        rings = new Set();
+        found.set(set, rings);
       }
-      if (inside) return true;
+      rings.add(ri);
+    }
+  }
+  return found;
+}
+
+/** True inside any solid building ring except the explicitly ignored rings. */
+export function pointInBuildingsExcept(
+  x: number,
+  z: number,
+  sets: CollisionData[],
+  ignored: ReadonlyMap<CollisionData, ReadonlySet<number>>,
+  y?: number,
+): boolean {
+  for (const set of sets) {
+    const ignoredRings = ignored.get(set);
+    const ringCount = set.ringStart.length - 1;
+    for (let ri = 0; ri < ringCount; ri++) {
+      if (ignoredRings?.has(ri) || !ringSolidAt(set, ri, y)) continue;
+      if (pointInRing(x, z, set, ri)) return true;
     }
   }
   return false;

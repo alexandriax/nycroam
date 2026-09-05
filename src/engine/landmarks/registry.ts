@@ -19,11 +19,10 @@ import { lonLatToXZ } from '../geo';
  * - `alwaysOn` places once at init and never disposes (the Statue of
  *   Liberty must hold the harbor horizon from The Battery).
  * - `clear` suppresses baked tile buildings whose footprint centroid falls
- *   within that many meters of the anchor: OSM maps some monuments (the
- *   Columbus column, the Washington Arch) as building rings, and the tile
- *   pipeline shipped them as generic massing — without this the procedural
- *   monument stands beside a duplicate windowed tower of itself. Applied by
- *   the tile worker at build time, so collision disappears with the mesh.
+ *   within that many meters of the anchor. `clearName` targets one exact OSM
+ *   building name where a radius would also erase neighboring buildings.
+ *   Both are applied by the tile worker, so duplicate collision disappears
+ *   with the generic mesh.
  */
 export interface LandmarkEntry {
   id: string;
@@ -37,6 +36,30 @@ export interface LandmarkEntry {
   alwaysOn?: boolean;
   needsRoads?: boolean; // defer build until road tiles load, then nudge props out of roadbeds (Times Square masts)
   clear?: number; // meters: suppress baked OSM massing of the monument itself
+  clearName?: string; // exact baked OSM name: suppress only this source mass
+  /**
+   * Preferred street-arrival bearing from the landmark center, in the world
+   * x/z frame (0=east, PI/2=south). Used only as a tie-break among safe,
+   * unobstructed presentation points when a nearby non-collision structure
+   * such as the Park Avenue viaduct would otherwise dominate the first view.
+   */
+  arrivalBearing?: number;
+  /**
+   * Optional surveyed presentation point for a tower whose dense surrounding
+   * blocks leave no useful automatically sampled view. Both values are
+   * required together; teleport still aims at the landmark's own lat/lon.
+   */
+  arrivalLat?: number;
+  arrivalLon?: number;
+  /**
+   * Optional visual target for a surveyed arrival whose registry anchor is a
+   * streaming/build origin rather than the landmark's recognizable front.
+   * Both values are required together; they affect framing only, never placement.
+   */
+  arrivalLookLat?: number;
+  arrivalLookLon?: number;
+  /** Explicit presentation aim height when a visible tip is non-colliding. */
+  arrivalAimY?: number;
 }
 
 // Manhattan street-grid rotation. NEGATIVE: rotation.y = -0.507 maps local +x
@@ -56,17 +79,40 @@ const GRID = -0.507;
 // Park Av viaduct ribbons), and service-alley grazes (stylization noise).
 export const LANDMARKS_REG: LandmarkEntry[] = [
   // ---- financial district / battery ----
-  { id: 'one-wtc', name: 'One World Trade Center', lat: 40.712507, lon: -74.013462, set: 'fidi', r: 1400 },
+  // Always-on: its OSM duplicate is cleared so this compact premium model is
+  // also the distant skyline representation. Anchor is the measured host
+  // center (the old point was ~59m southwest, leaving a floating second mast).
+  // Present the full 1,776ft silhouette from the baked West Street/Liberty
+  // Street footway instead of ejecting from the tower anchor into its podium.
+  // This surveyed point is outside every footprint, 7.8m from the mapped road
+  // centerline, 19.3m from the nearest tree and has a clear 262.4m sightline.
+  {
+    id: 'one-wtc', name: 'One World Trade Center',
+    lat: 40.7130, lon: -74.01319, set: 'fidi', r: 1400, alwaysOn: true,
+    arrivalLat: 40.7109757, arrivalLon: -74.0147919,
+  },
   { id: 'sept11-museum', name: '9/11 Memorial Museum', lat: 40.7115, lon: -74.0125, set: 'fidi', r: 450 },
   // anchored at the midpoint of the two BAKED memorial pools (54.2m water squares
   // in the tile areas); GRID aligns local x with their edges — the builder places
   // its parapet frames at the pools' exact measured local offsets
   { id: 'sept11-pools', name: 'September 11 Memorial Pools', lat: 40.71158, lon: -74.01313, set: 'fidi', r: 500, rot: GRID },
   { id: 'oculus', name: 'Oculus', lat: 40.7115, lon: -74.0113, set: 'fidi', r: 600 },
-  { id: 'nyse', name: 'New York Stock Exchange', lat: 40.7069, lon: -74.0113, set: 'fidi', r: 450, rot: 0.35 },
+  // Anchor + rot measured off the host footprint's Broad Street frontage (see
+  // the frontage rig note above): a 38.2 m edge, 9 m from the Broad Street
+  // centreline and parallel to it within 0.6deg. The old rot was 44deg off and
+  // the old anchor sat 24 m back inside the block, so the colonnade cut across
+  // the building it is attached to. Standoff is 1 m behind the wall face: the
+  // builder puts its colonnade at local z +2.5, so that lands the columns 1.5 m
+  // PROUD of the wall (a portico projects) with the steps running down to Broad.
+  { id: 'nyse', name: 'New York Stock Exchange', lat: 40.706841, lon: -74.011042, set: 'fidi', r: 450, rot: 1.126 },
   { id: 'nyse-facade', name: 'NYSE Facade', lat: 40.7069, lon: -74.0113, set: 'fidi', r: 450, aliasOf: 'nyse' },
-  { id: 'federal-hall', name: 'Federal Hall', lat: 40.7074, lon: -74.0102, set: 'fidi', r: 420, rot: -1.22 },
-  { id: 'trinity-church', name: 'Trinity Church', lat: 40.7081, lon: -74.0121, set: 'fidi', r: 700, rot: 1.62 },
+  // Wall Street frontage: 8 m to the centreline, parallel within 3.4deg. (Its
+  // long 46.5 m edge is the Nassau Street flank -- taking the longest edge is
+  // what put the portico 33deg out.) Site is cleared, so only rot moves.
+  { id: 'federal-hall', name: 'Federal Hall', lat: 40.7074, lon: -74.0102, set: 'fidi', r: 420, rot: -0.635 },
+  // Broadway frontage: parallel to Broadway within 0.0deg. The church fronts
+  // east onto Broadway; 1.62 had it 35deg across its own churchyard.
+  { id: 'trinity-church', name: 'Trinity Church', lat: 40.7081, lon: -74.0121, set: 'fidi', r: 700, rot: 1.014 },
   { id: 'charging-bull', name: 'Charging Bull', lat: 40.7056, lon: -74.0134, set: 'fidi', r: 350, rot: 0.4 },
   { id: 'fearless-girl', name: 'Fearless Girl', lat: 40.7066, lon: -74.0111, set: 'fidi', r: 350, rot: -1.2 },
   { id: 'bowling-green', name: 'Bowling Green', lat: 40.7048, lon: -74.0138, set: 'fidi', r: 380 },
@@ -80,8 +126,26 @@ export const LANDMARKS_REG: LandmarkEntry[] = [
 
   // ---- civic center / chinatown / bridges ----
   { id: 'city-hall', name: 'New York City Hall', lat: 40.7128, lon: -74.006, set: 'civic', r: 500, rot: 0.3 },
-  { id: 'woolworth', name: 'Woolworth Building', lat: 40.7124, lon: -74.0083, set: 'civic', r: 1200, rot: 0.28 },
-  { id: 'municipal-building', name: 'Manhattan Municipal Building', lat: 40.7127, lon: -74.0041, set: 'civic', r: 900, rot: 0.5 },
+  // Its eleven generic upper-tower prisms are cleared, so this complete 120–241m
+  // premium replacement also owns the distant skyline. The surveyed City Hall
+  // Park arrival is outside both tree canopies and the Broadway streetwall.
+  {
+    id: 'woolworth', name: 'Woolworth Building',
+    lat: 40.7124, lon: -74.0083, set: 'civic', r: 1200, rot: 0.28,
+    alwaysOn: true,
+    arrivalLat: 40.712780, arrivalLon: -74.006560,
+    arrivalLookLat: 40.712400, arrivalLookLon: -74.008300,
+  },
+  // The old point sat at the Chambers Street arch, placing the procedural
+  // cupola ~50m west of its real tower. Tile-fit now owns the measured crown;
+  // the builder separately offsets the arch back to the street axis.
+  {
+    id: 'municipal-building', name: 'Manhattan Municipal Building',
+    lat: 40.712960, lon: -74.003620, set: 'civic', r: 1100,
+    alwaysOn: true,
+    arrivalLat: 40.71314343, arrivalLon: -74.00528014,
+    arrivalLookLat: 40.712960, arrivalLookLon: -74.003620,
+  },
   { id: 'foley-square', name: 'Supreme Court & Foley Square', lat: 40.7143, lon: -74.0018, set: 'civic', r: 450, rot: -1.05 },
   { id: 'african-burial-ground', name: 'African Burial Ground', lat: 40.714769, lon: -74.004275, set: 'civic', r: 350, rot: 0.3 },
   { id: 'chinatown-gate', name: 'Chinatown', lat: 40.7157, lon: -73.997, set: 'civic', r: 420, rot: -0.62 },
@@ -99,21 +163,98 @@ export const LANDMARKS_REG: LandmarkEntry[] = [
   // from the OSM footprint); the obb fit was dropped — a triangle's longest-edge
   // obb centers and rotates the cornice trim wrong (it floated rotated mid-air)
   { id: 'flatiron', name: 'Flatiron Building', lat: 40.74107, lon: -73.98964, set: 'village', r: 800, rot: 2.847 },
+  // The manager snaps this upper-tower reconstruction to the pipeline-measured
+  // host center/rotation. Its six generic source crown pieces are cleared, so
+  // the compact packed build remains resident to keep the gold roof present in
+  // the distant skyline instead of disappearing outside the old stream radius.
+  // Its park arrival is clear of the nearest tree canopy and far enough west to
+  // frame the complete upper tower above Madison Square's open lawn.
+  {
+    id: 'new-york-life', name: 'New York Life Building',
+    lat: 40.742735, lon: -73.985608, set: 'village', r: 1400,
+    rot: GRID, alwaysOn: true,
+    arrivalLat: 40.7425679, arrivalLon: -73.9884054,
+    arrivalLookLat: 40.742735, arrivalLookLon: -73.985608,
+  },
+  // Full 85x75ft, 700ft replacement for all eight source pieces. Its packed
+  // windows and compact clock/crown geometry stay resident after clearing the
+  // generic prisms, so the historic Madison Square skyline never loses its
+  // defining campanile outside the old stream radius.
+  {
+    id: 'met-life-tower', name: 'Metropolitan Life Tower',
+    lat: 40.741239, lon: -73.987305, set: 'village', r: 1500,
+    rot: GRID, alwaysOn: true,
+  },
   { id: 'union-square', name: 'Union Square', lat: 40.7359, lon: -73.9906, set: 'village', r: 450, rot: GRID },
   { id: 'madison-sq-park', name: 'Madison Square Park', lat: 40.742, lon: -73.988, set: 'village', r: 400, rot: GRID },
-  { id: 'high-line', name: 'The High Line', lat: 40.7391, lon: -74.008, set: 'village', r: 500, rot: GRID },
-  { id: 'whitney', name: 'Whitney Museum', lat: 40.7397, lon: -74.0089, set: 'village', r: 450, rot: GRID },
+  // NOT GRID: the builder lays a 30 m deck along local +z, so rot has to put +z
+  // along the viaduct, which runs 1.519 here (Washington St agrees at 1.499) --
+  // local +z has bearing rot - pi/2, giving -0.052. GRID had the deck crossing
+  // its own alignment by 26deg.
+  { id: 'high-line', name: 'The High Line', lat: 40.7391, lon: -74.008, set: 'village', r: 500, rot: -0.052 },
+  // NOT GRID: the Gansevoort/Meatpacking block is 24 degrees off the Manhattan
+  // grid, so GRID left the museum visibly skewed against its own street wall.
+  // Measured from the OSM footprint (way/288749896, edge coherence 0.82);
+  // Gansevoort St runs 0.017, which agrees.
+  { id: 'whitney', name: 'Whitney Museum', lat: 40.7397, lon: -74.0089, set: 'village', r: 450, rot: -0.085 },
   { id: 'chelsea-market', name: 'Chelsea Market', lat: 40.7425, lon: -74.0053, set: 'village', r: 400, rot: GRID },
   { id: 'little-island', name: 'Little Island', lat: 40.742, lon: -74.01, set: 'village', r: 700, rot: GRID },
   { id: 'vessel', name: 'The Vessel', lat: 40.7538, lon: -74.0022, set: 'village', r: 800, rot: GRID },
   { id: 'hudson-yards', name: 'Hudson Yards', lat: 40.7536, lon: -74.0011, set: 'village', r: 600, rot: GRID, aliasOf: 'vessel' },
-  { id: 'edge-deck', name: 'Edge Observation Deck', lat: 40.7539, lon: -74.0006, set: 'village', r: 1200, rot: GRID },
+  // Full Foster + Partners replacement for the three generic source slabs.
+  // Keep it resident beside 30 Hudson so the west-side skyline retains the
+  // real white-stone frame, stacked terraces and illuminated summit halo. The
+  // northwest plaza frames the full elevation; the automatic sampler lands in
+  // the W 33rd Street canyon and hides most of the tower behind adjacent slabs.
+  {
+    id: 'fifty-hudson', name: '50 Hudson Yards',
+    lat: 40.754519, lon: -74.000119, set: 'village', r: 1600,
+    rot: GRID, alwaysOn: true,
+    arrivalLat: 40.7562138, arrivalLon: -74.0019176,
+  },
+  // Complete KPF tower + Edge replacement for eleven overlapping source
+  // prisms. Keep the compact textured build resident after clearing those
+  // slabs so Manhattan's west skyline never loses its 395m anchor. The
+  // waterfront greenway is the nearest clear ground-level presentation that
+  // frames the complete tower; the auto sampler otherwise lands in a narrow
+  // W 33rd Street keyhole between 10/30/50 Hudson Yards.
+  {
+    id: 'edge-deck', name: '30 Hudson Yards & Edge',
+    lat: 40.753949, lon: -74.000555, set: 'village', r: 1600,
+    rot: GRID, alwaysOn: true,
+    arrivalLat: 40.754000, arrivalLon: -74.008000,
+  },
 
   // ---- midtown south ----
-  { id: 'empire-state', name: 'Empire State Building', lat: 40.7484, lon: -73.9857, set: 'midtown-south', r: 1500, rot: GRID },
-  // facade replica fronts 5th Ave: +z (steps/lions) must face ESE = GRID + 90deg;
-  // anchor mid-block on the avenue front of the real massing, not the 42nd corner
-  { id: 'nypl', name: 'New York Public Library', lat: 40.75290, lon: -73.98165, set: 'midtown-south', r: 500, rot: GRID + Math.PI / 2 },
+  // The tile bake retains the real setback massing through 330m but clears its
+  // two generic mast/antenna pieces. Keep the compact premium crown resident so
+  // distant views never regress to a flat-topped Empire State Building. The
+  // surveyed West 33rd Street footway frames the complete 443m silhouette down
+  // the street canyon without a tree canopy or adjacent wall filling the view.
+  {
+    id: 'empire-state', name: 'Empire State Building',
+    lat: 40.7484, lon: -73.9857, set: 'midtown-south', r: 1500,
+    rot: GRID, alwaysOn: true,
+    arrivalLat: 40.7488480, arrivalLon: -73.9877531,
+    arrivalLookLat: 40.7484000, arrivalLookLon: -73.9857000,
+  },
+  // Full premium replacement for fourteen interpenetrating generic source
+  // parts. Its compact textured facades and open lattice spire stay resident
+  // as the distant skyline representation after the tile bake clears the site.
+  { id: 'one-bryant', name: 'Bank of America Tower at One Bryant Park', lat: 40.7555573, lon: -73.9847166, set: 'midtown-south', r: 1500, rot: GRID, alwaysOn: true },
+  // Facade replica fronts 5th Ave: +z (steps/lions) must face ESE = GRID + 90deg;
+  // anchor mid-block on the avenue front of the real massing, not the 42nd corner.
+  // The arrival is the east-side Fifth Ave footway at local (362.38, 573.72):
+  // 0m from its mapped centerline, 9.4m from traffic, 21m from the nearest tree,
+  // and outside every baked footprint. Aim at the replica's portico center
+  // (local 6.5,-10), not this southeast streaming/build anchor.
+  {
+    id: 'nypl', name: 'New York Public Library',
+    lat: 40.75290, lon: -73.98165, set: 'midtown-south', r: 500,
+    rot: GRID + Math.PI / 2,
+    arrivalLat: 40.752837, arrivalLon: -73.981203,
+    arrivalLookLat: 40.752995, arrivalLookLon: -73.981716,
+  },
   { id: 'bryant-park', name: 'Bryant Park', lat: 40.7536, lon: -73.9832, set: 'midtown-south', r: 450, rot: GRID },
   { id: 'msg', name: 'Madison Square Garden', lat: 40.7505, lon: -73.9934, set: 'midtown-south', r: 600, rot: GRID },
   { id: 'times-square', name: 'Times Square', lat: 40.758, lon: -73.9855, set: 'midtown-south', r: 650, rot: GRID, needsRoads: true },
@@ -134,7 +275,15 @@ export const LANDMARKS_REG: LandmarkEntry[] = [
   // web coordinates put him 7m off-axis into the wing notch, which read as
   // "in a courtyard" from the air.
   { id: 'atlas', name: 'Atlas Statue', lat: 40.758941, lon: -73.977217, set: 'midtown-core', r: 400, rot: GRID },
-  { id: 'top-of-the-rock', name: 'Top of the Rock', lat: 40.7591, lon: -73.9794, set: 'midtown-core', r: 1300, rot: GRID },
+  // Present the full 850ft slab on Rockefeller Plaza's Channel Gardens axis.
+  // The automatic radial sampler landed against/inside the retained west wall;
+  // this surveyed point is beyond the last fountain, centered in the pedestrian
+  // corridor, 11m from either flanking facade and clear of Fifth Avenue.
+  {
+    id: 'top-of-the-rock', name: 'Top of the Rock',
+    lat: 40.7591, lon: -73.9794, set: 'midtown-core', r: 1300, rot: GRID,
+    arrivalLat: 40.758271, arrivalLon: -73.977548,
+  },
   // portals (+z) face WNW toward 5th Ave — the cathedral sits on the avenue's east side
   { id: 'st-patricks', name: "St. Patrick's Cathedral", lat: 40.7585, lon: -73.976, set: 'midtown-core', r: 700, rot: GRID - Math.PI / 2 },
   { id: 'radio-city', name: 'Radio City Music Hall', lat: 40.7599, lon: -73.9801, set: 'midtown-core', r: 500, rot: GRID },
@@ -145,8 +294,24 @@ export const LANDMARKS_REG: LandmarkEntry[] = [
 
   // ---- midtown east ----
   { id: 'grand-central', name: 'Grand Central Terminal', lat: 40.7519, lon: -73.9772, set: 'midtown-east', r: 600, rot: GRID },
-  { id: 'chrysler', name: 'Chrysler Building', lat: 40.7516, lon: -73.9755, set: 'midtown-east', r: 1500, rot: GRID },
-  { id: 'one-vanderbilt', name: 'One Vanderbilt', lat: 40.7529, lon: -73.9787, set: 'midtown-east', r: 1400, rot: GRID },
+  // Present the crown from the baked E 44th Street/Third Avenue footway. The
+  // automatic western choice looks through the visually massive but
+  // collision-passable Park Avenue viaduct; this surveyed point is outside
+  // every footprint, 7.3m from the road centerline, 83.2m from the nearest
+  // tree and gives the upper shaft/crown a clear 190m sightline. Always-on
+  // because the bake clears the generic crown: this compact replacement is
+  // also the distant skyline LOD, avoiding a truncated 199m shaft across town.
+  {
+    id: 'chrysler', name: 'Chrysler Building',
+    lat: 40.7516, lon: -73.9755, set: 'midtown-east', r: 1500,
+    rot: GRID, alwaysOn: true,
+    arrivalLat: 40.7520710, arrivalLon: -73.9733343,
+    arrivalAimY: 166,
+  },
+  // Full premium replacement for all 24 generic source parts. Keep its compact
+  // procedural build resident as the distant skyline too, or clearing the OSM
+  // tower would leave a 427m hole whenever the streamed landmark unloads.
+  { id: 'one-vanderbilt', name: 'One Vanderbilt', lat: 40.7529, lon: -73.9787, set: 'midtown-east', r: 1400, rot: GRID, alwaysOn: true },
   { id: 'summit-1v', name: 'Summit One Vanderbilt', lat: 40.7529, lon: -73.9787, set: 'midtown-east', r: 1400, aliasOf: 'one-vanderbilt' },
   // anchored on the real Secretariat slab center, rot aligning the slab with the
   // measured OSM massing (long axis along the 1st Ave grid); the GA hall offset
@@ -156,15 +321,78 @@ export const LANDMARKS_REG: LandmarkEntry[] = [
   // 270 Park (Foster + Partners JPMorganChase HQ): FULL replacement — the OSM
   // extract predates completion (stale stepped massing, cleared by the pipeline).
   // Anchored on the measured "270 Park Avenue" OSM outline centroid (was ~33m SE,
-  // which left the build offset from the real footprint).
-  { id: 'chase-hq', name: '270 Park Ave: JPMorganChase', lat: 40.755980, lon: -73.975987, set: 'midtown-east', r: 1400, rot: GRID },
+  // which left the build offset from the real footprint). Always-on because the
+  // generic source tower is fully cleared; this lean procedural build is also
+  // the 423m distant skyline representation. Present it from a surveyed E 50th
+  // Street/Madison Avenue footway: the automatic radial sampler chose Lexington
+  // Avenue one block east, where two slabs reduced the tower to a narrow sliver.
+  // This point is outside every baked footprint, 0.3m from the mapped footway,
+  // 10.4m from the nearest road centerline and 42.8m from the nearest tree.
+  {
+    id: 'chase-hq', name: '270 Park Ave: JPMorganChase',
+    lat: 40.755980, lon: -73.975987, set: 'midtown-east', r: 1400,
+    rot: GRID, alwaysOn: true,
+    arrivalLat: 40.757596, arrivalLon: -73.975923,
+  },
+  // Rafael Viñoly's 425.5m square concrete basket replaces the source's one
+  // solid 426m extrusion. The physically recessed six-window grid and five
+  // open windbreak bands stay resident as its skyline representation; at
+  // roughly five thousand triangles it is cheaper than a dense window mesh.
+  {
+    id: '432-park', name: '432 Park Avenue',
+    lat: 40.7615943, lon: -73.9718353, set: 'midtown-east', r: 1700,
+    rot: GRID,
+    // Park Avenue axial view from the E 51st Street sidewalk: 0.6m from the
+    // mapped footway, 7.4m from the nearest building and 56.5m from a tree.
+    // The full tower and all five windbreak bands remain framed by the avenue.
+    arrivalLat: 40.757620, arrivalLon: -73.973380,
+    alwaysOn: true,
+  },
   { id: 'queensboro-bridge', name: 'Ed Koch Queensboro Bridge', lat: 40.7595, lon: -73.9605, set: 'midtown-east', r: 1500, rot: GRID },
 
   // ---- uptown west (columbus circle -> UWS) + UES museums ----
   // anchored on the monument's OSM footprint centroid (circle center island);
   // OSM maps the column as a stack of building rings — `clear` suppresses them
   { id: 'columbus-circle', name: 'Columbus Circle', lat: 40.768069, lon: -73.981897, set: 'uptown', r: 550, rot: GRID, clear: 16 },
-  { id: 'hearst-tower', name: 'Hearst Tower', lat: 40.7666, lon: -73.9836, set: 'uptown', r: 900, rot: GRID },
+  // Full replacement for both source parts: Joseph Urban's six-storey 1928
+  // shell plus Foster's 182m faceted diagrid. The compact textured/merged build
+  // remains resident after those source prisms are cleared, preventing a
+  // conspicuous west-side skyline hole beyond the old 900m streaming radius.
+  // Present it from the Broadway/W 57th footway: outside all footprints, 4.7m
+  // from the nearest facade, 5.3m beyond the road edge and 58.9m from a tree.
+  // The 132m street axis frames both Urban's base and the peeled diagrid crown.
+  {
+    id: 'hearst-tower', name: 'Hearst Tower',
+    lat: 40.7666, lon: -73.9836, set: 'uptown', r: 1400,
+    rot: GRID, alwaysOn: true,
+    arrivalLat: 40.766514, arrivalLon: -73.982062,
+  },
+  // Full premium replacement for Central Park Tower's nine-part ownership
+  // group plus its separately mapped cantilever. The tile pipeline snaps the
+  // build to its measured 60x61m site and clears the generic 472m prism stack.
+  // Keep this compact textured build resident as the skyline representation,
+  // or Billionaires' Row would have a conspicuous hole whenever its streamed
+  // neighborhood unloaded. Present it from Central Park to the north: the
+  // west/8th-Avenue axis is blocked by the broad Nordstrom/neighboring slabs
+  // and only reveals a sliver of the tower.
+  {
+    id: 'central-park-tower', name: 'Central Park Tower',
+    lat: 40.766410, lon: -73.980772, set: 'uptown', r: 1700, rot: GRID,
+    arrivalBearing: -Math.PI / 2, arrivalLat: 40.768050, arrivalLon: -73.980580,
+    alwaysOn: true,
+  },
+  // SHoP's 435m feathered tower replaces all 14 source pieces plus the
+  // separately mapped Steinway Hall. Keep its compact textured/finned build in
+  // the skyline: this is Manhattan's tallest remaining generic supertall and
+  // its terracotta east/west elevations are recognizable from across Midtown.
+  {
+    id: 'steinway-tower', name: '111 West 57th Street (Steinway Tower)',
+    lat: 40.764998, lon: -73.977437, set: 'uptown', r: 1700, rot: GRID,
+    // Surveyed on a Central Park footpath: 1.2m from its centerline, nearest
+    // tree canopy 13.7m away, with the complete feathered upper tower visible.
+    arrivalBearing: Math.PI, arrivalLat: 40.7670091, arrivalLon: -73.9774284,
+    alwaysOn: true,
+  },
   { id: 'plaza-hotel', name: 'The Plaza Hotel', lat: 40.7644, lon: -73.9745, set: 'uptown', r: 550, rot: GRID },
   { id: 'pulitzer-fountain', name: 'Pulitzer Fountain', lat: 40.764, lon: -73.9737, set: 'uptown', r: 400, rot: GRID },
   { id: 'lincoln-center', name: 'Lincoln Center', lat: 40.772709, lon: -73.982946, set: 'uptown', r: 550, rot: GRID },
@@ -180,7 +408,19 @@ export const LANDMARKS_REG: LandmarkEntry[] = [
   // real arch position, dead center of the 77th-81st block) so the full 224m
   // quadrangle clears both cross streets. clear covers the flat OSM slab.
   { id: 'amnh', name: 'American Museum of Natural History', lat: 40.780977, lon: -73.973527, set: 'uptown', r: 600, rot: GRID + Math.PI / 2 },
-  { id: 'met-museum', name: 'Metropolitan Museum of Art', lat: 40.779391, lon: -73.962542, set: 'uptown', r: 600, rot: GRID },
+  // The source relation is one 305x190m flat extrusion. Replace it by exact
+  // name: a radial clear would also erase multiple Fifth Avenue buildings
+  // whose centroids are closer to this entrance anchor than the museum's is.
+  // Like AMNH, the main facade faces east, so +z needs the crosstown axis.
+  {
+    id: 'met-museum', name: 'Metropolitan Museum of Art',
+    lat: 40.779391, lon: -73.962542, set: 'uptown', r: 700,
+    rot: GRID + Math.PI / 2, clearName: 'The Metropolitan Museum of Art',
+    // Fifth Avenue sidewalk at E 81st: an oblique 78m sightline frames the
+    // complete entrance while avoiding the trees, fountains and opposite
+    // apartment wall that block a straight-across presentation.
+    arrivalLat: 40.778687, arrivalLon: -73.962582,
+  },
   { id: 'guggenheim', name: 'Guggenheim Museum', lat: 40.783, lon: -73.959, set: 'uptown', r: 550, rot: GRID },
   // moored IN the Hudson off Pier 86 (the old anchor sat on the pier building
   // itself). rot points the bow river-ward along the pier axis; the center sits
@@ -213,15 +453,23 @@ export const LANDMARKS_REG: LandmarkEntry[] = [
   { id: 'grants-tomb', name: "Grant's Tomb", lat: 40.8134, lon: -73.963, set: 'heights', r: 550, rot: GRID },
   { id: 'grant-plaza', name: 'General Grant Memorial Plaza', lat: 40.8134, lon: -73.963, set: 'heights', r: 550, aliasOf: 'grants-tomb' },
   { id: 'riverside-park', name: 'Riverside Park', lat: 40.785, lon: -73.9838, set: 'heights', r: 400, rot: GRID },
-  { id: 'hamilton-grange', name: 'Hamilton Grange', lat: 40.8214, lon: -73.9469, set: 'heights', r: 400, rot: GRID },
+  // anchor + clear circle both moved onto the measured OSM footprint (they sat
+  // 31.5 m north-east of it, so the circle deleted nothing and the real Grange
+  // stood as a generic box beside the bespoke one)
+  { id: 'hamilton-grange', name: 'Hamilton Grange', lat: 40.821391, lon: -73.947274, set: 'heights', r: 400, rot: GRID },
   { id: 'morris-jumel', name: 'Morris-Jumel Mansion', lat: 40.8345, lon: -73.9386, set: 'heights', r: 400, rot: GRID },
-  { id: 'dyckman-farmhouse', name: 'Dyckman Farmhouse', lat: 40.866852, lon: -73.922818, set: 'heights', r: 380, rot: GRID },
+  // NOT GRID: Inwood's grid is rotated ~35 degrees from midtown's. Broadway,
+  // Vermilyea Av and Cooper St all measure 0.436-0.451 here (coherence 1.00),
+  // and GRID put the farmhouse across its own block.
+  { id: 'dyckman-farmhouse', name: 'Dyckman Farmhouse', lat: 40.866858, lon: -73.922652, set: 'heights', r: 380, rot: 0.445 },
   { id: 'cloisters', name: 'The Cloisters', lat: 40.8649, lon: -73.9317, set: 'heights', r: 700, rot: 0.2 },
   { id: 'fort-tryon', name: 'Fort Tryon Park', lat: 40.8593, lon: -73.9327, set: 'heights', r: 420, rot: 0.2 },
   { id: 'inwood-hill', name: 'Inwood Hill Park', lat: 40.8712, lon: -73.9243, set: 'heights', r: 420, rot: 0 },
   { id: 'fort-washington-park', name: 'Fort Washington Park', lat: 40.8451, lon: -73.9436, set: 'heights', r: 400, rot: 0.2 },
   { id: 'gwb', name: 'George Washington Bridge', lat: 40.8505, lon: -73.9469, set: 'heights', r: 2000, rot: 1.02 },
-  { id: 'little-red-lighthouse', name: 'Little Red Lighthouse', lat: 40.8499, lon: -73.9471, set: 'heights', r: 600, rot: 0.2 },
+  // same story: the bespoke 12 m tower stood 41 m from the OSM original, which
+  // had no clear circle at all. Both now sit on the measured footprint.
+  { id: 'little-red-lighthouse', name: 'Little Red Lighthouse', lat: 40.850255, lon: -73.946963, set: 'heights', r: 600, rot: 0.2 },
 ];
 
 export interface Landmark extends LandmarkEntry {

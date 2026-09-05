@@ -5,8 +5,79 @@ import { mergeByMaterial, disposeGroup } from '../EntranceManager';
 import { heightAt } from '../terrain';
 import type { CollisionData } from '../tileTypes';
 import type { LandmarkCtx } from './kit';
+import { quality } from '../quality';
+import {
+  buildHeroLandmarkLod,
+  disposeHeroLandmarkLodMaterials,
+  HERO_LANDMARK_LOD_IDS,
+  landmarkLodStats,
+  type LandmarkLodStats,
+} from './landmarkLod';
 
 type BuilderMap = Record<string, (ctx: LandmarkCtx) => THREE.Group>;
+
+const SECONDARY_LOD_MATERIAL = new THREE.MeshLambertMaterial({ vertexColors: true });
+const SECONDARY_LOD_DISTANCE: Record<ReturnType<typeof quality>['level'], number> = {
+  low: 120,
+  medium: 175,
+  high: 245,
+  ultra: 320,
+};
+
+/**
+ * One-draw colored massing for non-hero landmarks beyond readable detail.
+ * Hero landmarks preserve their authored stepped silhouettes at every tier;
+ * secondary objects become a single conservative landmark-scale volume only
+ * after façade and crown geometry is sub-pixel.
+ */
+function secondaryLandmarkSilhouette(raw: THREE.Group): THREE.Mesh {
+  raw.updateMatrixWorld(true);
+  // One traversal/box keeps streamed landmark construction cheap. Hero
+  // landmarks retain authored stepped silhouettes; this path is specifically
+  // for secondary objects after their details are sub-pixel.
+  const box = new THREE.Box3().setFromObject(raw);
+  if (box.isEmpty()) box.set(
+    new THREE.Vector3(-2, 0, -2),
+    new THREE.Vector3(2, 5, 2),
+  );
+  const size = box.getSize(new THREE.Vector3());
+  const center = box.getCenter(new THREE.Vector3());
+  const geometry = new THREE.BoxGeometry(
+    Math.max(0.2, size.x),
+    Math.max(0.2, size.y),
+    Math.max(0.2, size.z),
+  );
+  geometry.translate(center.x, center.y, center.z);
+  const color = new THREE.Color(0x8d8b86);
+  const colors = new Float32Array(geometry.getAttribute('position').count * 3);
+  for (let i = 0; i < colors.length; i += 3) {
+    colors[i] = color.r;
+    colors[i + 1] = color.g;
+    colors[i + 2] = color.b;
+  }
+  geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+  geometry.computeBoundingSphere();
+  const mesh = new THREE.Mesh(geometry, SECONDARY_LOD_MATERIAL);
+  mesh.name = 'Secondary landmark silhouette';
+  mesh.castShadow = false;
+  mesh.receiveShadow = true;
+  mesh.matrixAutoUpdate = false;
+  return mesh;
+}
+
+function secondaryLandmarkLod(
+  high: THREE.Group,
+  silhouette: THREE.Mesh,
+  level: ReturnType<typeof quality>['level'],
+): THREE.Group {
+  const lod = new THREE.LOD();
+  lod.name = 'Secondary landmark geometric LOD';
+  lod.addLevel(high, 0, 0.12);
+  lod.addLevel(silhouette, SECONDARY_LOD_DISTANCE[level], 0.18);
+  const group = new THREE.Group();
+  group.add(lod);
+  return group;
+}
 
 /**
  * A SOLID extruded mass carries its true plan in the 2D shape it was extruded
@@ -93,6 +164,11 @@ function deriveCollision(
   const b3 = new THREE.Box3();
   raw.traverse((o) => {
     if (!(o instanceof THREE.Mesh)) return;
+    // Packed decorative meshes (hundreds of facade panes in one BufferGeometry)
+    // span a landmark's whole bounds but are not a solid volume. Treating their
+    // aggregate AABB as collision would turn a triangular tower into a giant
+    // invisible rectangular wall.
+    if (o.userData.noCollision) return;
     // arch openings stay walk-under: their footprint would seal the span you
     // walk through (Washington Sq arch, church portals, market arcades).
     if (o.userData.passable) return;
@@ -187,6 +263,23 @@ interface Fit {
  */
 type RoadEject = (x: number, z: number, clearance: number) => [number, number] | null;
 
+export interface ActiveLandmarkLodStats {
+  heroCount: number;
+  highTriangles: number;
+  midTriangles: number;
+  farTriangles: number;
+  shadowTriangles: number;
+  highDraws: number;
+  midDraws: number;
+  farDraws: number;
+  highGeometryBytes: number;
+  midGeometryBytes: number;
+  farGeometryBytes: number;
+  shadowGeometryBytes: number;
+  lodOverheadGeometryBytes: number;
+  residentGeometryBytes: number;
+}
+
 export class LandmarkManager {
   private scene: THREE.Scene;
   private roadEject: RoadEject | null;
@@ -202,6 +295,7 @@ export class LandmarkManager {
   private buildChain: Promise<void> = Promise.resolve();
   private sets = new Map<string, Promise<BuilderMap | null>>();
   private colSets = new Map<string, { data: CollisionData; x0: number; z0: number; x1: number; z1: number }>();
+  private lodProfiles = new Map<string, LandmarkLodStats>();
   private timer = 0;
   private initialPlaced = false;
   private fits: Record<string, Fit> | null = null;
@@ -290,7 +384,26 @@ export class LandmarkManager {
       // collapses everything into one geometry per material
       const collision = deriveCollision(raw, px, gy, pz, rot);
       await this.yieldFrame(); // collision walked the whole tree; merge in a fresh frame
-      const group = mergeByMaterial(raw);
+      // Landmark batches are few meshes (one per material), so they can afford
+      // to anchor to the street with real sun shadows on capable tiers. Pass
+      // defaults through the merger; source primitives use Three's false
+      // defaults and the old replacement meshes silently remained unshadowed.
+      const q = quality();
+      const hero = HERO_LANDMARK_LOD_IDS.has(lm.id);
+      const secondarySilhouette = hero ? null : secondaryLandmarkSilhouette(raw);
+      const group = hero
+        ? await buildHeroLandmarkLod(raw, q.level, q.shadows, () => this.yieldFrame())
+        : secondaryLandmarkLod(mergeByMaterial(raw, {
+          // Visually dominant landmarks own one silhouette proxy each.
+          // Secondary landmarks remain fully shaded receivers; their many
+          // bespoke material batches do not duplicate the generic OSM massing
+          // already casting beneath them.
+          castShadow: false,
+          receiveShadow: q.shadows,
+        }), secondarySilhouette!, q.level);
+      group.name = lm.name;
+      const lodProfile = landmarkLodStats(group);
+      if (lodProfile) this.lodProfiles.set(lm.id, lodProfile);
       group.position.set(px, gy, pz);
       group.rotation.y = rot;
       // Claim the slot + register collision synchronously so the landmark is
@@ -322,8 +435,10 @@ export class LandmarkManager {
         // and re-seat anything inside the new solid bounds
         this.onBuilt?.(lm.id, x0, z0, x1, z1);
       }
-    } catch {
-      /* a single failed landmark must never take the frame loop down */
+    } catch (error) {
+      // A single failed landmark must never take the frame loop down, but keep
+      // development failures observable instead of silently leaving a hole.
+      if (process.env.NODE_ENV !== 'production') console.warn(`Landmark build failed: ${lm.id}`, error);
     } finally {
       this.building.delete(lm.id);
     }
@@ -355,9 +470,11 @@ export class LandmarkManager {
       } else if (has && d2 > (lm.r + 150) * (lm.r + 150)) {
         const g = this.placed.get(lm.id)!;
         this.scene.remove(g);
+        disposeHeroLandmarkLodMaterials(g);
         disposeGroup(g);
         this.placed.delete(lm.id);
         this.colSets.delete(lm.id);
+        this.lodProfiles.delete(lm.id);
       }
     }
   }
@@ -375,12 +492,54 @@ export class LandmarkManager {
   /** Active landmark count (debug/stats). */
   get activeCount() { return this.placed.size; }
 
+  /** True once a named premium build and its collision have completed. */
+  isBuilt(id: string) { return this.placed.has(id); }
+
+  /** Exact authored close/mid/far and shadow-proxy costs for resident heroes. */
+  lodStats(): ActiveLandmarkLodStats {
+    const total: ActiveLandmarkLodStats = {
+      heroCount: 0,
+      highTriangles: 0,
+      midTriangles: 0,
+      farTriangles: 0,
+      shadowTriangles: 0,
+      highDraws: 0,
+      midDraws: 0,
+      farDraws: 0,
+      highGeometryBytes: 0,
+      midGeometryBytes: 0,
+      farGeometryBytes: 0,
+      shadowGeometryBytes: 0,
+      lodOverheadGeometryBytes: 0,
+      residentGeometryBytes: 0,
+    };
+    for (const profile of this.lodProfiles.values()) {
+      total.heroCount++;
+      total.highTriangles += profile.highTriangles;
+      total.midTriangles += profile.midTriangles;
+      total.farTriangles += profile.farTriangles;
+      total.shadowTriangles += profile.shadowTriangles;
+      total.highDraws += profile.highDraws;
+      total.midDraws += profile.midDraws;
+      total.farDraws += profile.farDraws;
+      total.highGeometryBytes += profile.highGeometryBytes;
+      total.midGeometryBytes += profile.midGeometryBytes;
+      total.farGeometryBytes += profile.farGeometryBytes;
+      total.shadowGeometryBytes += profile.shadowGeometryBytes;
+      total.lodOverheadGeometryBytes += profile.lodOverheadGeometryBytes;
+      total.residentGeometryBytes += profile.residentGeometryBytes;
+    }
+    return total;
+  }
+
   destroy() {
     for (const g of this.placed.values()) {
       this.scene.remove(g);
+      disposeHeroLandmarkLodMaterials(g);
       disposeGroup(g);
     }
     this.placed.clear();
     this.colSets.clear();
+    this.lodProfiles.clear();
   }
 }

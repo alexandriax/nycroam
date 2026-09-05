@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { architecturalMaterial } from '../surfaceMaterial';
+import { canvas2d } from '../canvas2d';
 
 /**
  * Shared building blocks for landmark modules (src/engine/landmarks/sets/*).
@@ -37,19 +37,25 @@ export interface LandmarkCtx {
 }
 
 // ---- shared materials (module scope: one instance across all landmarks) ----
-export const LIMESTONE = architecturalMaterial('#c8c0af', 'stone', 0.82);
-export const GRANITE = architecturalMaterial('#96918a', 'stone', 0.9);
-export const DARKSTONE = architecturalMaterial('#615f59', 'stone', 0.86);
-export const MARBLE = architecturalMaterial('#e0dcd1', 'stone', 0.58);
-export const BRICK_RED = architecturalMaterial('#92523e', 'brick', 0.91);
+export const LIMESTONE = new THREE.MeshLambertMaterial({ color: '#cfc8b8' });
+export const GRANITE = new THREE.MeshLambertMaterial({ color: '#8e8d90' });
+export const DARKSTONE = new THREE.MeshLambertMaterial({ color: '#6d6a63' });
+export const MARBLE = new THREE.MeshLambertMaterial({ color: '#e8e4da' });
+export const BRICK_RED = new THREE.MeshLambertMaterial({ color: '#8d5744' });
 export const BRONZE = new THREE.MeshStandardMaterial({ color: '#6d4f2f', metalness: 0.75, roughness: 0.45 });
-export const VERDIGRIS = architecturalMaterial('#72a798', 'patina', 0.8);
+export const VERDIGRIS = new THREE.MeshLambertMaterial({ color: '#5e9c8a' });
 export const GOLD = new THREE.MeshStandardMaterial({ color: '#c9a227', metalness: 0.85, roughness: 0.3 });
-export const STEEL_LM = architecturalMaterial('#b7bdc1', 'metal', 0.29);
-export const GLASS_LM = new THREE.MeshStandardMaterial({ color: '#68878f', metalness: 0.25, roughness: 0.17, envMapIntensity: 1.15 });
-export const WHITE_LM = architecturalMaterial('#e6e4dd', 'stone', 0.57);
-export const WATER_LM = new THREE.MeshStandardMaterial({ color: '#2a5a70', metalness: 0.3, roughness: 0.25 });
-export const GREEN_PATINA = architecturalMaterial('#46796a', 'patina', 0.85);
+export const STEEL_LM = new THREE.MeshStandardMaterial({ color: '#9aa3ab', metalness: 0.8, roughness: 0.35 });
+// Architectural glass is a dielectric, not a metal. The street scene supplies
+// the outdoor PMREM that gives this its sky/ground response.
+export const GLASS_LM = new THREE.MeshStandardMaterial({
+  color: '#7fa8c4', metalness: 0.02, roughness: 0.17, envMapIntensity: 0.95,
+});
+export const WHITE_LM = new THREE.MeshLambertMaterial({ color: '#e9ecef' });
+export const WATER_LM = new THREE.MeshStandardMaterial({
+  color: '#2a5a70', metalness: 0.01, roughness: 0.22, envMapIntensity: 0.85,
+});
+export const GREEN_PATINA = new THREE.MeshLambertMaterial({ color: '#3f7f63' });
 
 // ---- geometry helpers -------------------------------------------------------
 
@@ -100,7 +106,7 @@ export function lathe(profile: [number, number][], mat: THREE.Material, seg = 14
  * Rectangular wall with a round-topped arch opening, extruded `depth` meters.
  * Origin at the wall's bottom-center; the arch is centered.
  */
-export function archWall(w: number, h: number, depth: number, archW: number, archH: number, mat: THREE.Material, pointed = false): THREE.Mesh {
+export function archWall(w: number, h: number, depth: number, archW: number, archH: number, mat: THREE.Material): THREE.Mesh {
   const shape = new THREE.Shape();
   shape.moveTo(-w / 2, 0);
   shape.lineTo(w / 2, 0);
@@ -112,10 +118,7 @@ export function archWall(w: number, h: number, depth: number, archW: number, arc
   const spring = Math.max(0.1, archH - r); // straight jamb height before the semicircle
   hole.moveTo(-r, 0);
   hole.lineTo(-r, spring);
-  if (pointed) {
-    hole.quadraticCurveTo(-r * 0.7, archH - r * 0.32, 0, archH);
-    hole.quadraticCurveTo(r * 0.7, archH - r * 0.32, r, spring);
-  } else hole.absarc(0, spring, r, Math.PI, 0, true);
+  hole.absarc(0, spring, r, Math.PI, 0, true);
   hole.lineTo(r, 0);
   hole.closePath();
   shape.holes.push(hole);
@@ -131,24 +134,15 @@ export function archWall(w: number, h: number, depth: number, archW: number, arc
   return mesh;
 }
 
-/** Smooth volume for anatomy/sculpture without expensive sculpted meshes. */
-export function ellipsoid(w: number, h: number, d: number, mat: THREE.Material, x = 0, y = 0, z = 0): THREE.Mesh {
-  const mesh = new THREE.Mesh(new THREE.SphereGeometry(1, 12, 10), mat);
-  mesh.scale.set(w / 2, h / 2, d / 2);
-  mesh.position.set(x, y, z);
-  return mesh;
-}
-
-/** Draped statue with a continuous silhouette and correctly proportioned head. */
+/** Simple standing figure silhouette (~`h` tall) for statues; deliberately stylized. */
 export function figure(h: number, mat: THREE.Material): THREE.Group {
   const g = new THREE.Group();
-  g.add(lathe([[0,0], [.15,0], [.18,.08], [.14,.45], [.105,.58], [.15,.72], [.13,.8], [.06,.83]], mat, 18));
-  g.add(ellipsoid(.14, .18, .16, mat, 0, .91, 0));
-  for (const side of [-1, 1]) {
-    g.add(strut(new THREE.Vector3(side*.13,.76,0), new THREE.Vector3(side*.19,.53,.015), .04, mat, 8));
-    g.add(ellipsoid(.08,.09,.07,mat,side*.19,.5,.015));
-  }
-  g.scale.setScalar(h);
+  const u = h / 1.8;
+  g.add(cyl(0.16 * u, 0.2 * u, 0.75 * u, mat, 0, 0.375 * u, 0, 8)); // legs/robe
+  g.add(box(0.42 * u, 0.55 * u, 0.24 * u, mat, 0, 1.0 * u, 0)); // torso
+  const head = new THREE.Mesh(new THREE.SphereGeometry(0.13 * u, 8, 7), mat);
+  head.position.set(0, 1.42 * u, 0);
+  g.add(head);
   return g;
 }
 
@@ -167,10 +161,7 @@ export function twoSidedPanel(tex: THREE.Texture, w: number, h: number): THREE.G
 
 /** Canvas → texture with sane defaults (sRGB, mipmaps). */
 export function canvasTexture(draw: (ctx: CanvasRenderingContext2D, w: number, h: number) => void, w = 256, h = 256): THREE.CanvasTexture {
-  const canvas = document.createElement('canvas');
-  canvas.width = w;
-  canvas.height = h;
-  const ctx = canvas.getContext('2d')!;
+  const { cv: canvas, ctx } = canvas2d(w, h);
   draw(ctx, w, h);
   const tex = new THREE.CanvasTexture(canvas);
   tex.colorSpace = THREE.SRGBColorSpace;
