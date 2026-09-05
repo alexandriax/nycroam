@@ -61,3 +61,26 @@ surfaces, subway boarding/exit, bus interiors/exteriors, and nearby foliage.
 
 Performance measurements use the unchanged repository contracts. Mobile results
 are Chromium device emulation on this host, not physical-phone measurements.
+
+
+### Final capture
+
+All 12 route/profile checks pass for implementation commit `fdc96caf`.
+The measured host is an Apple M1 Max using ANGLE Metal. No frame-time, draw-call,
+triangle, memory, or streaming limits were relaxed. The full contract metrics are
+recorded in [transit-fidelity-performance.json](transit-fidelity-performance.json).
+
+| Profile | Route | 1% low FPS | CPU p95 (ms) | GPU p95 (ms) | Draws p95 |
+| --- | --- | ---: | ---: | ---: | ---: |
+| mobile-low | times-square | 93.3 | 2.10 | 1.61 | 117 |
+| mobile-low | central-park | 107.5 | 1.30 | 1.36 | 59 |
+| mobile-low | waterfront | 107.5 | 1.50 | 2.15 | 82 |
+| mobile-low | times-square-station | 107.5 | 1.30 | 2.24 | 117 |
+| mobile-medium | times-square | 106.3 | 2.71 | 2.48 | 123 |
+| mobile-medium | central-park | 106.4 | 1.60 | 2.06 | 69 |
+| mobile-medium | waterfront | 107.5 | 2.00 | 2.58 | 101 |
+| mobile-medium | times-square-station | 106.4 | 1.10 | 2.58 | 79 |
+| desktop-high | times-square | 106.3 | 3.70 | 4.98 | 233 |
+| desktop-high | central-park | 106.4 | 2.50 | 5.92 | 141 |
+| desktop-high | waterfront | 106.3 | 2.80 | 4.72 | 194 |
+| desktop-high | times-square-station | 106.4 | 1.70 | 3.25 | 172 |
