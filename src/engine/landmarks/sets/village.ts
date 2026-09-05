@@ -1,4 +1,6 @@
 import * as THREE from 'three';
+import { applyLandmarkSurface } from '../../materials';
+import { SURFACE_REGION } from '../../materialLibrary';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import {
   type LandmarkCtx,
@@ -29,12 +31,12 @@ const NYL_GOLD_SHADE = new THREE.MeshStandardMaterial({
   emissive: '#503300', emissiveIntensity: 0.22,
 });
 const NYL_COLLISION = new THREE.MeshBasicMaterial({ visible: false });
-const FLAT_STONE = new THREE.MeshLambertMaterial({ color: '#d5cbb7' });
-const FLAT_TERRA = new THREE.MeshLambertMaterial({ color: '#c6b99f' });
-const FLAT_TERRA_LIGHT = new THREE.MeshLambertMaterial({ color: '#ded4c1' });
+const FLAT_STONE = applyLandmarkSurface(new THREE.MeshLambertMaterial({ color: '#d5cbb7' }), SURFACE_REGION.limestone, 2.4, 0.22);
+const FLAT_TERRA = applyLandmarkSurface(new THREE.MeshLambertMaterial({ color: '#c6b99f' }), SURFACE_REGION.limestone, 2.4, 0.22);
+const FLAT_TERRA_LIGHT = applyLandmarkSurface(new THREE.MeshLambertMaterial({ color: '#ded4c1' }), SURFACE_REGION.limestone, 2.4, 0.22);
 const FLAT_GLASS = new THREE.MeshStandardMaterial({ color: '#26383a', metalness: 0.28, roughness: 0.2 });
 const FLAT_BRONZE = new THREE.MeshStandardMaterial({ color: '#594630', metalness: 0.72, roughness: 0.36 });
-const MET_STONE = new THREE.MeshLambertMaterial({ color: '#d8d3c5' });
+const MET_STONE = applyLandmarkSurface(new THREE.MeshLambertMaterial({ color: '#d8d3c5' }), SURFACE_REGION.limestone, 2.4, 0.22);
 const MET_GLASS = new THREE.MeshStandardMaterial({ color: '#21343b', metalness: 0.36, roughness: 0.25 });
 const MET_ROOF = new THREE.MeshStandardMaterial({ color: '#aaa99f', metalness: 0.32, roughness: 0.48 });
 const MET_ROOF_SHADE = new THREE.MeshStandardMaterial({ color: '#85867f', metalness: 0.36, roughness: 0.5 });

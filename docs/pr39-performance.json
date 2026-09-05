@@ -1,0 +1,4044 @@
+{
+  "schemaVersion": 1,
+  "physicalDeviceValidated": false,
+  "limitation": "Chromium emulation on Apple M1 Max, shared active host. No physical phone or thermal validation. Frame gates remain unchanged. Main and final both fail desktop gates; host contention does not establish performance parity or explain every failure.",
+  "runs": [
+    {
+      "label": "Untouched main 621c7bf0, contemporary comparison",
+      "generatedAt": "2026-09-05T15:11:01.009Z",
+      "sourceCommit": "621c7bf0fe877862bc1a265970bdf89969e76b33",
+      "browserVersion": "151.0.7922.34",
+      "contract": {
+        "passed": false,
+        "violations": [
+          {
+            "actual": 25.37499999627471,
+            "comparator": "<=",
+            "iteration": 1,
+            "limit": 20,
+            "message": "frameMs.p95: expected <= 20, received 25.37",
+            "metric": "frameMs.p95",
+            "profileId": "desktop-high",
+            "routeId": "times-square"
+          },
+          {
+            "actual": 22.735023304862377,
+            "comparator": ">=",
+            "iteration": 1,
+            "limit": 45,
+            "message": "fps.onePercentLow: expected >= 45, received 22.74",
+            "metric": "fps.onePercentLow",
+            "profileId": "desktop-high",
+            "routeId": "times-square"
+          },
+          {
+            "actual": 16.524999998509884,
+            "comparator": "<=",
+            "iteration": 1,
+            "limit": 8,
+            "message": "cpuMs.p95: expected <= 8, received 16.52",
+            "metric": "cpuMs.p95",
+            "profileId": "desktop-high",
+            "routeId": "times-square"
+          },
+          {
+            "actual": 44.642857148202744,
+            "comparator": ">=",
+            "iteration": 1,
+            "limit": 45,
+            "message": "fps.onePercentLow: expected >= 45, received 44.64",
+            "metric": "fps.onePercentLow",
+            "profileId": "desktop-high",
+            "routeId": "central-park"
+          },
+          {
+            "actual": 20.185000003874293,
+            "comparator": "<=",
+            "iteration": 1,
+            "limit": 20,
+            "message": "frameMs.p95: expected <= 20, received 20.19",
+            "metric": "frameMs.p95",
+            "profileId": "desktop-high",
+            "routeId": "waterfront"
+          },
+          {
+            "actual": 26.79600203399251,
+            "comparator": ">=",
+            "iteration": 1,
+            "limit": 45,
+            "message": "fps.onePercentLow: expected >= 45, received 26.80",
+            "metric": "fps.onePercentLow",
+            "profileId": "desktop-high",
+            "routeId": "waterfront"
+          },
+          {
+            "actual": 8.985000000894061,
+            "comparator": "<=",
+            "iteration": 1,
+            "limit": 8,
+            "message": "cpuMs.p95: expected <= 8, received 8.99",
+            "metric": "cpuMs.p95",
+            "profileId": "desktop-high",
+            "routeId": "waterfront"
+          }
+        ]
+      },
+      "profiles": [
+        {
+          "profileId": "desktop-high",
+          "capabilities": {
+            "deviceMemoryGiB": 32,
+            "devicePixelRatio": 1.5,
+            "gpuTimerExtension": true,
+            "hardwareConcurrency": 10,
+            "muted": true,
+            "renderer": "ANGLE (Apple, ANGLE Metal Renderer: Apple M1 Max, Unspecified Version)",
+            "routes": [
+              "times-square",
+              "central-park",
+              "waterfront",
+              "times-square-station"
+            ],
+            "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/151.0.0.0 Safari/537.36",
+            "vendor": "Google Inc. (Apple)",
+            "webgl2": true
+          },
+          "contract": {
+            "passed": false,
+            "violations": [
+              {
+                "actual": 25.37499999627471,
+                "comparator": "<=",
+                "iteration": 1,
+                "limit": 20,
+                "message": "frameMs.p95: expected <= 20, received 25.37",
+                "metric": "frameMs.p95",
+                "routeId": "times-square"
+              },
+              {
+                "actual": 22.735023304862377,
+                "comparator": ">=",
+                "iteration": 1,
+                "limit": 45,
+                "message": "fps.onePercentLow: expected >= 45, received 22.74",
+                "metric": "fps.onePercentLow",
+                "routeId": "times-square"
+              },
+              {
+                "actual": 16.524999998509884,
+                "comparator": "<=",
+                "iteration": 1,
+                "limit": 8,
+                "message": "cpuMs.p95: expected <= 8, received 16.52",
+                "metric": "cpuMs.p95",
+                "routeId": "times-square"
+              },
+              {
+                "actual": 44.642857148202744,
+                "comparator": ">=",
+                "iteration": 1,
+                "limit": 45,
+                "message": "fps.onePercentLow: expected >= 45, received 44.64",
+                "metric": "fps.onePercentLow",
+                "routeId": "central-park"
+              },
+              {
+                "actual": 20.185000003874293,
+                "comparator": "<=",
+                "iteration": 1,
+                "limit": 20,
+                "message": "frameMs.p95: expected <= 20, received 20.19",
+                "metric": "frameMs.p95",
+                "routeId": "waterfront"
+              },
+              {
+                "actual": 26.79600203399251,
+                "comparator": ">=",
+                "iteration": 1,
+                "limit": 45,
+                "message": "fps.onePercentLow: expected >= 45, received 26.80",
+                "metric": "fps.onePercentLow",
+                "routeId": "waterfront"
+              },
+              {
+                "actual": 8.985000000894061,
+                "comparator": "<=",
+                "iteration": 1,
+                "limit": 8,
+                "message": "cpuMs.p95: expected <= 8, received 8.99",
+                "metric": "cpuMs.p95",
+                "routeId": "waterfront"
+              }
+            ]
+          },
+          "captures": [
+            {
+              "routeId": "times-square",
+              "iteration": 1,
+              "report": {
+                "cpuMs": {
+                  "p50": 6.4000000059604645,
+                  "p95": 16.524999998509884,
+                  "p99": 33.020000000298005
+                },
+                "gpuMs": {
+                  "availableSamples": 796,
+                  "p50": 6.445145,
+                  "p95": 10.119666250000002,
+                  "p99": 13.552799649999994
+                },
+                "frameMs": {
+                  "p50": 15.399999998509884,
+                  "p95": 25.37499999627471,
+                  "p99": 43.984999997168615
+                },
+                "fps": {
+                  "median": 64.9350649413481,
+                  "onePercentLow": 22.735023304862377
+                },
+                "drawCalls": {
+                  "max": 255,
+                  "p50": 176,
+                  "p95": 207.75
+                },
+                "triangles": {
+                  "max": 636762,
+                  "p50": 622261,
+                  "p95": 631953
+                },
+                "sceneResources": {
+                  "geometries": 847,
+                  "geometryBytes": 52901362,
+                  "materials": 298,
+                  "textureBytes": 84649071,
+                  "textures": 105,
+                  "totalBytes": 137550433
+                },
+                "materials": {
+                  "atlas": {
+                    "cellSize": 512,
+                    "contentSize": 496,
+                    "grid": 4,
+                    "gutter": 8,
+                    "height": 2048,
+                    "width": 2048
+                  },
+                  "budgetBytes": 18874368,
+                  "diskBytes": 4220700,
+                  "fallbackReason": null,
+                  "formats": {
+                    "color": "BC7",
+                    "normal": "ASTC_4x4",
+                    "orm": "ASTC_4x4"
+                  },
+                  "loadMs": 5265.399999991059,
+                  "requestedChannels": [
+                    "color",
+                    "normal",
+                    "orm"
+                  ],
+                  "residentBytes": 16777296,
+                  "source": "ktx2-basis",
+                  "status": "compressed",
+                  "textures": 3,
+                  "tier": "high"
+                },
+                "population": {
+                  "activities": 29,
+                  "cafes": 0,
+                  "cars": 124,
+                  "colorDrawCalls": 16,
+                  "construction": 6,
+                  "contextAnchors": 5626,
+                  "cyclists": 8,
+                  "deliveryVehicles": 14,
+                  "lamps": 41,
+                  "lastMatrixWrites": 178,
+                  "movingCars": 20,
+                  "pedestrians": 98,
+                  "rebuilds": 10,
+                  "shadowDrawCalls": 1,
+                  "signals": 22,
+                  "trash": 1,
+                  "triangles": 91088,
+                  "vendors": 22
+                },
+                "updatePhases": {
+                  "bikes": {
+                    "max": 17.799999997019768,
+                    "p50": 0,
+                    "p95": 0.09999999403953552,
+                    "p99": 2.199999988079071,
+                    "samples": 796
+                  },
+                  "buses": {
+                    "max": 38.3999999910593,
+                    "p50": 0.20000000298023224,
+                    "p95": 1.2000000029802322,
+                    "p99": 4.799999997019768,
+                    "samples": 796
+                  },
+                  "entrances": {
+                    "max": 43.8999999910593,
+                    "p50": 0,
+                    "p95": 1.2000000029802322,
+                    "p99": 7.699999988079071,
+                    "samples": 796
+                  },
+                  "landmarks": {
+                    "max": 1.2999999970197678,
+                    "p50": 0,
+                    "p95": 0,
+                    "p99": 0.09999999403953552,
+                    "samples": 796
+                  },
+                  "plaques": {
+                    "max": 1,
+                    "p50": 0,
+                    "p95": 0.20000000298023224,
+                    "p99": 0.5,
+                    "samples": 796
+                  },
+                  "retailContext": {
+                    "max": 0.7999999970197678,
+                    "p50": 0,
+                    "p95": 0,
+                    "p99": 0.20000000298023224,
+                    "samples": 796
+                  },
+                  "streetLife": {
+                    "max": 66.5,
+                    "p50": 0,
+                    "p95": 8.700000002980232,
+                    "p99": 15.5,
+                    "samples": 796
+                  },
+                  "tiles": {
+                    "max": 5.799999997019768,
+                    "p50": 0.09999999403953552,
+                    "p95": 1.2999999970197678,
+                    "p99": 2.6000000089406967,
+                    "samples": 796
+                  },
+                  "tram": {
+                    "max": 0.29999999701976776,
+                    "p50": 0,
+                    "p95": 0.09999999403953552,
+                    "p99": 0.10000000894069672,
+                    "samples": 796
+                  }
+                },
+                "streamingPressure": {
+                  "max": 0.6666666666666666,
+                  "p50": 0,
+                  "p95": 0.2222222222222222
+                }
+              }
+            },
+            {
+              "routeId": "central-park",
+              "iteration": 1,
+              "report": {
+                "cpuMs": {
+                  "p50": 3.6000000089406967,
+                  "p95": 7.100000008940697,
+                  "p99": 11.942000003457064
+                },
+                "gpuMs": {
+                  "availableSamples": 859,
+                  "p50": 6.082791,
+                  "p95": 8.208308299999999,
+                  "p99": 10.20759878
+                },
+                "frameMs": {
+                  "p50": 14.400000005960464,
+                  "p95": 19.100000008940697,
+                  "p99": 22.399999997317792
+                },
+                "fps": {
+                  "median": 69.44444441569992,
+                  "onePercentLow": 44.642857148202744
+                },
+                "drawCalls": {
+                  "max": 193,
+                  "p50": 111,
+                  "p95": 136.0999999999999
+                },
+                "triangles": {
+                  "max": 639386,
+                  "p50": 550997,
+                  "p95": 619680.7999999998
+                },
+                "sceneResources": {
+                  "geometries": 667,
+                  "geometryBytes": 48010164,
+                  "materials": 234,
+                  "textureBytes": 33817769,
+                  "textures": 48,
+                  "totalBytes": 81827933
+                },
+                "materials": {
+                  "atlas": {
+                    "cellSize": 512,
+                    "contentSize": 496,
+                    "grid": 4,
+                    "gutter": 8,
+                    "height": 2048,
+                    "width": 2048
+                  },
+                  "budgetBytes": 18874368,
+                  "diskBytes": 4220700,
+                  "fallbackReason": null,
+                  "formats": {
+                    "color": "BC7",
+                    "normal": "ASTC_4x4",
+                    "orm": "ASTC_4x4"
+                  },
+                  "loadMs": 5265.399999991059,
+                  "requestedChannels": [
+                    "color",
+                    "normal",
+                    "orm"
+                  ],
+                  "residentBytes": 16777296,
+                  "source": "ktx2-basis",
+                  "status": "compressed",
+                  "textures": 3,
+                  "tier": "high"
+                },
+                "population": {
+                  "activities": 0,
+                  "cafes": 0,
+                  "cars": 28,
+                  "colorDrawCalls": 11,
+                  "construction": 0,
+                  "contextAnchors": 5659,
+                  "cyclists": 0,
+                  "deliveryVehicles": 0,
+                  "lamps": 4,
+                  "lastMatrixWrites": 0,
+                  "movingCars": 20,
+                  "pedestrians": 5,
+                  "rebuilds": 18,
+                  "shadowDrawCalls": 1,
+                  "signals": 0,
+                  "trash": 0,
+                  "triangles": 16328,
+                  "vendors": 0
+                },
+                "updatePhases": {
+                  "bikes": {
+                    "max": 2.2999999970197678,
+                    "p50": 0,
+                    "p95": 0,
+                    "p99": 0.10000000894069672,
+                    "samples": 859
+                  },
+                  "buses": {
+                    "max": 5.9000000059604645,
+                    "p50": 0,
+                    "p95": 0.6000000089406967,
+                    "p99": 1.4000000059604645,
+                    "samples": 859
+                  },
+                  "entrances": {
+                    "max": 1.3999999910593033,
+                    "p50": 0,
+                    "p95": 0,
+                    "p99": 0.10000000894069672,
+                    "samples": 859
+                  },
+                  "landmarks": {
+                    "max": 0.29999999701976776,
+                    "p50": 0,
+                    "p95": 0,
+                    "p99": 0.10000000894069672,
+                    "samples": 859
+                  },
+                  "plaques": {
+                    "max": 0.4000000059604645,
+                    "p50": 0,
+                    "p95": 0.10000000894069672,
+                    "p99": 0.20000000298023224,
+                    "samples": 859
+                  },
+                  "retailContext": {
+                    "max": 0.20000000298023224,
+                    "p50": 0,
+                    "p95": 0,
+                    "p99": 0.09999999403953552,
+                    "samples": 859
+                  },
+                  "streetLife": {
+                    "max": 15.099999994039536,
+                    "p50": 0,
+                    "p95": 2.7999999970197678,
+                    "p99": 7.5999999940395355,
+                    "samples": 859
+                  },
+                  "tiles": {
+                    "max": 4.5,
+                    "p50": 0,
+                    "p95": 1,
+                    "p99": 2.0999999940395355,
+                    "samples": 859
+                  },
+                  "tram": {
+                    "max": 0.20000000298023224,
+                    "p50": 0,
+                    "p95": 0.10000000894069672,
+                    "p99": 0.10000000894069672,
+                    "samples": 859
+                  }
+                },
+                "streamingPressure": {
+                  "max": 0.3333333333333333,
+                  "p50": 0,
+                  "p95": 0.1111111111111111
+                }
+              }
+            },
+            {
+              "routeId": "waterfront",
+              "iteration": 1,
+              "report": {
+                "cpuMs": {
+                  "p50": 4.299999997019768,
+                  "p95": 8.985000000894061,
+                  "p99": 36.23400000095367
+                },
+                "gpuMs": {
+                  "availableSamples": 884,
+                  "p50": 6.5113745,
+                  "p95": 9.617183,
+                  "p99": 12.609148579999973
+                },
+                "frameMs": {
+                  "p50": 14.900000005960464,
+                  "p95": 20.185000003874293,
+                  "p99": 37.31900000348684
+                },
+                "fps": {
+                  "median": 67.11409393288382,
+                  "onePercentLow": 26.79600203399251
+                },
+                "drawCalls": {
+                  "max": 218,
+                  "p50": 158,
+                  "p95": 191.8499999999999
+                },
+                "triangles": {
+                  "max": 754871,
+                  "p50": 589184,
+                  "p95": 699401.1
+                },
+                "sceneResources": {
+                  "geometries": 543,
+                  "geometryBytes": 46702852,
+                  "materials": 205,
+                  "textureBytes": 36208637,
+                  "textures": 47,
+                  "totalBytes": 82911489
+                },
+                "materials": {
+                  "atlas": {
+                    "cellSize": 512,
+                    "contentSize": 496,
+                    "grid": 4,
+                    "gutter": 8,
+                    "height": 2048,
+                    "width": 2048
+                  },
+                  "budgetBytes": 18874368,
+                  "diskBytes": 4220700,
+                  "fallbackReason": null,
+                  "formats": {
+                    "color": "BC7",
+                    "normal": "ASTC_4x4",
+                    "orm": "ASTC_4x4"
+                  },
+                  "loadMs": 5265.399999991059,
+                  "requestedChannels": [
+                    "color",
+                    "normal",
+                    "orm"
+                  ],
+                  "residentBytes": 16777296,
+                  "source": "ktx2-basis",
+                  "status": "compressed",
+                  "textures": 3,
+                  "tier": "high"
+                },
+                "population": {
+                  "activities": 4,
+                  "cafes": 0,
+                  "cars": 95,
+                  "colorDrawCalls": 14,
+                  "construction": 4,
+                  "contextAnchors": 5839,
+                  "cyclists": 8,
+                  "deliveryVehicles": 0,
+                  "lamps": 23,
+                  "lastMatrixWrites": 35,
+                  "movingCars": 19,
+                  "pedestrians": 19,
+                  "rebuilds": 30,
+                  "shadowDrawCalls": 1,
+                  "signals": 6,
+                  "trash": 0,
+                  "triangles": 59952,
+                  "vendors": 0
+                },
+                "updatePhases": {
+                  "bikes": {
+                    "max": 9.900000005960464,
+                    "p50": 0,
+                    "p95": 0,
+                    "p99": 1.699999988079071,
+                    "samples": 884
+                  },
+                  "buses": {
+                    "max": 79.5,
+                    "p50": 0,
+                    "p95": 0.6000000089406967,
+                    "p99": 1.7000000029802322,
+                    "samples": 884
+                  },
+                  "entrances": {
+                    "max": 21.099999994039536,
+                    "p50": 0,
+                    "p95": 0.09999999403953552,
+                    "p99": 0.20000000298023224,
+                    "samples": 884
+                  },
+                  "landmarks": {
+                    "max": 0.20000000298023224,
+                    "p50": 0,
+                    "p95": 0,
+                    "p99": 0.09999999403953552,
+                    "samples": 884
+                  },
+                  "plaques": {
+                    "max": 3.4000000059604645,
+                    "p50": 0,
+                    "p95": 0.10000000894069672,
+                    "p99": 0.4000000059604645,
+                    "samples": 884
+                  },
+                  "retailContext": {
+                    "max": 0.5,
+                    "p50": 0,
+                    "p95": 0,
+                    "p99": 0.10000000894069672,
+                    "samples": 884
+                  },
+                  "streetLife": {
+                    "max": 48.1000000089407,
+                    "p50": 0,
+                    "p95": 3.8999999910593033,
+                    "p99": 32.29999999701977,
+                    "samples": 884
+                  },
+                  "tiles": {
+                    "max": 3.5,
+                    "p50": 0.09999999403953552,
+                    "p95": 1.0999999940395355,
+                    "p99": 2.2000000029802322,
+                    "samples": 884
+                  },
+                  "tram": {
+                    "max": 0.5999999940395355,
+                    "p50": 0,
+                    "p95": 0.10000000894069672,
+                    "p99": 0.10000000894069672,
+                    "samples": 884
+                  }
+                },
+                "streamingPressure": {
+                  "max": 0.4444444444444444,
+                  "p50": 0,
+                  "p95": 0.2222222222222222
+                }
+              }
+            },
+            {
+              "routeId": "times-square-station",
+              "iteration": 1,
+              "report": {
+                "cpuMs": {
+                  "p50": 2.9000000059604645,
+                  "p95": 5.5,
+                  "p99": 8.00599999994039
+                },
+                "gpuMs": {
+                  "availableSamples": 1200,
+                  "p50": 2.9684369999999998,
+                  "p95": 4.15748955,
+                  "p99": 5.622136839999997
+                },
+                "frameMs": {
+                  "p50": 10.5,
+                  "p95": 16.200000002980232,
+                  "p99": 19.40500000581145
+                },
+                "fps": {
+                  "median": 95.23809523809524,
+                  "onePercentLow": 51.53311000775666
+                },
+                "drawCalls": {
+                  "max": 193,
+                  "p50": 79,
+                  "p95": 174
+                },
+                "triangles": {
+                  "max": 91715,
+                  "p50": 37871,
+                  "p95": 81995.99999999999
+                },
+                "sceneResources": {
+                  "geometries": 396,
+                  "geometryBytes": 2602580,
+                  "materials": 125,
+                  "textureBytes": 93260803,
+                  "textures": 86,
+                  "totalBytes": 95863383
+                },
+                "materials": {
+                  "atlas": {
+                    "cellSize": 512,
+                    "contentSize": 496,
+                    "grid": 4,
+                    "gutter": 8,
+                    "height": 2048,
+                    "width": 2048
+                  },
+                  "budgetBytes": 18874368,
+                  "diskBytes": 4220700,
+                  "fallbackReason": null,
+                  "formats": {
+                    "color": "BC7",
+                    "normal": "ASTC_4x4",
+                    "orm": "ASTC_4x4"
+                  },
+                  "loadMs": 5265.399999991059,
+                  "requestedChannels": [
+                    "color",
+                    "normal",
+                    "orm"
+                  ],
+                  "residentBytes": 16777296,
+                  "source": "ktx2-basis",
+                  "status": "compressed",
+                  "textures": 3,
+                  "tier": "high"
+                },
+                "population": {
+                  "activities": 4,
+                  "cafes": 0,
+                  "cars": 95,
+                  "colorDrawCalls": 14,
+                  "construction": 4,
+                  "contextAnchors": 5840,
+                  "cyclists": 8,
+                  "deliveryVehicles": 0,
+                  "lamps": 23,
+                  "lastMatrixWrites": 43,
+                  "movingCars": 19,
+                  "pedestrians": 19,
+                  "rebuilds": 30,
+                  "shadowDrawCalls": 1,
+                  "signals": 6,
+                  "trash": 0,
+                  "triangles": 59952,
+                  "vendors": 0
+                },
+                "updatePhases": {},
+                "streamingPressure": {
+                  "max": 0,
+                  "p50": 0,
+                  "p95": 0
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "label": "PR39 runtime corresponding to 2c52c31c (captured before commit)",
+      "generatedAt": "2026-09-05T15:15:14.091Z",
+      "sourceCommit": "2c52c31c81dbc2b3ad7812c1e1368c3d3f53ce78",
+      "browserVersion": "151.0.7922.34",
+      "contract": {
+        "passed": false,
+        "violations": [
+          {
+            "actual": 26.95417789649151,
+            "comparator": ">=",
+            "iteration": 1,
+            "limit": 30,
+            "message": "fps.onePercentLow: expected >= 30, received 26.95",
+            "metric": "fps.onePercentLow",
+            "profileId": "mobile-medium",
+            "routeId": "times-square"
+          },
+          {
+            "actual": 28.299999997019768,
+            "comparator": "<=",
+            "iteration": 1,
+            "limit": 20,
+            "message": "frameMs.p95: expected <= 20, received 28.30",
+            "metric": "frameMs.p95",
+            "profileId": "desktop-high",
+            "routeId": "times-square"
+          },
+          {
+            "actual": 19.30501930612999,
+            "comparator": ">=",
+            "iteration": 1,
+            "limit": 45,
+            "message": "fps.onePercentLow: expected >= 45, received 19.31",
+            "metric": "fps.onePercentLow",
+            "profileId": "desktop-high",
+            "routeId": "times-square"
+          },
+          {
+            "actual": 14.349999997764826,
+            "comparator": "<=",
+            "iteration": 1,
+            "limit": 8,
+            "message": "cpuMs.p95: expected <= 8, received 14.35",
+            "metric": "cpuMs.p95",
+            "profileId": "desktop-high",
+            "routeId": "times-square"
+          },
+          {
+            "actual": 21.64499999135732,
+            "comparator": "<=",
+            "iteration": 1,
+            "limit": 20,
+            "message": "frameMs.p95: expected <= 20, received 21.64",
+            "metric": "frameMs.p95",
+            "profileId": "desktop-high",
+            "routeId": "central-park"
+          },
+          {
+            "actual": 35.74236900463641,
+            "comparator": ">=",
+            "iteration": 1,
+            "limit": 45,
+            "message": "fps.onePercentLow: expected >= 45, received 35.74",
+            "metric": "fps.onePercentLow",
+            "profileId": "desktop-high",
+            "routeId": "central-park"
+          },
+          {
+            "actual": 22.30999999716877,
+            "comparator": "<=",
+            "iteration": 1,
+            "limit": 20,
+            "message": "frameMs.p95: expected <= 20, received 22.31",
+            "metric": "frameMs.p95",
+            "profileId": "desktop-high",
+            "routeId": "waterfront"
+          },
+          {
+            "actual": 35.460992915109216,
+            "comparator": ">=",
+            "iteration": 1,
+            "limit": 45,
+            "message": "fps.onePercentLow: expected >= 45, received 35.46",
+            "metric": "fps.onePercentLow",
+            "profileId": "desktop-high",
+            "routeId": "waterfront"
+          },
+          {
+            "actual": 8.205000002682205,
+            "comparator": "<=",
+            "iteration": 1,
+            "limit": 8,
+            "message": "cpuMs.p95: expected <= 8, received 8.21",
+            "metric": "cpuMs.p95",
+            "profileId": "desktop-high",
+            "routeId": "waterfront"
+          }
+        ]
+      },
+      "profiles": [
+        {
+          "profileId": "mobile-low",
+          "capabilities": {
+            "deviceMemoryGiB": 32,
+            "devicePixelRatio": 2,
+            "gpuTimerExtension": true,
+            "hardwareConcurrency": 10,
+            "muted": true,
+            "renderer": "ANGLE (Apple, ANGLE Metal Renderer: Apple M1 Max, Unspecified Version)",
+            "routes": [
+              "times-square",
+              "central-park",
+              "waterfront",
+              "times-square-station"
+            ],
+            "userAgent": "NYCRoamBenchmark/1.0 (Linux; Android 14; Mobile; Chromium emulation)",
+            "vendor": "Google Inc. (Apple)",
+            "webgl2": true
+          },
+          "contract": {
+            "passed": true,
+            "violations": []
+          },
+          "captures": [
+            {
+              "routeId": "times-square",
+              "iteration": 1,
+              "report": {
+                "cpuMs": {
+                  "p50": 3,
+                  "p95": 5.5999999940395355,
+                  "p99": 16.025999998450278
+                },
+                "gpuMs": {
+                  "availableSamples": 1175,
+                  "p50": 0.971791,
+                  "p95": 2.6076874999999977,
+                  "p99": 5.05237992
+                },
+                "frameMs": {
+                  "p50": 10.5,
+                  "p95": 15,
+                  "p99": 27.680000002086135
+                },
+                "fps": {
+                  "median": 95.23809523809524,
+                  "onePercentLow": 36.12716762733504
+                },
+                "drawCalls": {
+                  "max": 135,
+                  "p50": 99,
+                  "p95": 115
+                },
+                "triangles": {
+                  "max": 537907,
+                  "p50": 498127,
+                  "p95": 529371
+                },
+                "sceneResources": {
+                  "geometries": 698,
+                  "geometryBytes": 51978387,
+                  "materials": 296,
+                  "textureBytes": 78571803,
+                  "textures": 105,
+                  "totalBytes": 130550190
+                },
+                "materials": {
+                  "atlas": {
+                    "cellSize": 512,
+                    "contentSize": 496,
+                    "grid": 4,
+                    "gutter": 8,
+                    "height": 2048,
+                    "width": 2048
+                  },
+                  "budgetBytes": 6291456,
+                  "diskBytes": 624955,
+                  "fallbackReason": null,
+                  "formats": {
+                    "color": "BC7"
+                  },
+                  "loadMs": 2639.2000000029802,
+                  "requestedChannels": [
+                    "color"
+                  ],
+                  "residentBytes": 5592440,
+                  "source": "ktx2-basis",
+                  "status": "compressed",
+                  "textures": 3,
+                  "tier": "low"
+                },
+                "population": {
+                  "activities": 8,
+                  "cafes": 0,
+                  "cars": 33,
+                  "colorDrawCalls": 16,
+                  "construction": 2,
+                  "contextAnchors": 5636,
+                  "cyclists": 3,
+                  "deliveryVehicles": 3,
+                  "lamps": 14,
+                  "lastMatrixWrites": 0,
+                  "movingCars": 5,
+                  "pedestrians": 34,
+                  "rebuilds": 10,
+                  "shadowDrawCalls": 0,
+                  "signals": 10,
+                  "trash": 2,
+                  "triangles": 35446,
+                  "vendors": 4
+                },
+                "updatePhases": {
+                  "bikes": {
+                    "max": 7.4000000059604645,
+                    "p50": 0,
+                    "p95": 0,
+                    "p99": 2,
+                    "samples": 1175
+                  },
+                  "buses": {
+                    "max": 37,
+                    "p50": 0.10000000894069672,
+                    "p95": 0.699999988079071,
+                    "p99": 2.2000000029802322,
+                    "samples": 1175
+                  },
+                  "entrances": {
+                    "max": 37.6000000089407,
+                    "p50": 0,
+                    "p95": 0.9000000059604645,
+                    "p99": 3.5,
+                    "samples": 1175
+                  },
+                  "landmarks": {
+                    "max": 1.2999999970197678,
+                    "p50": 0,
+                    "p95": 0,
+                    "p99": 0.09999999403953552,
+                    "samples": 1175
+                  },
+                  "plaques": {
+                    "max": 0.7000000029802322,
+                    "p50": 0,
+                    "p95": 0.10000000894069672,
+                    "p99": 0.4000000059604645,
+                    "samples": 1175
+                  },
+                  "retailContext": {
+                    "max": 0.5,
+                    "p50": 0,
+                    "p95": 0,
+                    "p99": 0.10000000894069672,
+                    "samples": 1175
+                  },
+                  "streetLife": {
+                    "max": 18.799999997019768,
+                    "p50": 0,
+                    "p95": 1,
+                    "p99": 1.5,
+                    "samples": 1175
+                  },
+                  "tiles": {
+                    "max": 3.2000000029802322,
+                    "p50": 0,
+                    "p95": 0.7999999970197678,
+                    "p99": 2,
+                    "samples": 1175
+                  },
+                  "tram": {
+                    "max": 0.9000000059604645,
+                    "p50": 0,
+                    "p95": 0.09999999403953552,
+                    "p99": 0.10000000894069672,
+                    "samples": 1175
+                  }
+                },
+                "streamingPressure": {
+                  "max": 0.6666666666666666,
+                  "p50": 0,
+                  "p95": 0.16666666666666666
+                }
+              }
+            },
+            {
+              "routeId": "central-park",
+              "iteration": 1,
+              "report": {
+                "cpuMs": {
+                  "p50": 1.7999999970197678,
+                  "p95": 3.0149999991059167,
+                  "p99": 4.0999999940395355
+                },
+                "gpuMs": {
+                  "availableSamples": 1178,
+                  "p50": 0.8549370000000001,
+                  "p95": 1.8898534499999997,
+                  "p99": 4.494553180000001
+                },
+                "frameMs": {
+                  "p50": 10.200000002980232,
+                  "p95": 13.799999997019768,
+                  "p99": 15.400000005960464
+                },
+                "fps": {
+                  "median": 98.03921565762944,
+                  "onePercentLow": 64.93506490993227
+                },
+                "drawCalls": {
+                  "max": 91,
+                  "p50": 52,
+                  "p95": 78
+                },
+                "triangles": {
+                  "max": 545494,
+                  "p50": 492514,
+                  "p95": 524662
+                },
+                "sceneResources": {
+                  "geometries": 516,
+                  "geometryBytes": 44727356,
+                  "materials": 227,
+                  "textureBytes": 27952298,
+                  "textures": 43,
+                  "totalBytes": 72679654
+                },
+                "materials": {
+                  "atlas": {
+                    "cellSize": 512,
+                    "contentSize": 496,
+                    "grid": 4,
+                    "gutter": 8,
+                    "height": 2048,
+                    "width": 2048
+                  },
+                  "budgetBytes": 6291456,
+                  "diskBytes": 624955,
+                  "fallbackReason": null,
+                  "formats": {
+                    "color": "BC7"
+                  },
+                  "loadMs": 2639.2000000029802,
+                  "requestedChannels": [
+                    "color"
+                  ],
+                  "residentBytes": 5592440,
+                  "source": "ktx2-basis",
+                  "status": "compressed",
+                  "textures": 3,
+                  "tier": "low"
+                },
+                "population": {
+                  "activities": 0,
+                  "cafes": 0,
+                  "cars": 9,
+                  "colorDrawCalls": 8,
+                  "construction": 0,
+                  "contextAnchors": 5671,
+                  "cyclists": 0,
+                  "deliveryVehicles": 0,
+                  "lamps": 3,
+                  "lastMatrixWrites": 0,
+                  "movingCars": 6,
+                  "pedestrians": 0,
+                  "rebuilds": 17,
+                  "shadowDrawCalls": 0,
+                  "signals": 0,
+                  "trash": 0,
+                  "triangles": 6420,
+                  "vendors": 0
+                },
+                "updatePhases": {
+                  "bikes": {
+                    "max": 1.7999999970197678,
+                    "p50": 0,
+                    "p95": 0,
+                    "p99": 0.10000000894069672,
+                    "samples": 1178
+                  },
+                  "buses": {
+                    "max": 4.899999991059303,
+                    "p50": 0,
+                    "p95": 0.30000001192092896,
+                    "p99": 0.7999999970197678,
+                    "samples": 1178
+                  },
+                  "entrances": {
+                    "max": 0.29999999701976776,
+                    "p50": 0,
+                    "p95": 0,
+                    "p99": 0.10000000894069672,
+                    "samples": 1178
+                  },
+                  "landmarks": {
+                    "max": 0.30000001192092896,
+                    "p50": 0,
+                    "p95": 0,
+                    "p99": 0.09999999403953552,
+                    "samples": 1178
+                  },
+                  "plaques": {
+                    "max": 0.5,
+                    "p50": 0,
+                    "p95": 0.10000000894069672,
+                    "p99": 0.10000000894069672,
+                    "samples": 1178
+                  },
+                  "retailContext": {
+                    "max": 0.20000000298023224,
+                    "p50": 0,
+                    "p95": 0,
+                    "p99": 0.09999999403953552,
+                    "samples": 1178
+                  },
+                  "streetLife": {
+                    "max": 5.9000000059604645,
+                    "p50": 0,
+                    "p95": 0.20000000298023224,
+                    "p99": 0.8999999910593033,
+                    "samples": 1178
+                  },
+                  "tiles": {
+                    "max": 2.7999999970197678,
+                    "p50": 0,
+                    "p95": 0.5,
+                    "p99": 1.2999999970197678,
+                    "samples": 1178
+                  },
+                  "tram": {
+                    "max": 0.20000000298023224,
+                    "p50": 0,
+                    "p95": 0.09999999403953552,
+                    "p99": 0.10000000894069672,
+                    "samples": 1178
+                  }
+                },
+                "streamingPressure": {
+                  "max": 0.6666666666666666,
+                  "p50": 0,
+                  "p95": 0.16666666666666666
+                }
+              }
+            },
+            {
+              "routeId": "waterfront",
+              "iteration": 1,
+              "report": {
+                "cpuMs": {
+                  "p50": 2,
+                  "p95": 3.605000007897611,
+                  "p99": 6.027000000029778
+                },
+                "gpuMs": {
+                  "availableSamples": 1200,
+                  "p50": 0.9138535,
+                  "p95": 3.1978677999999983,
+                  "p99": 5.218934249999999
+                },
+                "frameMs": {
+                  "p50": 10.200000002980232,
+                  "p95": 14.39999999180436,
+                  "p99": 18.100000008940697
+                },
+                "fps": {
+                  "median": 98.03921565762944,
+                  "onePercentLow": 55.24861875723972
+                },
+                "drawCalls": {
+                  "max": 105,
+                  "p50": 65,
+                  "p95": 87
+                },
+                "triangles": {
+                  "max": 631829,
+                  "p50": 494710,
+                  "p95": 593126.5
+                },
+                "sceneResources": {
+                  "geometries": 443,
+                  "geometryBytes": 44331941,
+                  "materials": 199,
+                  "textureBytes": 31490046,
+                  "textures": 44,
+                  "totalBytes": 75821987
+                },
+                "materials": {
+                  "atlas": {
+                    "cellSize": 512,
+                    "contentSize": 496,
+                    "grid": 4,
+                    "gutter": 8,
+                    "height": 2048,
+                    "width": 2048
+                  },
+                  "budgetBytes": 6291456,
+                  "diskBytes": 624955,
+                  "fallbackReason": null,
+                  "formats": {
+                    "color": "BC7"
+                  },
+                  "loadMs": 2639.2000000029802,
+                  "requestedChannels": [
+                    "color"
+                  ],
+                  "residentBytes": 5592440,
+                  "source": "ktx2-basis",
+                  "status": "compressed",
+                  "textures": 3,
+                  "tier": "low"
+                },
+                "population": {
+                  "activities": 2,
+                  "cafes": 0,
+                  "cars": 34,
+                  "colorDrawCalls": 14,
+                  "construction": 2,
+                  "contextAnchors": 5852,
+                  "cyclists": 3,
+                  "deliveryVehicles": 0,
+                  "lamps": 12,
+                  "lastMatrixWrites": 0,
+                  "movingCars": 6,
+                  "pedestrians": 11,
+                  "rebuilds": 30,
+                  "shadowDrawCalls": 0,
+                  "signals": 4,
+                  "trash": 0,
+                  "triangles": 27158,
+                  "vendors": 0
+                },
+                "updatePhases": {
+                  "bikes": {
+                    "max": 8.899999991059303,
+                    "p50": 0,
+                    "p95": 0,
+                    "p99": 0.20000000298023224,
+                    "samples": 1200
+                  },
+                  "buses": {
+                    "max": 74.1000000089407,
+                    "p50": 0,
+                    "p95": 0.29999999701976776,
+                    "p99": 0.9000000059604645,
+                    "samples": 1200
+                  },
+                  "entrances": {
+                    "max": 15.899999991059303,
+                    "p50": 0,
+                    "p95": 0,
+                    "p99": 0.20000000298023224,
+                    "samples": 1200
+                  },
+                  "landmarks": {
+                    "max": 0.20000000298023224,
+                    "p50": 0,
+                    "p95": 0,
+                    "p99": 0.09999999403953552,
+                    "samples": 1200
+                  },
+                  "plaques": {
+                    "max": 1.7000000029802322,
+                    "p50": 0,
+                    "p95": 0.10000000894069672,
+                    "p99": 0.4000000059604645,
+                    "samples": 1200
+                  },
+                  "retailContext": {
+                    "max": 0.20000000298023224,
+                    "p50": 0,
+                    "p95": 0,
+                    "p99": 0.10000000894069672,
+                    "samples": 1200
+                  },
+                  "streetLife": {
+                    "max": 8.599999994039536,
+                    "p50": 0,
+                    "p95": 0.5,
+                    "p99": 1.0999999940395355,
+                    "samples": 1200
+                  },
+                  "tiles": {
+                    "max": 3.6000000089406967,
+                    "p50": 0,
+                    "p95": 0.7000000029802322,
+                    "p99": 2,
+                    "samples": 1200
+                  },
+                  "tram": {
+                    "max": 0.29999999701976776,
+                    "p50": 0,
+                    "p95": 0.09999999403953552,
+                    "p99": 0.10000000894069672,
+                    "samples": 1200
+                  }
+                },
+                "streamingPressure": {
+                  "max": 0.6666666666666666,
+                  "p50": 0,
+                  "p95": 0.16666666666666666
+                }
+              }
+            },
+            {
+              "routeId": "times-square-station",
+              "iteration": 1,
+              "report": {
+                "cpuMs": {
+                  "p50": 1.8999999910593033,
+                  "p95": 2.7000000029802322,
+                  "p99": 3.905000005811448
+                },
+                "gpuMs": {
+                  "availableSamples": 1200,
+                  "p50": 0.65027,
+                  "p95": 1.5519180999999997,
+                  "p99": 1.98637916
+                },
+                "frameMs": {
+                  "p50": 8.300000011920929,
+                  "p95": 9.200000002980232,
+                  "p99": 11.514000000059593
+                },
+                "fps": {
+                  "median": 120.48192753780042,
+                  "onePercentLow": 86.85079034174261
+                },
+                "drawCalls": {
+                  "max": 92,
+                  "p50": 61,
+                  "p95": 87
+                },
+                "triangles": {
+                  "max": 34618,
+                  "p50": 25244,
+                  "p95": 34606
+                },
+                "sceneResources": {
+                  "geometries": 386,
+                  "geometryBytes": 2370640,
+                  "materials": 130,
+                  "textureBytes": 92190382,
+                  "textures": 83,
+                  "totalBytes": 94561022
+                },
+                "materials": {
+                  "atlas": {
+                    "cellSize": 512,
+                    "contentSize": 496,
+                    "grid": 4,
+                    "gutter": 8,
+                    "height": 2048,
+                    "width": 2048
+                  },
+                  "budgetBytes": 6291456,
+                  "diskBytes": 624955,
+                  "fallbackReason": null,
+                  "formats": {
+                    "color": "BC7"
+                  },
+                  "loadMs": 2639.2000000029802,
+                  "requestedChannels": [
+                    "color"
+                  ],
+                  "residentBytes": 5592440,
+                  "source": "ktx2-basis",
+                  "status": "compressed",
+                  "textures": 3,
+                  "tier": "low"
+                },
+                "population": {
+                  "activities": 2,
+                  "cafes": 0,
+                  "cars": 34,
+                  "colorDrawCalls": 14,
+                  "construction": 2,
+                  "contextAnchors": 5853,
+                  "cyclists": 3,
+                  "deliveryVehicles": 0,
+                  "lamps": 12,
+                  "lastMatrixWrites": 0,
+                  "movingCars": 6,
+                  "pedestrians": 11,
+                  "rebuilds": 30,
+                  "shadowDrawCalls": 0,
+                  "signals": 4,
+                  "trash": 0,
+                  "triangles": 27158,
+                  "vendors": 0
+                },
+                "updatePhases": {},
+                "streamingPressure": {
+                  "max": 0,
+                  "p50": 0,
+                  "p95": 0
+                }
+              }
+            }
+          ]
+        },
+        {
+          "profileId": "mobile-medium",
+          "capabilities": {
+            "deviceMemoryGiB": 32,
+            "devicePixelRatio": 3,
+            "gpuTimerExtension": true,
+            "hardwareConcurrency": 10,
+            "muted": true,
+            "renderer": "ANGLE (Apple, ANGLE Metal Renderer: Apple M1 Max, Unspecified Version)",
+            "routes": [
+              "times-square",
+              "central-park",
+              "waterfront",
+              "times-square-station"
+            ],
+            "userAgent": "NYCRoamBenchmark/1.0 (Linux; Android 14; Mobile; Chromium emulation)",
+            "vendor": "Google Inc. (Apple)",
+            "webgl2": true
+          },
+          "contract": {
+            "passed": false,
+            "violations": [
+              {
+                "actual": 26.95417789649151,
+                "comparator": ">=",
+                "iteration": 1,
+                "limit": 30,
+                "message": "fps.onePercentLow: expected >= 30, received 26.95",
+                "metric": "fps.onePercentLow",
+                "routeId": "times-square"
+              }
+            ]
+          },
+          "captures": [
+            {
+              "routeId": "times-square",
+              "iteration": 1,
+              "report": {
+                "cpuMs": {
+                  "p50": 3.3999999910593033,
+                  "p95": 6.299999997019768,
+                  "p99": 21.75
+                },
+                "gpuMs": {
+                  "availableSamples": 1051,
+                  "p50": 1.941583,
+                  "p95": 5.089395,
+                  "p99": 7.219875
+                },
+                "frameMs": {
+                  "p50": 11.899999991059303,
+                  "p95": 15.900000005960466,
+                  "p99": 37.100000001490116
+                },
+                "fps": {
+                  "median": 84.03361350851421,
+                  "onePercentLow": 26.95417789649151
+                },
+                "drawCalls": {
+                  "max": 140,
+                  "p50": 111,
+                  "p95": 126
+                },
+                "triangles": {
+                  "max": 655430,
+                  "p50": 554745,
+                  "p95": 640113
+                },
+                "sceneResources": {
+                  "geometries": 775,
+                  "geometryBytes": 55675836,
+                  "materials": 300,
+                  "textureBytes": 83290394,
+                  "textures": 108,
+                  "totalBytes": 138966230
+                },
+                "materials": {
+                  "atlas": {
+                    "cellSize": 512,
+                    "contentSize": 496,
+                    "grid": 4,
+                    "gutter": 8,
+                    "height": 2048,
+                    "width": 2048
+                  },
+                  "budgetBytes": 12582912,
+                  "diskBytes": 4047052,
+                  "fallbackReason": null,
+                  "formats": {
+                    "color": "BC7",
+                    "normal": "ASTC_4x4"
+                  },
+                  "loadMs": 2954.8999999910593,
+                  "requestedChannels": [
+                    "color",
+                    "normal"
+                  ],
+                  "residentBytes": 11184868,
+                  "source": "ktx2-basis",
+                  "status": "compressed",
+                  "textures": 3,
+                  "tier": "medium"
+                },
+                "population": {
+                  "activities": 18,
+                  "cafes": 0,
+                  "cars": 72,
+                  "colorDrawCalls": 16,
+                  "construction": 1,
+                  "contextAnchors": 5644,
+                  "cyclists": 5,
+                  "deliveryVehicles": 8,
+                  "lamps": 24,
+                  "lastMatrixWrites": 0,
+                  "movingCars": 10,
+                  "pedestrians": 54,
+                  "rebuilds": 10,
+                  "shadowDrawCalls": 0,
+                  "signals": 16,
+                  "trash": 4,
+                  "triangles": 63250,
+                  "vendors": 13
+                },
+                "updatePhases": {
+                  "bikes": {
+                    "max": 15.400000005960464,
+                    "p50": 0,
+                    "p95": 0,
+                    "p99": 1.7000000029802322,
+                    "samples": 1051
+                  },
+                  "buses": {
+                    "max": 35.599999994039536,
+                    "p50": 0.19999998807907104,
+                    "p95": 0.7000000029802322,
+                    "p99": 1.7999999970197678,
+                    "samples": 1051
+                  },
+                  "entrances": {
+                    "max": 36.29999999701977,
+                    "p50": 0,
+                    "p95": 0.8999999910593033,
+                    "p99": 3.2999999970197678,
+                    "samples": 1051
+                  },
+                  "landmarks": {
+                    "max": 1,
+                    "p50": 0,
+                    "p95": 0,
+                    "p99": 0.09999999403953552,
+                    "samples": 1051
+                  },
+                  "plaques": {
+                    "max": 0.5999999940395355,
+                    "p50": 0,
+                    "p95": 0.10000000894069672,
+                    "p99": 0.3999999910593033,
+                    "samples": 1051
+                  },
+                  "retailContext": {
+                    "max": 0.4000000059604645,
+                    "p50": 0,
+                    "p95": 0,
+                    "p99": 0.19999998807907104,
+                    "samples": 1051
+                  },
+                  "streetLife": {
+                    "max": 27,
+                    "p50": 0,
+                    "p95": 1.5999999940395355,
+                    "p99": 2.5,
+                    "samples": 1051
+                  },
+                  "tiles": {
+                    "max": 3.7999999970197678,
+                    "p50": 0,
+                    "p95": 0.7999999970197678,
+                    "p99": 1.8999999910593033,
+                    "samples": 1051
+                  },
+                  "tram": {
+                    "max": 0.20000000298023224,
+                    "p50": 0,
+                    "p95": 0.09999999403953552,
+                    "p99": 0.10000000894069672,
+                    "samples": 1051
+                  }
+                },
+                "streamingPressure": {
+                  "max": 1,
+                  "p50": 0,
+                  "p95": 0.3333333333333333
+                }
+              }
+            },
+            {
+              "routeId": "central-park",
+              "iteration": 1,
+              "report": {
+                "cpuMs": {
+                  "p50": 2.2999999970197678,
+                  "p95": 4.799999997019768,
+                  "p99": 6.800000011026859
+                },
+                "gpuMs": {
+                  "availableSamples": 1007,
+                  "p50": 1.818374,
+                  "p95": 3.873074,
+                  "p99": 5.953603519999991
+                },
+                "frameMs": {
+                  "p50": 12.099999994039536,
+                  "p95": 16.66999999433755,
+                  "p99": 20.30000001102686
+                },
+                "fps": {
+                  "median": 82.64462813988433,
+                  "onePercentLow": 49.261083717083984
+                },
+                "drawCalls": {
+                  "max": 102,
+                  "p50": 61,
+                  "p95": 84
+                },
+                "triangles": {
+                  "max": 805392,
+                  "p50": 627956,
+                  "p95": 726837
+                },
+                "sceneResources": {
+                  "geometries": 576,
+                  "geometryBytes": 47242591,
+                  "materials": 232,
+                  "textureBytes": 31633236,
+                  "textures": 47,
+                  "totalBytes": 78875827
+                },
+                "materials": {
+                  "atlas": {
+                    "cellSize": 512,
+                    "contentSize": 496,
+                    "grid": 4,
+                    "gutter": 8,
+                    "height": 2048,
+                    "width": 2048
+                  },
+                  "budgetBytes": 12582912,
+                  "diskBytes": 4047052,
+                  "fallbackReason": null,
+                  "formats": {
+                    "color": "BC7",
+                    "normal": "ASTC_4x4"
+                  },
+                  "loadMs": 2954.8999999910593,
+                  "requestedChannels": [
+                    "color",
+                    "normal"
+                  ],
+                  "residentBytes": 11184868,
+                  "source": "ktx2-basis",
+                  "status": "compressed",
+                  "textures": 3,
+                  "tier": "medium"
+                },
+                "population": {
+                  "activities": 0,
+                  "cafes": 0,
+                  "cars": 16,
+                  "colorDrawCalls": 9,
+                  "construction": 0,
+                  "contextAnchors": 5679,
+                  "cyclists": 0,
+                  "deliveryVehicles": 0,
+                  "lamps": 3,
+                  "lastMatrixWrites": 0,
+                  "movingCars": 12,
+                  "pedestrians": 1,
+                  "rebuilds": 17,
+                  "shadowDrawCalls": 0,
+                  "signals": 0,
+                  "trash": 0,
+                  "triangles": 11376,
+                  "vendors": 0
+                },
+                "updatePhases": {
+                  "bikes": {
+                    "max": 1.6000000089406967,
+                    "p50": 0,
+                    "p95": 0,
+                    "p99": 0.09999999403953552,
+                    "samples": 1007
+                  },
+                  "buses": {
+                    "max": 5.799999997019768,
+                    "p50": 0,
+                    "p95": 0.5,
+                    "p99": 1.2000000029802322,
+                    "samples": 1007
+                  },
+                  "entrances": {
+                    "max": 0.29999999701976776,
+                    "p50": 0,
+                    "p95": 0,
+                    "p99": 0.10000000894069672,
+                    "samples": 1007
+                  },
+                  "landmarks": {
+                    "max": 0.29999999701976776,
+                    "p50": 0,
+                    "p95": 0,
+                    "p99": 0.09999999403953552,
+                    "samples": 1007
+                  },
+                  "plaques": {
+                    "max": 0.9000000059604645,
+                    "p50": 0,
+                    "p95": 0.10000000894069672,
+                    "p99": 0.20000000298023224,
+                    "samples": 1007
+                  },
+                  "retailContext": {
+                    "max": 0.20000000298023224,
+                    "p50": 0,
+                    "p95": 0,
+                    "p99": 0.09999999403953552,
+                    "samples": 1007
+                  },
+                  "streetLife": {
+                    "max": 9.200000002980232,
+                    "p50": 0,
+                    "p95": 0.7999999970197678,
+                    "p99": 1.4000000059604645,
+                    "samples": 1007
+                  },
+                  "tiles": {
+                    "max": 3.2000000029802322,
+                    "p50": 0,
+                    "p95": 0.7000000029802322,
+                    "p99": 1.6000000089406967,
+                    "samples": 1007
+                  },
+                  "tram": {
+                    "max": 1.300000011920929,
+                    "p50": 0,
+                    "p95": 0.09999999403953552,
+                    "p99": 0.10000000894069672,
+                    "samples": 1007
+                  }
+                },
+                "streamingPressure": {
+                  "max": 0.8333333333333334,
+                  "p50": 0,
+                  "p95": 0.16666666666666666
+                }
+              }
+            },
+            {
+              "routeId": "waterfront",
+              "iteration": 1,
+              "report": {
+                "cpuMs": {
+                  "p50": 2.7999999970197678,
+                  "p95": 5.200000002980232,
+                  "p99": 12.93799999892706
+                },
+                "gpuMs": {
+                  "availableSamples": 1067,
+                  "p50": 2.166708,
+                  "p95": 4.773957899999999,
+                  "p99": 6.510541839999995
+                },
+                "frameMs": {
+                  "p50": 12.200000002980232,
+                  "p95": 17.16999999433755,
+                  "p99": 23.47799999207244
+                },
+                "fps": {
+                  "median": 81.96721309473104,
+                  "onePercentLow": 42.593065863261735
+                },
+                "drawCalls": {
+                  "max": 139,
+                  "p50": 79,
+                  "p95": 99.69999999999993
+                },
+                "triangles": {
+                  "max": 996858,
+                  "p50": 627710,
+                  "p95": 886624
+                },
+                "sceneResources": {
+                  "geometries": 492,
+                  "geometryBytes": 47115391,
+                  "materials": 203,
+                  "textureBytes": 34024104,
+                  "textures": 46,
+                  "totalBytes": 81139495
+                },
+                "materials": {
+                  "atlas": {
+                    "cellSize": 512,
+                    "contentSize": 496,
+                    "grid": 4,
+                    "gutter": 8,
+                    "height": 2048,
+                    "width": 2048
+                  },
+                  "budgetBytes": 12582912,
+                  "diskBytes": 4047052,
+                  "fallbackReason": null,
+                  "formats": {
+                    "color": "BC7",
+                    "normal": "ASTC_4x4"
+                  },
+                  "loadMs": 2954.8999999910593,
+                  "requestedChannels": [
+                    "color",
+                    "normal"
+                  ],
+                  "residentBytes": 11184868,
+                  "source": "ktx2-basis",
+                  "status": "compressed",
+                  "textures": 3,
+                  "tier": "medium"
+                },
+                "population": {
+                  "activities": 5,
+                  "cafes": 0,
+                  "cars": 73,
+                  "colorDrawCalls": 16,
+                  "construction": 4,
+                  "contextAnchors": 5862,
+                  "cyclists": 5,
+                  "deliveryVehicles": 0,
+                  "lamps": 21,
+                  "lastMatrixWrites": 0,
+                  "movingCars": 11,
+                  "pedestrians": 28,
+                  "rebuilds": 30,
+                  "shadowDrawCalls": 0,
+                  "signals": 6,
+                  "trash": 1,
+                  "triangles": 62544,
+                  "vendors": 0
+                },
+                "updatePhases": {
+                  "bikes": {
+                    "max": 11.700000002980232,
+                    "p50": 0,
+                    "p95": 0,
+                    "p99": 1.5999999940395355,
+                    "samples": 1067
+                  },
+                  "buses": {
+                    "max": 66.09999999403954,
+                    "p50": 0,
+                    "p95": 0.5,
+                    "p99": 0.8999999910593033,
+                    "samples": 1067
+                  },
+                  "entrances": {
+                    "max": 12.599999994039536,
+                    "p50": 0,
+                    "p95": 0,
+                    "p99": 0.10000000894069672,
+                    "samples": 1067
+                  },
+                  "landmarks": {
+                    "max": 0.10000000894069672,
+                    "p50": 0,
+                    "p95": 0,
+                    "p99": 0.09999999403953552,
+                    "samples": 1067
+                  },
+                  "plaques": {
+                    "max": 0.7999999970197678,
+                    "p50": 0,
+                    "p95": 0.10000000894069672,
+                    "p99": 0.4000000059604645,
+                    "samples": 1067
+                  },
+                  "retailContext": {
+                    "max": 0.20000000298023224,
+                    "p50": 0,
+                    "p95": 0,
+                    "p99": 0.09999999403953552,
+                    "samples": 1067
+                  },
+                  "streetLife": {
+                    "max": 29.599999994039536,
+                    "p50": 0,
+                    "p95": 1.0999999940395355,
+                    "p99": 2.699999988079071,
+                    "samples": 1067
+                  },
+                  "tiles": {
+                    "max": 8.700000002980232,
+                    "p50": 0,
+                    "p95": 0.7999999970197678,
+                    "p99": 2.0999999940395355,
+                    "samples": 1067
+                  },
+                  "tram": {
+                    "max": 6.200000002980232,
+                    "p50": 0,
+                    "p95": 0.10000000894069672,
+                    "p99": 0.10000000894069672,
+                    "samples": 1067
+                  }
+                },
+                "streamingPressure": {
+                  "max": 0.6666666666666666,
+                  "p50": 0,
+                  "p95": 0.16666666666666666
+                }
+              }
+            },
+            {
+              "routeId": "times-square-station",
+              "iteration": 1,
+              "report": {
+                "cpuMs": {
+                  "p50": 2.300000011920929,
+                  "p95": 3.5,
+                  "p99": 4.90300000593066
+                },
+                "gpuMs": {
+                  "availableSamples": 1200,
+                  "p50": 0.9503115,
+                  "p95": 2.1826139,
+                  "p99": 2.7748038299999997
+                },
+                "frameMs": {
+                  "p50": 8.399999991059303,
+                  "p95": 11.200000002980232,
+                  "p99": 13.90299999117851
+                },
+                "fps": {
+                  "median": 119.0476191743296,
+                  "onePercentLow": 71.92692229263487
+                },
+                "drawCalls": {
+                  "max": 115,
+                  "p50": 75,
+                  "p95": 111
+                },
+                "triangles": {
+                  "max": 49129,
+                  "p50": 35147,
+                  "p95": 49037
+                },
+                "sceneResources": {
+                  "geometries": 386,
+                  "geometryBytes": 2370640,
+                  "materials": 130,
+                  "textureBytes": 92190382,
+                  "textures": 83,
+                  "totalBytes": 94561022
+                },
+                "materials": {
+                  "atlas": {
+                    "cellSize": 512,
+                    "contentSize": 496,
+                    "grid": 4,
+                    "gutter": 8,
+                    "height": 2048,
+                    "width": 2048
+                  },
+                  "budgetBytes": 12582912,
+                  "diskBytes": 4047052,
+                  "fallbackReason": null,
+                  "formats": {
+                    "color": "BC7",
+                    "normal": "ASTC_4x4"
+                  },
+                  "loadMs": 2954.8999999910593,
+                  "requestedChannels": [
+                    "color",
+                    "normal"
+                  ],
+                  "residentBytes": 11184868,
+                  "source": "ktx2-basis",
+                  "status": "compressed",
+                  "textures": 3,
+                  "tier": "medium"
+                },
+                "population": {
+                  "activities": 5,
+                  "cafes": 0,
+                  "cars": 73,
+                  "colorDrawCalls": 16,
+                  "construction": 4,
+                  "contextAnchors": 5863,
+                  "cyclists": 5,
+                  "deliveryVehicles": 0,
+                  "lamps": 21,
+                  "lastMatrixWrites": 0,
+                  "movingCars": 11,
+                  "pedestrians": 28,
+                  "rebuilds": 30,
+                  "shadowDrawCalls": 0,
+                  "signals": 6,
+                  "trash": 1,
+                  "triangles": 62544,
+                  "vendors": 0
+                },
+                "updatePhases": {},
+                "streamingPressure": {
+                  "max": 0,
+                  "p50": 0,
+                  "p95": 0
+                }
+              }
+            }
+          ]
+        },
+        {
+          "profileId": "desktop-high",
+          "capabilities": {
+            "deviceMemoryGiB": 32,
+            "devicePixelRatio": 1.5,
+            "gpuTimerExtension": true,
+            "hardwareConcurrency": 10,
+            "muted": true,
+            "renderer": "ANGLE (Apple, ANGLE Metal Renderer: Apple M1 Max, Unspecified Version)",
+            "routes": [
+              "times-square",
+              "central-park",
+              "waterfront",
+              "times-square-station"
+            ],
+            "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/151.0.0.0 Safari/537.36",
+            "vendor": "Google Inc. (Apple)",
+            "webgl2": true
+          },
+          "contract": {
+            "passed": false,
+            "violations": [
+              {
+                "actual": 28.299999997019768,
+                "comparator": "<=",
+                "iteration": 1,
+                "limit": 20,
+                "message": "frameMs.p95: expected <= 20, received 28.30",
+                "metric": "frameMs.p95",
+                "routeId": "times-square"
+              },
+              {
+                "actual": 19.30501930612999,
+                "comparator": ">=",
+                "iteration": 1,
+                "limit": 45,
+                "message": "fps.onePercentLow: expected >= 45, received 19.31",
+                "metric": "fps.onePercentLow",
+                "routeId": "times-square"
+              },
+              {
+                "actual": 14.349999997764826,
+                "comparator": "<=",
+                "iteration": 1,
+                "limit": 8,
+                "message": "cpuMs.p95: expected <= 8, received 14.35",
+                "metric": "cpuMs.p95",
+                "routeId": "times-square"
+              },
+              {
+                "actual": 21.64499999135732,
+                "comparator": "<=",
+                "iteration": 1,
+                "limit": 20,
+                "message": "frameMs.p95: expected <= 20, received 21.64",
+                "metric": "frameMs.p95",
+                "routeId": "central-park"
+              },
+              {
+                "actual": 35.74236900463641,
+                "comparator": ">=",
+                "iteration": 1,
+                "limit": 45,
+                "message": "fps.onePercentLow: expected >= 45, received 35.74",
+                "metric": "fps.onePercentLow",
+                "routeId": "central-park"
+              },
+              {
+                "actual": 22.30999999716877,
+                "comparator": "<=",
+                "iteration": 1,
+                "limit": 20,
+                "message": "frameMs.p95: expected <= 20, received 22.31",
+                "metric": "frameMs.p95",
+                "routeId": "waterfront"
+              },
+              {
+                "actual": 35.460992915109216,
+                "comparator": ">=",
+                "iteration": 1,
+                "limit": 45,
+                "message": "fps.onePercentLow: expected >= 45, received 35.46",
+                "metric": "fps.onePercentLow",
+                "routeId": "waterfront"
+              },
+              {
+                "actual": 8.205000002682205,
+                "comparator": "<=",
+                "iteration": 1,
+                "limit": 8,
+                "message": "cpuMs.p95: expected <= 8, received 8.21",
+                "metric": "cpuMs.p95",
+                "routeId": "waterfront"
+              }
+            ]
+          },
+          "captures": [
+            {
+              "routeId": "times-square",
+              "iteration": 1,
+              "report": {
+                "cpuMs": {
+                  "p50": 6.399999991059303,
+                  "p95": 14.349999997764826,
+                  "p99": 48.175000005960385
+                },
+                "gpuMs": {
+                  "availableSamples": 736,
+                  "p50": 7.559062,
+                  "p95": 12.29822875,
+                  "p99": 15.617078599999996
+                },
+                "frameMs": {
+                  "p50": 15.899999998509884,
+                  "p95": 28.299999997019768,
+                  "p99": 51.79999999701977
+                },
+                "fps": {
+                  "median": 62.8930817669005,
+                  "onePercentLow": 19.30501930612999
+                },
+                "drawCalls": {
+                  "max": 269,
+                  "p50": 192,
+                  "p95": 229
+                },
+                "triangles": {
+                  "max": 807323,
+                  "p50": 675894,
+                  "p95": 779735.25
+                },
+                "sceneResources": {
+                  "geometries": 855,
+                  "geometryBytes": 60605462,
+                  "materials": 300,
+                  "textureBytes": 85386351,
+                  "textures": 106,
+                  "totalBytes": 145991813
+                },
+                "materials": {
+                  "atlas": {
+                    "cellSize": 512,
+                    "contentSize": 496,
+                    "grid": 4,
+                    "gutter": 8,
+                    "height": 2048,
+                    "width": 2048
+                  },
+                  "budgetBytes": 18874368,
+                  "diskBytes": 6416123,
+                  "fallbackReason": null,
+                  "formats": {
+                    "color": "BC7",
+                    "normal": "ASTC_4x4",
+                    "orm": "ASTC_4x4"
+                  },
+                  "loadMs": 5537.9000000059605,
+                  "requestedChannels": [
+                    "color",
+                    "normal",
+                    "orm"
+                  ],
+                  "residentBytes": 16777296,
+                  "source": "ktx2-basis",
+                  "status": "compressed",
+                  "textures": 3,
+                  "tier": "high"
+                },
+                "population": {
+                  "activities": 29,
+                  "cafes": 0,
+                  "cars": 124,
+                  "colorDrawCalls": 16,
+                  "construction": 6,
+                  "contextAnchors": 5638,
+                  "cyclists": 8,
+                  "deliveryVehicles": 14,
+                  "lamps": 41,
+                  "lastMatrixWrites": 174,
+                  "movingCars": 20,
+                  "pedestrians": 96,
+                  "rebuilds": 10,
+                  "shadowDrawCalls": 1,
+                  "signals": 22,
+                  "trash": 1,
+                  "triangles": 119662,
+                  "vendors": 22
+                },
+                "updatePhases": {
+                  "bikes": {
+                    "max": 22.100000008940697,
+                    "p50": 0,
+                    "p95": 0.09999999403953552,
+                    "p99": 2.2999999970197678,
+                    "samples": 736
+                  },
+                  "buses": {
+                    "max": 38.5,
+                    "p50": 0.20000000298023224,
+                    "p95": 1.2999999970197678,
+                    "p99": 5.200000002980232,
+                    "samples": 736
+                  },
+                  "entrances": {
+                    "max": 58.29999999701977,
+                    "p50": 0,
+                    "p95": 1.2000000029802322,
+                    "p99": 7.4000000059604645,
+                    "samples": 736
+                  },
+                  "landmarks": {
+                    "max": 1,
+                    "p50": 0,
+                    "p95": 0,
+                    "p99": 0.09999999403953552,
+                    "samples": 736
+                  },
+                  "plaques": {
+                    "max": 3,
+                    "p50": 0,
+                    "p95": 0.10000000894069672,
+                    "p99": 0.5,
+                    "samples": 736
+                  },
+                  "retailContext": {
+                    "max": 2.2000000029802322,
+                    "p50": 0,
+                    "p95": 0,
+                    "p99": 0.20000000298023224,
+                    "samples": 736
+                  },
+                  "streetLife": {
+                    "max": 70.1000000089407,
+                    "p50": 0,
+                    "p95": 3.5,
+                    "p99": 8.5,
+                    "samples": 736
+                  },
+                  "tiles": {
+                    "max": 5.299999997019768,
+                    "p50": 0.09999999403953552,
+                    "p95": 1.5999999940395355,
+                    "p99": 3.1000000089406967,
+                    "samples": 736
+                  },
+                  "tram": {
+                    "max": 1.2999999970197678,
+                    "p50": 0,
+                    "p95": 0.09999999403953552,
+                    "p99": 0.10000000894069672,
+                    "samples": 736
+                  }
+                },
+                "streamingPressure": {
+                  "max": 0.7777777777777778,
+                  "p50": 0,
+                  "p95": 0.3333333333333333
+                }
+              }
+            },
+            {
+              "routeId": "central-park",
+              "iteration": 1,
+              "report": {
+                "cpuMs": {
+                  "p50": 3.7999999970197678,
+                  "p95": 6.799999997019768,
+                  "p99": 10.145000002980225
+                },
+                "gpuMs": {
+                  "availableSamples": 812,
+                  "p50": 6.0917915,
+                  "p95": 8.700137349999997,
+                  "p99": 10.734954109999991
+                },
+                "frameMs": {
+                  "p50": 15,
+                  "p95": 21.64499999135732,
+                  "p99": 27.97799999967217
+                },
+                "fps": {
+                  "median": 66.66666666666667,
+                  "onePercentLow": 35.74236900463641
+                },
+                "drawCalls": {
+                  "max": 211,
+                  "p50": 122,
+                  "p95": 149
+                },
+                "triangles": {
+                  "max": 1052749,
+                  "p50": 777645,
+                  "p95": 904964.3
+                },
+                "sceneResources": {
+                  "geometries": 668,
+                  "geometryBytes": 51541424,
+                  "materials": 235,
+                  "textureBytes": 33817769,
+                  "textures": 48,
+                  "totalBytes": 85359193
+                },
+                "materials": {
+                  "atlas": {
+                    "cellSize": 512,
+                    "contentSize": 496,
+                    "grid": 4,
+                    "gutter": 8,
+                    "height": 2048,
+                    "width": 2048
+                  },
+                  "budgetBytes": 18874368,
+                  "diskBytes": 6416123,
+                  "fallbackReason": null,
+                  "formats": {
+                    "color": "BC7",
+                    "normal": "ASTC_4x4",
+                    "orm": "ASTC_4x4"
+                  },
+                  "loadMs": 5537.9000000059605,
+                  "requestedChannels": [
+                    "color",
+                    "normal",
+                    "orm"
+                  ],
+                  "residentBytes": 16777296,
+                  "source": "ktx2-basis",
+                  "status": "compressed",
+                  "textures": 3,
+                  "tier": "high"
+                },
+                "population": {
+                  "activities": 0,
+                  "cafes": 0,
+                  "cars": 27,
+                  "colorDrawCalls": 11,
+                  "construction": 0,
+                  "contextAnchors": 5671,
+                  "cyclists": 0,
+                  "deliveryVehicles": 0,
+                  "lamps": 4,
+                  "lastMatrixWrites": 0,
+                  "movingCars": 19,
+                  "pedestrians": 4,
+                  "rebuilds": 18,
+                  "shadowDrawCalls": 1,
+                  "signals": 0,
+                  "trash": 0,
+                  "triangles": 20322,
+                  "vendors": 0
+                },
+                "updatePhases": {
+                  "bikes": {
+                    "max": 1.699999988079071,
+                    "p50": 0,
+                    "p95": 0,
+                    "p99": 0.09999999403953552,
+                    "samples": 812
+                  },
+                  "buses": {
+                    "max": 6.700000002980232,
+                    "p50": 0,
+                    "p95": 0.5999999940395355,
+                    "p99": 1.5,
+                    "samples": 812
+                  },
+                  "entrances": {
+                    "max": 0.20000000298023224,
+                    "p50": 0,
+                    "p95": 0,
+                    "p99": 0.10000000894069672,
+                    "samples": 812
+                  },
+                  "landmarks": {
+                    "max": 0.8999999910593033,
+                    "p50": 0,
+                    "p95": 0,
+                    "p99": 0.10000000894069672,
+                    "samples": 812
+                  },
+                  "plaques": {
+                    "max": 1.4000000059604645,
+                    "p50": 0,
+                    "p95": 0.10000000894069672,
+                    "p99": 0.20000000298023224,
+                    "samples": 812
+                  },
+                  "retailContext": {
+                    "max": 0.29999999701976776,
+                    "p50": 0,
+                    "p95": 0,
+                    "p99": 0.10000000894069672,
+                    "samples": 812
+                  },
+                  "streetLife": {
+                    "max": 14.699999988079071,
+                    "p50": 0,
+                    "p95": 1.9000000059604645,
+                    "p99": 2.8999999910593033,
+                    "samples": 812
+                  },
+                  "tiles": {
+                    "max": 3.5,
+                    "p50": 0,
+                    "p95": 1.0999999940395355,
+                    "p99": 2.2000000029802322,
+                    "samples": 812
+                  },
+                  "tram": {
+                    "max": 2.199999988079071,
+                    "p50": 0,
+                    "p95": 0.10000000894069672,
+                    "p99": 0.19999998807907104,
+                    "samples": 812
+                  }
+                },
+                "streamingPressure": {
+                  "max": 0.3333333333333333,
+                  "p50": 0,
+                  "p95": 0.1111111111111111
+                }
+              }
+            },
+            {
+              "routeId": "waterfront",
+              "iteration": 1,
+              "report": {
+                "cpuMs": {
+                  "p50": 4.299999997019768,
+                  "p95": 8.205000002682205,
+                  "p99": 15.109999994188515
+                },
+                "gpuMs": {
+                  "availableSamples": 860,
+                  "p50": 6.655437,
+                  "p95": 10.078166,
+                  "p99": 13.501014529999996
+                },
+                "frameMs": {
+                  "p50": 15.199999988079071,
+                  "p95": 22.30999999716877,
+                  "p99": 28.19999999418855
+                },
+                "fps": {
+                  "median": 65.78947373580735,
+                  "onePercentLow": 35.460992915109216
+                },
+                "drawCalls": {
+                  "max": 253,
+                  "p50": 171,
+                  "p95": 197.04999999999995
+                },
+                "triangles": {
+                  "max": 1322679,
+                  "p50": 808882,
+                  "p95": 1180699.2499999998
+                },
+                "sceneResources": {
+                  "geometries": 543,
+                  "geometryBytes": 49974944,
+                  "materials": 206,
+                  "textureBytes": 36208637,
+                  "textures": 47,
+                  "totalBytes": 86183581
+                },
+                "materials": {
+                  "atlas": {
+                    "cellSize": 512,
+                    "contentSize": 496,
+                    "grid": 4,
+                    "gutter": 8,
+                    "height": 2048,
+                    "width": 2048
+                  },
+                  "budgetBytes": 18874368,
+                  "diskBytes": 6416123,
+                  "fallbackReason": null,
+                  "formats": {
+                    "color": "BC7",
+                    "normal": "ASTC_4x4",
+                    "orm": "ASTC_4x4"
+                  },
+                  "loadMs": 5537.9000000059605,
+                  "requestedChannels": [
+                    "color",
+                    "normal",
+                    "orm"
+                  ],
+                  "residentBytes": 16777296,
+                  "source": "ktx2-basis",
+                  "status": "compressed",
+                  "textures": 3,
+                  "tier": "high"
+                },
+                "population": {
+                  "activities": 5,
+                  "cafes": 0,
+                  "cars": 118,
+                  "colorDrawCalls": 16,
+                  "construction": 4,
+                  "contextAnchors": 5851,
+                  "cyclists": 8,
+                  "deliveryVehicles": 0,
+                  "lamps": 34,
+                  "lastMatrixWrites": 78,
+                  "movingCars": 20,
+                  "pedestrians": 38,
+                  "rebuilds": 31,
+                  "shadowDrawCalls": 1,
+                  "signals": 9,
+                  "trash": 1,
+                  "triangles": 96068,
+                  "vendors": 0
+                },
+                "updatePhases": {
+                  "bikes": {
+                    "max": 8.700000002980232,
+                    "p50": 0,
+                    "p95": 0,
+                    "p99": 2,
+                    "samples": 860
+                  },
+                  "buses": {
+                    "max": 63.5,
+                    "p50": 0,
+                    "p95": 0.5999999940395355,
+                    "p99": 1.3999999910593033,
+                    "samples": 860
+                  },
+                  "entrances": {
+                    "max": 18.700000002980232,
+                    "p50": 0,
+                    "p95": 0.09999999403953552,
+                    "p99": 0.20000000298023224,
+                    "samples": 860
+                  },
+                  "landmarks": {
+                    "max": 0.29999999701976776,
+                    "p50": 0,
+                    "p95": 0,
+                    "p99": 0.09999999403953552,
+                    "samples": 860
+                  },
+                  "plaques": {
+                    "max": 2.4000000059604645,
+                    "p50": 0,
+                    "p95": 0.10000000894069672,
+                    "p99": 0.3999999910593033,
+                    "samples": 860
+                  },
+                  "retailContext": {
+                    "max": 1.8999999910593033,
+                    "p50": 0,
+                    "p95": 0,
+                    "p99": 0.10000000894069672,
+                    "samples": 860
+                  },
+                  "streetLife": {
+                    "max": 24.5,
+                    "p50": 0,
+                    "p95": 2.5,
+                    "p99": 6.700000002980232,
+                    "samples": 860
+                  },
+                  "tiles": {
+                    "max": 3.5999999940395355,
+                    "p50": 0.10000000894069672,
+                    "p95": 1.0999999940395355,
+                    "p99": 2.2999999970197678,
+                    "samples": 860
+                  },
+                  "tram": {
+                    "max": 0.20000000298023224,
+                    "p50": 0,
+                    "p95": 0.10000000894069672,
+                    "p99": 0.10000000894069672,
+                    "samples": 860
+                  }
+                },
+                "streamingPressure": {
+                  "max": 0.5555555555555556,
+                  "p50": 0,
+                  "p95": 0.2222222222222222
+                }
+              }
+            },
+            {
+              "routeId": "times-square-station",
+              "iteration": 1,
+              "report": {
+                "cpuMs": {
+                  "p50": 2.7000000029802322,
+                  "p95": 4.205000002682205,
+                  "p99": 5.700000002980232
+                },
+                "gpuMs": {
+                  "availableSamples": 1200,
+                  "p50": 3.0629995,
+                  "p95": 4.0229725499999995,
+                  "p99": 5.166298999999999
+                },
+                "frameMs": {
+                  "p50": 10.599999994039536,
+                  "p95": 14.200000002980232,
+                  "p99": 16.901999991238114
+                },
+                "fps": {
+                  "median": 94.33962269455735,
+                  "onePercentLow": 59.1645959364805
+                },
+                "drawCalls": {
+                  "max": 196,
+                  "p50": 92,
+                  "p95": 180
+                },
+                "triangles": {
+                  "max": 91743,
+                  "p50": 38091,
+                  "p95": 80971.59999999999
+                },
+                "sceneResources": {
+                  "geometries": 396,
+                  "geometryBytes": 2602580,
+                  "materials": 125,
+                  "textureBytes": 93260803,
+                  "textures": 86,
+                  "totalBytes": 95863383
+                },
+                "materials": {
+                  "atlas": {
+                    "cellSize": 512,
+                    "contentSize": 496,
+                    "grid": 4,
+                    "gutter": 8,
+                    "height": 2048,
+                    "width": 2048
+                  },
+                  "budgetBytes": 18874368,
+                  "diskBytes": 6416123,
+                  "fallbackReason": null,
+                  "formats": {
+                    "color": "BC7",
+                    "normal": "ASTC_4x4",
+                    "orm": "ASTC_4x4"
+                  },
+                  "loadMs": 5537.9000000059605,
+                  "requestedChannels": [
+                    "color",
+                    "normal",
+                    "orm"
+                  ],
+                  "residentBytes": 16777296,
+                  "source": "ktx2-basis",
+                  "status": "compressed",
+                  "textures": 3,
+                  "tier": "high"
+                },
+                "population": {
+                  "activities": 5,
+                  "cafes": 0,
+                  "cars": 118,
+                  "colorDrawCalls": 16,
+                  "construction": 4,
+                  "contextAnchors": 5851,
+                  "cyclists": 8,
+                  "deliveryVehicles": 0,
+                  "lamps": 34,
+                  "lastMatrixWrites": 0,
+                  "movingCars": 20,
+                  "pedestrians": 38,
+                  "rebuilds": 31,
+                  "shadowDrawCalls": 1,
+                  "signals": 9,
+                  "trash": 1,
+                  "triangles": 96068,
+                  "vendors": 0
+                },
+                "updatePhases": {},
+                "streamingPressure": {
+                  "max": 0,
+                  "p50": 0,
+                  "p95": 0
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "label": "PR39 2c52c31c, local game previews unloaded",
+      "generatedAt": "2026-09-05T15:20:09.898Z",
+      "sourceCommit": "2c52c31c81dbc2b3ad7812c1e1368c3d3f53ce78",
+      "browserVersion": "151.0.7922.34",
+      "contract": {
+        "passed": false,
+        "violations": [
+          {
+            "actual": 30.24620410476604,
+            "comparator": ">=",
+            "iteration": 1,
+            "limit": 45,
+            "message": "fps.onePercentLow: expected >= 45, received 30.25",
+            "metric": "fps.onePercentLow",
+            "profileId": "desktop-high",
+            "routeId": "times-square"
+          },
+          {
+            "actual": 9.599999994039536,
+            "comparator": "<=",
+            "iteration": 1,
+            "limit": 8,
+            "message": "cpuMs.p95: expected <= 8, received 9.60",
+            "metric": "cpuMs.p95",
+            "profileId": "desktop-high",
+            "routeId": "times-square"
+          }
+        ]
+      },
+      "profiles": [
+        {
+          "profileId": "mobile-medium",
+          "capabilities": {
+            "deviceMemoryGiB": 32,
+            "devicePixelRatio": 3,
+            "gpuTimerExtension": true,
+            "hardwareConcurrency": 10,
+            "muted": true,
+            "renderer": "ANGLE (Apple, ANGLE Metal Renderer: Apple M1 Max, Unspecified Version)",
+            "routes": [
+              "times-square",
+              "central-park",
+              "waterfront",
+              "times-square-station"
+            ],
+            "userAgent": "NYCRoamBenchmark/1.0 (Linux; Android 14; Mobile; Chromium emulation)",
+            "vendor": "Google Inc. (Apple)",
+            "webgl2": true
+          },
+          "contract": {
+            "passed": true,
+            "violations": []
+          },
+          "captures": [
+            {
+              "routeId": "times-square",
+              "iteration": 1,
+              "report": {
+                "cpuMs": {
+                  "p50": 3.3000000044703484,
+                  "p95": 5.9000000059604645,
+                  "p99": 14.40499999120831
+                },
+                "gpuMs": {
+                  "availableSamples": 1200,
+                  "p50": 1.583229,
+                  "p95": 3.8664719499999993,
+                  "p99": 5.031726329999999
+                },
+                "frameMs": {
+                  "p50": 8.399999991059303,
+                  "p95": 12.020000000298005,
+                  "p99": 20.40099999114871
+                },
+                "fps": {
+                  "median": 119.0476191743296,
+                  "onePercentLow": 49.017205060235554
+                },
+                "drawCalls": {
+                  "max": 138,
+                  "p50": 111,
+                  "p95": 124
+                },
+                "triangles": {
+                  "max": 654911,
+                  "p50": 557045,
+                  "p95": 642303
+                },
+                "sceneResources": {
+                  "geometries": 774,
+                  "geometryBytes": 55496454,
+                  "materials": 300,
+                  "textureBytes": 83290394,
+                  "textures": 108,
+                  "totalBytes": 138786848
+                },
+                "materials": {
+                  "atlas": {
+                    "cellSize": 512,
+                    "contentSize": 496,
+                    "grid": 4,
+                    "gutter": 8,
+                    "height": 2048,
+                    "width": 2048
+                  },
+                  "budgetBytes": 12582912,
+                  "diskBytes": 4047052,
+                  "fallbackReason": null,
+                  "formats": {
+                    "color": "BC7",
+                    "normal": "ASTC_4x4"
+                  },
+                  "loadMs": 1574,
+                  "requestedChannels": [
+                    "color",
+                    "normal"
+                  ],
+                  "residentBytes": 11184868,
+                  "source": "ktx2-basis",
+                  "status": "compressed",
+                  "textures": 3,
+                  "tier": "medium"
+                },
+                "population": {
+                  "activities": 18,
+                  "cafes": 0,
+                  "cars": 74,
+                  "colorDrawCalls": 16,
+                  "construction": 1,
+                  "contextAnchors": 5627,
+                  "cyclists": 5,
+                  "deliveryVehicles": 10,
+                  "lamps": 25,
+                  "lastMatrixWrites": 91,
+                  "movingCars": 12,
+                  "pedestrians": 59,
+                  "rebuilds": 10,
+                  "shadowDrawCalls": 0,
+                  "signals": 16,
+                  "trash": 2,
+                  "triangles": 70044,
+                  "vendors": 15
+                },
+                "updatePhases": {
+                  "bikes": {
+                    "max": 15.600000008940697,
+                    "p50": 0,
+                    "p95": 0,
+                    "p99": 1.7999999970197678,
+                    "samples": 1200
+                  },
+                  "buses": {
+                    "max": 37.20000000298023,
+                    "p50": 0.10000000894069672,
+                    "p95": 0.4000000059604645,
+                    "p99": 1.5999999940395355,
+                    "samples": 1200
+                  },
+                  "entrances": {
+                    "max": 37.400000005960464,
+                    "p50": 0,
+                    "p95": 0.20000000298023224,
+                    "p99": 3.6000000089406967,
+                    "samples": 1200
+                  },
+                  "landmarks": {
+                    "max": 0.9000000059604645,
+                    "p50": 0,
+                    "p95": 0,
+                    "p99": 0.09999999403953552,
+                    "samples": 1200
+                  },
+                  "plaques": {
+                    "max": 0.6000000089406967,
+                    "p50": 0,
+                    "p95": 0.10000000894069672,
+                    "p99": 0.3999999910593033,
+                    "samples": 1200
+                  },
+                  "retailContext": {
+                    "max": 0.7999999970197678,
+                    "p50": 0,
+                    "p95": 0,
+                    "p99": 0.10000000894069672,
+                    "samples": 1200
+                  },
+                  "streetLife": {
+                    "max": 13,
+                    "p50": 0,
+                    "p95": 1.4000000059604645,
+                    "p99": 2.1000000089406967,
+                    "samples": 1200
+                  },
+                  "tiles": {
+                    "max": 3.199999988079071,
+                    "p50": 0,
+                    "p95": 0.7000000029802322,
+                    "p99": 1.6000000089406967,
+                    "samples": 1200
+                  },
+                  "tram": {
+                    "max": 0.29999999701976776,
+                    "p50": 0,
+                    "p95": 0.09999999403953552,
+                    "p99": 0.10000000894069672,
+                    "samples": 1200
+                  }
+                },
+                "streamingPressure": {
+                  "max": 1,
+                  "p50": 0,
+                  "p95": 0.16666666666666666
+                }
+              }
+            },
+            {
+              "routeId": "central-park",
+              "iteration": 1,
+              "report": {
+                "cpuMs": {
+                  "p50": 1.9000000059604645,
+                  "p95": 2.7999999970197678,
+                  "p99": 3.4000000059604645
+                },
+                "gpuMs": {
+                  "availableSamples": 1200,
+                  "p50": 1.2238120000000001,
+                  "p95": 2.9183412999999994,
+                  "p99": 4.1566902599999995
+                },
+                "frameMs": {
+                  "p50": 8.300000011920929,
+                  "p95": 9.399999991059303,
+                  "p99": 11.20400000289082
+                },
+                "fps": {
+                  "median": 120.48192753780042,
+                  "onePercentLow": 89.25383789200136
+                },
+                "drawCalls": {
+                  "max": 72,
+                  "p50": 61,
+                  "p95": 68
+                },
+                "triangles": {
+                  "max": 805476,
+                  "p50": 625332,
+                  "p95": 731393
+                },
+                "sceneResources": {
+                  "geometries": 576,
+                  "geometryBytes": 47242591,
+                  "materials": 232,
+                  "textureBytes": 31633236,
+                  "textures": 47,
+                  "totalBytes": 78875827
+                },
+                "materials": {
+                  "atlas": {
+                    "cellSize": 512,
+                    "contentSize": 496,
+                    "grid": 4,
+                    "gutter": 8,
+                    "height": 2048,
+                    "width": 2048
+                  },
+                  "budgetBytes": 12582912,
+                  "diskBytes": 4047052,
+                  "fallbackReason": null,
+                  "formats": {
+                    "color": "BC7",
+                    "normal": "ASTC_4x4"
+                  },
+                  "loadMs": 1574,
+                  "requestedChannels": [
+                    "color",
+                    "normal"
+                  ],
+                  "residentBytes": 11184868,
+                  "source": "ktx2-basis",
+                  "status": "compressed",
+                  "textures": 3,
+                  "tier": "medium"
+                },
+                "population": {
+                  "activities": 0,
+                  "cafes": 0,
+                  "cars": 15,
+                  "colorDrawCalls": 9,
+                  "construction": 0,
+                  "contextAnchors": 5662,
+                  "cyclists": 0,
+                  "deliveryVehicles": 0,
+                  "lamps": 3,
+                  "lastMatrixWrites": 0,
+                  "movingCars": 12,
+                  "pedestrians": 1,
+                  "rebuilds": 17,
+                  "shadowDrawCalls": 0,
+                  "signals": 0,
+                  "trash": 0,
+                  "triangles": 10680,
+                  "vendors": 0
+                },
+                "updatePhases": {
+                  "bikes": {
+                    "max": 1.2999999970197678,
+                    "p50": 0,
+                    "p95": 0,
+                    "p99": 0.10000000894069672,
+                    "samples": 1200
+                  },
+                  "buses": {
+                    "max": 3,
+                    "p50": 0,
+                    "p95": 0.10000000894069672,
+                    "p99": 0.5999999940395355,
+                    "samples": 1200
+                  },
+                  "entrances": {
+                    "max": 0.3999999910593033,
+                    "p50": 0,
+                    "p95": 0,
+                    "p99": 0.10000000894069672,
+                    "samples": 1200
+                  },
+                  "landmarks": {
+                    "max": 0.29999999701976776,
+                    "p50": 0,
+                    "p95": 0,
+                    "p99": 0.09999999403953552,
+                    "samples": 1200
+                  },
+                  "plaques": {
+                    "max": 0.6000000089406967,
+                    "p50": 0,
+                    "p95": 0.10000000894069672,
+                    "p99": 0.19999998807907104,
+                    "samples": 1200
+                  },
+                  "retailContext": {
+                    "max": 0.10000000894069672,
+                    "p50": 0,
+                    "p95": 0,
+                    "p99": 0.09999999403953552,
+                    "samples": 1200
+                  },
+                  "streetLife": {
+                    "max": 3,
+                    "p50": 0,
+                    "p95": 0.30000001192092896,
+                    "p99": 0.6000000089406967,
+                    "samples": 1200
+                  },
+                  "tiles": {
+                    "max": 2.2000000029802322,
+                    "p50": 0,
+                    "p95": 0.4000000059604645,
+                    "p99": 0.9000000059604645,
+                    "samples": 1200
+                  },
+                  "tram": {
+                    "max": 0.30000001192092896,
+                    "p50": 0,
+                    "p95": 0.10000000894069672,
+                    "p99": 0.10000000894069672,
+                    "samples": 1200
+                  }
+                },
+                "streamingPressure": {
+                  "max": 0.5,
+                  "p50": 0,
+                  "p95": 0
+                }
+              }
+            },
+            {
+              "routeId": "waterfront",
+              "iteration": 1,
+              "report": {
+                "cpuMs": {
+                  "p50": 1.9000000059604645,
+                  "p95": 2.8999999910593033,
+                  "p99": 4.300999996960162
+                },
+                "gpuMs": {
+                  "availableSamples": 1200,
+                  "p50": 1.0979995,
+                  "p95": 2.4619162999999986,
+                  "p99": 3.24401942
+                },
+                "frameMs": {
+                  "p50": 8.299999997019768,
+                  "p95": 9.300000011920929,
+                  "p99": 9.599999994188547
+                },
+                "fps": {
+                  "median": 120.4819277541041,
+                  "onePercentLow": 104.16666672972497
+                },
+                "drawCalls": {
+                  "max": 136,
+                  "p50": 80,
+                  "p95": 104.04999999999995
+                },
+                "triangles": {
+                  "max": 865758,
+                  "p50": 617706,
+                  "p95": 785994
+                },
+                "sceneResources": {
+                  "geometries": 492,
+                  "geometryBytes": 47115391,
+                  "materials": 203,
+                  "textureBytes": 34024104,
+                  "textures": 46,
+                  "totalBytes": 81139495
+                },
+                "materials": {
+                  "atlas": {
+                    "cellSize": 512,
+                    "contentSize": 496,
+                    "grid": 4,
+                    "gutter": 8,
+                    "height": 2048,
+                    "width": 2048
+                  },
+                  "budgetBytes": 12582912,
+                  "diskBytes": 4047052,
+                  "fallbackReason": null,
+                  "formats": {
+                    "color": "BC7",
+                    "normal": "ASTC_4x4"
+                  },
+                  "loadMs": 1574,
+                  "requestedChannels": [
+                    "color",
+                    "normal"
+                  ],
+                  "residentBytes": 11184868,
+                  "source": "ktx2-basis",
+                  "status": "compressed",
+                  "textures": 3,
+                  "tier": "medium"
+                },
+                "population": {
+                  "activities": 6,
+                  "cafes": 0,
+                  "cars": 72,
+                  "colorDrawCalls": 16,
+                  "construction": 5,
+                  "contextAnchors": 5842,
+                  "cyclists": 5,
+                  "deliveryVehicles": 0,
+                  "lamps": 22,
+                  "lastMatrixWrites": 0,
+                  "movingCars": 11,
+                  "pedestrians": 23,
+                  "rebuilds": 30,
+                  "shadowDrawCalls": 0,
+                  "signals": 5,
+                  "trash": 1,
+                  "triangles": 59536,
+                  "vendors": 0
+                },
+                "updatePhases": {
+                  "bikes": {
+                    "max": 1.5999999940395355,
+                    "p50": 0,
+                    "p95": 0,
+                    "p99": 0.10000000894069672,
+                    "samples": 1200
+                  },
+                  "buses": {
+                    "max": 32.900000005960464,
+                    "p50": 0,
+                    "p95": 0.20000000298023224,
+                    "p99": 0.5999999940395355,
+                    "samples": 1200
+                  },
+                  "entrances": {
+                    "max": 0.7999999970197678,
+                    "p50": 0,
+                    "p95": 0,
+                    "p99": 0.10000000894069672,
+                    "samples": 1200
+                  },
+                  "landmarks": {
+                    "max": 0.20000000298023224,
+                    "p50": 0,
+                    "p95": 0,
+                    "p99": 0.09999999403953552,
+                    "samples": 1200
+                  },
+                  "plaques": {
+                    "max": 1.2999999970197678,
+                    "p50": 0,
+                    "p95": 0.10000000894069672,
+                    "p99": 0.29999999701976776,
+                    "samples": 1200
+                  },
+                  "retailContext": {
+                    "max": 0.19999998807907104,
+                    "p50": 0,
+                    "p95": 0,
+                    "p99": 0.09999999403953552,
+                    "samples": 1200
+                  },
+                  "streetLife": {
+                    "max": 4.299999997019768,
+                    "p50": 0,
+                    "p95": 0.5999999940395355,
+                    "p99": 1,
+                    "samples": 1200
+                  },
+                  "tiles": {
+                    "max": 2,
+                    "p50": 0,
+                    "p95": 0.5,
+                    "p99": 1,
+                    "samples": 1200
+                  },
+                  "tram": {
+                    "max": 0.30000001192092896,
+                    "p50": 0,
+                    "p95": 0.09999999403953552,
+                    "p99": 0.10000000894069672,
+                    "samples": 1200
+                  }
+                },
+                "streamingPressure": {
+                  "max": 0.6666666666666666,
+                  "p50": 0,
+                  "p95": 0.16666666666666666
+                }
+              }
+            },
+            {
+              "routeId": "times-square-station",
+              "iteration": 1,
+              "report": {
+                "cpuMs": {
+                  "p50": 1.0999999940395355,
+                  "p95": 1.4000000059604645,
+                  "p99": 1.7999999971687795
+                },
+                "gpuMs": {
+                  "availableSamples": 1200,
+                  "p50": 0.7500415,
+                  "p95": 1.4891704999999997,
+                  "p99": 2.1300493299999994
+                },
+                "frameMs": {
+                  "p50": 8.299999997019768,
+                  "p95": 9.299999997019768,
+                  "p99": 9.400000005960464
+                },
+                "fps": {
+                  "median": 120.4819277541041,
+                  "onePercentLow": 106.38297865594767
+                },
+                "drawCalls": {
+                  "max": 90,
+                  "p50": 64,
+                  "p95": 75
+                },
+                "triangles": {
+                  "max": 37369,
+                  "p50": 25234,
+                  "p95": 25819
+                },
+                "sceneResources": {
+                  "geometries": 335,
+                  "geometryBytes": 1655712,
+                  "materials": 118,
+                  "textureBytes": 89110191,
+                  "textures": 74,
+                  "totalBytes": 90765903
+                },
+                "materials": {
+                  "atlas": {
+                    "cellSize": 512,
+                    "contentSize": 496,
+                    "grid": 4,
+                    "gutter": 8,
+                    "height": 2048,
+                    "width": 2048
+                  },
+                  "budgetBytes": 12582912,
+                  "diskBytes": 4047052,
+                  "fallbackReason": null,
+                  "formats": {
+                    "color": "BC7",
+                    "normal": "ASTC_4x4"
+                  },
+                  "loadMs": 1574,
+                  "requestedChannels": [
+                    "color",
+                    "normal"
+                  ],
+                  "residentBytes": 11184868,
+                  "source": "ktx2-basis",
+                  "status": "compressed",
+                  "textures": 3,
+                  "tier": "medium"
+                },
+                "population": {
+                  "activities": 6,
+                  "cafes": 0,
+                  "cars": 72,
+                  "colorDrawCalls": 16,
+                  "construction": 5,
+                  "contextAnchors": 5843,
+                  "cyclists": 5,
+                  "deliveryVehicles": 0,
+                  "lamps": 22,
+                  "lastMatrixWrites": 0,
+                  "movingCars": 11,
+                  "pedestrians": 23,
+                  "rebuilds": 30,
+                  "shadowDrawCalls": 0,
+                  "signals": 5,
+                  "trash": 1,
+                  "triangles": 59536,
+                  "vendors": 0
+                },
+                "updatePhases": {},
+                "streamingPressure": {
+                  "max": 0,
+                  "p50": 0,
+                  "p95": 0
+                }
+              }
+            }
+          ]
+        },
+        {
+          "profileId": "desktop-high",
+          "capabilities": {
+            "deviceMemoryGiB": 32,
+            "devicePixelRatio": 1.5,
+            "gpuTimerExtension": true,
+            "hardwareConcurrency": 10,
+            "muted": true,
+            "renderer": "ANGLE (Apple, ANGLE Metal Renderer: Apple M1 Max, Unspecified Version)",
+            "routes": [
+              "times-square",
+              "central-park",
+              "waterfront",
+              "times-square-station"
+            ],
+            "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/151.0.0.0 Safari/537.36",
+            "vendor": "Google Inc. (Apple)",
+            "webgl2": true
+          },
+          "contract": {
+            "passed": false,
+            "violations": [
+              {
+                "actual": 30.24620410476604,
+                "comparator": ">=",
+                "iteration": 1,
+                "limit": 45,
+                "message": "fps.onePercentLow: expected >= 45, received 30.25",
+                "metric": "fps.onePercentLow",
+                "routeId": "times-square"
+              },
+              {
+                "actual": 9.599999994039536,
+                "comparator": "<=",
+                "iteration": 1,
+                "limit": 8,
+                "message": "cpuMs.p95: expected <= 8, received 9.60",
+                "metric": "cpuMs.p95",
+                "routeId": "times-square"
+              }
+            ]
+          },
+          "captures": [
+            {
+              "routeId": "times-square",
+              "iteration": 1,
+              "report": {
+                "cpuMs": {
+                  "p50": 5,
+                  "p95": 9.599999994039536,
+                  "p99": 22.216999996304473
+                },
+                "gpuMs": {
+                  "availableSamples": 1170,
+                  "p50": 3.949833,
+                  "p95": 6.24492255,
+                  "p99": 8.33736974999999
+                },
+                "frameMs": {
+                  "p50": 9.599999994039536,
+                  "p95": 17.5,
+                  "p99": 33.0619999963045
+                },
+                "fps": {
+                  "median": 104.16666673134185,
+                  "onePercentLow": 30.24620410476604
+                },
+                "drawCalls": {
+                  "max": 243,
+                  "p50": 195,
+                  "p95": 230
+                },
+                "triangles": {
+                  "max": 792312,
+                  "p50": 675856,
+                  "p95": 774555.8
+                },
+                "sceneResources": {
+                  "geometries": 865,
+                  "geometryBytes": 60520684,
+                  "materials": 303,
+                  "textureBytes": 86430660,
+                  "textures": 109,
+                  "totalBytes": 146951344
+                },
+                "materials": {
+                  "atlas": {
+                    "cellSize": 512,
+                    "contentSize": 496,
+                    "grid": 4,
+                    "gutter": 8,
+                    "height": 2048,
+                    "width": 2048
+                  },
+                  "budgetBytes": 18874368,
+                  "diskBytes": 6416123,
+                  "fallbackReason": null,
+                  "formats": {
+                    "color": "BC7",
+                    "normal": "ASTC_4x4",
+                    "orm": "ASTC_4x4"
+                  },
+                  "loadMs": 969.9000000059605,
+                  "requestedChannels": [
+                    "color",
+                    "normal",
+                    "orm"
+                  ],
+                  "residentBytes": 16777296,
+                  "source": "ktx2-basis",
+                  "status": "compressed",
+                  "textures": 3,
+                  "tier": "high"
+                },
+                "population": {
+                  "activities": 28,
+                  "cafes": 0,
+                  "cars": 122,
+                  "colorDrawCalls": 16,
+                  "construction": 6,
+                  "contextAnchors": 5620,
+                  "cyclists": 8,
+                  "deliveryVehicles": 13,
+                  "lamps": 42,
+                  "lastMatrixWrites": 281,
+                  "movingCars": 18,
+                  "pedestrians": 95,
+                  "rebuilds": 10,
+                  "shadowDrawCalls": 1,
+                  "signals": 19,
+                  "trash": 6,
+                  "triangles": 115950,
+                  "vendors": 16
+                },
+                "updatePhases": {
+                  "bikes": {
+                    "max": 15.5,
+                    "p50": 0,
+                    "p95": 0,
+                    "p99": 1.8999999910593033,
+                    "samples": 1170
+                  },
+                  "buses": {
+                    "max": 38.70000000298023,
+                    "p50": 0.20000000298023224,
+                    "p95": 0.8999999910593033,
+                    "p99": 1.6000000089406967,
+                    "samples": 1170
+                  },
+                  "entrances": {
+                    "max": 37.70000000298023,
+                    "p50": 0,
+                    "p95": 0.8999999910593033,
+                    "p99": 3.5,
+                    "samples": 1170
+                  },
+                  "landmarks": {
+                    "max": 1.0999999940395355,
+                    "p50": 0,
+                    "p95": 0,
+                    "p99": 0.09999999403953552,
+                    "samples": 1170
+                  },
+                  "plaques": {
+                    "max": 2.9000000059604645,
+                    "p50": 0,
+                    "p95": 0.10000000894069672,
+                    "p99": 0.3999999910593033,
+                    "samples": 1170
+                  },
+                  "retailContext": {
+                    "max": 0.5,
+                    "p50": 0,
+                    "p95": 0,
+                    "p99": 0.10000000894069672,
+                    "samples": 1170
+                  },
+                  "streetLife": {
+                    "max": 96.3999999910593,
+                    "p50": 0,
+                    "p95": 2.699999988079071,
+                    "p99": 5,
+                    "samples": 1170
+                  },
+                  "tiles": {
+                    "max": 6.5999999940395355,
+                    "p50": 0,
+                    "p95": 0.9000000059604645,
+                    "p99": 2,
+                    "samples": 1170
+                  },
+                  "tram": {
+                    "max": 0.29999999701976776,
+                    "p50": 0,
+                    "p95": 0.09999999403953552,
+                    "p99": 0.10000000894069672,
+                    "samples": 1170
+                  }
+                },
+                "streamingPressure": {
+                  "max": 0.6666666666666666,
+                  "p50": 0,
+                  "p95": 0.2222222222222222
+                }
+              }
+            },
+            {
+              "routeId": "central-park",
+              "iteration": 1,
+              "report": {
+                "cpuMs": {
+                  "p50": 3.5,
+                  "p95": 6.299999997019768,
+                  "p99": 8.257000002414005
+                },
+                "gpuMs": {
+                  "availableSamples": 1182,
+                  "p50": 3.534291,
+                  "p95": 5.7825678,
+                  "p99": 8.165508769999999
+                },
+                "frameMs": {
+                  "p50": 9.599999994039536,
+                  "p95": 16.200000002980232,
+                  "p99": 18.85699999645354
+                },
+                "fps": {
+                  "median": 104.16666673134185,
+                  "onePercentLow": 53.030704788040055
+                },
+                "drawCalls": {
+                  "max": 211,
+                  "p50": 121,
+                  "p95": 149
+                },
+                "triangles": {
+                  "max": 1055867,
+                  "p50": 776364,
+                  "p95": 927011
+                },
+                "sceneResources": {
+                  "geometries": 670,
+                  "geometryBytes": 51548144,
+                  "materials": 235,
+                  "textureBytes": 33817769,
+                  "textures": 48,
+                  "totalBytes": 85365913
+                },
+                "materials": {
+                  "atlas": {
+                    "cellSize": 512,
+                    "contentSize": 496,
+                    "grid": 4,
+                    "gutter": 8,
+                    "height": 2048,
+                    "width": 2048
+                  },
+                  "budgetBytes": 18874368,
+                  "diskBytes": 6416123,
+                  "fallbackReason": null,
+                  "formats": {
+                    "color": "BC7",
+                    "normal": "ASTC_4x4",
+                    "orm": "ASTC_4x4"
+                  },
+                  "loadMs": 969.9000000059605,
+                  "requestedChannels": [
+                    "color",
+                    "normal",
+                    "orm"
+                  ],
+                  "residentBytes": 16777296,
+                  "source": "ktx2-basis",
+                  "status": "compressed",
+                  "textures": 3,
+                  "tier": "high"
+                },
+                "population": {
+                  "activities": 0,
+                  "cafes": 0,
+                  "cars": 27,
+                  "colorDrawCalls": 9,
+                  "construction": 0,
+                  "contextAnchors": 5653,
+                  "cyclists": 0,
+                  "deliveryVehicles": 0,
+                  "lamps": 4,
+                  "lastMatrixWrites": 0,
+                  "movingCars": 20,
+                  "pedestrians": 2,
+                  "rebuilds": 17,
+                  "shadowDrawCalls": 1,
+                  "signals": 0,
+                  "trash": 0,
+                  "triangles": 19168,
+                  "vendors": 0
+                },
+                "updatePhases": {
+                  "bikes": {
+                    "max": 1.8999999910593033,
+                    "p50": 0,
+                    "p95": 0,
+                    "p99": 0.10000000894069672,
+                    "samples": 1182
+                  },
+                  "buses": {
+                    "max": 6.700000002980232,
+                    "p50": 0,
+                    "p95": 0.4000000059604645,
+                    "p99": 1,
+                    "samples": 1182
+                  },
+                  "entrances": {
+                    "max": 0.20000000298023224,
+                    "p50": 0,
+                    "p95": 0,
+                    "p99": 0.10000000894069672,
+                    "samples": 1182
+                  },
+                  "landmarks": {
+                    "max": 1.5999999940395355,
+                    "p50": 0,
+                    "p95": 0,
+                    "p99": 0.09999999403953552,
+                    "samples": 1182
+                  },
+                  "plaques": {
+                    "max": 1.0999999940395355,
+                    "p50": 0,
+                    "p95": 0.10000000894069672,
+                    "p99": 0.20000000298023224,
+                    "samples": 1182
+                  },
+                  "retailContext": {
+                    "max": 0.20000000298023224,
+                    "p50": 0,
+                    "p95": 0,
+                    "p99": 0.09999999403953552,
+                    "samples": 1182
+                  },
+                  "streetLife": {
+                    "max": 11.5,
+                    "p50": 0,
+                    "p95": 1.3999999910593033,
+                    "p99": 2.2999999970197678,
+                    "samples": 1182
+                  },
+                  "tiles": {
+                    "max": 3.300000011920929,
+                    "p50": 0,
+                    "p95": 0.7999999970197678,
+                    "p99": 1.5999999940395355,
+                    "samples": 1182
+                  },
+                  "tram": {
+                    "max": 0.5999999940395355,
+                    "p50": 0,
+                    "p95": 0.10000000894069672,
+                    "p99": 0.10000000894069672,
+                    "samples": 1182
+                  }
+                },
+                "streamingPressure": {
+                  "max": 0.5555555555555556,
+                  "p50": 0,
+                  "p95": 0.1111111111111111
+                }
+              }
+            },
+            {
+              "routeId": "waterfront",
+              "iteration": 1,
+              "report": {
+                "cpuMs": {
+                  "p50": 3.8999999910593033,
+                  "p95": 6.105000008642669,
+                  "p99": 9.099999994188547
+                },
+                "gpuMs": {
+                  "availableSamples": 1200,
+                  "p50": 3.6183125,
+                  "p95": 5.3367431,
+                  "p99": 6.928668919999999
+                },
+                "frameMs": {
+                  "p50": 9,
+                  "p95": 13.39999999180436,
+                  "p99": 16.10099999397993
+                },
+                "fps": {
+                  "median": 111.11111111111111,
+                  "onePercentLow": 62.107943629209004
+                },
+                "drawCalls": {
+                  "max": 255,
+                  "p50": 168,
+                  "p95": 194
+                },
+                "triangles": {
+                  "max": 1324608,
+                  "p50": 774837,
+                  "p95": 1118619
+                },
+                "sceneResources": {
+                  "geometries": 543,
+                  "geometryBytes": 49974944,
+                  "materials": 206,
+                  "textureBytes": 36208637,
+                  "textures": 47,
+                  "totalBytes": 86183581
+                },
+                "materials": {
+                  "atlas": {
+                    "cellSize": 512,
+                    "contentSize": 496,
+                    "grid": 4,
+                    "gutter": 8,
+                    "height": 2048,
+                    "width": 2048
+                  },
+                  "budgetBytes": 18874368,
+                  "diskBytes": 6416123,
+                  "fallbackReason": null,
+                  "formats": {
+                    "color": "BC7",
+                    "normal": "ASTC_4x4",
+                    "orm": "ASTC_4x4"
+                  },
+                  "loadMs": 969.9000000059605,
+                  "requestedChannels": [
+                    "color",
+                    "normal",
+                    "orm"
+                  ],
+                  "residentBytes": 16777296,
+                  "source": "ktx2-basis",
+                  "status": "compressed",
+                  "textures": 3,
+                  "tier": "high"
+                },
+                "population": {
+                  "activities": 4,
+                  "cafes": 0,
+                  "cars": 113,
+                  "colorDrawCalls": 14,
+                  "construction": 3,
+                  "contextAnchors": 5833,
+                  "cyclists": 8,
+                  "deliveryVehicles": 0,
+                  "lamps": 34,
+                  "lastMatrixWrites": 162,
+                  "movingCars": 14,
+                  "pedestrians": 34,
+                  "rebuilds": 30,
+                  "shadowDrawCalls": 1,
+                  "signals": 8,
+                  "trash": 1,
+                  "triangles": 88136,
+                  "vendors": 0
+                },
+                "updatePhases": {
+                  "bikes": {
+                    "max": 8.600000008940697,
+                    "p50": 0,
+                    "p95": 0,
+                    "p99": 0.29999999701976776,
+                    "samples": 1200
+                  },
+                  "buses": {
+                    "max": 62.5,
+                    "p50": 0,
+                    "p95": 0.29999999701976776,
+                    "p99": 0.7999999970197678,
+                    "samples": 1200
+                  },
+                  "entrances": {
+                    "max": 1,
+                    "p50": 0,
+                    "p95": 0,
+                    "p99": 0.10000000894069672,
+                    "samples": 1200
+                  },
+                  "landmarks": {
+                    "max": 0.19999998807907104,
+                    "p50": 0,
+                    "p95": 0,
+                    "p99": 0.09999999403953552,
+                    "samples": 1200
+                  },
+                  "plaques": {
+                    "max": 0.5999999940395355,
+                    "p50": 0,
+                    "p95": 0.10000000894069672,
+                    "p99": 0.29999999701976776,
+                    "samples": 1200
+                  },
+                  "retailContext": {
+                    "max": 0.19999998807907104,
+                    "p50": 0,
+                    "p95": 0,
+                    "p99": 0.09999999403953552,
+                    "samples": 1200
+                  },
+                  "streetLife": {
+                    "max": 14.900000005960464,
+                    "p50": 0,
+                    "p95": 1.5,
+                    "p99": 3.6000000089406967,
+                    "samples": 1200
+                  },
+                  "tiles": {
+                    "max": 3.300000011920929,
+                    "p50": 0,
+                    "p95": 0.7000000029802322,
+                    "p99": 1.2999999970197678,
+                    "samples": 1200
+                  },
+                  "tram": {
+                    "max": 0.5,
+                    "p50": 0,
+                    "p95": 0.10000000894069672,
+                    "p99": 0.10000000894069672,
+                    "samples": 1200
+                  }
+                },
+                "streamingPressure": {
+                  "max": 0.3333333333333333,
+                  "p50": 0,
+                  "p95": 0.1111111111111111
+                }
+              }
+            },
+            {
+              "routeId": "times-square-station",
+              "iteration": 1,
+              "report": {
+                "cpuMs": {
+                  "p50": 1.5999999940395355,
+                  "p95": 2.2999999970197678,
+                  "p99": 2.701000002920627
+                },
+                "gpuMs": {
+                  "availableSamples": 1200,
+                  "p50": 1.6317495000000002,
+                  "p95": 2.6558562499999994,
+                  "p99": 3.2755302599999996
+                },
+                "frameMs": {
+                  "p50": 8.299999997019768,
+                  "p95": 9.200000002980232,
+                  "p99": 9.5
+                },
+                "fps": {
+                  "median": 120.4819277541041,
+                  "onePercentLow": 105.26315789473684
+                },
+                "drawCalls": {
+                  "max": 134,
+                  "p50": 83,
+                  "p95": 117
+                },
+                "triangles": {
+                  "max": 61043,
+                  "p50": 38067,
+                  "p95": 49975
+                },
+                "sceneResources": {
+                  "geometries": 316,
+                  "geometryBytes": 1381056,
+                  "materials": 110,
+                  "textureBytes": 88039770,
+                  "textures": 71,
+                  "totalBytes": 89420826
+                },
+                "materials": {
+                  "atlas": {
+                    "cellSize": 512,
+                    "contentSize": 496,
+                    "grid": 4,
+                    "gutter": 8,
+                    "height": 2048,
+                    "width": 2048
+                  },
+                  "budgetBytes": 18874368,
+                  "diskBytes": 6416123,
+                  "fallbackReason": null,
+                  "formats": {
+                    "color": "BC7",
+                    "normal": "ASTC_4x4",
+                    "orm": "ASTC_4x4"
+                  },
+                  "loadMs": 969.9000000059605,
+                  "requestedChannels": [
+                    "color",
+                    "normal",
+                    "orm"
+                  ],
+                  "residentBytes": 16777296,
+                  "source": "ktx2-basis",
+                  "status": "compressed",
+                  "textures": 3,
+                  "tier": "high"
+                },
+                "population": {
+                  "activities": 4,
+                  "cafes": 0,
+                  "cars": 113,
+                  "colorDrawCalls": 14,
+                  "construction": 3,
+                  "contextAnchors": 5833,
+                  "cyclists": 8,
+                  "deliveryVehicles": 0,
+                  "lamps": 34,
+                  "lastMatrixWrites": 0,
+                  "movingCars": 14,
+                  "pedestrians": 34,
+                  "rebuilds": 30,
+                  "shadowDrawCalls": 1,
+                  "signals": 8,
+                  "trash": 1,
+                  "triangles": 88136,
+                  "vendors": 0
+                },
+                "updatePhases": {},
+                "streamingPressure": {
+                  "max": 0,
+                  "p50": 0,
+                  "p95": 0
+                }
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

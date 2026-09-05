@@ -128,6 +128,7 @@ export interface MeshPayload {
   index: Uint16Array | Uint32Array;
   uv?: Float32Array;
   style?: Uint8Array; // buildings: BuildingArchetype 0..15 (per vertex)
+  facade?: Float32Array; // per vertex: distance along wall, height above street, wall length, building seed
   semantic?: Float32Array; // buildings: packed exact semantic word (per vertex)
 }
 
@@ -170,7 +171,8 @@ export function meshPayloadByteLength(payload: MeshPayload | null): number {
     + payload.index.byteLength
     + (payload.uv?.byteLength ?? 0)
     + (payload.style?.byteLength ?? 0)
-    + (payload.semantic?.byteLength ?? 0);
+    + (payload.semantic?.byteLength ?? 0)
+    + (payload.facade?.byteLength ?? 0);
 }
 
 /**

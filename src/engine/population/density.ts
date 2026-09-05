@@ -51,9 +51,11 @@ function cellKey(x: number, z: number): string {
 
 /**
  * Small spatial density field grounded in data already shipped with the world.
- * Queries inspect at most a 5x5 cell neighborhood and allocate nothing.
+ * Cache misses inspect at most a 5x5 cell neighborhood; repeated exact queries
+ * reuse a bounded cached density sample.
  */
 export class PopulationDensityField {
+  private readonly sampleCache = new Map<string, PopulationDensitySample>();
   private readonly cells = new Map<string, DensityAnchor[]>();
   private readonly anchors: DensityAnchor[] = [];
   private readonly anchorKeys = new Set<string>();
@@ -84,6 +86,7 @@ export class PopulationDensityField {
     // feed idempotent without merging distinct doors along the same frontage.
     const key = populationAnchorKey(anchor.kind, anchor.x, anchor.z);
     if (this.anchorKeys.has(key)) return false;
+    this.sampleCache.clear();
     this.anchorKeys.add(key);
     this.anchors.push(anchor);
     const cellId = cellKey(anchor.x, anchor.z);
@@ -173,6 +176,11 @@ export class PopulationDensityField {
   }
 
   sample(x: number, z: number): PopulationDensitySample {
+    // Road candidates recur across spatial rebuilds. Memoize exact query
+    // coordinates, preserving density and functional-clearance semantics.
+    const sampleKey = `${x}:${z}`;
+    const cached = this.sampleCache.get(sampleKey);
+    if (cached) return cached;
     let station = 0;
     let landmark = 0;
     let park = 0;
@@ -217,7 +225,10 @@ export class PopulationDensityField {
         }
       }
     }
-    return composePopulationDensity(station, landmark, park, bike);
+    const sample = composePopulationDensity(station, landmark, park, bike);
+    if (this.sampleCache.size >= 8192) this.sampleCache.delete(this.sampleCache.keys().next().value!);
+    this.sampleCache.set(sampleKey, sample);
+    return sample;
   }
 
   /** Exact functional-kit clearance without weakening the surrounding crowd. */

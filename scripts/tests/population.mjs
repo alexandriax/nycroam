@@ -31,6 +31,7 @@ import {
   trafficPairMotionsConflict,
   trafficPairKey,
   trafficSweptConflict,
+  trafficSweptBoundsOverlap,
   yieldsTo,
 } from '../../src/engine/population/trafficSafety.ts';
 import {
@@ -53,6 +54,7 @@ import {
   pedestrianSweepsOverlap,
   pedestrianTrafficOverlap,
 } from '../../src/engine/population/pedestrianSafety.ts';
+import { buildPedestrianGeometry, buildPedestrianSkinGeometry } from '../../src/engine/population/pedestrianGeometry.ts';
 import { buildVehicleBodyGeometry } from '../../src/engine/population/vehicleGeometry.ts';
 import {
   buildCyclistGeometry,
@@ -102,17 +104,17 @@ test('population ceilings are explicit and remain below the street budget', () =
       ]),
     ),
     {
-      low: 31802,
-      medium: 66702,
-      high: 111136,
-      ultra: 156400,
+      low: 51538,
+      medium: 108522,
+      high: 180932,
+      ultra: 252976,
     },
   );
   for (const level of Object.keys(POPULATION_BUDGETS)) {
     const ceiling = populationCeiling(level);
     assert.equal(ceiling.colorDrawCalls, 16);
     assert.ok(ceiling.shadowDrawCalls <= 2);
-    assert.ok(ceiling.triangles < 160_000);
+    assert.ok(ceiling.triangles < 260_000);
   }
   assert.deepEqual(
     Object.fromEntries(
@@ -1867,4 +1869,80 @@ test('streamed context anchors are idempotent across tile upgrades and reloads',
     populationAnchorKey('retail', 12.24, -4.26),
     populationAnchorKey('station', 12.24, -4.26),
   );
+});
+
+
+test('near humans have complete articulated regions, finite normals and bounded geometry', () => {
+  for (const [build, triangles] of [[buildPedestrianGeometry, 504], [buildPedestrianSkinGeometry, 554]]) {
+    const g = build();
+    assert.equal(g.index.count / 3, triangles);
+    const position = g.getAttribute('position');
+    for (const name of ['normal', 'crowdColor', 'crowdTint', 'skinPart']) {
+      const attribute = g.getAttribute(name);
+      assert.equal(attribute.count, position.count);
+      assert.ok([...attribute.array].every(Number.isFinite));
+    }
+    assert.deepEqual([...new Set(g.getAttribute('skinPart').array)].sort(), build === buildPedestrianGeometry ? [0, 1, 2, 3, 4] : [0, 3, 4]);
+    const tint = [...g.getAttribute('crowdTint').array];
+    assert.ok(tint.includes(0) && tint.includes(1), 'fixed hair/footwear and varied skin/clothing must coexist');
+    g.computeBoundingBox();
+    assert.ok(g.boundingBox.max.y < 1.9 && g.boundingBox.min.y > 0, 'feet stay above ground at rest');
+    g.dispose();
+  }
+});
+
+
+test('cheap swept traffic bounds preserve rotating and crossing collisions', () => {
+  const random = (seed) => { const v = Math.sin(seed * 127.1) * 43758.5453; return v - Math.floor(v); };
+  let contacts = 0, rejections = 0;
+  for (let i = 0; i < 1000; i++) {
+    const start = (seed, key) => {
+      const angle = random(seed + 1) * Math.PI * 2;
+      return {key, x:random(seed+2)*80, z:random(seed+3)*80, fx:Math.cos(angle), fz:Math.sin(angle), halfLength:1+random(seed+4)*9, halfWidth:.25+random(seed+5)*2, speed:0};
+    };
+    const a = start(i*19, 'a'), b = start(i*31+9, 'b');
+    const end = (body, seed) => ({...body, x:body.x+(random(seed)-.5)*32, z:body.z+(random(seed+1)-.5)*32, fx:-body.fz, fz:body.fx});
+    const ae = end(a,i*7), be = end(b,i*13);
+    const bounds = trafficSweptBoundsOverlap(a,ae,b,be,.18);
+    if (!bounds) rejections++;
+    for (let step=0; step<=20; step++) {
+      const t=step/20;
+      const at = (body,e) => {
+        const angle = Math.atan2(body.fz,body.fx)+Math.PI*.5*t;
+        return {...body, x:body.x+(e.x-body.x)*t, z:body.z+(e.z-body.z)*t, fx:Math.cos(angle), fz:Math.sin(angle)};
+      };
+      if (trafficFootprintsOverlap(at(a,ae),at(b,be),.18)) {
+        contacts++; assert.equal(bounds,true,'broadphase must never discard an actual swept contact');
+        assert.equal(trafficPairMotionsConflict(a,ae,b,be,.18),true,'adaptive intervals must retain actual swept contacts');
+      }
+    }
+  }
+  assert.ok(contacts>100 && rejections>300, 'exercise both near contacts and distant rejection');
+});
+
+
+test('density memoization preserves exact samples and invalidates on new context', async () => {
+  const {PopulationDensityField} = await import('../../src/engine/population/density.ts');
+  const field = new PopulationDensityField(false);
+  const empty = field.sample(10,20);
+  assert.equal(field.sample(10,20), empty);
+  field.add({x:10,z:20,kind:'station',weight:.92});
+  const populated = field.sample(10,20);
+  assert.notDeepEqual(populated,empty);
+  assert.equal(field.sample(10,20),populated);
+  assert.equal(field.add({x:10,z:20,kind:'station',weight:.92}),false);
+  assert.equal(field.sample(10,20),populated,'duplicate context must not evict valid cached queries');
+  assert.equal(field.nearestDistance(10,20,['station'],9),0,'clearance stays exact');
+  for (let i=0;i<8300;i++) field.sample(i*5,200);
+  assert.ok(field.sampleCache.size<=8192,'long exploration cannot grow the cache without bound');
+});
+
+test('clear rotating sweeps prune intervals instead of sampling the entire turn', () => {
+  let headingReads = 0;
+  const start = {key:'turning-bus',x:0,z:0,fx:1,fz:0,halfLength:10,halfWidth:1,speed:0};
+  const end = {...start,fx:Math.SQRT1_2,fz:Math.SQRT1_2};
+  Object.defineProperty(start,'fx',{get(){headingReads++;return 1;}});
+  const pedestrian = {key:'clear-walker',x:0,z:-6,fx:1,fz:0,halfLength:.2,halfWidth:.2,speed:0};
+  assert.equal(trafficMotionConflicts(start,end,pedestrian,.05),false);
+  assert.ok(headingReads<24,`clear turn used ${headingReads} heading reads`);
 });

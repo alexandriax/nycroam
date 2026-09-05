@@ -1,0 +1,157 @@
+{
+  "license": "CC0-1.0",
+  "licenseUrl": "https://polyhaven.com/license",
+  "size": 496,
+  "sources": [
+    {
+      "region": "brick-red",
+      "asset": "red_brick_03",
+      "page": "https://polyhaven.com/a/red_brick_03",
+      "channels": {
+        "color": {
+          "file": "brick-red-color.png",
+          "sha256": "3f3304465346144515011f28ed132a405c32a599822b01182a4f33d2078fb3f2",
+          "sourceUrl": "https://dl.polyhaven.org/file/ph-assets/Textures/png/1k/red_brick_03/red_brick_03_diff_1k.png",
+          "sourceSha256": "f275e0ba505333070e7011da6a4d8cffa7befb629ce8e28ddf38f3f93ca500af"
+        },
+        "normal": {
+          "file": "brick-red-normal.png",
+          "sha256": "e130c7c55b8e168b3b76780fd2f5f610f39b4fe4e2afd247829d6dcdfc7eff79",
+          "sourceUrl": "https://dl.polyhaven.org/file/ph-assets/Textures/png/1k/red_brick_03/red_brick_03_nor_gl_1k.png",
+          "sourceSha256": "02bb550ab43d2c2bebbfadd35daaed5dc2a30ce6f2065882ba1b2aec4d3488e7"
+        },
+        "orm": {
+          "file": "brick-red-orm.png",
+          "sha256": "c953b8f9957676af54c6674b25f06a756297d9926e435481ecfb6e1a59859bb6",
+          "sourceUrl": "https://dl.polyhaven.org/file/ph-assets/Textures/png/1k/red_brick_03/red_brick_03_arm_1k.png",
+          "sourceSha256": "c72fd4f42a33e74fc96fb9b044a81eb6f38428281ac1a406015a92dedf2ab6f4"
+        }
+      }
+    },
+    {
+      "region": "brick-brown",
+      "asset": "brown_brick_02",
+      "page": "https://polyhaven.com/a/brown_brick_02",
+      "channels": {
+        "color": {
+          "file": "brick-brown-color.png",
+          "sha256": "0070e021fa9693e8a414cc4b3f9f1fd5ad9bda8f03baddf95f8cb091bf04f9f9",
+          "sourceUrl": "https://dl.polyhaven.org/file/ph-assets/Textures/png/1k/brown_brick_02/brown_brick_02_diff_1k.png",
+          "sourceSha256": "63d5b35c618dda501edc6369cc6d3c84e4ee405c48b900a1758b3d97659d83b0"
+        },
+        "normal": {
+          "file": "brick-brown-normal.png",
+          "sha256": "0d4502b45651ec6934942f11805a1e451f84b3afb6740c42b0eaa71ff1f33c8b",
+          "sourceUrl": "https://dl.polyhaven.org/file/ph-assets/Textures/png/1k/brown_brick_02/brown_brick_02_nor_gl_1k.png",
+          "sourceSha256": "d718ccd8101739bdcd77eb00ec606abc05c535a79d2fb6b931f8a9f745045510"
+        },
+        "orm": {
+          "file": "brick-brown-orm.png",
+          "sha256": "6fa7444f50520cfcd097b5cca936d9391271aeeff46f97f54778f179d303f085",
+          "sourceUrl": "https://dl.polyhaven.org/file/ph-assets/Textures/png/1k/brown_brick_02/brown_brick_02_arm_1k.png",
+          "sourceSha256": "a8c8c3d4932bc7a395f75a6c222854dc1df2adf28bd8acebb48a7960e7904e6f"
+        }
+      }
+    },
+    {
+      "region": "concrete-aged",
+      "asset": "concrete_floor_02",
+      "page": "https://polyhaven.com/a/concrete_floor_02",
+      "channels": {
+        "color": {
+          "file": "concrete-aged-color.png",
+          "sha256": "234b0a8e5d9f51744966ec429d5318589327f12e0a7cc171acfbba7331ae5ae5",
+          "sourceUrl": "https://dl.polyhaven.org/file/ph-assets/Textures/png/1k/concrete_floor_02/concrete_floor_02_diff_1k.png",
+          "sourceSha256": "11d05474d61b47db27dcda8de7cdeb616328c6c0670ddd0837dcd57bd3132c52"
+        },
+        "normal": {
+          "file": "concrete-aged-normal.png",
+          "sha256": "0834b11ef54b5c1f147dc4b56d3e029ac53b018e526c7d5a9df2df19311e2c10",
+          "sourceUrl": "https://dl.polyhaven.org/file/ph-assets/Textures/png/1k/concrete_floor_02/concrete_floor_02_nor_gl_1k.png",
+          "sourceSha256": "2899c1338a39369d33edc02effbfa4eb14c82b70c6efa2f13c6a0e088ee0c606"
+        },
+        "orm": {
+          "file": "concrete-aged-orm.png",
+          "sha256": "e6aa9c0b2a8df40a3b5d75f37688c109d9114c4d0461f014982b753674b03f44",
+          "sourceUrl": "https://dl.polyhaven.org/file/ph-assets/Textures/png/1k/concrete_floor_02/concrete_floor_02_arm_1k.png",
+          "sourceSha256": "96dc02b61003ce8eb4894f43302f3ce0dab0d0af9108f66490d0e4ea5141af53"
+        }
+      }
+    },
+    {
+      "region": "asphalt-worn",
+      "asset": "asphalt_02",
+      "page": "https://polyhaven.com/a/asphalt_02",
+      "channels": {
+        "color": {
+          "file": "asphalt-worn-color.png",
+          "sha256": "c5f5556cde11585168ed01a20e35dbcd6dcf7585ac17e25d330ee181e1c4e64b",
+          "sourceUrl": "https://dl.polyhaven.org/file/ph-assets/Textures/png/1k/asphalt_02/asphalt_02_diff_1k.png",
+          "sourceSha256": "68f85c76965ea664d500839c7ffe28fc7f2ddd297db32323dd63976589316bd3"
+        },
+        "normal": {
+          "file": "asphalt-worn-normal.png",
+          "sha256": "8b12faef21ab0206cc32b4cae3b7774faf3eec9da4520166e02955c44f212f13",
+          "sourceUrl": "https://dl.polyhaven.org/file/ph-assets/Textures/png/1k/asphalt_02/asphalt_02_nor_gl_1k.png",
+          "sourceSha256": "b2069741070f0107c81d001eabfffd6d6644f249cd4ffdf52852e4b5e746a959"
+        },
+        "orm": {
+          "file": "asphalt-worn-orm.png",
+          "sha256": "1544405d030403c4c1aa5da4c408d8282bc223776c60572055319504cc106702",
+          "sourceUrl": "https://dl.polyhaven.org/file/ph-assets/Textures/png/1k/asphalt_02/asphalt_02_arm_1k.png",
+          "sourceSha256": "7879efd37544030b38578b3797c7a840d06bef2170fcc6953f8d9e3b21a2b6be"
+        }
+      }
+    },
+    {
+      "region": "limestone",
+      "asset": "sandstone_blocks_05",
+      "page": "https://polyhaven.com/a/sandstone_blocks_05",
+      "channels": {
+        "color": {
+          "file": "limestone-color.png",
+          "sha256": "f4f2acb44b6964dff09665c19388207a572d3e7b6475f653f6add161d097a462",
+          "sourceUrl": "https://dl.polyhaven.org/file/ph-assets/Textures/png/1k/sandstone_blocks_05/sandstone_blocks_05_diff_1k.png",
+          "sourceSha256": "c6087f35bf30efeb895d12f5da098e7fca4026429b8a17da1b50e11626e73ef2"
+        },
+        "normal": {
+          "file": "limestone-normal.png",
+          "sha256": "e376aebde6e8262b5fc250d2e2084bfdfda74dd2c2ac0beb7b35f7f8e8475131",
+          "sourceUrl": "https://dl.polyhaven.org/file/ph-assets/Textures/png/1k/sandstone_blocks_05/sandstone_blocks_05_nor_gl_1k.png",
+          "sourceSha256": "a8937bd775fba9d9b1b1010b20b4906c9e4a9d6d368aaef8fd45d72afca4d88a"
+        },
+        "orm": {
+          "file": "limestone-orm.png",
+          "sha256": "4a94d61c04e466d55e37f7b42eb97800995343eb3dd02a72053947f04824994e",
+          "sourceUrl": "https://dl.polyhaven.org/file/ph-assets/Textures/png/1k/sandstone_blocks_05/sandstone_blocks_05_arm_1k.png",
+          "sourceSha256": "608dd0ec3aafda4d3851b352bdcf1ab9f12e11b59f2394f394313dad87740f30"
+        }
+      }
+    },
+    {
+      "region": "roof-gravel",
+      "asset": "gravel_floor",
+      "page": "https://polyhaven.com/a/gravel_floor",
+      "channels": {
+        "color": {
+          "file": "roof-gravel-color.png",
+          "sha256": "0e0e80f906cc5445ea9d89893588bd3f307ee5050d2b3f281f7e530855bd8c7a",
+          "sourceUrl": "https://dl.polyhaven.org/file/ph-assets/Textures/png/1k/gravel_floor/gravel_floor_diff_1k.png",
+          "sourceSha256": "58981489dc9f4619180bdefbb72cd7e412e4c8e18ce64dfeb116187a861bc7f5"
+        },
+        "normal": {
+          "file": "roof-gravel-normal.png",
+          "sha256": "f83007ad81bc5961698fe4ec8aa31d35ab2ae7066a00e3f5e969661476ebbec4",
+          "sourceUrl": "https://dl.polyhaven.org/file/ph-assets/Textures/png/1k/gravel_floor/gravel_floor_nor_gl_1k.png",
+          "sourceSha256": "c8af9c243c11099ac5de86c6586fbcec49782659f0d9fd6fd55b7262a810211d"
+        },
+        "orm": {
+          "file": "roof-gravel-orm.png",
+          "sha256": "844880d4076d402905f7a3be587659afb3204340f5ae66c2e939a83aa63f8839",
+          "sourceUrl": "https://dl.polyhaven.org/file/ph-assets/Textures/png/1k/gravel_floor/gravel_floor_arm_1k.png",
+          "sourceSha256": "a00ed01ea4dd181607ad5da2e75cbc6602fdcb94ca66dc669592bcf886a23bb9"
+        }
+      }
+    }
+  ]
+}

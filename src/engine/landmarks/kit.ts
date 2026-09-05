@@ -1,4 +1,6 @@
 import * as THREE from 'three';
+import { applyLandmarkSurface } from '../materials';
+import { SURFACE_REGION } from '../materialLibrary';
 import { canvas2d } from '../canvas2d';
 
 /**
@@ -37,11 +39,11 @@ export interface LandmarkCtx {
 }
 
 // ---- shared materials (module scope: one instance across all landmarks) ----
-export const LIMESTONE = new THREE.MeshLambertMaterial({ color: '#cfc8b8' });
-export const GRANITE = new THREE.MeshLambertMaterial({ color: '#8e8d90' });
-export const DARKSTONE = new THREE.MeshLambertMaterial({ color: '#6d6a63' });
-export const MARBLE = new THREE.MeshLambertMaterial({ color: '#e8e4da' });
-export const BRICK_RED = new THREE.MeshLambertMaterial({ color: '#8d5744' });
+export const LIMESTONE = applyLandmarkSurface(new THREE.MeshLambertMaterial({ color: '#cfc8b8' }), SURFACE_REGION.limestone);
+export const GRANITE = applyLandmarkSurface(new THREE.MeshLambertMaterial({ color: '#8e8d90' }), SURFACE_REGION.neutralStone);
+export const DARKSTONE = applyLandmarkSurface(new THREE.MeshLambertMaterial({ color: '#6d6a63' }), SURFACE_REGION.concreteAged);
+export const MARBLE = applyLandmarkSurface(new THREE.MeshLambertMaterial({ color: '#e8e4da' }), SURFACE_REGION.limestone);
+export const BRICK_RED = applyLandmarkSurface(new THREE.MeshLambertMaterial({ color: '#8d5744' }), SURFACE_REGION.brickRed);
 export const BRONZE = new THREE.MeshStandardMaterial({ color: '#6d4f2f', metalness: 0.75, roughness: 0.45 });
 export const VERDIGRIS = new THREE.MeshLambertMaterial({ color: '#5e9c8a' });
 export const GOLD = new THREE.MeshStandardMaterial({ color: '#c9a227', metalness: 0.85, roughness: 0.3 });
