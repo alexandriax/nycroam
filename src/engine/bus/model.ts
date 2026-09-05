@@ -14,7 +14,7 @@
 // BUS.interior at BUS.floorY, so the walkable box stays clear of geometry:
 // seats/wells flank it (|z| >= 0.75, x <= -5.25 deck, x >= 3.3 cab) and the
 // only things inside it are floor-level standee strips (<= 9 mm tall), the
-// stanchion poles outside the aisle at z = +-0.75, and ceiling rails
+// stanchion poles outside the aisle at z = +-0.69, and ceiling rails
 // above floorY + 2.0.
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
@@ -551,12 +551,12 @@ function buildInterior(g: THREE.Group): void {
     addBox(g, SEAT, 0.08, 0.6, 0.4, -5.96, 1.42, zk);
   }
 
-  // stanchions: warm-yellow poles between seat rows (z = +-0.75),
+  // stanchions: warm-yellow poles between seat rows (z = +-0.69),
   // two full-length ceiling handrails (above floorY + 2.0), door grab bars
   for (const s of [-1, 1]) {
     for (const px of [2.42, 0.92, -0.58, -2.08, -3.58]) {
-      addCyl(g, POLE, 0.021, 2.14, px, FLOOR_Y + 1.07, s * 0.75);
-      addCyl(g, POLE, .018, .17, px, 2.43, s * .665).rotation.x = Math.PI / 2;
+      addCyl(g, POLE, 0.021, 2.14, px, FLOOR_Y + 1.07, s * 0.69);
+      addCyl(g, POLE, .018, .11, px, 2.43, s * .635).rotation.x = Math.PI / 2;
     }
     addCyl(g, POLE, 0.02, 8.5, -0.85, 2.43, s * 0.58, 6, true);
   }
@@ -763,6 +763,7 @@ export class BusModel implements BusModelLike {
     for (const ax of [AXLE_F, AXLE_R]) {
       const mesh = new THREE.Mesh(axleGeometry(), [TIRE_MAT, HUB_MAT]);
       mesh.position.set(ax, TIRE_R, 0);
+      mesh.visible = !this.distanceLod;
       this.axles.push(mesh);
       this.group.add(mesh);
     }

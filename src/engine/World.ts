@@ -27,6 +27,7 @@ import { TramSystem, type TramRideHandle } from './tram';
 import { BusModel } from './bus/model';
 import { buildBusStop } from './bus/stops';
 import { BUS, type BusHud, type BusRouteBadge } from './bus/types';
+import { clampBusCabinPosition, atOpenBusDoor } from './bus/cabinNavigation';
 import { loadSans } from './fonts';
 import { StationWorld } from './subway/StationWorld';
 import { ElevatedStationWorld } from './subway/ElevatedStationWorld';
@@ -2178,8 +2179,14 @@ export class World {
         const box = rideInterior(h);
         const lx = dx * Math.cos(th) - dz * Math.sin(th);
         const lz = dx * Math.sin(th) + dz * Math.cos(th);
-        this.busLocal.x = Math.max(box.minX, Math.min(box.maxX, this.busLocal.x + lx));
-        this.busLocal.z = Math.max(box.minZ, Math.min(box.maxZ, this.busLocal.z + lz));
+        if (this.ridingTram) {
+          this.busLocal.x = Math.max(box.minX, Math.min(box.maxX, this.busLocal.x + lx));
+          this.busLocal.z = Math.max(box.minZ, Math.min(box.maxZ, this.busLocal.z + lz));
+        } else {
+          const cabin = clampBusCabinPosition(this.busLocal.x + lx, this.busLocal.z + lz, h.canExit);
+          this.busLocal.x = cabin.x;
+          this.busLocal.z = cabin.z;
+        }
         // keep the player anchored to the vehicle for tiles/minimap/save
         this.pos.set(h.pos.x, heightAt(h.pos.x, h.pos.z), h.pos.z);
         if (this.sun) followSun(this.sun, this.pos.x, this.pos.z, this.pos.y, fwd.x, fwd.z);
@@ -2216,9 +2223,7 @@ export class World {
         // doors span the cabin on BOTH sides; the bus has curb-side bays.
         const walkOff = this.ridingTram
           ? Math.abs(this.busLocal.z) > box.maxZ - 0.08
-          : (Math.abs(this.busLocal.x - BUS.doorX.front) < 1.1
-            || Math.abs(this.busLocal.x - BUS.doorX.rear) < 1.2)
-            && this.busLocal.z > box.maxZ - 0.08;
+          : atOpenBusDoor(this.busLocal.x, this.busLocal.z, h.canExit);
         if (h.canExit && walkOff
           && performance.now() - this.lastEnterGuard > 2500 && !this.transitioning) {
           this.exitBus();

@@ -42,6 +42,9 @@ windows, platform, doors and countdowns.
 - Buses gain adult-width seats, seat-back handholds, connected grab rails, a
   speckled rubber floor, a seated driver holding the wheel, and seated riders.
   Occupants remain inside the detailed bus LOD, adding two instanced submissions.
+  Detailed axles also respect that LOD after idle loading. A curb-side passage
+  reaches the front doorway while excluding the driver cab; walking off requires
+  a real open doorway instead of an adjacent body panel.
 - Embedded-browser pointer-lock rejection now leaves drag-to-look working without
   an unhandled promise rejection.
 
