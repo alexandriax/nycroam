@@ -1,3 +1,5 @@
+import { StationPassengers, collectPassengerObstacles } from './StationPassengers';
+import type { PassengerPlatform } from './passengerNavigation';
 // Multi-group station-complex world. Builds a walkable, transfer-navigable
 // interior for a whole station complex (Times Sq, Fulton St, ...) from a
 // ComplexSpec: several track GROUPS — each its own platform/track cross-section
@@ -14,6 +16,7 @@
 import * as THREE from 'three';
 import { makeTactileMaterial } from '../transitMaterials';
 import { trackDetail } from './trackDetail';
+import { fitPlatformEdges, trackBesidePlatformEdge } from './platformEdges';
 import type { StationSpec, TrackInfo, NetworkData, Arrival } from './types';
 import {
   makeNameMosaicTexture, makeHangingSignTexture, makeColumnSignTexture,
@@ -94,6 +97,8 @@ interface BuiltGroup {
   trackInfo: TrackInfo;
   countdown: PlatformCountdown;
   scheduler: TrainScheduler | null;
+  passengers: StationPassengers | null;
+  passengerPlatforms: PassengerPlatform[];
   half: number;
   csWidth: number;
   platLocals: { zMin: number; zMax: number }[];
@@ -180,6 +185,26 @@ export class ComplexStationWorld {
     // Immutable descendants are partitioned into the real platform/mezzanine
     // cells before instancing and batching, so a global merge cannot defeat
     // portal visibility. Countdown textures remain live on their materials.
+    for (const group of this.groups) {
+      const obstacles = collectPassengerObstacles(group.node, 0);
+      for (const platform of group.passengerPlatforms) platform.holes.push(...obstacles);
+    }
+    // A few concourse walkers use the first platform's existing two draws;
+    // transform their floors and obstacles into that scheduler node's frame.
+    const crowdGroup = this.groups[0];
+    if (crowdGroup) for (const mezz of this.cx.mezzes.slice(0, 2)) {
+      const toLocalRect = (rect: Rect): Rect => {
+        const a = worldToGroup(crowdGroup.spec, rect.minX, rect.minZ);
+        const b = worldToGroup(crowdGroup.spec, rect.maxX, rect.maxZ);
+        return { minX: Math.min(a[0], b[0]), maxX: Math.max(a[0], b[0]), minZ: Math.min(a[1], b[1]), maxZ: Math.max(a[1], b[1]) };
+      };
+      const [minX, minZ, maxX, maxZ] = mezz.rect;
+      const holes = [...collectPassengerObstacles(this.root, mezz.y),
+        ...this.stairs.filter(stair => stair.bottomY <= mezz.y + .1 && stair.topY >= mezz.y - .1).map(stair => stair.rect)];
+      crowdGroup.passengerPlatforms.push({ ...toLocalRect({ minX, maxX, minZ, maxZ }),
+        y: mezz.y - crowdGroup.spec.y, boarding: false, holes: holes.map(toLocalRect),
+      });
+    }
     const stationCells = this.buildArchitectureCells();
     const verticalPortals: StationVerticalPortal[] = this.stairs.map((stair) => ({
       bounds: stair.rect,
@@ -197,6 +222,9 @@ export class ComplexStationWorld {
     this.batchStats = this.architecture.batchStats;
     this.architectureStats = this.architecture.stats;
     this.shadowCasters.length = 0;
+    for (const group of this.groups) group.passengers = new StationPassengers(
+      group.node, group.passengerPlatforms, group.spec.id, group.trackInfo.trackZs.length,
+    );
   }
 
   // ---- small helpers ------------------------------------------------------
@@ -496,7 +524,7 @@ export class ComplexStationWorld {
       else platforms.push({ zMin: z, zMax: z + w });
       z += w;
     }
-    return { width, tracks, platforms };
+    return { width, tracks, platforms: fitPlatformEdges(platforms, tracks.map(t => t.z), g.division) };
   }
 
   private buildGroup(g: GroupSpec, gi: number) {
@@ -577,11 +605,11 @@ export class ComplexStationWorld {
     for (const p of cs.platforms) {
       const pw = p.zMax - p.zMin, pc = (p.zMin + p.zMax) / 2;
       this.box(L, 1.5, pw, this.platMat, 0, -0.75, pc, node);
-      this.box(L, 1.5, 0.08, this.platSideMat, 0, -0.75, p.zMin - 0.04, node);
-      this.box(L, 1.5, 0.08, this.platSideMat, 0, -0.75, p.zMax + 0.04, node);
-      if (cs.tracks.some(t => Math.abs(t.z - (p.zMin - TRACK_W/2)) < .1))
+      this.box(L, 1.5, 0.08, this.platSideMat, 0, -0.75, p.zMin + 0.04, node);
+      this.box(L, 1.5, 0.08, this.platSideMat, 0, -0.75, p.zMax - 0.04, node);
+      if (cs.tracks.some(t => trackBesidePlatformEdge(t.z, p.zMin, -1)))
         this.box(L, 0.03, 0.55, this.yellowMat, 0, 0.015, p.zMin + 0.3, node);
-      if (cs.tracks.some(t => Math.abs(t.z - (p.zMax + TRACK_W/2)) < .1))
+      if (cs.tracks.some(t => trackBesidePlatformEdge(t.z, p.zMax, 1)))
         this.box(L, 0.03, 0.55, this.yellowMat, 0, 0.015, p.zMax - 0.3, node);
     }
 
@@ -932,7 +960,8 @@ export class ComplexStationWorld {
     this.platformSpawnByStation.set(g.id, new THREE.Vector3(pw0[0], g.y, pw0[1]));
 
     this.groups.push({
-      spec: g, node, stationSpec, trackInfo, countdown, scheduler: null,
+      spec: g, node, stationSpec, trackInfo, countdown, scheduler: null, passengers: null,
+      passengerPlatforms: cs.platforms.map(p => ({ minX: -half, maxX: half, minZ: p.zMin, maxZ: p.zMax, y: 0, holes: [...localHoles] })),
       half, csWidth: W, platLocals, platWorldRects,
     });
   }
@@ -1662,9 +1691,22 @@ export class ComplexStationWorld {
    * back to platformSpawnFor) when the group or track can't be matched.
    */
   seedRideExit(stationId: string, route: string, dirSign: 1 | -1): THREE.Vector3 | null {
-    const g = this.groups.find((gg) => gg.spec.id === stationId);
+    const groups = this.groups.filter(group => group.spec.id === stationId);
+    // Stacked stations can reuse a GTFS id across opposite-direction groups
+    // (7 Av / 53 St). Match the service before choosing a physical floor.
+    const g = groups.find(group => group.spec.tracks.some(track => !track.pass && track.dir === dirSign && track.routes.includes(route)))
+      ?? groups.find(group => group.spec.stubEnd && group.spec.tracks.some(track => !track.pass && track.routes.includes(route)))
+      ?? groups.find(group => group.spec.tracks.some(track => !track.pass && track.dir === dirSign))
+      ?? groups[0];
     if (!g || !g.scheduler) return null;
-    const tz = g.scheduler.seedDwell(route, dirSign);
+    // A terminal lists its departing service direction. The arriving ride has
+    // the opposite network direction, but its train remains on this same track
+    // and can be boarded for the return trip while its doors are still open.
+    const departureDir = g.spec.stubEnd
+      ? (g.spec.tracks.find(track => !track.pass && track.dir === dirSign && track.routes.includes(route))
+        ?? g.spec.tracks.find(track => !track.pass && track.routes.includes(route)))?.dir ?? dirSign
+      : dirSign;
+    const tz = g.scheduler.seedDwell(route, departureDir);
     if (tz === null) return null;
     // platform adjacent to the seeded local track z, then group-local -> world
     const pl = g.platLocals.find((p) => Math.abs(tz - p.zMin) < TRACK_W * 0.9 || Math.abs(tz - p.zMax) < TRACK_W * 0.9)
@@ -1694,6 +1736,7 @@ export class ComplexStationWorld {
   update(dt: number) {
     for (const g of this.groups) {
       g.scheduler?.update(dt);
+      g.passengers?.update(dt, g.scheduler?.passengerTrains() ?? []);
       g.countdown.arrivalsFn = () => g.scheduler?.arrivals() ?? [];
       g.countdown.update(dt);
     }
@@ -1701,7 +1744,7 @@ export class ComplexStationWorld {
 
   dispose() {
     this.architecture.dispose();
-    for (const g of this.groups) g.scheduler?.dispose();
+    for (const g of this.groups) { g.passengers?.dispose(); g.scheduler?.dispose(); }
     this.scene.traverse((o) => {
       if (o instanceof THREE.Mesh) o.geometry.dispose();
       if (o instanceof THREE.InstancedMesh) o.dispose();

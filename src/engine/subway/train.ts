@@ -383,6 +383,8 @@ function easeInQuad(t: number): number {
  */
 export class Train {
   readonly group: THREE.Group;
+  /** Immutable car layout in train-local coordinates for shared crowd simulation. */
+  readonly passengerLayout: { width: number; cars: { x: number; doors: number[]; seatX: number }[] };
 
   private readonly wheelMesh: THREE.InstancedMesh;
   private readonly windowMesh: THREE.InstancedMesh;
@@ -423,6 +425,10 @@ export class Train {
     const geo = getCarGeometry(opts.division);
     const L = dims.length;
     const segs = wallSegments(dims);
+    this.passengerLayout = { width: dims.width, cars: Array.from({ length: carCount }, (_, i) => ({
+      x: i * carPitch, doors: dims.doors.map(x => x + i * carPitch),
+      seatX: i * carPitch + segs.find(seg => seg.mid)!.cx,
+    })) };
 
     this.group = new THREE.Group();
     this.group.visible = false;
@@ -992,6 +998,10 @@ export class Train {
   get secondsToArrival(): number { return this.timeline.secondsToDoors; }
   get secondsToCycleEnd(): number { return this.timeline.secondsToCycleEnd; }
   get acceptingPassengers(): boolean { return this.timeline.acceptingPassengers; }
+  /** Internal seconds until door closure begins; scheduler supplies timeScale. */
+  get passengerBoardingRemaining(): number {
+    return this.timeline.acceptingPassengers ? Math.max(0, this.timeline.closeStart - this.timeline.elapsed) : 0;
+  }
 
   /** INTERNAL seconds left in the current phase. The scheduler reads this while
    *  a train departs (adds the recycle + spawn budget) to time the NEXT train. */

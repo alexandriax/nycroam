@@ -44,9 +44,7 @@ export class PlayerControls {
 
   private onMouseDown = (e: MouseEvent) => {
     if (e.button !== 0) return;
-    if (this.pointerLockAvailable && !document.pointerLockElement) {
-      this.el.requestPointerLock?.();
-    }
+    this.requestPointerLock();
     this.dragging = true;
     this.lastX = e.clientX;
     this.lastY = e.clientY;
@@ -131,7 +129,15 @@ export class PlayerControls {
 
   /** Re-acquire pointer lock (used after closing a modal that released it). */
   requestPointerLock() {
-    if (this.pointerLockAvailable && !document.pointerLockElement) this.el.requestPointerLock?.();
+    if (!this.pointerLockAvailable || document.pointerLockElement) return;
+    // Embedded browsers can reject the promise as well as emitting the error
+    // event. Keep drag-to-look usable without an unhandled rejection overlay.
+    try {
+      const requested = this.el.requestPointerLock?.();
+      requested?.catch(() => { this.pointerLockAvailable = false; });
+    } catch {
+      this.pointerLockAvailable = false;
+    }
   }
 
   dispose() {

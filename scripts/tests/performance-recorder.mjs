@@ -78,10 +78,10 @@ test('resource and shadow estimates deduplicate shared GPU resources', () => {
   material.dispose();
 });
 
-test('golden routes cover dense street, park, waterfront and complex station scenes', () => {
+test('golden routes cover dense street, park, waterfront, occupied station and moving train scenes', () => {
   assert.deepEqual(
     goldenRouteIds().sort(),
-    ['central-park', 'times-square', 'times-square-station', 'waterfront'],
+    ['central-park', 'subway-ride', 'times-square', 'times-square-station', 'waterfront'],
   );
   for (const route of Object.values(GOLDEN_ROUTES)) {
     if (route.kind === 'street') {
@@ -92,6 +92,7 @@ test('golden routes cover dense street, park, waterfront and complex station sce
         assert.ok(point.seconds >= 3);
       }
     } else {
+      assert.ok(route.seconds >= 30, 'transit capture includes an arrival and passenger exchange');
       const subway = JSON.parse(readFileSync(
         new URL('../../public/subway/subway.json', import.meta.url),
         'utf8',

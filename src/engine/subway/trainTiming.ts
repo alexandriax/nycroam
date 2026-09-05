@@ -1,5 +1,12 @@
-/** Shared gameplay clock: one displayed service minute is one gameplay second. */
-export const GAMEPLAY_SECONDS_PER_SERVICE_MINUTE = 1;
+/** Subway boards use a modestly accelerated service clock. A minute takes 40
+ * gameplay seconds; route ETAs themselves always remain exact gameplay seconds. */
+export const GAMEPLAY_SECONDS_PER_SERVICE_MINUTE = 40;
+/** A stopping train serves each track every 30 gameplay seconds. Shared tracks
+ * rotate their routes; this does not speed up the train's motion or door cycle. */
+export const TRAIN_HEADWAY_SECONDS = 30;
+/** Keep the first train close when entering a station: with the approach and
+ * door cycle this gives a 15–20 second first boarding, rather than up to 45. */
+export const INITIAL_TRAIN_STAGGER_SECONDS = 4;
 export const TRAIN_TIME_SCALE = 1.35;
 export const TRAIN_PHASE_SECONDS = { hidden: 12, approach: 7, dwell: 14, depart: 7 } as const;
 export type TrainPhase = keyof typeof TRAIN_PHASE_SECONDS;

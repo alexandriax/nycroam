@@ -7,14 +7,14 @@
 //   interior next-stop LED is per-instance and disposed with the bus.
 // - module-level shared materials; after building, everything static is
 //   collapsed with mergeByMaterial. Only the 4 door leaves, the 2 axle
-//   spinners and the interior LED plane stay dynamic (~24 draws per bus).
+//   spinners and the interior LED plane stay dynamic; occupants use two batches.
 //
 // Local frame: +x forward, +y up, doors on +z (curb side). Group origin at
 // GROUND level under the bus center. BusSystem clamps the rider inside
 // BUS.interior at BUS.floorY, so the walkable box stays clear of geometry:
-// seats/wells flank it (|z| >= 0.95, x <= -5.25 deck, x >= 3.3 cab) and the
+// seats/wells flank it (|z| >= 0.75, x <= -5.25 deck, x >= 3.3 cab) and the
 // only things inside it are floor-level standee strips (<= 9 mm tall), the
-// stanchion poles pinned exactly at the z = +-0.95 boundary, and ceiling rails
+// stanchion poles outside the aisle at z = +-0.75, and ceiling rails
 // above floorY + 2.0.
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
@@ -25,6 +25,7 @@ import { canvas2d } from '../canvas2d';
 import { transitFinish, transitGlass } from '../transitMaterials';
 import { busSidePanel } from './geometry';
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
+import { TransitPassengerBatch, passengerSeed } from '../subway/transitPassengers';
 
 // ---------------------------------------------------------------------------
 // Layout constants (absolute y from ground; x/z in the bus local frame)
@@ -80,6 +81,8 @@ const BLUE = transitFinish(new THREE.MeshStandardMaterial({ color: '#184092', ro
 const GLASS = transitGlass();
 const BAND = new THREE.MeshLambertMaterial({ color: '#101214', emissive: '#050606' });
 const SKIRT = new THREE.MeshLambertMaterial({ color: '#26292c', emissive: '#0e0f10' });
+const FLOOR = transitFinish(new THREE.MeshStandardMaterial({ color: '#535754', roughness: .94,
+  emissive: '#303432', emissiveIntensity: .28 }), 'rubber');
 const ROOF = new THREE.MeshLambertMaterial({ color: '#cdd1d4' });
 const SEAT = new THREE.MeshStandardMaterial({ color: '#3b6482', roughness: .62, emissive: '#172936', emissiveIntensity: .35 });
 // lit interior lining: the hull shadows all direct sun, so cabin surfaces need
@@ -503,9 +506,11 @@ function buildExterior(g: THREE.Group, sbs: boolean): void {
 // Interior (visible through the openings AND inhabited by the rider)
 // ---------------------------------------------------------------------------
 function addTransverseSeat(g: THREE.Group, cx: number, s: 1 | -1): void {
-  addBox(g, SKIRT, 0.3, 0.36, 0.22, cx, 0.56, s * 1.09); // pedestal
-  addBox(g, SEAT, 0.42, 0.08, 0.28, cx, 0.78, s * 1.095); // cushion
-  addBox(g, SEAT, 0.07, 0.5, 0.28, cx - 0.175, 1.07, s * 1.095); // backrest (faces +x)
+  addBox(g, SKIRT, 0.3, 0.36, 0.26, cx, 0.56, s * .99); // pedestal
+  addBox(g, SEAT, 0.44, 0.08, 0.46, cx, 0.78, s * .99); // adult-width cushion
+  const back = addBox(g, SEAT, 0.07, 0.5, 0.46, cx - 0.185, 1.07, s * .99);
+  back.rotation.z = -.08;
+  addCyl(g, POLE, .018, .38, cx - .18, 1.34, s * .99).rotation.x = Math.PI / 2;
 }
 
 function addLongBench(g: THREE.Group, a: number, b: number, s: 1 | -1): void {
@@ -515,8 +520,8 @@ function addLongBench(g: THREE.Group, a: number, b: number, s: 1 | -1): void {
 
 function buildInterior(g: THREE.Group): void {
   // floor at BUS.floorY + raised rear deck (one step, +0.25) behind the walk box
-  addBox(g, SKIRT, L - 0.26, 0.08, 2.44, 0, FLOOR_Y - 0.04, 0);
-  addBox(g, SKIRT, 0.81, 0.25, 2.44, -5.655, FLOOR_Y + 0.125, 0); // deck: x -6.06..-5.25
+  addBox(g, FLOOR, L - 0.26, 0.08, 2.44, 0, FLOOR_Y - 0.04, 0);
+  addBox(g, FLOOR, 0.81, 0.25, 2.44, -5.655, FLOOR_Y + 0.125, 0); // deck: x -6.06..-5.25
   // yellow standee lines at both door bays (floor-level marking, <= 9 mm)
   addBox(g, STANDEE, FRONT_DOOR_W, 0.008, 0.07, BUS.doorX.front, FLOOR_Y + 0.007, 0.58);
   addBox(g, STANDEE, REAR_DOOR_W, 0.008, 0.07, BUS.doorX.rear, FLOOR_Y + 0.007, 0.58);
@@ -546,10 +551,13 @@ function buildInterior(g: THREE.Group): void {
     addBox(g, SEAT, 0.08, 0.6, 0.4, -5.96, 1.42, zk);
   }
 
-  // stanchions: warm-yellow poles at the aisle boundary (z = +-0.95 exactly),
+  // stanchions: warm-yellow poles between seat rows (z = +-0.75),
   // two full-length ceiling handrails (above floorY + 2.0), door grab bars
   for (const s of [-1, 1]) {
-    for (const px of [2.42, 0.92, -0.58, -2.08, -3.58]) addCyl(g, POLE, 0.021, 2.14, px, FLOOR_Y + 1.07, s * 0.95);
+    for (const px of [2.42, 0.92, -0.58, -2.08, -3.58]) {
+      addCyl(g, POLE, 0.021, 2.14, px, FLOOR_Y + 1.07, s * 0.75);
+      addCyl(g, POLE, .018, .17, px, 2.43, s * .665).rotation.x = Math.PI / 2;
+    }
     addCyl(g, POLE, 0.02, 8.5, -0.85, 2.43, s * 0.58, 6, true);
   }
   for (const bx of [3.55, 4.65]) addCyl(g, POLE, 0.018, 1.5, bx, 1.5, 1.1);
@@ -661,6 +669,7 @@ export class BusModel implements BusModelLike {
   private disposed = false;
   private idleBuild = 0;
   private readonly opts: BusModelOpts;
+  private passengers: TransitPassengerBatch | null = null;
 
   constructor(opts: BusModelOpts, env?: THREE.Texture | null) {
     this.opts = opts;
@@ -720,6 +729,17 @@ export class BusModel implements BusModelLike {
       }
     }
     this.hull.add(merged);
+
+    // A fixed pair of instance submissions shares articulated street geometry.
+    // Keep riders on actual seats, away from both door bays and the aisle.
+    this.passengers = new TransitPassengerBatch(this.hull, 7, passengerSeed(hullKey));
+    this.passengers.set(0, { x: 4.78, y: .30, z: -.58, yaw: 0, seated: true, driving: true });
+    const occupiedSeats = [[2.05, -1], [.55, 1], [-1.7, -1], [-4.72, 1], [-5.79, 0]];
+    for (let i = 0; i < occupiedSeats.length; i++) {
+      const [x, side] = occupiedSeats[i];
+      this.passengers.set(i + 1, { x, y: side === 0 ? .55 : .31, z: side * .94, yaw: 0, seated: true });
+    }
+    this.passengers.commit(occupiedSeats.length + 1);
 
     // door leaves (kept out of the merge; slide apart in x and out in +z)
     const doors = [
@@ -869,6 +889,8 @@ export class BusModel implements BusModelLike {
    * (bikes.ts documents the same pattern). */
   dispose(): void {
     this.disposed = true;
+    this.passengers?.dispose();
+    this.passengers = null;
     if (this.idleBuild) {
       if (typeof cancelIdleCallback === 'function') cancelIdleCallback(this.idleBuild);
       else clearTimeout(this.idleBuild);

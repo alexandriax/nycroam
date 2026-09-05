@@ -1,5 +1,8 @@
 # Transit and vegetation follow-up
 
+Historical PR 40 report. The service-clock rule below is superseded by the
+[living transit follow-up](living-transit-pass.md).
+
 Based on main after PR 39 (`67a3a7e8`). This pass addresses close-range transit
 geometry, missing station surface detail, tree LOD selection, and arrival clocks.
 

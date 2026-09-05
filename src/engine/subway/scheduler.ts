@@ -3,7 +3,10 @@ import { Train } from './train';
 import { directionLabel } from './directions';
 import type { StationSpec, TrackInfo, NetworkData, Arrival } from './types';
 import { quality } from '../quality';
-import { SPAWN_TO_BOARDING, TRAIN_CYCLE_SECONDS, TRAIN_TIME_SCALE } from './trainTiming';
+import {
+  INITIAL_TRAIN_STAGGER_SECONDS, SPAWN_TO_BOARDING, TRAIN_CYCLE_SECONDS,
+  TRAIN_HEADWAY_SECONDS, TRAIN_TIME_SCALE,
+} from './trainTiming';
 
 /** Express partner shown blasting through local stations' center tracks. */
 const EXPRESS_PARTNER: Record<string, string> = {
@@ -14,6 +17,15 @@ export interface BoardableTrain {
   route: string;
   dirSign: 1 | -1; // +1 = uptown (north)
   trackZ: number;
+}
+
+/** A live stopping train and its parent-local platform context. Passenger
+ * animation uses the same Train door timeline as player boarding and boards. */
+export interface PassengerTrain {
+  train: Train;
+  trackZ: number;
+  platformSide: 1 | -1;
+  timeScale: number;
 }
 
 interface Slot {
@@ -28,6 +40,7 @@ interface Slot {
   cooldown: number; // seconds until next spawn
   passThrough: boolean;
   platformSide: 1 | -1; // train-LOCAL z-sign facing the platform (doors open here)
+  platformWorldSide: 1 | -1; // parent-local z-sign, unaffected by train rotation
   flip: boolean; // travels opposite to dirSign-along-+x (TrackInfo.trackFlips)
   wasApproaching: boolean; // rising-edge latch for onArrive
 }
@@ -54,15 +67,19 @@ export class TrainScheduler {
   private info: TrackInfo;
   private slots: Slot[] = [];
   private headway: number;
+  private activePassengerTrains: PassengerTrain[] = [];
   /** Fires when a boardable (non-express) train first pulls in, so the world
    *  can play a "train arriving" sound. */
   onArrive: (() => void) | null = null;
 
-  constructor(parent: THREE.Object3D, spec: StationSpec, info: TrackInfo, network: NetworkData | null, headway = 30) {
+  constructor(parent: THREE.Object3D, spec: StationSpec, info: TrackInfo, network: NetworkData | null, headway = TRAIN_HEADWAY_SECONDS) {
     this.parent = parent;
     this.spec = spec;
     this.info = info;
-    this.headway = Math.max(headway, TRAIN_CYCLE_SECONDS / TRAIN_TIME_SCALE + 0.05);
+    this.headway = Math.max(
+      Number.isFinite(headway) ? headway : TRAIN_HEADWAY_SECONDS,
+      TRAIN_CYCLE_SECONDS / TRAIN_TIME_SCALE + 0.05,
+    );
 
     // routes that can actually be ridden (present in the network) come first
     const rideable = spec.routes.filter((r) => !network || network.routes[r]);
@@ -102,9 +119,10 @@ export class TrainScheduler {
         trainAge: 0,
         everVisible: false,
         timeScale: TRAIN_TIME_SCALE,
-        cooldown: Math.random() * headway, // stagger initial arrivals
+        cooldown: Math.random() * Math.min(INITIAL_TRAIN_STAGGER_SECONDS, this.headway),
         passThrough: false,
         platformSide,
+        platformWorldSide: worldSide,
         flip,
         wasApproaching: false,
       });
@@ -127,6 +145,7 @@ export class TrainScheduler {
         cooldown: 10 + Math.random() * 25,
         passThrough: true,
         platformSide: 1, // express blows through; doors never open
+        platformWorldSide: 1,
         flip: false,
         wasApproaching: false,
       });
@@ -156,8 +175,7 @@ export class TrainScheduler {
         if (approaching && !s.wasApproaching && !s.passThrough) this.onArrive?.();
         s.wasApproaching = approaching;
         if (s.everVisible && s.train.phase === 'hidden') {
-          s.train.dispose();
-          s.train = null;
+          this.releaseTrain(s);
           s.cooldown = this.recycleDelay(s);
         }
       }
@@ -166,6 +184,15 @@ export class TrainScheduler {
 
   private recycleDelay(s: Slot): number {
     return Math.max(0.05, this.headway - TRAIN_CYCLE_SECONDS / s.timeScale);
+  }
+
+  private releaseTrain(s: Slot): void {
+    if (!s.train) return;
+    const index = this.activePassengerTrains.findIndex((entry) => entry.train === s.train);
+    if (index >= 0) this.activePassengerTrains.splice(index, 1);
+    s.train.group.removeFromParent();
+    s.train.dispose();
+    s.train = null;
   }
 
   private spawn(s: Slot) {
@@ -225,6 +252,12 @@ export class TrainScheduler {
     });
     this.parent.add(train.group);
     s.train = train;
+    if (!s.passThrough) this.activePassengerTrains.push({
+      train,
+      trackZ: s.trackZ,
+      platformSide: s.platformWorldSide,
+      timeScale: s.timeScale,
+    });
     s.trainAge = 0;
     s.everVisible = false;
     s.wasApproaching = false;
@@ -247,6 +280,12 @@ export class TrainScheduler {
     return this.slots
       .filter((s) => s.train)
       .map((s) => ({ x: Math.round(s.train!.group.position.x * 10) / 10, doors: s.train!.doorsOpen }));
+  }
+
+  /** Reused live collection: no per-frame allocation for station crowds.
+   * Entries disappear when their train leaves or is replaced after a ride. */
+  passengerTrains(): readonly PassengerTrain[] {
+    return this.activePassengerTrains;
   }
 
   /** Project route rotation from the live timeline. Later rows keep counting
@@ -291,9 +330,7 @@ export class TrainScheduler {
     if (!slot) return null;
     // clear any existing train first so we never stack two on the track
     if (slot.train) {
-      this.parent.remove(slot.train.group);
-      slot.train.dispose();
-      slot.train = null;
+      this.releaseTrain(slot);
     }
     // align the rotation so spawn() draws `route`, then force the fresh train to
     // an immediate open dwell (internal secs = real x the slot's time compression)
@@ -309,11 +346,7 @@ export class TrainScheduler {
 
   dispose() {
     for (const s of this.slots) {
-      if (s.train) {
-        this.parent.remove(s.train.group);
-        s.train.dispose();
-        s.train = null;
-      }
+      this.releaseTrain(s);
     }
   }
 }

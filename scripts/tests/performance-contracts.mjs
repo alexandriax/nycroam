@@ -66,6 +66,15 @@ test('a healthy route passes and a regression identifies exact guardrails', () =
   );
 });
 
+test('moving train captures retain station guardrails and verify ride mode', () => {
+  const capture = { routeId: 'subway-ride', routeKind: 'ride', report: healthyReport('mobile-low', 'ride') };
+  assert.equal(evaluateCapture(capture, 'mobile-low').passed, true);
+  capture.report.drawCalls.p95 = BENCHMARK_PROFILES['mobile-low'].budgets.station.drawCallsP95 + 1;
+  assert.ok(evaluateCapture(capture, 'mobile-low').violations.some(v => v.metric === 'drawCalls.p95'));
+  capture.report.mode = 'station';
+  assert.ok(evaluateCapture(capture, 'mobile-low').violations.some(v => v.metric === 'mode'));
+});
+
 test('missing timer-query samples, heap, resources, and telemetry fail clearly', () => {
   const report = healthyReport('mobile-medium');
   report.gpuMs = { availableSamples: 0, p50: null, p95: null, p99: null };

@@ -1694,6 +1694,7 @@ export class World {
     // feed the platform countdown clocks: the station redraws them from this on
     // its own timer (reads the live scheduler each call, so it survives rebuilds).
     (this.station as { arrivalsFn?: () => Arrival[] }).arrivalsFn = () => this.scheduler?.arrivals() ?? [];
+    this.station.trainsFn = () => this.scheduler?.passengerTrains() ?? [];
     this.currentStationSpec = spec;
   }
 
@@ -2131,13 +2132,13 @@ export class World {
           : null;
       }
     } else if (this.mode === 'ride' && this.ride) {
-      // constrained walking inside the car
-      this.pos.x = Math.max(-6.8, Math.min(6.8, this.pos.x + dx));
-      this.pos.z = Math.max(-1.05, Math.min(1.05, this.pos.z + dz));
+      // Use the rendered car and actual door bays for cabin movement. B-division
+      // cars are wider/longer, and the served platform can be on either side.
+      const cabinPosition = this.ride.clampPosition(this.pos.x + dx, this.pos.z + dz);
+      this.pos.x = cabinPosition.x;
+      this.pos.z = cabinPosition.z;
       this.pos.y = 0;
-      // walk-off: while dwelling, stepping into the open platform-side (+z)
-      // doors steps you off — same affordance as walking in (E still works).
-      if (this.ride.canExit && this.pos.z > 0.92
+      if (this.ride.isAtOpenDoor(this.pos.x, this.pos.z)
         && performance.now() - this.lastEnterGuard > 2500 && !this.transitioning) {
         this.exitRide();
       }
@@ -2759,11 +2760,19 @@ export class World {
     try {
       this.leaveTransit();
       await wait(0);
-      if (route.kind === 'station') {
+      if (route.kind === 'station' || route.kind === 'ride') {
         const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '');
         const spec = this.entrances.findStation((s) => norm(s.name).includes(norm(route.stationSearch)));
         if (!spec) throw new Error(`Benchmark station not found: ${route.stationSearch}`);
         await this.enterStation(spec, spec.pos);
+        if (route.kind === 'ride') {
+          await this.beginRide(route.route, 1, spec.id);
+        } else if (this.station) {
+          // Capture the occupied platform and arriving trains, not only the
+          // upper mezzanine. The 36-second window includes a full exchange.
+          this.pos.copy(this.station instanceof ComplexStationWorld
+            ? this.station.platformSpawnFor(spec.id) : this.station.platformSpawn);
+        }
         await wait(900);
         this.resetPerformanceCapture(route.label);
         const initialYaw = this.controls.yaw;

@@ -62,8 +62,8 @@ export const BUS = {
   floorY: 0.38, // interior floor above ground (low-floor bus)
   /** Local x of the door centers (front door ahead of the front axle). */
   doorX: { front: 4.1, rear: -1.15 },
-  /** Walkable interior box, local coords (aisle + seat rows, cab excluded). */
-  interior: { minX: -5.25, maxX: 3.3, minZ: -0.95, maxZ: 0.95 },
+  /** Aisle in local coordinates; adult-width seats and the cab are excluded. */
+  interior: { minX: -5.25, maxX: 3.3, minZ: -0.62, maxZ: 0.62 },
   /** Seated/standing eye height above the interior FLOOR while riding. */
   eye: 1.58,
 } as const;
