@@ -62,9 +62,9 @@ resumable. Generated world data lands in `public/tiles/`, `public/geo/`, `public
   by distance, capped per frame, and dispose beyond the fog. A low-poly skyline layer
   (every building ≥ 70 m island-wide) renders beyond the fog with a distance haze so
   the Midtown/Downtown skylines are always on the horizon.
-- **Facades**: one shared Lambert material with an injected shader that carves
-  per-floor window grids (and ground-floor storefronts) from world position: zero
-  textures, one draw call per tile layer.
+- **Facades**: one shared physically based material with an injected shader that carves
+  per-floor window grids and ground-relative storefronts from world position:
+  shared brick/roof textures, separate glass roughness, one draw call per tile layer.
 - **Subway** (`src/engine/subway/`): station interiors are generated from each
   station's real spec: IRT vs IND/BMT platform lengths, side/island/dual-island
   platform types (curated for ~35 major stations, heuristic elsewhere), express
@@ -107,7 +107,13 @@ tile with grime, bark, clouds) ship with Sobel-derived normal maps; buildings
 split into curtain-wall vs punched-masonry styles; streets carry lane lines and
 continental crosswalks; the sun casts real-time shadows (desktop tier) with a
 camera-following texel-snapped frustum; rivers animate with fresnel and glints.
-Mobile keeps a lean shadowless tier automatically.
+Constrained devices keep a lean shadowless tier automatically. Outdoor environment
+reflections, shared weathered landmark finishes, instanced leaf canopies, animated
+pedestrians, and curbside cars add detail with bounded geometry and draw calls.
+
+See [rendering quality and performance](docs/rendering-quality.md) for budgets,
+validation commands, architectural references, and the limits of this procedural
+approach. `npm test` runs the rendering regression checks.
 
 ## Data sources (additions)
 

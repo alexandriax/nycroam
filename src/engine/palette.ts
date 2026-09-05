@@ -24,11 +24,13 @@ const TOWER: [number, number, number][] = [
   [0.55, 0.6, 0.68],  // blue curtain wall
 ];
 
-export function buildingColor(seed: number, height: number): { col: [number, number, number]; glass: boolean } {
+export function buildingColor(seed: number, height: number, name = ''): { col: [number, number, number]; glass: boolean; stone: boolean } {
   const r = hash01(seed);
-  const glass = height > 90 || (height > 45 && r > 0.4);
+  const historic = /empire state|chrysler|woolworth|flatiron|rockefeller|sherry|plaza hotel|riverside church|municipal building|trump building|40 wall/i.test(name);
+  const glass = !historic && (height > 90 || (height > 45 && r > 0.4));
   const pool = glass ? TOWER : MASONRY;
-  const c = pool[Math.floor(hash01(seed + 7) * pool.length) % pool.length];
+  const index = Math.floor(hash01(seed + 7) * pool.length) % pool.length;
+  const c = pool[index];
   // slight per-building jitter (also feeds the window shader's per-building randomness)
   const j = (hash01(seed + 13) - 0.5) * 0.08;
   return {
@@ -38,5 +40,6 @@ export function buildingColor(seed: number, height: number): { col: [number, num
       Math.min(1, Math.max(0, c[2] + j * 0.8)),
     ],
     glass,
+    stone: !glass && (historic || index === 2 || index === 3 || index === 5),
   };
 }

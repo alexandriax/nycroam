@@ -17,7 +17,9 @@
     "data:buses": "node scripts/fetch-buses.mjs",
     "data:hoods": "node scripts/fetch-hoods.mjs",
     "data:oldnyc": "node scripts/fetch-oldnyc.mjs",
-    "data:plaques": "node scripts/fetch-oldnyc.mjs && node scripts/build-plaques.mjs"
+    "data:plaques": "node scripts/fetch-oldnyc.mjs && node scripts/build-plaques.mjs",
+    "test": "node --test tests/*.cjs",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "earcut": "^2.2.4",

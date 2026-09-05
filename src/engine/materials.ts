@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import {
   makeAsphaltTexture, makeSidewalkTexture, makeBrickTexture, makeRoofTexture,
-  makeGrassDetailTexture, makeBarkTexture,
+  makeGrassDetailTexture, makeBarkTexture, makeFoliageTexture,
 } from './textures';
 
 /**
@@ -9,20 +9,23 @@ import {
  * Windows are carved in the fragment shader from world position — zero textures,
  * one material, one draw call per tile.
  */
-export function makeFacadeMaterial(): THREE.MeshLambertMaterial {
+export function makeFacadeMaterial(): THREE.MeshStandardMaterial {
   // DoubleSide + front-facing test: if imperfect OSM data leaves any opening,
   // the inside of the far wall renders as a dark interior instead of void.
-  const mat = new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.DoubleSide });
+  const mat = new THREE.MeshStandardMaterial({ vertexColors: true, side: THREE.DoubleSide, roughness: 0.86, metalness: 0, envMapIntensity: 0.32 });
   const brick = makeBrickTexture('red');
   const roof = makeRoofTexture();
   mat.onBeforeCompile = (shader) => {
     shader.uniforms.uBrick = { value: brick.map };
     shader.uniforms.uRoof = { value: roof.map };
+    shader.uniforms.uBrickNormal = { value: brick.normal };
     shader.vertexShader = shader.vertexShader
       .replace(
         '#include <common>',
         `#include <common>
         attribute float aStyle;
+        attribute float aBase;
+        varying float vBase;
         varying vec3 vWPos;
         varying vec3 vWNormal;
         varying float vStyle;`
@@ -32,7 +35,8 @@ export function makeFacadeMaterial(): THREE.MeshLambertMaterial {
         `#include <worldpos_vertex>
         vWPos = (modelMatrix * vec4(transformed, 1.0)).xyz;
         vWNormal = normalize(mat3(modelMatrix) * objectNormal);
-        vStyle = aStyle;`
+        vStyle = aStyle;
+        vBase = aBase;`
       );
     shader.fragmentShader = shader.fragmentShader
       .replace(
@@ -41,8 +45,15 @@ export function makeFacadeMaterial(): THREE.MeshLambertMaterial {
         varying vec3 vWPos;
         varying vec3 vWNormal;
         varying float vStyle;
+        varying float vBase;
+        float facadeGlass = 0.0;
         uniform sampler2D uBrick;
+        uniform sampler2D uBrickNormal;
         uniform sampler2D uRoof;
+        float facadeStep(float edge, float v) {
+          float aa = max(fwidth(v) * 0.65, 0.0001);
+          return smoothstep(edge-aa, edge+aa, v);
+        }
         float bhash(vec2 p) {
           return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453);
         }`
@@ -58,8 +69,8 @@ export function makeFacadeMaterial(): THREE.MeshLambertMaterial {
           float vertical = 1.0 - abs(wn.y);
           if (vertical > 0.55 && vWPos.y > 0.5) {
             float u = vWPos.x * wn.z - vWPos.z * wn.x;
-            float v = vWPos.y;
-            bool glassTower = vStyle > 0.5;
+            float v = vWPos.y - vBase;
+            bool glassTower = vStyle > 0.5 && vStyle < 1.5;
             float floorH = glassTower ? 3.4 : 3.1;
             float winW = glassTower ? 1.7 : 2.5;
             bool storefront = v < 4.6;
@@ -70,32 +81,43 @@ export function makeFacadeMaterial(): THREE.MeshLambertMaterial {
 
             if (glassTower && !storefront) {
               // curtain wall: thin mullions + spandrel band each floor
-              float mull = step(0.055, f.x) * (1.0 - step(0.945, f.x));
-              float pane = step(0.06, f.y) * (1.0 - step(0.72, f.y));
-              float spandrel = step(0.78, f.y) * (1.0 - step(0.97, f.y));
+              float mull = facadeStep(0.055, f.x) * (1.0 - facadeStep(0.945, f.x));
+              float pane = facadeStep(0.06, f.y) * (1.0 - facadeStep(0.72, f.y));
+              float spandrel = facadeStep(0.78, f.y) * (1.0 - facadeStep(0.97, f.y));
               // sky gradient down the pane + per-pane tint
               vec3 glass = mix(vec3(0.30, 0.37, 0.46), vec3(0.55, 0.63, 0.72), f.y * 0.8 + rnd * 0.25);
-              diffuseColor.rgb = mix(diffuseColor.rgb, glass, mull * pane * 0.92);
+              facadeGlass = mull * pane;
+              diffuseColor.rgb = mix(diffuseColor.rgb, glass * 0.38, facadeGlass);
               diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * 0.55, spandrel * 0.8);
             } else {
-              float inX = step(0.18, f.x) * (1.0 - step(0.85, f.x));
-              float inY = step(0.25, f.y) * (1.0 - step(0.8, f.y));
+              float inX = facadeStep(0.18, f.x) * (1.0 - facadeStep(0.85, f.x));
+              float inY = facadeStep(0.25, f.y) * (1.0 - facadeStep(0.8, f.y));
               if (storefront) {
-                inX = step(0.08, f.x) * (1.0 - step(0.92, f.x));
-                inY = step(0.05, f.y) * (1.0 - step(0.75, f.y));
+                inX = facadeStep(0.08, f.x) * (1.0 - facadeStep(0.92, f.x));
+                inY = facadeStep(0.05, f.y) * (1.0 - facadeStep(0.75, f.y));
               }
               float win = inX * inY;
+              facadeGlass = win;
               // masonry surface detail between the windows (brightness only,
               // so each building keeps its palette color)
-              vec3 bt = texture2D(uBrick, vec2(u, v) / 2.4).rgb;
-              float bl = dot(bt, vec3(0.333)) * 1.75;
-              diffuseColor.rgb *= mix(1.0, bl, 0.34 * (1.0 - win));
+              vec3 bt = texture2D(uBrick, vec2(u, v) / 1.44).rgb;
+              float bl = clamp(dot(bt, vec3(0.333)) * 5.0, 0.65, 1.3);
+              if (vStyle > 1.5) {
+                // Dressed limestone uses large courses, not running-bond brick.
+                vec2 course = fract(vec2(u / 1.2, v / .55));
+                float seam = 1.0-smoothstep(.005,.025,min(course.x,course.y));
+                float fade = 1.0-smoothstep(.03,.2,max(fwidth(u),fwidth(v)));
+                diffuseColor.rgb *= 1.0-seam*.14*fade;
+              } else diffuseColor.rgb *= mix(1.0, bl, 0.34 * (1.0 - win));
               vec3 glass = mix(vec3(0.13, 0.16, 0.2), vec3(0.38, 0.44, 0.52), rnd * rnd);
               if (storefront) glass = mix(vec3(0.1, 0.11, 0.13), vec3(0.3, 0.28, 0.24), rnd);
               // window inset: lintel shadow at the top of the opening, darker jambs
               float lintel = 1.0 - 0.5 * smoothstep(0.68, 0.8, f.y) * win;
-              float jamb = 1.0 - 0.28 * (step(0.18, f.x) - step(0.24, f.x) + step(0.79, f.x) - step(0.85, f.x)) * inY;
-              diffuseColor.rgb = mix(diffuseColor.rgb, glass, win * 0.88);
+              float jamb = 1.0 - 0.28 * (facadeStep(0.18, f.x) - facadeStep(0.24, f.x) + facadeStep(0.79, f.x) - facadeStep(0.85, f.x)) * inY;
+              // Interior blinds vary by room; pale sash frames remain outside the glass.
+              float blind = facadeStep(0.68, rnd) * facadeStep(0.52 + rnd * 0.2, f.y);
+              glass = mix(glass * 0.32, vec3(0.27, 0.25, 0.21), blind);
+              diffuseColor.rgb = mix(diffuseColor.rgb, glass, win);
               diffuseColor.rgb *= lintel * jamb;
               // sill highlight under the window
               float sill = smoothstep(0.2, 0.25, f.y) * (1.0 - smoothstep(0.25, 0.3, f.y)) * inX;
@@ -111,6 +133,25 @@ export function makeFacadeMaterial(): THREE.MeshLambertMaterial {
         }`
       );
   };
+  const compile = mat.onBeforeCompile;
+  mat.onBeforeCompile = (shader, renderer) => {
+    compile.call(mat, shader, renderer);
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>
+        if (abs(vWNormal.y) < .45 && vStyle < .5 && facadeGlass < .99) {
+          vec3 wn = normalize(vWNormal) * (gl_FrontFacing ? 1.0 : -1.0);
+          vec3 tangent = normalize(vec3(wn.z,0.0,-wn.x));
+          float u = dot(vWPos,tangent);
+          vec3 detail = texture2D(uBrickNormal,vec2(u,vWPos.y-vBase)/1.44).xyz*2.0-1.0;
+          vec3 perturbed = normalize(wn + (tangent*detail.x + vec3(0,1,0)*detail.y)*.18*(1.0-facadeGlass));
+          normal = normalize(mat3(viewMatrix)*perturbed);
+        }`)
+      .replace('#include <roughnessmap_fragment>', `#include <roughnessmap_fragment>
+        roughnessFactor = mix(0.88, 0.19, facadeGlass);`)
+      .replace('#include <metalnessmap_fragment>', `#include <metalnessmap_fragment>
+        metalnessFactor = facadeGlass * 0.08;`);
+  };
+  mat.customProgramCacheKey = () => 'nyc-facade-pbr-v2';
   return mat;
 }
 
@@ -143,28 +184,30 @@ export function makeFlatMaterial(): THREE.MeshLambertMaterial {
 }
 
 /** Asphalt roadbed with aggregate normal detail (UVs from the worker). */
-export function makeRoadMaterial(): THREE.MeshLambertMaterial {
+export function makeRoadMaterial(): THREE.MeshStandardMaterial {
   const t = makeAsphaltTexture();
-  const mat = new THREE.MeshLambertMaterial({
+  const mat = new THREE.MeshStandardMaterial({
+    roughness: 0.94,
     vertexColors: true,
-    color: 0x8a8d92, // texture carries most of the tone; vertex colors tint per class
+    color: 0xffffff, // texture carries most of the tone; vertex colors tint per class
     map: t.map,
     normalMap: t.normal,
   });
-  mat.normalScale = new THREE.Vector2(0.7, 0.7);
+  mat.normalScale = new THREE.Vector2(0.3, 0.3);
   return mat;
 }
 
 /** Poured-concrete walks with score joints. */
-export function makeWalkMaterial(): THREE.MeshLambertMaterial {
+export function makeWalkMaterial(): THREE.MeshStandardMaterial {
   const t = makeSidewalkTexture();
-  const mat = new THREE.MeshLambertMaterial({
+  const mat = new THREE.MeshStandardMaterial({
+    roughness: 0.87,
     vertexColors: true,
-    color: 0xb8b6af,
+    color: 0xffffff,
     map: t.map,
     normalMap: t.normal,
   });
-  mat.normalScale = new THREE.Vector2(0.8, 0.8);
+  mat.normalScale = new THREE.Vector2(0.4, 0.4);
   return mat;
 }
 
@@ -249,60 +292,54 @@ export const treeTrunkMaterial = () => {
   mat.normalScale = new THREE.Vector2(0.9, 0.9);
   return mat;
 };
-export const treeCanopyMaterial = () => new THREE.MeshLambertMaterial({ color: 0x4d7a45 });
+export const treeCanopyMaterial = () => new THREE.MeshLambertMaterial({
+  color: 0xd7deb3, map: makeFoliageTexture(), side: THREE.DoubleSide,
+  alphaTest: 0.45, alphaToCoverage: true, emissive: 0x304020, emissiveIntensity: 0.14,
+});
 
 /**
  * Animated river water: worldspace wave normals, fresnel toward the sky at
  * grazing angles, and a tight sun glint. Call the returned update(dt) per frame.
  */
-export function makeWaterMaterial(skyColor: THREE.Color): { mat: THREE.MeshLambertMaterial; update: (dt: number) => void } {
-  const mat = new THREE.MeshLambertMaterial({ color: 0x1d3542 });
+export function makeWaterMaterial(skyColor: THREE.Color): { mat: THREE.MeshStandardMaterial; update: (dt: number) => void } {
+  // Estuary water: olive/silt absorption, reflective at glancing angles. Opaque
+  // PBR avoids transparency sorting and the cost of a second reflection render.
+  const mat = new THREE.MeshStandardMaterial({ color: 0x24443e, roughness: 0.23, metalness: 0.18, envMapIntensity: 1.25 });
   const uTime = { value: 0 };
   mat.onBeforeCompile = (shader) => {
     shader.uniforms.uTime = uTime;
     shader.uniforms.uSky = { value: skyColor };
     shader.vertexShader = shader.vertexShader
       .replace('#include <common>', '#include <common>\nvarying vec3 vWaterPos;')
-      .replace(
-        '#include <worldpos_vertex>',
-        `#include <worldpos_vertex>
-        vWaterPos = (modelMatrix * vec4(transformed, 1.0)).xyz;`
-      );
+      .replace('#include <worldpos_vertex>', `#include <worldpos_vertex>
+        vWaterPos = (modelMatrix * vec4(transformed, 1.0)).xyz;`);
     shader.fragmentShader = shader.fragmentShader
-      .replace(
-        '#include <common>',
-        `#include <common>
+      .replace('#include <common>', `#include <common>
         varying vec3 vWaterPos;
         uniform float uTime;
         uniform vec3 uSky;
         vec3 waveNormal(vec2 p, float t) {
-          float nx = sin(p.x * 0.35 + t * 1.1) * 0.10
-                   + sin((p.x + p.y) * 0.09 + t * 0.45) * 0.14
-                   + sin(p.x * 0.045 - t * 0.22) * 0.20;
-          float nz = cos(p.y * 0.31 + t * 0.9) * 0.10
-                   + cos((p.y - p.x) * 0.075 + t * 0.35) * 0.14
-                   + cos(p.y * 0.05 + t * 0.18) * 0.20;
-          return normalize(vec3(nx, 1.0, nz));
-        }`
-      )
-      .replace(
-        '#include <normal_fragment_begin>',
-        `#include <normal_fragment_begin>
-        normal = waveNormal(vWaterPos.xz, uTime);`
-      )
-      .replace(
-        '#include <dithering_fragment>',
-        `#include <dithering_fragment>
-        {
-          vec3 V = normalize(cameraPosition - vWaterPos);
-          vec3 N = waveNormal(vWaterPos.xz, uTime);
-          float fres = pow(1.0 - max(dot(V, N), 0.0), 3.0);
-          gl_FragColor.rgb = mix(gl_FragColor.rgb, uSky, clamp(fres * 0.7, 0.0, 0.7));
-          vec3 sunDir = normalize(vec3(-0.5, 0.62, -0.42));
-          float glint = pow(max(dot(reflect(-sunDir, N), V), 0.0), 120.0);
-          gl_FragColor.rgb += vec3(1.0, 0.95, 0.82) * glint * 0.55;
-        }`
-      );
+          // Analytic derivatives of four wind waves, with long tidal swell.
+          vec2 d = vec2(0.0);
+          d += vec2(0.94, 0.34) * cos(dot(p, vec2(0.94, 0.34)) * 0.48 - t * 1.3) * 0.13;
+          d += vec2(-0.4, 0.92) * cos(dot(p, vec2(-0.4, 0.92)) * 1.13 - t * 1.8) * 0.075;
+          d += vec2(0.8, 0.6) * cos(dot(p, vec2(0.8, 0.6)) * 0.13 - t * 0.55) * 0.09;
+          float detail = 1.0 - smoothstep(80.0, 480.0, distance(cameraPosition, vWaterPos));
+          d += vec2(0.6, -0.8) * cos(dot(p, vec2(0.6, -0.8)) * 3.7 - t * 2.6) * 0.045 * detail;
+          return normalize(vec3(-d.x, 1.0, -d.y));
+        }`)
+      .replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>
+        // Three's lighting operates in VIEW space, never world space.
+        normal = normalize(mat3(viewMatrix) * waveNormal(vWaterPos.xz, uTime));`)
+      .replace('#include <roughnessmap_fragment>', `#include <roughnessmap_fragment>
+        roughnessFactor = mix(0.2, 0.38, smoothstep(100.0, 1200.0, distance(cameraPosition, vWaterPos)));`)
+      .replace('#include <opaque_fragment>', `
+        vec3 waterN = waveNormal(vWaterPos.xz, uTime);
+        vec3 waterV = normalize(cameraPosition - vWaterPos);
+        float fresnel = 0.02 + 0.98 * pow(1.0 - max(dot(waterN, waterV), 0.0), 5.0);
+        outgoingLight = mix(outgoingLight, uSky * 0.78, fresnel * 0.55);
+        #include <opaque_fragment>`);
   };
-  return { mat, update: (dt: number) => { uTime.value += dt; } };
+  mat.customProgramCacheKey = () => 'nyc-estuary-v2';
+  return { mat, update: (dt) => { uTime.value += Math.min(0.1, Math.max(0, dt)); } };
 }

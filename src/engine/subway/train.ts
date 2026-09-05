@@ -2,6 +2,7 @@
 // headlights/marker lights, and a route roll-sign, cycling through an
 // arrive -> dwell -> depart loop along the local +x axis.
 import * as THREE from 'three';
+import { architecturalMaterial } from '../surfaceMaterial';
 import { routeColor, bulletTextColor } from './types';
 import { BLACK, LED } from '../fonts';
 
@@ -94,7 +95,7 @@ function panesFor(w: number): number {
 // ---------------------------------------------------------------------------
 // Shared materials (module scope: every Train instance reuses these).
 // ---------------------------------------------------------------------------
-const BODY_MATERIAL = new THREE.MeshStandardMaterial({ color: '#c3c6c9', metalness: 0.75, roughness: 0.35 });
+const BODY_MATERIAL = architecturalMaterial('#bfc2c3', 'metal', 0.31);
 // Matte near-black for the R160 window band: the window sill/head lips, the
 // vertical mullions and the band side-posts are drawn in this so the platform-
 // side window row reads as a dark band with light openings, not bright framing.
@@ -103,7 +104,7 @@ const ROOF_MATERIAL = new THREE.MeshLambertMaterial({ color: '#0a0a0a' });
 const UNDERCARRIAGE_MATERIAL = new THREE.MeshLambertMaterial({ color: '#111214' });
 const BOGIE_MATERIAL = new THREE.MeshLambertMaterial({ color: '#161719' });
 const WHEEL_MATERIAL = new THREE.MeshLambertMaterial({ color: '#3a3b3d' });
-const DOOR_MATERIAL = new THREE.MeshLambertMaterial({ color: '#8d9094', side: THREE.DoubleSide });
+const DOOR_MATERIAL = new THREE.MeshStandardMaterial({ color: '#b3b6b7', metalness: 0.78, roughness: 0.34, side: THREE.DoubleSide });
 // Black cab masking / anticlimber / sign backing.
 const END_CAP_MATERIAL = new THREE.MeshLambertMaterial({ color: '#0d0d0d', side: THREE.DoubleSide });
 // Dark front-cab glass (operator + storm-door windows): near-black, faintly

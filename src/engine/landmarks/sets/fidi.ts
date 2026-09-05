@@ -3,7 +3,7 @@ import {
   type LandmarkCtx,
   LIMESTONE, GRANITE, DARKSTONE, MARBLE, BRICK_RED, BRONZE, VERDIGRIS, GOLD,
   STEEL_LM, GLASS_LM, WHITE_LM, WATER_LM, GREEN_PATINA,
-  box, cyl, strut, colonnade, lathe, archWall, figure, twoSidedPanel, canvasTexture,
+  box, cyl, strut, colonnade, lathe, archWall, figure, ellipsoid, twoSidedPanel, canvasTexture,
 } from '../kit';
 
 /**
@@ -192,7 +192,7 @@ export const builders: Record<string, (ctx: LandmarkCtx) => THREE.Group> = {
     g.add(box(8, 40, 8, STONE, 0, 20, 12)); // square tower at the front
     for (const sx of [-1, 1]) for (const sz of [-1, 1]) g.add(box(1.1, 43, 1.1, STONE, sx * 4.3, 21.5, 12 + sz * 4.3)); // corner buttress pinnacles
     g.add(cyl(0.2, 4.8, 46, DARKSTONE, 0, 63, 12, 8)); // octagonal tapering spire (40 -> 86m)
-    const portal = archWall(8, 6, 0.8, 2.6, 4.5, STONE); // pointed-arch portal (round-arched helper)
+    const portal = archWall(8, 6, 0.8, 2.6, 4.5, STONE, true); // pointed-arch portal (round-arched helper)
     portal.position.set(0, 0, 16.05);
     g.add(portal);
     for (const [hx, hz] of [[-9, 6], [-8, 1.5], [9, 5], [8, -0.5], [-9, -4]]) g.add(box(0.5, 1.0, 0.14, DARKSTONE, hx, 0.5, hz)); // churchyard headstones
@@ -204,15 +204,15 @@ export const builders: Record<string, (ctx: LandmarkCtx) => THREE.Group> = {
     const g = new THREE.Group();
     g.add(cyl(3.2, 3.4, 0.25, DARKSTONE, 0, 0.125, 0, 12)); // cobble pad
     const b = new THREE.Group();
-    b.add(box(1.55, 1.6, 2.6, BRONZE, 0, 2.0, -0.2)); // barrel
-    b.add(box(1.75, 1.7, 1.5, BRONZE, 0, 2.05, 0.8)); // shoulders (front)
-    b.add(box(1.35, 1.4, 1.3, BRONZE, 0, 1.85, -1.5)); // haunches
-    const neck = box(1.1, 1.05, 1.1, BRONZE, 0, 1.6, 1.7);
+    b.add(ellipsoid(1.55, 1.6, 2.6, BRONZE, 0, 2.0, -0.2)); // barrel
+    b.add(ellipsoid(1.75, 1.7, 1.5, BRONZE, 0, 2.05, 0.8)); // shoulders (front)
+    b.add(ellipsoid(1.35, 1.4, 1.3, BRONZE, 0, 1.85, -1.5)); // haunches
+    const neck = ellipsoid(1.1, 1.05, 1.1, BRONZE, 0, 1.6, 1.7);
     neck.rotation.x = 0.5;
     b.add(neck);
     const head = new THREE.Group(); // lowered, horned head
-    head.add(box(0.85, 0.9, 1.1, BRONZE, 0, 0, 0));
-    head.add(box(0.68, 0.5, 0.55, BRONZE, 0, -0.42, 0.5));
+    head.add(ellipsoid(0.85, 0.9, 1.1, BRONZE, 0, 0, 0));
+    head.add(ellipsoid(0.68, 0.5, 0.55, BRONZE, 0, -0.42, 0.5));
     for (const sx of [-1, 1]) {
       const horn = cyl(0.03, 0.12, 0.95, BRONZE, sx * 0.42, 0.42, 0.1, 6);
       horn.rotation.z = sx * 0.95;

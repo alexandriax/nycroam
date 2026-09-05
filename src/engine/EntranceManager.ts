@@ -310,7 +310,7 @@ export function disposeGroup(g: THREE.Group) {
       const mats = Array.isArray(o.material) ? o.material : [o.material];
       for (const m of mats) {
         const std = m as THREE.MeshLambertMaterial;
-        if (std.map && std.map instanceof THREE.CanvasTexture) { std.map.dispose(); m.dispose(); }
+        if (std.map && std.map instanceof THREE.CanvasTexture && !std.map.userData.sharedSurface) { std.map.dispose(); m.dispose(); }
       }
     }
   });

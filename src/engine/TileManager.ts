@@ -64,25 +64,21 @@ export class TileManager {
   constructor(scene: THREE.Scene, workerCount = 2, compile: ((g: THREE.Object3D) => Promise<void>) | null = null) {
     this.scene = scene;
     this.compile = compile;
-    // organic canopy: main crown + offset lobe, vertices displaced by hash noise
-    const crown = new THREE.IcosahedronGeometry(1.5, 1);
-    crown.scale(1, 1.2, 1);
-    const lobe = new THREE.IcosahedronGeometry(0.95, 1);
-    lobe.translate(0.85, -0.45, 0.35);
-    const merged = mergeGeometries([crown, lobe], false)!;
-    crown.dispose();
-    lobe.dispose();
-    const pos = merged.getAttribute('position') as THREE.BufferAttribute;
-    const v = new THREE.Vector3();
-    for (let i = 0; i < pos.count; i++) {
-      v.fromBufferAttribute(pos, i);
-      const n = hash01(Math.round(v.x * 37.1) + Math.round(v.y * 17.7) * 131 + Math.round(v.z * 23.3) * 977);
-      const s = 1 + (n - 0.5) * 0.42;
-      pos.setXYZ(i, v.x * s, v.y * s, v.z * s);
+    // Leaf cards form an irregular crown; shared geometry keeps each tile at
+    // one instanced canopy draw instead of one draw per leaf or branch.
+    const cards: THREE.BufferGeometry[] = [];
+    for (let i = 0; i < 96; i++) {
+      const a = hash01(i*13+1)*Math.PI*2;
+      const vy = hash01(i*17+2)*2-1;
+      const radial = Math.sqrt(1-vy*vy);
+      const radius = .45 + Math.cbrt(hash01(i*23+3))*1.15;
+      const card = new THREE.PlaneGeometry(.85+hash01(i*7)*.6,.75+hash01(i*11)*.55);
+      card.rotateY(a); card.rotateX((hash01(i*31)-.5)*2.2);
+      card.translate(Math.cos(a)*radial*radius, 3.3+vy*radius*1.2, Math.sin(a)*radial*radius);
+      cards.push(card);
     }
-    merged.computeVertexNormals();
-    merged.translate(0, 3.15, 0);
-    this.canopyGeo = merged;
+    this.canopyGeo = mergeGeometries(cards,false)!;
+    cards.forEach(g=>g.dispose());
     this.trunkGeo.translate(0, 1.2, 0);
     for (let i = 0; i < workerCount; i++) {
       const w = new Worker(new URL('./tileWorker.ts', import.meta.url));
@@ -316,6 +312,7 @@ export class TileManager {
       geo.setAttribute('normal', new THREE.BufferAttribute(payload.normal, 3));
       geo.setAttribute('color', new THREE.BufferAttribute(payload.color, 3));
       if (payload.uv) geo.setAttribute('uv', new THREE.BufferAttribute(payload.uv, 2));
+      if (payload.baseElevation) geo.setAttribute('aBase', new THREE.BufferAttribute(payload.baseElevation, 1));
       if (payload.style) geo.setAttribute('aStyle', new THREE.BufferAttribute(payload.style, 1));
       geo.setIndex(new THREE.BufferAttribute(payload.index, 1));
       geo.computeBoundingSphere();
@@ -364,7 +361,9 @@ export class TileManager {
         m.makeScale(s, s, s).setPosition(x, y, z);
         trunks.setMatrixAt(i, m);
         canopies.setMatrixAt(i, m);
-        c.setHSL(0.29 + hue * 0.06, 0.38, 0.3 + hue * 0.12);
+        // The leaf atlas already carries albedo; tint near white to avoid
+        // multiplying two dark greens into almost-black foliage.
+        c.setRGB(.83 + hue*.12, .9 + hue*.09, .76 + hue*.12);
         canopies.setColorAt(i, c);
       }
       trunks.instanceMatrix.needsUpdate = true;
@@ -406,7 +405,7 @@ export class TileManager {
       for (const t of rec.textures) t.dispose();
       rec.group.traverse((o) => {
         if (o instanceof THREE.InstancedMesh) o.dispose();
-        if (o instanceof THREE.Mesh && (o.material as THREE.MeshLambertMaterial).map instanceof THREE.CanvasTexture) {
+        if (o instanceof THREE.Mesh && rec.textures.includes((o.material as THREE.MeshLambertMaterial).map!)) {
           (o.material as THREE.Material).dispose(); // per-tile sign material
         }
       });
@@ -417,5 +416,10 @@ export class TileManager {
     for (const w of this.workers) w.terminate();
     for (const rec of this.records.values()) this.dispose(rec);
     this.records.clear();
+    this.pendingAdd.length = 0;
+    this.trunkGeo.dispose();
+    this.canopyGeo.dispose();
+    for (const mat of [this.facadeMat, this.flatMat, this.roadMat, this.walkMat,
+      this.markingsMat, this.waterKit.mat, this.hydrantMat, this.trunkMat, this.canopyMat]) mat.dispose();
   }
 }

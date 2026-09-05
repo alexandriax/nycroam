@@ -1,0 +1,63 @@
+{
+  "date": "2026-09-05",
+  "environment": "Local optimized Next.js production build, Codex desktop in-app browser",
+  "method": "Read canvas data-render-stats after scene loading; snapshots, not a sustained hardware benchmark",
+  "samples": [
+    {
+      "scene": "Columbus Circle approach, 1280x720 desktop viewport",
+      "fps": 67,
+      "frameMsP95": 17.2,
+      "calls": 722,
+      "triangles": 834558,
+      "geometries": 546,
+      "textures": 119,
+      "pixelRatio": 1.8633899812498247,
+      "shadowMap": 2048,
+      "pedestrians": 55,
+      "parkedCars": 24,
+      "note": "A second preview tab was still open during this initial sample."
+    },
+    {
+      "scene": "Times Square after subway exit, restored desktop viewport",
+      "fps": 110,
+      "frameMsP95": 9.1,
+      "calls": 402,
+      "triangles": 652262,
+      "geometries": 431,
+      "textures": 102,
+      "pixelRatio": 1.8633899812498247,
+      "shadowMap": 2048,
+      "pedestrians": 58,
+      "parkedCars": 24
+    },
+    {
+      "scene": "59 St subway entrance, 390x844 viewport with touch UI enabled",
+      "fps": 120,
+      "frameMsP95": 9.3,
+      "calls": 132,
+      "triangles": 14708,
+      "pixelRatio": 1,
+      "note": "Desktop GPU at phone viewport dimensions. This is not a physical mobile benchmark."
+    },
+    {
+      "scene": "Final build, Columbus Circle approach, desktop viewport",
+      "fps": 103,
+      "frameMsP95": 11,
+      "calls": 653,
+      "triangles": 825796,
+      "geometries": 522,
+      "textures": 112,
+      "pixelRatio": 1.8633899812498247,
+      "shadowMap": 2048,
+      "pedestrians": 55,
+      "parkedCars": 24,
+      "note": "Includes final shader warmup, admission invalidation and surface-transit water-update fixes; clean startup console."
+    }
+  ],
+  "console": "No warning/error logs in clean production preview during street, subway, and exit checks.",
+  "limitations": [
+    "No before/after benchmark on the same camera route",
+    "No physical iOS or Android device testing",
+    "No thermal soak or long-duration memory benchmark"
+  ]
+}

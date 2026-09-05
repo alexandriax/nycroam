@@ -367,11 +367,11 @@ export const builders: Record<string, (ctx: LandmarkCtx) => THREE.Group> = {
     const deck = 7, TOP = 84;
     g.add(box(36, 9, 16, GRANITE, 0, 1.5, 0)); // battered base in the river (-3..6)
     for (const sx of [-7.5, 7.5]) { // two pointed-arch openings (two archWalls side by side)
-      const aw = archWall(15, 44, 12, 8, 24, GRANITE);
+      const aw = archWall(15, 60, 12, 8, 49, GRANITE, true);
       aw.position.set(sx, 6, 0);
       g.add(aw);
     }
-    g.add(box(30, 34, 14, GRANITE, 0, 67, 0)); // upper tower 50..84 (tapered)
+    g.add(box(30, 18, 14, GRANITE, 0, 75, 0)); // upper tower 50..84 (tapered)
     g.add(box(31, 1.6, 15, GRANITE, 0, 84.8, 0)); // cornice
     for (const mx of [-13, -4.5, 4.5, 13]) for (const mz of [-6, 6]) g.add(box(2.2, 3.2, 2.2, GRANITE, mx, 86.5, mz)); // pinnacles
     g.add(box(20, 22, 18, GRANITE, 0, 8, -78)); // anchorage

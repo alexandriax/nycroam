@@ -3,9 +3,9 @@ import { quality } from './quality';
 import { makeCloudTexture } from './textures';
 
 export const SKY = {
-  zenith: new THREE.Color('#6ea3d8'),
+  zenith: new THREE.Color('#6799c2'),
   horizon: new THREE.Color('#d7e2ec'),
-  fog: new THREE.Color('#cfdbe6'),
+  fog: new THREE.Color('#c6d1d8'),
   ground: new THREE.Color('#9aa0a6'),
   water: new THREE.Color('#1d3542'),
 };
@@ -44,6 +44,8 @@ export function setupSky(scene: THREE.Scene, loadRadius: number, farPlane: numbe
         float g = pow(max(dot(vDir, sun), 0.0), 180.0);
         col += vec3(1.0, 0.93, 0.78) * g * 0.85;
         gl_FragColor = vec4(col, 1.0);
+        #include <tonemapping_fragment>
+        #include <colorspace_fragment>
       }`,
   });
   const dome = new THREE.Mesh(geo, mat);
@@ -88,7 +90,7 @@ export function setupLights(scene: THREE.Scene) {
   if (q.shadows) {
     sun.castShadow = true;
     sun.shadow.mapSize.set(q.shadowMapSize, q.shadowMapSize);
-    const r = 340;
+    const r = 150;
     sun.shadow.camera.left = -r;
     sun.shadow.camera.right = r;
     sun.shadow.camera.top = r;
@@ -96,13 +98,18 @@ export function setupLights(scene: THREE.Scene) {
     sun.shadow.camera.near = 50;
     sun.shadow.camera.far = 1600;
     sun.shadow.bias = -0.0004;
-    sun.shadow.normalBias = 0.9;
+    sun.shadow.normalBias = 0.16;
   }
   const fill = new THREE.DirectionalLight(0xcdd9e8, q.shadows ? 0.35 : 0.5);
   fill.position.set(400, 300, 500);
   scene.add(fill);
   return { hemi, sun, fill };
 }
+
+const _shadowDir = SUN_OFFSET.clone().normalize();
+const _shadowRight = new THREE.Vector3().crossVectors(new THREE.Vector3(0, 1, 0), _shadowDir).normalize();
+const _shadowUp = new THREE.Vector3().crossVectors(_shadowDir, _shadowRight);
+const _shadowPoint = new THREE.Vector3();
 
 /**
  * Keep the shadow frustum centered on the camera, snapped to shadow-texel
@@ -115,11 +122,16 @@ export function followSun(sun: THREE.DirectionalLight, camX: number, camZ: numbe
     sun.target.updateMatrixWorld();
     return;
   }
-  const texel = (2 * 340) / sun.shadow.mapSize.x;
-  const sx = Math.round(camX / texel) * texel;
-  const sz = Math.round(camZ / texel) * texel;
-  sun.position.set(sx + SUN_OFFSET.x, SUN_OFFSET.y, sz + SUN_OFFSET.z);
-  sun.target.position.set(sx, 0, sz);
+  const texel = (sun.shadow.camera.right - sun.shadow.camera.left) / sun.shadow.mapSize.x;
+  // Snap in the light's basis, so diagonal sun projections remain stable.
+  _shadowPoint.set(camX, 0, camZ);
+  const u = Math.round(_shadowPoint.dot(_shadowRight) / texel) * texel;
+  const v = Math.round(_shadowPoint.dot(_shadowUp) / texel) * texel;
+  const depth = _shadowPoint.dot(_shadowDir);
+  _shadowPoint.copy(_shadowRight).multiplyScalar(u).addScaledVector(_shadowUp, v).addScaledVector(_shadowDir, depth);
+  const sx = _shadowPoint.x, sy = _shadowPoint.y, sz = _shadowPoint.z;
+  sun.position.set(sx + SUN_OFFSET.x, SUN_OFFSET.y + sy, sz + SUN_OFFSET.z);
+  sun.target.position.set(sx, sy, sz);
   sun.target.updateMatrixWorld();
 }
 
@@ -149,4 +161,31 @@ export function setupStationLights(scene: THREE.Scene, shadowHalf = 0) {
   fill.position.set(-3, 6, -2);
   scene.add(fill);
   return down;
+}
+
+/** A one-time, linear HDR outdoor environment. Reflections use the same sky
+ * and sun direction as direct lighting; underground keeps its room probe. */
+export function makeOutdoorEnvironment(renderer: THREE.WebGLRenderer): THREE.WebGLRenderTarget {
+  const scene = new THREE.Scene();
+  const geometry = new THREE.SphereGeometry(10, 32, 16);
+  const material = new THREE.ShaderMaterial({
+    side: THREE.BackSide,
+    uniforms: { uZenith: { value: SKY.zenith }, uHorizon: { value: SKY.horizon }, uSun: { value: SUN_OFFSET.clone().normalize() } },
+    vertexShader: `varying vec3 vDirection;
+      void main() { vDirection = position; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
+    fragmentShader: `varying vec3 vDirection; uniform vec3 uZenith; uniform vec3 uHorizon; uniform vec3 uSun;
+      void main() {
+        vec3 d = normalize(vDirection);
+        vec3 col = mix(uHorizon, uZenith, smoothstep(0.0, 0.65, d.y));
+        col = mix(vec3(0.13,0.12,0.10), col, smoothstep(-0.12,0.04,d.y));
+        float sun = max(dot(d,uSun),0.0);
+        col += vec3(1.0,0.89,0.7) * (pow(sun,512.0)*3.5 + pow(sun,16.0)*0.12);
+        gl_FragColor = vec4(col,1.0);
+      }`,
+  });
+  scene.add(new THREE.Mesh(geometry, material));
+  const generator = new THREE.PMREMGenerator(renderer);
+  const target = generator.fromScene(scene, 0.035, 0.1, 100);
+  geometry.dispose(); material.dispose(); generator.dispose();
+  return target;
 }

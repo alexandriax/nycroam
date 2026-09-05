@@ -133,25 +133,27 @@ export const builders: Record<string, (ctx: LandmarkCtx) => THREE.Group> = {
     // stick parts for the mast — the pipeline clears the sticks and we build
     // the art-deco drum + dirigible mast from the measured roof up.
     const g = new THREE.Group();
-    const roof = ctx.fit?.keptH ?? 373;
-    const tip = ctx.fit?.roofH ?? roof + 70; // OSM's cleared mast reached here
-    for (const [i, [r, h]] of ([[8.5, 8], [6.5, 7], [4.8, 7]] as const).entries()) {
-      const yb = roof + [0, 8, 15][i];
-      g.add(cyl(r * 0.82, r, h, LIMESTONE, 0, yb + h / 2, 0, 12));
+    const roof = ctx.fit?.keptH ?? 330;
+    const tip = Math.max(ctx.fit?.roofH ?? 443.2, 443.2); // OSM's cleared mast reached here
+    // The limestone observation tower continues to 381 m; the antenna is
+    // the final 62 m. Keep the measured OSM roof as the attachment datum.
+    const crownTop = 381;
+    const crownRise = Math.max(8, crownTop - roof);
+    for (let i = 0; i < 3; i++) {
+      const h = crownRise / 3, w = 16 - i * 3.5;
+      const y = roof + i*h;
+      g.add(box(w,h,w,LIMESTONE,0,y+h/2,0));
+      for (const side of [-1,1]) for (let x = -w/2+2; x < w/2; x += 2.4) {
+        g.add(box(.95,h-1.2,.16,GLASS_LM,x,y+h/2,side*(w/2+.02)));
+        g.add(box(.16,h-1.2,.95,GLASS_LM,side*(w/2+.02),y+h/2,x));
+      }
+      g.add(box(w+.6,.65,w+.6,STEEL_LM,0,y+h,0));
     }
-    const mastBase = roof + 22;
-    g.add(cyl(1.6, 2.6, (tip - 12) - mastBase, STEEL_LM, 0, (mastBase + tip - 12) / 2, 0, 8));
-    g.add(cyl(0.12, 0.7, 12, STEEL_LM, 0, tip - 6, 0, 6)); // antenna
-    for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
-      g.add(box(1.4, 6, 1.4, LIMESTONE, sx * 9.5, roof + 3, sz * 9.5)); // corner setback piers
+    const mastBase = Math.max(crownTop, roof+crownRise);
+    g.add(cyl(.35,1.45,tip-mastBase,STEEL_LM,0,(mastBase+tip)/2,0,16));
+    for (let y=mastBase+4;y<tip-5;y+=5.5) {
+      g.add(cyl(.8,.8,.28,STEEL_LM,0,y,0,12));
     }
-    // warm observation-deck glow band just below the drum
-    const glow = new THREE.Mesh(
-      new THREE.CylinderGeometry(11.5, 11.5, 1.6, 16, 1, true),
-      new THREE.MeshBasicMaterial({ color: '#ffd9a0' }),
-    );
-    glow.position.y = roof - 4;
-    g.add(glow);
     return g;
   },
 

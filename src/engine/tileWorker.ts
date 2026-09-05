@@ -200,6 +200,8 @@ class MeshAcc {
   idx: number[] = [];
   uvs: number[] | null = null;
   styles: number[] | null = null;
+  bases: number[] = [];
+  baseCursor = 0;
 
   constructor(withUv = false, withStyle = false) {
     if (withUv) this.uvs = [];
@@ -213,7 +215,7 @@ class MeshAcc {
     this.nrm.push(nx, ny, nz);
     this.col.push(r, g, b);
     if (this.uvs) this.uvs.push(u, v);
-    if (this.styles) this.styles.push(this.styleCursor);
+    if (this.styles) { this.styles.push(this.styleCursor); this.bases.push(this.baseCursor); }
   }
 
   styleCursor = 0;
@@ -228,7 +230,7 @@ class MeshAcc {
       color: new Float32Array(this.col),
       index: new Uint32Array(this.idx),
       ...(this.uvs ? { uv: new Float32Array(this.uvs) } : {}),
-      ...(this.styles ? { style: new Float32Array(this.styles) } : {}),
+      ...(this.styles ? { style: new Float32Array(this.styles), baseElevation: new Float32Array(this.bases) } : {}),
     };
   }
 }
@@ -554,8 +556,9 @@ function buildTile(tile: TileJson): BuildResponse {
       const h = Math.max(3, b.h);
       const minH = b.m ?? 0;
       const base = b.b ?? 0;
-      const bc = buildingColor(seed, h);
-      bAcc.styleCursor = bc.glass ? 1 : 0;
+      const bc = buildingColor(seed, h, b.n);
+      bAcc.styleCursor = bc.glass ? 1 : bc.stone ? 2 : 0;
+      bAcc.baseCursor = base;
       // sink foundations 2.5m so sloped ground never shows a gap under walls;
       // elevated parts get a sealed underside
       extrude(bAcc, rings, base + minH - (minH > 0 ? 0 : 2.5), base + h, bc.col, minH > 0);
@@ -626,6 +629,7 @@ function buildTile(tile: TileJson): BuildResponse {
   const mmPts: number[] = [];
   const mmWidth: number[] = [];
   const mmKind: number[] = [];
+  const mmStreetLife: number[] = [];
   // vehicular centerlines (world coords) for pushing signs off the roadbed;
   // bike lanes count too — a street sign planted mid-lane is an obstruction
   const vroads: { pts: number[]; half: number }[] = [];
@@ -666,6 +670,7 @@ function buildTile(tile: TileJson): BuildResponse {
         mmStart.push(mmPts.length / 2);
         mmWidth.push(style.w);
         mmKind.push(bike ? PATH_KIND_BIKE : PATH_KIND_ROAD);
+        mmStreetLife.push(VEHICULAR_ROADS.has(r.c) && !r.b ? 1 : 0);
       }
       const concrete = CONCRETE_CLASSES.has(r.c);
       const acc = concrete ? wAcc : rAcc;
@@ -875,6 +880,7 @@ function buildTile(tile: TileJson): BuildResponse {
           pts: new Float32Array(mmPts),
           width: new Float32Array(mmWidth),
           kind: new Uint8Array(mmKind),
+          streetLife: new Uint8Array(mmStreetLife),
         }
       : null,
   };
@@ -894,6 +900,7 @@ self.onmessage = async (ev: MessageEvent<BuildRequest>) => {
         transfer.push(m.position.buffer, m.normal.buffer, m.color.buffer, m.index.buffer);
         if (m.uv) transfer.push(m.uv.buffer);
         if (m.style) transfer.push(m.style.buffer);
+        if (m.baseElevation) transfer.push(m.baseElevation.buffer);
       }
     }
     if (out.trees) transfer.push(out.trees.buffer);
@@ -910,6 +917,7 @@ self.onmessage = async (ev: MessageEvent<BuildRequest>) => {
         out.roadPaths.width.buffer, out.roadPaths.kind.buffer,
       );
     }
+    if (out.roadPaths?.streetLife) transfer.push(out.roadPaths.streetLife.buffer);
     (self as unknown as Worker).postMessage(out, transfer);
   } catch (e) {
     (self as unknown as Worker).postMessage({

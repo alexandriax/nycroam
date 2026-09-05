@@ -51,7 +51,8 @@ export interface MeshPayload {
   color: Float32Array;
   index: Uint32Array;
   uv?: Float32Array;
-  style?: Float32Array; // buildings: 0 = masonry, 1 = glass (per vertex)
+  baseElevation?: Float32Array; // facade ground datum, including hilly neighborhoods
+  style?: Float32Array; // buildings: 0 = brick, 1 = glass, 2 = stone (per vertex)
 }
 
 export interface BuildResponse {
@@ -82,6 +83,7 @@ export interface RoadPaths {
   start: Uint32Array; // index into pts (per path), length = pathCount+1
   pts: Float32Array; // [x0,z0,x1,z1,...] world meters
   width: Float32Array; // per path, meters (drives minimap line weight)
+  streetLife?: Uint8Array; // 1 = surface vehicular street; excludes plazas, bridges and bike paths
   kind: Uint8Array; // per path: 0 = vehicular road, 1 = bike lane (cycleway)
 }
 

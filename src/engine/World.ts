@@ -1,12 +1,13 @@
 import * as THREE from 'three';
 import { dataUrl } from './dataver';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
+import { StreetLife } from './StreetLife';
 import { TileManager } from './TileManager';
 import { PlayerControls } from './controls';
 import { resolveBuildingCollision, nearestWallDir, floorAt, floorAtAny, pointInBuildings, roofBelow } from './collision';
 import { PATH_KIND_ROAD, type RoadPaths } from './tileTypes';
-import { setupSky, setupLights, followSun, SKY } from './sky';
-import { quality } from './quality';
+import { setupSky, setupLights, followSun, makeOutdoorEnvironment, SKY } from './sky';
+import { pixelBudgetRatio, quality } from './quality';
 import { makeSkylineMaterial, makeFlatMaterial, makeWaterMaterial } from './materials';
 import { EntranceManager, disposeGroup } from './EntranceManager';
 import { PlaqueManager, type PlaqueInfo } from './PlaqueManager';
@@ -119,6 +120,7 @@ export class World {
   private camera: THREE.PerspectiveCamera;
   private streetScene = new THREE.Scene();
   private tiles: TileManager;
+  private streetLife: StreetLife;
   private entrances: EntranceManager;
   private plaques: PlaqueManager;
   private nearPlaque: PlaqueInfo | null = null; // building whose plaque is in reach (street mode)
@@ -158,6 +160,7 @@ export class World {
   private isMobile: boolean;
   private clock = new THREE.Clock();
   private raf = 0;
+  private frameTimes: number[] = [];
   private fpsAcc = 0;
   private fpsFrames = 0;
   private hudTimer = 0;
@@ -176,6 +179,8 @@ export class World {
   private lastRaf = 0;
   private tickInterval = 0;
   private envTex: THREE.Texture | null = null;
+  private indoorEnvironment: THREE.WebGLRenderTarget;
+  private outdoorEnvironment: THREE.WebGLRenderTarget;
   private baseLoadRadius = 1150;
   private currentStationSpec: StationSpec | null = null;
   private atEndSince = 0;
@@ -198,11 +203,12 @@ export class World {
     this.isMobile = /Android|iPhone|iPad|Mobile/i.test(navigator.userAgent) || navigator.maxTouchPoints > 1;
     const q = quality();
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
-    this.maxPixelRatio = Math.min(window.devicePixelRatio, q.pixelRatioCap);
+    this.maxPixelRatio = pixelBudgetRatio(window.innerWidth, window.innerHeight, window.devicePixelRatio, q.pixelRatioCap);
     this.dynPixelRatio = this.maxPixelRatio;
     this.renderer.setPixelRatio(this.dynPixelRatio);
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 1.08;
+    this.renderer.toneMappingExposure = 1.0;
+    this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     if (q.shadows) {
       this.renderer.shadowMap.enabled = true;
       this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
@@ -210,17 +216,25 @@ export class World {
 
     // env map so metallic materials (trains, rails, turnstiles) read as steel
     const pmrem = new THREE.PMREMGenerator(this.renderer);
-    this.envTex = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+    const room = new RoomEnvironment();
+    this.indoorEnvironment = pmrem.fromScene(room, 0.04);
+    this.envTex = this.indoorEnvironment.texture;
+    room.dispose();
+    this.outdoorEnvironment = makeOutdoorEnvironment(this.renderer);
+    this.streetScene.environment = this.outdoorEnvironment.texture;
+    this.streetScene.environmentIntensity = 0.65;
     pmrem.dispose();
 
-    const far = this.isMobile ? 4200 : 6500;
-    const loadRadius = this.isMobile ? 750 : 1150;
+    const far = q.shadows ? 6500 : 4200;
+    const loadRadius = q.shadows ? 1000 : 700;
     this.baseLoadRadius = loadRadius;
     this.camera = new THREE.PerspectiveCamera(70, 1, 0.1, far);
     this.skyDome = setupSky(this.streetScene, loadRadius, far);
     this.sun = setupLights(this.streetScene).sun;
 
     this.tiles = new TileManager(this.streetScene, this.isMobile ? 2 : 3, (g) => this.compileGroup(g));
+    this.streetLife = new StreetLife(this.streetScene);
+    void this.compileGroup(this.streetLife.group);
     this.tiles.loadRadius = loadRadius;
     this.tiles.unloadRadius = this.tiles.loadRadius + 300;
     this.entrances = new EntranceManager(
@@ -249,6 +263,7 @@ export class World {
     // managers re-place it next tick, and their eject callbacks now see the
     // landmark's collision, so the kit re-seats outside the walls
     this.landmarks.onBuilt = (_id, x0, z0, x1, z1) => {
+      this.streetLife.invalidate();
       const PAD = 6; // kits eject with their own clearance; a small pad catches edge-sitters
       this.entrances.evictWithin(x0 - PAD, z0 - PAD, x1 + PAD, z1 + PAD);
       this.bikes.evictWithin(x0 - PAD, z0 - PAD, x1 + PAD, z1 + PAD);
@@ -272,7 +287,7 @@ export class World {
     // injected so the system stays compile-independent of the mesh modules
     this.buses = new BusSystem(
       this.streetScene,
-      (o) => new BusModel(o, this.envTex),
+      (o) => new BusModel(o, this.outdoorEnvironment.texture),
       buildBusStop,
     );
     // pull each stop kit off the roadway onto the sidewalk once its tiles load
@@ -785,7 +800,9 @@ export class World {
   }
 
   private resize = () => {
-    const w = window.innerWidth, h = window.innerHeight;
+    const w = Math.max(1, window.innerWidth), h = Math.max(1, window.innerHeight);
+    this.maxPixelRatio = pixelBudgetRatio(w, h, window.devicePixelRatio, quality().pixelRatioCap);
+    this.dynPixelRatio = Math.min(this.dynPixelRatio, this.maxPixelRatio);
     this.renderer.setPixelRatio(this.dynPixelRatio); // keep the adaptive scale across resizes
     this.renderer.setSize(w, h, false);
     this.camera.aspect = w / h;
@@ -1526,7 +1543,8 @@ export class World {
     // self-heal: if we were constructed while the window reported zero size
     // (embedded panes, background tabs), pick up the real size on first frame
     if (this.renderer.domElement.width === 0 && window.innerWidth > 0) this.resize();
-    const dt = Math.min(0.05, this.clock.getDelta());
+    const rawDt = this.clock.getDelta();
+    const dt = Math.min(0.05, rawDt);
     const preX = this.pos.x, preZ = this.pos.z; // for the walk-bob's ground speed
     const input = this.controls.consumeInput();
     const { fwd, right } = this.controls.basis();
@@ -1631,7 +1649,6 @@ export class World {
       }
 
       if (this.sun) followSun(this.sun, this.pos.x, this.pos.z);
-      this.waterUpdate?.(dt);
       // tiles + plaques stream around the led point (their unload margins beat
       // the lead); kit managers (entrances/bikes) keep the true position — their
       // evict radii are small enough that leading would despawn kits still in
@@ -1778,8 +1795,7 @@ export class World {
         // keep the player anchored to the vehicle for tiles/minimap/save
         this.pos.set(h.pos.x, heightAt(h.pos.x, h.pos.z), h.pos.z);
         if (this.sun) followSun(this.sun, this.pos.x, this.pos.z);
-        this.waterUpdate?.(dt);
-        this.tiles.update(this.pos.x, this.pos.z);
+          this.tiles.update(this.pos.x, this.pos.z);
         this.entrances.update(this.pos.x, this.pos.z, dt);
         this.bikes.update(this.pos.x, this.pos.z, dt);
         this.tram.update(this.pos.x, this.pos.z, dt);
@@ -1944,10 +1960,26 @@ export class World {
     const scene = this.mode === 'ride' && this.ride ? this.ride.scene
       : this.mode === 'station' && this.station ? this.station.scene
       : this.streetScene;
+    if (scene === this.streetScene) {
+      this.waterUpdate?.(dt);
+      this.streetLife.update(dt, this.camera.position.x, this.camera.position.y, this.camera.position.z,
+        () => this.tiles.roadPathsNear(this.camera.position.x, this.camera.position.z, 1),
+        (x,z,clearance) => {
+          const ground = heightAt(x,z);
+          if (pointInBuildings(x,z,[...this.tiles.collisionNear(x,z), ...this.landmarks.collisionNear(x,z)],ground+1)) return false;
+          if (clearance === 0) return true;
+          const cleared = this.ejectFromRoads(x,z,clearance);
+          return cleared !== null && Math.hypot(cleared[0]-x,cleared[1]-z) < .05;
+        });
+    }
     this.renderer.render(scene, this.camera);
 
     // hud throttled
-    this.fpsAcc += dt; this.fpsFrames++;
+    this.fpsAcc += rawDt; this.fpsFrames++;
+    if (rawDt > 0 && !document.hidden) {
+      this.frameTimes.push(rawDt*1000);
+      if (this.frameTimes.length > 120) this.frameTimes.shift();
+    }
     this.hudTimer += dt;
     if (this.hudTimer > 0.5) {
       this.hudTimer = 0;
@@ -1956,6 +1988,14 @@ export class World {
       this.hud.tilesPending = stats.pending;
       this.hud.fps = Math.round(this.fpsFrames / Math.max(0.001, this.fpsAcc));
       this.hud.fly = this.controls.fly;
+      const frameTimes = [...this.frameTimes].sort((a,b)=>a-b);
+      this.renderer.domElement.dataset.renderStats = JSON.stringify({
+        fps: this.hud.fps, frameMsP95: frameTimes[Math.floor(frameTimes.length*.95)] ?? 0,
+        calls: this.renderer.info.render.calls, triangles: this.renderer.info.render.triangles,
+        geometries: this.renderer.info.memory.geometries, textures: this.renderer.info.memory.textures,
+        pixelRatio: this.dynPixelRatio, shadowMap: this.sun?.shadow.mapSize.x ?? 0,
+        shadows: this.sun?.castShadow ?? false, ...this.streetLife.stats(),
+      });
       this.adaptResolution();
       this.fpsAcc = 0; this.fpsFrames = 0;
       this.pushHud();
@@ -1965,29 +2005,32 @@ export class World {
 
   /**
    * Called once per HUD tick (0.5s) with the tick's frame stats still in
-   * fpsAcc/fpsFrames. Sustained > ~22ms frames drop the render scale a notch
-   * (floor 1.0); sustained fast frames for 3s step it back toward full. The
+   * fpsAcc/fpsFrames. Sustained > ~20ms frames drop the render scale a notch
+   * (device-dependent floor); sustained fast frames for 6s step it back toward full. The
    * thresholds straddle 60fps with wide hysteresis so it never oscillates,
    * and the loading fade is skipped so boot-time jank can't trigger a drop.
    */
   private adaptResolution() {
-    if (this.hud.loading || this.transitioning || this.fpsFrames < 8) return;
+    if (document.hidden || this.hud.loading || this.transitioning || this.fpsFrames < 8) return;
     const avgMs = (this.fpsAcc / this.fpsFrames) * 1000;
-    if (avgMs > 22 && this.dynPixelRatio > 1.0) {
-      this.dynPixelRatio = Math.max(1.0, this.dynPixelRatio - 0.25);
+    const minRatio = Math.min(this.maxPixelRatio, quality().minPixelRatio);
+    if (avgMs > 20 && this.dynPixelRatio > minRatio) {
+      this.dynPixelRatio = Math.max(minRatio, this.dynPixelRatio - 0.125);
       this.goodTicks = 0;
+      this.streetLife.setDensity(this.dynPixelRatio / this.maxPixelRatio);
       this.applyResolution();
-    } else if (avgMs > 30 && this.dynPixelRatio <= 1.0 && this.sun?.castShadow && this.sun.shadow.mapSize.x > 2048) {
+    } else if (avgMs > 30 && this.dynPixelRatio <= 1.0 && this.sun?.castShadow && this.sun.shadow.mapSize.x > 1024) {
       // last resort for GPUs that can't hold 1.0x either: halve the shadow map
       // once (shadows stay on — this is a persistent device-class signal, so it
       // never steps back up within the session)
-      this.sun.shadow.mapSize.set(2048, 2048);
+      this.sun.shadow.mapSize.set(1024, 1024);
       this.sun.shadow.map?.dispose();
       this.sun.shadow.map = null;
       this.goodTicks = 0;
-    } else if (avgMs < 12.5 && this.dynPixelRatio < this.maxPixelRatio) {
-      if (++this.goodTicks >= 6) {
-        this.dynPixelRatio = Math.min(this.maxPixelRatio, this.dynPixelRatio + 0.25);
+    } else if (avgMs < 17.5 && this.dynPixelRatio < this.maxPixelRatio) {
+      if (++this.goodTicks >= 12) {
+        this.dynPixelRatio = Math.min(this.maxPixelRatio, this.dynPixelRatio + 0.125);
+        this.streetLife.setDensity(this.dynPixelRatio / this.maxPixelRatio);
         this.goodTicks = 0;
         this.applyResolution();
       }
@@ -2193,6 +2236,9 @@ export class World {
     this.scheduler?.dispose();
     this.station?.dispose();
     this.ride?.dispose();
+    this.streetLife.dispose();
+    this.indoorEnvironment.dispose();
+    this.outdoorEnvironment.dispose();
     this.renderer.dispose();
   }
 }

@@ -182,7 +182,20 @@ export const builders: Record<string, (ctx: LandmarkCtx) => THREE.Group> = {
     // The crown seats on the MEASURED shaft shoulder (the pipeline clears
     // OSM's stacked crown parts and tells us where the kept massing ends),
     // so it can never float above or sink into the tower.
-    const base = ctx.fit?.keptH ?? 240; // shaft shoulder
+    const shoulder = ctx.fit?.keptH ?? 240;
+    const base = Math.max(shoulder, (ctx.fit?.roofH ?? 282) - 38);
+    // Retain the upper limestone setbacks between the OSM shoulder and the
+    // stainless crown, rather than stretching the crown over the entire gap.
+    if (base > shoulder) {
+      for (let tier=0;tier<3;tier++) {
+        const h=(base-shoulder)/3, w=22-tier*2.3, y=shoulder+tier*h;
+        g.add(box(w,h,w,LIMESTONE,0,y+h/2,0));
+        for (const side of [-1,1]) for (let x=-w/2+1.6;x<w/2;x+=2.6) {
+          g.add(box(1.1,h-.8,.12,DARKSTONE,x,y+h/2,side*(w/2+.03)));
+          g.add(box(.12,h-.8,1.1,DARKSTONE,side*(w/2+.03),y+h/2,x));
+        }
+      }
+    }
     const tipY = (ctx.fit?.roofH ?? base + 42) + 37; // real spire tops ~37m past the old roof
     const crownH = (ctx.fit?.roofH ?? base + 42) - base;
     const R = Math.max(10, Math.min(16, ((ctx.fit?.topW ?? 30) + (ctx.fit?.topD ?? 30)) / 4 + 4));
@@ -204,8 +217,14 @@ export const builders: Record<string, (ctx: LandmarkCtx) => THREE.Group> = {
         facePane.add(arch);
         for (const b of [0.45, 0.95, 1.57, 2.19, 2.69]) {
           const rr = r * 0.6;
-          const slot = box(0.5, r * 0.34, 0.5, DARKSTONE, rr * Math.cos(b), cy + rr * Math.sin(b), zPos + 0.2);
-          slot.rotation.z = b - Math.PI / 2; // radial triangular-window slot
+          const triangle = new THREE.Shape();
+          triangle.moveTo(-r * 0.055, 0);
+          triangle.lineTo(r * 0.055, 0);
+          triangle.lineTo(0, r * 0.3);
+          triangle.closePath();
+          const slot = new THREE.Mesh(new THREE.ExtrudeGeometry(triangle, { depth: 0.12, bevelEnabled: false }), DARKSTONE);
+          slot.position.set(rr * Math.cos(b), cy + rr * Math.sin(b), zPos + depth / 2 + 0.08);
+          slot.rotation.z = b - Math.PI / 2; // Chrysler's triangular sunburst windows
           facePane.add(slot);
         }
       }
@@ -217,7 +236,7 @@ export const builders: Record<string, (ctx: LandmarkCtx) => THREE.Group> = {
     g.add(ball);
     for (let k = 0; k < 4; k++) {
       const e = chryslerEagle();
-      e.position.set(0, base - 5, 0);
+      e.position.set(0, shoulder - 5, 0);
       e.rotation.y = Math.PI / 4 + (k * Math.PI) / 2; // diagonal corners
       g.add(e);
     }
